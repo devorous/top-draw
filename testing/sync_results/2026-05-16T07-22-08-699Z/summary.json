@@ -1,0 +1,77 @@
+{
+  "runId": "2026-05-16T07-22-08-699Z",
+  "url": "http://localhost:3000/go/",
+  "bots": 3,
+  "drawer": 0,
+  "propagationMs": 3500,
+  "passed": 1,
+  "total": 1,
+  "pixelTolerance": 16,
+  "passPct": 99.5,
+  "results": [
+    {
+      "kind": "special",
+      "tool": null,
+      "name": "eraser_over_strokes",
+      "pass": true,
+      "elapsed": 6115,
+      "totalsEqual": true,
+      "totals": [
+        5,
+        5,
+        5
+      ],
+      "baked": [
+        1,
+        1,
+        1
+      ],
+      "worstMatchPct": 99.95860751432816,
+      "worstMaxDelta": 255,
+      "diffs": [
+        {
+          "otherIdx": 1,
+          "matchPct": 99.95860751432816,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 188362,
+              "checked": 188440,
+              "matchPct": 99.95860751432816,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 160,
+                "y": 260,
+                "w": 673,
+                "h": 280
+              }
+            }
+          ]
+        },
+        {
+          "otherIdx": 2,
+          "matchPct": 99.95860751432816,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 188362,
+              "checked": 188440,
+              "matchPct": 99.95860751432816,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 160,
+                "y": 260,
+                "w": 673,
+                "h": 280
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

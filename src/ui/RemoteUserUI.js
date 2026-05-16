@@ -8,6 +8,7 @@ import { getPreviewTextLayout, getTextLineHeight } from '../utils/textLayout.js'
 const REMOTE_CURSOR_IDLE_MS = 5000;
 const GROUP_HEADER_REFRESH_MS = 5000;
 const NOTIFY_USER_ACTIVE_THROTTLE_MS = 500;
+const RECENT_ACTIVITY_HIGHLIGHT_MS = 30000;
 
 function renderRemotePreviewContent(element, text = '') {
   if (!element) return;
@@ -56,6 +57,7 @@ export class RemoteUserUI {
     this._recentActivity = new Map();
     this._groupUserIndex = new Map();
     this._lastNotifyActiveAt = new Map();
+    this._activeHighlightTimers = new Map();
 
     this._pendingCursorWrites = new Map(); // userId -> {x, y, size}
     this._cursorFlushScheduled = false;
@@ -89,6 +91,28 @@ export class RemoteUserUI {
 
   _markUserRecentActivity(userId, timestamp = Date.now()) {
     this._recentActivity.set(String(userId), timestamp);
+  }
+
+  _refreshRecentActivityHighlight(userId) {
+    const key = String(userId);
+    const entry = document.querySelector(`.userEntry.u${userId}`);
+    if (entry) entry.classList.add('recently-active');
+
+    const groupInfo = this._getGroupForUser(userId);
+    if (groupInfo) groupInfo.group.element.classList.add('recently-active');
+
+    const existing = this._activeHighlightTimers.get(key);
+    if (existing) clearTimeout(existing);
+    this._activeHighlightTimers.set(key, setTimeout(() => {
+      this._activeHighlightTimers.delete(key);
+      document.querySelector(`.userEntry.u${userId}`)?.classList.remove('recently-active');
+      const info = this._getGroupForUser(userId);
+      if (info) {
+        // Only drop the group highlight if no other member is still active.
+        const anyActive = Array.from(info.group.userIds).some((id) => this._activeHighlightTimers.has(String(id)));
+        if (!anyActive) info.group.element.classList.remove('recently-active');
+      }
+    }, RECENT_ACTIVITY_HIGHLIGHT_MS));
   }
 
   _setEntrySortMetadata(element, {
@@ -586,15 +610,21 @@ export class RemoteUserUI {
       }
     };
 
-    const toolEl = document.createElement('a');
-    toolEl.className = 'listTool groupHeaderTool';
-    const iconEl = this._iconToElement(this._getUserListIcon(displayUserData.tool, displayUserData.afk));
-    if (iconEl) toolEl.appendChild(iconEl);
+    const colorToolWrap = document.createElement('div');
+    colorToolWrap.className = 'listColorTool groupHeaderColorTool';
 
     const colorEl = document.createElement('a');
     colorEl.className = 'listColor groupHeaderColor';
     const color = Array.isArray(displayUserData.color) ? displayUserData.color : [0, 0, 0, 1];
     colorEl.style.backgroundColor = `rgba(${color.join(',')})`;
+
+    const toolEl = document.createElement('a');
+    toolEl.className = 'listTool groupHeaderTool';
+    const iconEl = this._iconToElement(this._getUserListIcon(displayUserData.tool, displayUserData.afk));
+    if (iconEl) toolEl.appendChild(iconEl);
+
+    colorToolWrap.appendChild(colorEl);
+    colorToolWrap.appendChild(toolEl);
 
     const nameEl = document.createElement('span');
     nameEl.className = 'listUser groupHeaderName';
@@ -607,8 +637,7 @@ export class RemoteUserUI {
     countBadge.className = 'groupCountBadge';
     countBadge.textContent = '+1';
 
-    groupHeader.appendChild(toolEl);
-    groupHeader.appendChild(colorEl);
+    groupHeader.appendChild(colorToolWrap);
     groupHeader.appendChild(discordBadge);
     groupHeader.appendChild(nameEl);
     groupHeader.appendChild(countBadge);
@@ -741,6 +770,7 @@ export class RemoteUserUI {
   notifyUserActive(userId) {
     const activityAt = Date.now();
     this._markUserRecentActivity(userId, activityAt);
+    this._refreshRecentActivityHighlight(userId);
 
     // Throttle the DOM/sort work — this is called for every remote pointer
     // sample and catchup tick (hundreds/sec per user). Sort precision of
@@ -1147,6 +1177,11 @@ export class RemoteUserUI {
     this._joinTimestamps.delete(String(userId));
     this._recentActivity.delete(String(userId));
     this._lastNotifyActiveAt.delete(String(userId));
+    const highlightTimer = this._activeHighlightTimers.get(String(userId));
+    if (highlightTimer) {
+      clearTimeout(highlightTimer);
+      this._activeHighlightTimers.delete(String(userId));
+    }
     this.removeRemoteUserFromGroup(userId);
     this._applyUserListSort();
   }

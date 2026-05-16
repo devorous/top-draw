@@ -1259,13 +1259,12 @@ menuBtn: document.getElementById('menuBtn'),
 
       case 'brush':
       case 'flowPen':
-      case 'flowPenOld':
         this.applyLocalCursorStyle(tool, user);
         brushHardness.style.display = 'block';
         if (brushModeOptions) brushModeOptions.style.display = 'block';
         if (cursorStyleContainer) cursorStyleContainer.style.display = 'block';
         appState.toolPreviewVisible = true;
-        appState.toolPreviewMode = tool === 'flowPenOld' ? 'flowPen' : tool;
+        appState.toolPreviewMode = tool;
         window.app?.toolManager?.getTool(appState.toolPreviewMode)?.updatePreview?.(user);
         break;
 

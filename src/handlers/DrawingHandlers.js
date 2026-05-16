@@ -60,7 +60,7 @@ export function setupDrawingHandlers(wrapHandler, app) {
   wrapHandler('mu', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
-      remoteUserHandler.handleMouseUp(user);
+      remoteUserHandler.handleMouseUp(user, data.seq || 0);
     }
   });
 
@@ -73,7 +73,7 @@ export function setupDrawingHandlers(wrapHandler, app) {
       }
       if (user.mousedown && !user._penStrokeActive && !user._inkStrokeActive) {
         if (user.tool === 'brush') {
-          remoteUserHandler.commitLine(user, data.pressure, user.size);
+          remoteUserHandler.commitLine(user, data.pressure, user.size, data.seq || 0);
         }
       }
       user.setPressure(data.pressure);
@@ -86,7 +86,7 @@ export function setupDrawingHandlers(wrapHandler, app) {
     if (user) {
       if (user.mousedown && !user._penStrokeActive && !user._inkStrokeActive) {
         if (user.tool === 'brush') {
-          remoteUserHandler.commitLine(user, user.pressure, data.size);
+          remoteUserHandler.commitLine(user, user.pressure, data.size, data.seq || 0);
         }
       }
       user.setSize(data.size);
@@ -377,6 +377,8 @@ export function setupDrawingHandlers(wrapHandler, app) {
   wrapHandler('undo', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
+      if (user.id === app.sessionIndex) return;
+
       if (user.tool === 'glitchBlur') {
         if (user.mousedown || board.layerManager?.layerGroups?.some(group => group?.activeStrokeByUser?.has(user.id))) {
           remoteUserHandler.handleCancel(user);
@@ -492,7 +494,7 @@ export function setupDrawingHandlers(wrapHandler, app) {
     }
 
     board.releaseSelectionMaskClipForStroke(layerIndex, userId);
-    board.layerManager.commitUserStroke(layerIndex, userId);
+    board.layerManager.commitUserStroke(layerIndex, userId, { seq: data.seq || 0 });
     board.compositeAllLayers();
   });
 }

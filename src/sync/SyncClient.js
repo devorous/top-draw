@@ -630,6 +630,7 @@ export class SyncClient {
               blendMode: stroke.blendMode,
               blendBakeMode: stroke.blendBakeMode || 'existing',
               timestamp: stroke.timestamp,
+              seq: stroke.seq || 0,
               eraseAll: stroke.eraseAll || false,
               isRedo: false,
               redoBatch: 0,
@@ -718,6 +719,7 @@ export class SyncClient {
               blendMode: record.blendMode,
               blendBakeMode: record.blendBakeMode || 'existing',
               timestamp: record.timestamp,
+              seq: record.seq || 0,
               eraseAll: record.eraseAll || false,
               isRedo: true,
               redoBatch: batchIdx,
@@ -928,6 +930,7 @@ export class SyncClient {
             blendBakeMode: data.blendBakeMode || 'existing',
             userId: data.userId,
             timestamp: data.timestamp,
+            seq: data.seq || 0,
             affectedTiles: data.affectedTiles || []
           };
           if (data.eraseAll) record.eraseAll = true;

@@ -87,15 +87,18 @@ export class Moderation {
   }
 
   canUseMenuAction(action, targetUser, isGroup = false) {
+    // For per-user actions (not group), enforce strict rank: actor must outrank target.
+    const targetRole = !isGroup && targetUser ? (targetUser.role || 0) : -1;
+    const outranks = isGroup || this.localRole > targetRole;
     switch (action) {
       case 'mute':
-        return this.canMute();
+        return this.canMute() && outranks;
       case 'kick':
       case 'ban':
       case 'wipe':
-        return this.canKickBanOrWipe();
+        return this.canKickBanOrWipe() && outranks;
       case 'shadowban':
-        return !isGroup && this.isHolyOrDeity();
+        return !isGroup && this.isHolyOrDeity() && outranks;
       case 'promoteNoble':
       case 'promoteHoly':
       case 'demoteGlobal':

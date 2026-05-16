@@ -26,8 +26,11 @@ export function setupWebSocketHandlers(app) {
   function wrapHandler(eventName, handler) {
     handlerMap.set(eventName, handler);
     wsClient.on(eventName, (data) => {
-      // Ignore messages from self to prevent double-processing/echo issues
-      if (data && data.sessionIndex === app.sessionIndex) {
+      // Ignore messages from self to prevent double-processing/echo issues.
+      // EXCEPTION: 'mu' and 'undo' are allowed through to facilitate server-side 
+      // sequence number reconciliation and global ordering.
+      const allowSelf = eventName === 'mu' || eventName === 'undo';
+      if (data && data.sessionIndex === app.sessionIndex && !allowSelf) {
         return;
       }
 

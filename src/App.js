@@ -427,7 +427,7 @@ export class DrawingApp {
   }
 
   updateActiveToolPreview() {
-    const toolName = this.self?.tool === 'flowPenOld' ? 'flowPen' : this.self?.tool;
+    const toolName = this.self?.tool;
     if (!['brush', 'flowPen', 'ink', 'pixel', 'imageBrush', 'confetti'].includes(toolName)) return;
     this.toolManager.getTool(toolName)?.updatePreview?.(this.self);
   }
@@ -588,7 +588,9 @@ export class DrawingApp {
 
     // Wire up WebSocket callbacks now that this.self exists
     this.wsClient.onConnect = (sessionIndex) => this.handleWSConnect(sessionIndex);
+    this.wsClient.onConnectResumed = (sessionIndex) => this.handleWSConnectResumed(sessionIndex);
     this.wsClient.onDisconnect = (code, reason) => this.handleWSDisconnect(code, reason);
+    this.wsClient.onConnectionInterrupted = (code, reason) => this.handleWSInterrupted(code, reason);
     updateStartupStatus('Preparing board...');
     this.board.setUseDesynchronizedBoardContexts(this.appPreferences?.general?.useDesynchronizedBoardContexts);
     this.board.init('#boardContainer');
@@ -3496,6 +3498,56 @@ export class DrawingApp {
   }
 
   /**
+   * Handles a successful same-session resume after a brief disconnect. Skips
+   * the full re-sync and broadcast-of-all-tool-state that handleJoinAfterConnect
+   * runs, because the server held the user's sessionIndex and peers never saw
+   * them leave. The canvas, role, and tool config are still valid locally.
+   * @param {number} sessionIndex - Same sessionIndex as before the drop.
+   */
+  handleWSConnectResumed(sessionIndex) {
+    if (this.isOfflineMode) return;
+    if (sessionIndex !== this.sessionIndex) {
+      console.warn(`[App] CONNECT_RESUMED sessionIndex mismatch (was ${this.sessionIndex}, got ${sessionIndex}); falling back to fresh connect`);
+      this.handleWSConnect(sessionIndex);
+      return;
+    }
+    console.log(`[App] Resumed sessionIndex=${sessionIndex} without re-sync`);
+    this.connected = true;
+    appState.connected = true;
+    this.ui.showConnectionStatus('connected', this.currentRoomId);
+    this.ui.hideDisconnectionBanner();
+
+    // Tear down any local in-progress stroke so we match the implicit CANCEL
+    // the server just broadcast on our behalf — peers dropped their preview
+    // of our half-stroke, so keeping it locally would diverge.
+    this._resetLocalTransientState();
+    this.board.requestUpdate();
+  }
+
+  /**
+   * Handles a transient WebSocket interruption while the client is silently
+   * attempting to reconnect. Flashes the connection-status pill but holds back
+   * the loud disconnection banner so brief wifi/proxy blips don't disrupt the
+   * user. If the stealth retry window expires, handleWSDisconnect runs instead.
+   * @param {number} code
+   * @param {string} reason
+   */
+  handleWSInterrupted(code, reason) {
+    if (this.intentionalDisconnect) return;
+    if (this.isOfflineMode) return;
+
+    const onLandingPage = this.landingPage
+      && this.landingPage.els.landingPage
+      && this.landingPage.els.landingPage.style.display !== 'none';
+
+    if (onLandingPage) {
+      this.landingPage.updateConnectionStatus('connecting');
+    } else {
+      this.ui.showConnectionStatus('connecting', this.currentRoomId);
+    }
+  }
+
+  /**
    * Handles WebSocket disconnection.
    * @param {number} code - Disconnection code.
    * @param {string} reason - Disconnection reason.
@@ -3508,6 +3560,15 @@ export class DrawingApp {
     this.stopCheckpointInterval();
     TimeMachine.stop();
     this.updateRecordingButtonState();
+
+    // Hide remote cursors so they don't sit frozen on the canvas, piled up
+    // wherever each user happened to be when the socket dropped. They'll
+    // reappear on the next cursor activity once we reconnect.
+    this.ui?.remoteUserUI?.cursors?.forEach?.((_, userId) => {
+      if (Number(userId) !== Number(this.sessionIndex)) {
+        this.ui.hideRemoteCursor(userId);
+      }
+    });
 
     // Don't show disconnection UI if disconnect was intentional
     if (this.intentionalDisconnect) {

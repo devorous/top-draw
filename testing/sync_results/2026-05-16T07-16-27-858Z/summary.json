@@ -1,0 +1,205 @@
+{
+  "runId": "2026-05-16T07-16-27-858Z",
+  "url": "http://localhost:3000/go/",
+  "bots": 3,
+  "drawer": 0,
+  "propagationMs": 3500,
+  "passed": 1,
+  "total": 3,
+  "pixelTolerance": 16,
+  "passPct": 99.5,
+  "results": [
+    {
+      "kind": "special",
+      "tool": null,
+      "name": "eraser_over_strokes",
+      "pass": false,
+      "elapsed": 6097,
+      "totalsEqual": true,
+      "totals": [
+        5,
+        5,
+        5
+      ],
+      "baked": [
+        1,
+        1,
+        1
+      ],
+      "worstMatchPct": 92.14922521757588,
+      "worstMaxDelta": 255,
+      "diffs": [
+        {
+          "otherIdx": 1,
+          "matchPct": 92.14922521757588,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": false,
+              "matched": 173646,
+              "checked": 188440,
+              "matchPct": 92.14922521757588,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 160,
+                "y": 260,
+                "w": 673,
+                "h": 280
+              }
+            }
+          ]
+        },
+        {
+          "otherIdx": 2,
+          "matchPct": 92.14922521757588,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": false,
+              "matched": 173646,
+              "checked": 188440,
+              "matchPct": 92.14922521757588,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 160,
+                "y": 260,
+                "w": 673,
+                "h": 280
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "special",
+      "tool": null,
+      "name": "image_brush_set",
+      "pass": true,
+      "elapsed": 5980,
+      "totalsEqual": true,
+      "totals": [
+        5,
+        5,
+        5
+      ],
+      "baked": [
+        1,
+        1,
+        1
+      ],
+      "worstMatchPct": 100,
+      "worstMaxDelta": 0,
+      "diffs": [
+        {
+          "otherIdx": 1,
+          "matchPct": 100,
+          "maxDelta": 0,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 817152,
+              "checked": 817152,
+              "matchPct": 100,
+              "maxDelta": 0,
+              "bbox": {
+                "x": 235,
+                "y": 151,
+                "w": 1344,
+                "h": 608
+              }
+            }
+          ]
+        },
+        {
+          "otherIdx": 2,
+          "matchPct": 100,
+          "maxDelta": 0,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 817152,
+              "checked": 817152,
+              "matchPct": 100,
+              "maxDelta": 0,
+              "bbox": {
+                "x": 235,
+                "y": 151,
+                "w": 1344,
+                "h": 608
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "flood",
+      "tool": null,
+      "name": "flood_concurrent_blend_modes",
+      "pass": false,
+      "elapsed": 12973,
+      "totalsEqual": true,
+      "totals": [
+        60,
+        60,
+        60
+      ],
+      "baked": [
+        1,
+        1,
+        1
+      ],
+      "worstMatchPct": 99.36970235083989,
+      "worstMaxDelta": 240,
+      "diffs": [
+        {
+          "otherIdx": 1,
+          "matchPct": 99.99989675714183,
+          "maxDelta": 240,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 968589,
+              "checked": 968590,
+              "matchPct": 99.99989675714183,
+              "maxDelta": 240,
+              "bbox": {
+                "x": 170,
+                "y": 70,
+                "w": 959,
+                "h": 1010
+              }
+            }
+          ]
+        },
+        {
+          "otherIdx": 2,
+          "matchPct": 99.36970235083989,
+          "maxDelta": 220,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": false,
+              "matched": 962485,
+              "checked": 968590,
+              "matchPct": 99.36970235083989,
+              "maxDelta": 220,
+              "bbox": {
+                "x": 170,
+                "y": 70,
+                "w": 959,
+                "h": 1010
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

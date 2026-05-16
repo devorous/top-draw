@@ -1,0 +1,12 @@
+bot_0:
+  self:    {"n":"bot_0","t":"brush","sz":30,"hd":100,"op":0.8,"sp":0,"sm":30,"col":[111,35,77,0.8],"bm":"multiply"}
+  remote:  {"n":"bot_1","t":"brush","sz":30,"hd":100,"op":0.8,"sp":0,"sm":50,"col":[197,55,237,0.8],"bm":"multiply"}
+  remote:  {"n":"bot_2","t":"brush","sz":30,"hd":100,"op":0.8,"sp":0,"sm":50,"col":[187,155,77,0.8],"bm":"multiply"}
+bot_1:
+  self:    {"n":"bot_1","t":"brush","sz":30,"hd":100,"op":0.8,"sp":0,"sm":50,"col":[197,55,237,0.8],"bm":"multiply"}
+  remote:  {"n":"bot_0","t":"brush","sz":30,"hd":100,"op":0.8,"sp":0,"sm":30,"col":[111,35,77,0.8],"bm":"multiply"}
+  remote:  {"n":"bot_2","t":"brush","sz":30,"hd":100,"op":0.8,"sp":0,"sm":50,"col":[187,155,77,0.8],"bm":"multiply"}
+bot_2:
+  self:    {"n":"bot_2","t":"brush","sz":30,"hd":100,"op":0.8,"sp":0,"sm":50,"col":[187,155,77,0.8],"bm":"multiply"}
+  remote:  {"n":"bot_0","t":"brush","sz":30,"hd":100,"op":0.8,"sp":0,"sm":30,"col":[111,35,77,0.8],"bm":"multiply"}
+  remote:  {"n":"bot_1","t":"brush","sz":30,"hd":100,"op":0.8,"sp":0,"sm":50,"col":[197,55,237,0.8],"bm":"multiply"}

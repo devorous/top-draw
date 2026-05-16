@@ -1,0 +1,333 @@
+{
+  "runId": "2026-05-16T05-54-08-457Z",
+  "url": "http://localhost:3000/go/",
+  "bots": 3,
+  "drawer": 0,
+  "propagationMs": 3500,
+  "passed": 0,
+  "total": 5,
+  "pixelTolerance": 4,
+  "passPct": 99.5,
+  "results": [
+    {
+      "kind": "tool",
+      "tool": "confetti",
+      "name": "confetti_step_1",
+      "pass": false,
+      "elapsed": 5099,
+      "totalsEqual": true,
+      "totals": [
+        1,
+        1,
+        1
+      ],
+      "baked": [
+        1,
+        1,
+        1
+      ],
+      "worstMatchPct": 98.85911923189302,
+      "worstMaxDelta": 255,
+      "diffs": [
+        {
+          "otherIdx": 1,
+          "matchPct": 98.85911923189302,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": false,
+              "matched": 145488,
+              "checked": 147167,
+              "matchPct": 98.85911923189302,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 1023,
+                "y": 264,
+                "w": 367,
+                "h": 401
+              }
+            }
+          ]
+        },
+        {
+          "otherIdx": 2,
+          "matchPct": 98.85911923189302,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": false,
+              "matched": 145488,
+              "checked": 147167,
+              "matchPct": 98.85911923189302,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 1023,
+                "y": 264,
+                "w": 367,
+                "h": 401
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "tool",
+      "tool": "confetti",
+      "name": "confetti_step_2",
+      "pass": false,
+      "elapsed": 5071,
+      "totalsEqual": true,
+      "totals": [
+        1,
+        1,
+        1
+      ],
+      "baked": [
+        1,
+        1,
+        1
+      ],
+      "worstMatchPct": 96.71778620338407,
+      "worstMaxDelta": 255,
+      "diffs": [
+        {
+          "otherIdx": 1,
+          "matchPct": 96.71778620338407,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": false,
+              "matched": 136728,
+              "checked": 141368,
+              "matchPct": 96.71778620338407,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 508,
+                "y": 375,
+                "w": 431,
+                "h": 328
+              }
+            }
+          ]
+        },
+        {
+          "otherIdx": 2,
+          "matchPct": 96.71778620338407,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": false,
+              "matched": 136728,
+              "checked": 141368,
+              "matchPct": 96.71778620338407,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 508,
+                "y": 375,
+                "w": 431,
+                "h": 328
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "tool",
+      "tool": "confetti",
+      "name": "confetti_step_3",
+      "pass": false,
+      "elapsed": 4997,
+      "totalsEqual": true,
+      "totals": [
+        1,
+        1,
+        1
+      ],
+      "baked": [
+        1,
+        1,
+        1
+      ],
+      "worstMatchPct": 97.42022149459238,
+      "worstMaxDelta": 255,
+      "diffs": [
+        {
+          "otherIdx": 1,
+          "matchPct": 97.42022149459238,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": false,
+              "matched": 127639,
+              "checked": 131019,
+              "matchPct": 97.42022149459238,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 526,
+                "y": 582,
+                "w": 357,
+                "h": 367
+              }
+            }
+          ]
+        },
+        {
+          "otherIdx": 2,
+          "matchPct": 97.42022149459238,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": false,
+              "matched": 127639,
+              "checked": 131019,
+              "matchPct": 97.42022149459238,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 526,
+                "y": 582,
+                "w": 357,
+                "h": 367
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "tool",
+      "tool": "confetti",
+      "name": "confetti_step_4",
+      "pass": false,
+      "elapsed": 5172,
+      "totalsEqual": true,
+      "totals": [
+        1,
+        1,
+        1
+      ],
+      "baked": [
+        1,
+        1,
+        1
+      ],
+      "worstMatchPct": 98.73537011703907,
+      "worstMaxDelta": 255,
+      "diffs": [
+        {
+          "otherIdx": 1,
+          "matchPct": 98.73537011703907,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": false,
+              "matched": 129916,
+              "checked": 131580,
+              "matchPct": 98.73537011703907,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 1156,
+                "y": 169,
+                "w": 340,
+                "h": 387
+              }
+            }
+          ]
+        },
+        {
+          "otherIdx": 2,
+          "matchPct": 98.73537011703907,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": false,
+              "matched": 129916,
+              "checked": 131580,
+              "matchPct": 98.73537011703907,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 1156,
+                "y": 169,
+                "w": 340,
+                "h": 387
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "tool",
+      "tool": "confetti",
+      "name": "confetti_step_5",
+      "pass": false,
+      "elapsed": 5153,
+      "totalsEqual": true,
+      "totals": [
+        1,
+        1,
+        1
+      ],
+      "baked": [
+        1,
+        1,
+        1
+      ],
+      "worstMatchPct": 98.14072162551727,
+      "worstMaxDelta": 255,
+      "diffs": [
+        {
+          "otherIdx": 1,
+          "matchPct": 98.14072162551727,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": false,
+              "matched": 168857,
+              "checked": 172056,
+              "matchPct": 98.14072162551727,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 1456,
+                "y": 315,
+                "w": 402,
+                "h": 428
+              }
+            }
+          ]
+        },
+        {
+          "otherIdx": 2,
+          "matchPct": 98.14072162551727,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": false,
+              "matched": 168857,
+              "checked": 172056,
+              "matchPct": 98.14072162551727,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 1456,
+                "y": 315,
+                "w": 402,
+                "h": 428
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

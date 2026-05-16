@@ -538,13 +538,21 @@ export async function handleSnapshotJoinNotify(ws, room) {
     return;
   }
 
-  // Only offer loading a server snapshot when the joiner is alone in the room.
-  // If other users are present, the client should sync from a live provider instead.
-  if (typeof room.getClientCount === 'function' && room.getClientCount() !== 1) {
-    console.log(`[Snapshot] Skipping join notify: room.getClientCount() = ${room.getClientCount()} (expected 1)`);
+  // Offer the server snapshot when either:
+  //   1. the joiner is alone in the room (the original solo-joiner case), or
+  //   2. the room recently became empty and we're inside the rejoin window,
+  //      so the first few joiners after an unattended period all get the
+  //      prompt even if their connects landed back-to-back. Live providers
+  //      take over once everyone has resynced from a known good state.
+  const SNAPSHOT_REJOIN_OFFER_WINDOW_MS = 5 * 60_000;
+  const clientCount = typeof room.getClientCount === 'function' ? room.getClientCount() : 1;
+  const recentlyEmpty = room.becameEmptyAt
+    && (Date.now() - room.becameEmptyAt) < SNAPSHOT_REJOIN_OFFER_WINDOW_MS;
+  if (clientCount !== 1 && !recentlyEmpty) {
+    console.log(`[Snapshot] Skipping join notify: room.getClientCount() = ${clientCount}, becameEmptyAt = ${room.becameEmptyAt || 'unset'}`);
     return;
   }
-  console.log(`[Snapshot] Sending join notify: room.getClientCount() = ${room.getClientCount()}`);
+  console.log(`[Snapshot] Sending join notify: clientCount = ${clientCount}, recentlyEmpty = ${!!recentlyEmpty}`);
 
   // Prefer in-memory snapshots that have both a thumb AND layers (auto-saves).
   for (let i = room.snapshots.length - 1; i >= 0; i--) {

@@ -366,6 +366,7 @@ export class LayerManager {
     const prev = group.userStrokeCounts.get(userId) || 0;
     group.userStrokeCounts.set(userId, prev + 1);
 
+    this._sortStrokeStack(group);
     this._bakeOverflowStrokes(group);
     this._clearRedoStack(userId);
     this.needsComposite = true;
@@ -593,15 +594,52 @@ export class LayerManager {
     const group = this.layerGroups[groupIdx];
     if (!group) return;
 
-    let insertIdx = group.strokeStack.findIndex(s => s.timestamp > record.timestamp);
-    if (insertIdx === -1) insertIdx = group.strokeStack.length;
-
-    group.strokeStack.splice(insertIdx, 0, record);
+    group.strokeStack.push(record);
 
     const prev = group.userStrokeCounts.get(record.userId) || 0;
     group.userStrokeCounts.set(record.userId, prev + 1);
+
+    this._sortStrokeStack(group);
     this.needsComposite = true;
-  }
+    }
+    /**
+    * Update an optimistic local stroke with its authoritative server-assigned sequence number.
+    * @param {number} groupIdx - Layer index
+    * @param {number} userId - User ID
+    * @param {number} seq - Authoritative sequence number
+    */
+    reconcileLocalStroke(groupIdx, userId, seq) {
+    const group = this.layerGroups[groupIdx];
+    if (!group) return;
+
+    // Find the latest stroke from this user that doesn't have a real sequence number yet.
+    for (let i = group.strokeStack.length - 1; i >= 0; i--) {
+      const s = group.strokeStack[i];
+      if (s.userId === userId && (!s.seq || s.seq === 0)) {
+        s.seq = seq;
+        this._sortStrokeStack(group);
+        this._bakeOverflowStrokes(group);
+        this.needsComposite = true;
+        break;
+      }
+    }
+    }
+
+    /**
+    * Sort the unbaked stroke stack based on global sequence number,
+    * falling back to local timestamp for optimistic strokes (seq=0).
+    * @param {Object} group - Layer group
+    * @private
+    */
+    _sortStrokeStack(group) {
+    group.strokeStack.sort((a, b) => {
+      // seq=0 or undefined means optimistic local stroke (not yet confirmed by server)
+      const sa = a.seq || Number.MAX_SAFE_INTEGER;
+      const sb = b.seq || Number.MAX_SAFE_INTEGER;
+      if (sa !== sb) return sa - sb;
+      return a.timestamp - b.timestamp;
+    });
+    }
 
   /**
    * Insert a stroke record into a specific redo batch for a user
@@ -624,38 +662,64 @@ export class LayerManager {
    */
   undoLastStrokeGlobal(userId) {
     let latestTimestamp = -1;
+    let latestSeq = -1;
+
+    // Find the latest stroke for this user.
+    // Authoritative strokes (seq > 0) are always earlier than optimistic ones (seq = 0).
+    const isLater = (s, t, ls, lt) => {
+      if (s === 0 && ls > 0) return true; // Optimistic is later than authoritative
+      if (s > 0 && ls === 0) return false;
+      if (s !== ls) return s > ls; // Both same type, compare seq
+      return t > lt; // Same seq (likely both 0), compare timestamp
+    };
+
     for (const group of this.layerGroups) {
       for (const stroke of group.strokeStack) {
-        if (stroke.userId === userId && stroke.timestamp > latestTimestamp) {
-          latestTimestamp = stroke.timestamp;
+        if (stroke.userId === userId) {
+          const s = stroke.seq || 0;
+          const t = stroke.timestamp || 0;
+          if (latestSeq === -1 || isLater(s, t, latestSeq, latestTimestamp)) {
+            latestSeq = s;
+            latestTimestamp = t;
+          }
         }
       }
       for (const stroke of group.flatStrokeRecords || []) {
-        if (stroke.userId === userId && stroke.timestamp > latestTimestamp) {
-          latestTimestamp = stroke.timestamp;
+        if (stroke.userId === userId) {
+          const s = stroke.seq || 0;
+          const t = stroke.timestamp || 0;
+          if (latestSeq === -1 || isLater(s, t, latestSeq, latestTimestamp)) {
+            latestSeq = s;
+            latestTimestamp = t;
+          }
         }
       }
       for (const seq of group.bakedSequences) {
         if (!Array.isArray(seq?.strokes)) continue;
         for (const stroke of seq.strokes) {
-          if (stroke.userId === userId && stroke.timestamp > latestTimestamp) {
-            latestTimestamp = stroke.timestamp;
+          if (stroke.userId === userId) {
+            const s = stroke.seq || 0;
+            const t = stroke.timestamp || 0;
+            if (latestSeq === -1 || isLater(s, t, latestSeq, latestTimestamp)) {
+              latestSeq = s;
+              latestTimestamp = t;
+            }
           }
         }
       }
     }
-    if (latestTimestamp === -1) return null;
+    if (latestSeq === -1) return null;
 
     let isEraseAll = false;
     outer: for (const group of this.layerGroups) {
       for (const s of group.strokeStack) {
-        if (s.userId === userId && s.timestamp === latestTimestamp) {
+        if (s.userId === userId && (s.seq || 0) === latestSeq && (s.timestamp || 0) === latestTimestamp) {
           isEraseAll = s.eraseAll === true;
           break outer;
         }
       }
       for (const s of group.flatStrokeRecords || []) {
-        if (s.userId === userId && s.timestamp === latestTimestamp) {
+        if (s.userId === userId && (s.seq || 0) === latestSeq && (s.timestamp || 0) === latestTimestamp) {
           isEraseAll = s.eraseAll === true;
           break outer;
         }
@@ -663,7 +727,7 @@ export class LayerManager {
       for (const seq of group.bakedSequences) {
         if (!Array.isArray(seq?.strokes)) continue;
         for (const s of seq.strokes) {
-          if (s.userId === userId && s.timestamp === latestTimestamp) {
+          if (s.userId === userId && (s.seq || 0) === latestSeq && (s.timestamp || 0) === latestTimestamp) {
             isEraseAll = s.eraseAll === true;
             break outer;
           }
@@ -672,12 +736,18 @@ export class LayerManager {
     }
 
     const undoneStrokes = [];
-    const matchesTarget = (stroke) => (
-      !!stroke &&
-      stroke.userId === userId &&
-      stroke.timestamp === latestTimestamp &&
-      (!isEraseAll || stroke.eraseAll === true)
-    );
+    const matchesTarget = (stroke) => {
+      if (!stroke || stroke.userId !== userId) return false;
+      if (isEraseAll && stroke.eraseAll !== true) return false;
+      
+      // If we have an authoritative seq, it's a unique identifier.
+      if (latestSeq > 0) {
+        return stroke.seq === latestSeq;
+      }
+      
+      // Fallback to timestamp for optimistic strokes.
+      return (stroke.seq || 0) === 0 && stroke.timestamp === latestTimestamp;
+    };
 
     const removeFromCollection = (collection, groupIdx, group) => {
       if (!Array.isArray(collection) || collection.length === 0) return false;
@@ -753,6 +823,7 @@ export class LayerManager {
       group.strokeStack.splice(insertIdx, 0, record);
       const cnt = group.userStrokeCounts.get(userId) || 0;
       group.userStrokeCounts.set(userId, cnt + 1);
+      this._sortStrokeStack(group);
       this._bakeOverflowStrokes(group);
     }
 

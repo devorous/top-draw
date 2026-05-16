@@ -61,10 +61,29 @@
   background: var(--bg-tertiary);
   border-radius: var(--radius-sm);
   font-size: 13px;
+  transition: background-color 0.4s ease, box-shadow 0.4s ease;
 
   &.muted {
     border: 1px dashed rgba(239, 68, 68, 0.45);
     background: rgba(127, 29, 29, 0.18);
+  }
+
+  &.recently-active {
+    background: color-mix(in srgb, var(--accent-primary, #4ade80), var(--bg-tertiary) 82%);
+    box-shadow: inset 2px 0 0 color-mix(in srgb, var(--accent-primary, #4ade80), transparent 25%);
+
+    .listUser {
+      color: rgba(255, 255, 255, 0.85);
+    }
+  }
+}
+
+.userGroup.recently-active > .groupHeader {
+  background: color-mix(in srgb, var(--accent-primary, #4ade80), var(--bg-tertiary) 82%);
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--accent-primary, #4ade80), transparent 25%);
+
+  .listUser {
+    color: rgba(255, 255, 255, 0.85);
   }
 }
 

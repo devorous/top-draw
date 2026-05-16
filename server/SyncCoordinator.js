@@ -338,6 +338,7 @@ export class SyncCoordinator {
         bm: data.bm,
         bbm: data.bbm,
         strokeTs: data.strokeTs ?? data.stroke_ts ?? 0,
+        seq: data.seq ?? 0,
         a: data.a,
         strokeRedo: data.strokeRedo ?? data.stroke_redo ?? false,
         strokeRedoBatch: data.strokeRedoBatch ?? data.stroke_redo_batch ?? 0,

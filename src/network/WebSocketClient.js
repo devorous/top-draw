@@ -98,7 +98,13 @@ export class WebSocketClient {
     /** @type {Function|null} */
     this.onConnect = options.onConnect || null;
     /** @type {Function|null} */
+    this.onConnectResumed = options.onConnectResumed || null;
+    /** @type {Function|null} */
     this.onDisconnect = options.onDisconnect || null;
+    /** @type {Function|null} */
+    this.onConnectionInterrupted = options.onConnectionInterrupted || null;
+    /** @type {string} */
+    this.resumeKey = this._generateResumeKey();
     /** @type {string|null} */
     this.serverUrl = options.serverUrl || null;
     /** @type {Object|null} */
@@ -216,6 +222,22 @@ export class WebSocketClient {
   }
 
   /**
+   * Generates a per-page-instance resume key for same-session reattach across
+   * brief socket drops. Kept in memory only so a page reload always falls
+   * through to a fresh sync rather than resuming into a blank canvas.
+   * @private
+   * @returns {string}
+   */
+  _generateResumeKey() {
+    try {
+      if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        return crypto.randomUUID();
+      }
+    } catch {}
+    return `rk_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+  }
+
+  /**
    * Lazy-loads the Protocol Buffer schema.
    * @returns {Promise<void>}
    */
@@ -270,6 +292,8 @@ export class WebSocketClient {
     this._connectAttempts = 0;
     this._cancelled = false;
     this._disconnectNotified = false;
+    this._stealthRetryStartedAt = null;
+    this._interruptionNotified = false;
 
     this._buildUrl();
     this._tryConnect();
@@ -368,10 +392,12 @@ export class WebSocketClient {
       this.connected = true;
       this._connectAttempts = 0;
       this._disconnectNotified = false;
+      this._stealthRetryStartedAt = null;
+      this._interruptionNotified = false;
       const username = this._userData.username || this._userData.name || '';
       const identityPayload = await this.clientIdentity.getPayload({ waitForFingerprintMs: 1200 });
       if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
-      this.send({ t: T.CONNECT, n: username, ...identityPayload });
+      this.send({ t: T.CONNECT, n: username, resumeKey: this.resumeKey, ...identityPayload });
 
       // Replay a recent bandwidth measurement so the new room/server has a
       // baseline before the next probe tick. Cached by _runProbe echo handler.
@@ -414,20 +440,41 @@ export class WebSocketClient {
     this.socket.onclose = (event) => {
       this.connected = false;
 
-      // Notify the app once per disconnect cycle so it can surface UI.
-      // Subsequent failed retries don't re-fire to avoid banner thrash.
-      if (!this._disconnectNotified && this.onDisconnect) {
+      const isRestart = event.code === 4000 || String(event.reason || '').includes('server-restarting');
+      const wasInSession = this.sessionIndex !== null;
+
+      // Mid-session drops on transient codes get a silent reconnect window
+      // before we surface the loud disconnection banner. WebSocket abnormal
+      // closures (1006) and going-away (1001) are the common wifi/proxy hiccups.
+      const TRANSIENT_CLOSE_CODES = new Set([1001, 1005, 1006, 1011, 1012, 1013]);
+      const isTransientDrop = wasInSession && TRANSIENT_CLOSE_CODES.has(event.code);
+
+      if (isTransientDrop && this._stealthRetryStartedAt === null) {
+        this._stealthRetryStartedAt = Date.now();
+      }
+      const STEALTH_RETRY_WINDOW_MS = 30_000;
+      const withinStealthWindow = isTransientDrop
+        && (Date.now() - this._stealthRetryStartedAt) < STEALTH_RETRY_WINDOW_MS;
+
+      // During the stealth window, just flash a subtle status indicator once.
+      // The loud banner is held back so a 1–3s wifi blip doesn't yank the user.
+      if (withinStealthWindow && !this._interruptionNotified && this.onConnectionInterrupted) {
+        this._interruptionNotified = true;
+        this.onConnectionInterrupted(event.code, event.reason);
+      }
+
+      // Surface the loud disconnect UI once per cycle, but skip during stealth.
+      const shouldSurfaceDisconnect = !this._disconnectNotified && !withinStealthWindow;
+      if (shouldSurfaceDisconnect && this.onDisconnect) {
         this._disconnectNotified = true;
         this.onDisconnect(event.code, event.reason);
       }
 
-      // Auto-retry while we've never connected (sessionIndex still null) OR
-      // when the server explicitly told us it's restarting (code 4000). The
-      // latter ensures in-room users automatically rejoin once the new server
-      // is up, so the version-update prompt can surface without manual retry.
-      const isRestart = event.code === 4000 || String(event.reason || '').includes('server-restarting');
+      // Auto-retry while we've never connected (sessionIndex still null), when
+      // the server explicitly told us it's restarting (code 4000), or during
+      // the stealth window for a transient mid-session drop.
       const shouldAutoRetry = this._shouldRetryConnect(event)
-        && (this.sessionIndex === null || isRestart);
+        && (this.sessionIndex === null || isRestart || withinStealthWindow);
 
       if (shouldAutoRetry) {
         if (isRestart) {
@@ -642,6 +689,17 @@ export class WebSocketClient {
         }
         break;
 
+      case T.CONNECT_RESUMED:
+        this.sessionIndex = data.u;
+        this.instanceId = data.iid || this.instanceId;
+        this.role = data.authRole !== undefined ? data.authRole : this.role;
+        this.globalRole = data.authGlobalRole !== undefined ? data.authGlobalRole : this.globalRole;
+        this.roomRole = data.authRoomRole !== undefined ? data.authRoomRole : this.roomRole;
+        if (this.onConnectResumed) {
+          this.onConnectResumed(this.sessionIndex, this.role, data.authUsername);
+        }
+        break;
+
       case T.PING:
         this.send({
           t: T.PONG,
@@ -765,7 +823,8 @@ export class WebSocketClient {
           sessionIndex: data.u,
           ps: data.ps || [],
           rs: data.rs || null,
-          confettiData: data.g || null
+          confettiData: data.g || null,
+          seq: data.seq
         });
         break;
 
@@ -777,53 +836,54 @@ export class WebSocketClient {
           confettiData: data.g || null,
           layerIndex: data.ly,
           blendMode: data.bm,
-          blendBakeMode: data.bbm === 'background' ? 'background' : (data.bbm === 'existing' ? 'existing' : undefined)
+          blendBakeMode: data.bbm === 'background' ? 'background' : (data.bbm === 'existing' ? 'existing' : undefined),
+          seq: data.seq
         });
         break;
 
       case T.MU:
-        this.emit('mu', { sessionIndex: data.u });
+        this.emit('mu', { sessionIndex: data.u, seq: data.seq });
         break;
 
       case T.CP:
-        this.emit('cp', { sessionIndex: data.u, pressure: (data.p ?? 100) / 100 });
+        this.emit('cp', { sessionIndex: data.u, pressure: (data.p ?? 100) / 100, seq: data.seq });
         break;
 
       case T.CS:
-        this.emit('cs', { sessionIndex: data.u, size: (data.s ?? 1000) / 100 });
+        this.emit('cs', { sessionIndex: data.u, size: (data.s ?? 1000) / 100, seq: data.seq });
         break;
 
       case T.CT:
-        this.emit('ct', { sessionIndex: data.u, tool: ToolNames[data.l] || 'brush', eraseAll: data.a || false });
+        this.emit('ct', { sessionIndex: data.u, tool: ToolNames[data.l] || 'brush', eraseAll: data.a || false, seq: data.seq });
         break;
 
       case T.CC:
-        this.emit('cc', { sessionIndex: data.u, color: unpackColor(data.c) });
+        this.emit('cc', { sessionIndex: data.u, color: unpackColor(data.c), seq: data.seq });
         break;
 
       case T.CSP:
-        this.emit('csp', { sessionIndex: data.u, spacing: data.sp !== undefined ? data.sp / 100 : 0 });
+        this.emit('csp', { sessionIndex: data.u, spacing: data.sp !== undefined ? data.sp / 100 : 0, seq: data.seq });
         break;
 
       case T.CSM:
-        this.emit('csm', { sessionIndex: data.u, smoothing: data.sm ?? 15 });
+        this.emit('csm', { sessionIndex: data.u, smoothing: data.sm ?? 15, seq: data.seq });
         break;
 
       case T.CHD:
-        this.emit('chd', { sessionIndex: data.u, hardness: (data.hd ?? 100) });
+        this.emit('chd', { sessionIndex: data.u, hardness: (data.hd ?? 100), seq: data.seq });
         break;
 
       case T.CBR:
-        this.emit('cbr', { sessionIndex: data.u, blurRadius: (data.br ?? 500) });
+        this.emit('cbr', { sessionIndex: data.u, blurRadius: (data.br ?? 500), seq: data.seq });
         break;
 
       case T.CTHN:
-        this.emit('cthn', { sessionIndex: data.u, thinning: (data.th ? data.th - 1 : 50) / 100 });
+        this.emit('cthn', { sessionIndex: data.u, thinning: (data.th ? data.th - 1 : 50) / 100, seq: data.seq });
         break;
 
       case T.CSIM:
         // Offset encoding: 0=not set, 1=false, 2=true
-        this.emit('csim', { sessionIndex: data.u, simulatePressure: (data.sim ?? 0) === 2 });
+        this.emit('csim', { sessionIndex: data.u, simulatePressure: (data.sim ?? 0) === 2, seq: data.seq });
         break;
 
       case T.FILL:
@@ -833,12 +893,13 @@ export class WebSocketClient {
           y: data.sy,
           layerIndex: data.ly ?? 0,
           expansion: (data.s ?? 0) / 100,
-          blurRadius: (data.br ?? 0) / 100
+          blurRadius: (data.br ?? 0) / 100,
+          seq: data.seq
         });
         break;
 
       case T.CL:
-        this.emit('cl', { sessionIndex: data.u, layerIndex: data.ly ?? 0 });
+        this.emit('cl', { sessionIndex: data.u, layerIndex: data.ly ?? 0, seq: data.seq });
         break;
 
       case T.CBM:
@@ -846,7 +907,8 @@ export class WebSocketClient {
           sessionIndex: data.u,
           layerIndex: data.ly ?? null,
           blendMode: data.bm || 'source-over',
-          blendBakeMode: data.bbm === 'background' ? 'background' : 'existing'
+          blendBakeMode: data.bbm === 'background' ? 'background' : 'existing',
+          seq: data.seq
         });
         break;
 
@@ -1215,6 +1277,7 @@ export class WebSocketClient {
           blendMode: data.bm,
           blendBakeMode: data.bbm === 'background' ? 'background' : 'existing',
           timestamp: data.stroke_ts ? Number(data.stroke_ts) : 0,
+          seq: data.seq || 0,
           eraseAll: data.a || false,
           isRedo: data.stroke_redo || false,
           redoBatchIdx: data.stroke_redo_batch || 0,
@@ -1235,6 +1298,7 @@ export class WebSocketClient {
               blendMode: stroke.blendMode || 'source-over',
               blendBakeMode: stroke.blendBakeMode === 'background' ? 'background' : 'existing',
               timestamp: stroke.timestamp ? Number(stroke.timestamp) : 0,
+              seq: stroke.seq || 0,
               eraseAll: stroke.eraseAll || false,
               isRedo: stroke.isRedo || false,
               activeStroke: stroke.activeStroke || false,

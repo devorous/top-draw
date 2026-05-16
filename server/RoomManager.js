@@ -93,6 +93,9 @@ export class Room {
     this.tileDirtySet = new Set();
     this.settings.floatingGalleryVoronoi = generateFloatingGalleryVoronoi(this.settings.floatingGallerySeed);
 
+    /** @type {number} Global message sequence number for this room */
+    this.messageSequence = 0;
+
     /** @type {Array<Object>} Rolling buffer of board snapshots (max 24, every 10s for 4 min) */
     this.snapshots = [];
 
@@ -615,11 +618,15 @@ export class RoomManager {
    */
   cleanupEmptyRooms() {
     for (const [id, room] of this.rooms) {
-      if (id !== 'lobby' && id !== '_discovery' && room.getClientCount() === 0) {
-        room.stopSnapshotTimer();
-        this.rooms.delete(id);
-        console.log(`[RoomManager] Cleaned up empty room: ${id}`);
-      }
+      if (id === 'lobby' || id === '_discovery') continue;
+      if (room.getClientCount() !== 0) continue;
+      // A room with users still inside the disconnect grace window is not
+      // really empty — finalizing it would invalidate their sessionIndex
+      // and prevent a clean resume.
+      if (room.pendingDisconnects?.size) continue;
+      room.stopSnapshotTimer();
+      this.rooms.delete(id);
+      console.log(`[RoomManager] Cleaned up empty room: ${id}`);
     }
   }
 }

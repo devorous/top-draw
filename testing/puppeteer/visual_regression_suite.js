@@ -27,6 +27,7 @@ const REPORT_FILE   = path.join(__dirname, '..', 'VISUAL_REPORT.md');
 const PY_COMPARE    = path.join(__dirname, '..', 'compare_images.py');
 
 const IS_GENERATE   = process.argv.includes('--generate');
+const GEN_MISSING   = process.argv.includes('--generate-missing');
 
 // ─── Deterministic Randomness ──────────────────────────────────────────────
 
@@ -114,6 +115,48 @@ const TOOLS_TO_TEST = [
     { size: 10, color: [0, 255, 0, 0.6] },
     { size: 4, color: [0, 0, 255, 1] },
     { size: 20, color: [200, 0, 200, 0.4] }
+  ]},
+  { name: 'confetti', category: 'brush', settings: [
+    // 1. Defaults — circle particles, active color, random rotation
+    {
+      size: 30, color: [220, 60, 60, 1],
+      confettiParticles: 4, confettiParticleSize: 10,
+      confettiSizeVariation: 40, confettiOpacityRandomness: 20,
+      confettiSpacing: 30, confettiShape: 'circle',
+      confettiColorMode: 'active', confettiRotationMode: 'random'
+    },
+    // 2. High particle count, small particles, tight spacing
+    {
+      size: 40, color: [60, 180, 80, 1],
+      confettiParticles: 12, confettiParticleSize: 6,
+      confettiSizeVariation: 20, confettiOpacityRandomness: 10,
+      confettiSpacing: 10, confettiShape: 'circle',
+      confettiColorMode: 'active', confettiRotationMode: 'random'
+    },
+    // 3. Square shape, fixed rotation, no variation
+    {
+      size: 25, color: [40, 100, 220, 1],
+      confettiParticles: 6, confettiParticleSize: 14,
+      confettiSizeVariation: 0, confettiOpacityRandomness: 0,
+      confettiSpacing: 25, confettiShape: 'square',
+      confettiColorMode: 'active', confettiRotationMode: 'fixed'
+    },
+    // 4. Random color mode, follow rotation, wide spacing
+    {
+      size: 35, color: [255, 200, 0, 1],
+      confettiParticles: 5, confettiParticleSize: 12,
+      confettiSizeVariation: 30, confettiOpacityRandomness: 30,
+      confettiSpacing: 45, confettiShape: 'square',
+      confettiColorMode: 'random', confettiRotationMode: 'follow'
+    },
+    // 5. Max chaos — high variation + high opacity randomness
+    {
+      size: 45, color: [180, 0, 200, 1],
+      confettiParticles: 8, confettiParticleSize: 16,
+      confettiSizeVariation: 100, confettiOpacityRandomness: 100,
+      confettiSpacing: 20, confettiShape: 'circle',
+      confettiColorMode: 'active', confettiRotationMode: 'random'
+    }
   ]}
 ];
 
@@ -210,6 +253,81 @@ const SPECIAL_CASES = [
     }
   },
   {
+    name: 'confetti_image_brush',
+    action: async (page) => {
+      resetRandom();
+      // Pick a real GIMP brush so confettiShape='image' has source pixels
+      await page.evaluate(async () => {
+        const app = window.app;
+        const loader = app.brushGallery;
+        const gallery = loader.realGallery || loader.loadRealGallery();
+        const brush = gallery.brushes.find(b => b.fileName === 'pepper.gbr') || gallery.brushes[0];
+        if (brush) app.handleBrushSelect(brush);
+      });
+      await selectTool(page, 'confetti');
+      await setToolSettings(page, {
+        size: 40, color: [255, 100, 200, 1],
+        confettiParticles: 5, confettiParticleSize: 22,
+        confettiSizeVariation: 40, confettiOpacityRandomness: 15,
+        confettiSpacing: 25, confettiShape: 'image',
+        confettiColorMode: 'image', confettiRotationMode: 'random'
+      });
+      for (let i = 0; i < 3; i++) {
+        const cy = 250 + i * 250;
+        await drawPath(page, [
+          { x: 250, y: cy },
+          { x: 600, y: cy + 60 },
+          { x: 950, y: cy - 40 },
+          { x: 1300, y: cy + 80 },
+          { x: 1650, y: cy }
+        ]);
+      }
+    }
+  },
+  {
+    name: 'confetti_options_mix',
+    action: async (page) => {
+      resetRandom();
+      await selectTool(page, 'confetti');
+      // Stroke A — circles, active color, random rotation
+      await setToolSettings(page, {
+        size: 30, color: [220, 50, 50, 1],
+        confettiParticles: 6, confettiParticleSize: 12,
+        confettiSizeVariation: 30, confettiOpacityRandomness: 10,
+        confettiSpacing: 18, confettiShape: 'circle',
+        confettiColorMode: 'active', confettiRotationMode: 'random'
+      });
+      await drawPath(page, [
+        { x: 200, y: 250 }, { x: 500, y: 280 }, { x: 800, y: 220 },
+        { x: 1100, y: 280 }, { x: 1400, y: 240 }, { x: 1700, y: 270 }
+      ]);
+      // Stroke B — squares, fixed rotation, no variation
+      await setToolSettings(page, {
+        size: 28, color: [50, 130, 220, 1],
+        confettiParticles: 4, confettiParticleSize: 16,
+        confettiSizeVariation: 0, confettiOpacityRandomness: 0,
+        confettiSpacing: 30, confettiShape: 'square',
+        confettiColorMode: 'active', confettiRotationMode: 'fixed'
+      });
+      await drawPath(page, [
+        { x: 200, y: 520 }, { x: 500, y: 500 }, { x: 800, y: 540 },
+        { x: 1100, y: 500 }, { x: 1400, y: 540 }, { x: 1700, y: 510 }
+      ]);
+      // Stroke C — random color, follow rotation, large spacing
+      await setToolSettings(page, {
+        size: 36, color: [0, 0, 0, 1],
+        confettiParticles: 5, confettiParticleSize: 14,
+        confettiSizeVariation: 50, confettiOpacityRandomness: 40,
+        confettiSpacing: 42, confettiShape: 'square',
+        confettiColorMode: 'random', confettiRotationMode: 'follow'
+      });
+      await drawPath(page, [
+        { x: 200, y: 800 }, { x: 500, y: 760 }, { x: 800, y: 820 },
+        { x: 1100, y: 770 }, { x: 1400, y: 810 }, { x: 1700, y: 780 }
+      ]);
+    }
+  },
+  {
     name: 'select_complex_transform',
     action: async (page) => {
       await selectTool(page, 'rectangle');
@@ -247,6 +365,17 @@ async function setToolSettings(page, settings) {
         tool._updateSliders();
       }
     }
+    // Confetti tool options live directly on app.self
+    if (s.confettiParticles !== undefined) app.self.confettiParticles = s.confettiParticles;
+    if (s.confettiParticleSize !== undefined) app.self.confettiParticleSize = s.confettiParticleSize;
+    if (s.confettiSizeVariation !== undefined) app.self.confettiSizeVariation = s.confettiSizeVariation;
+    if (s.confettiOpacityRandomness !== undefined) app.self.confettiOpacityRandomness = s.confettiOpacityRandomness;
+    if (s.confettiSpacing !== undefined) app.self.confettiSpacing = s.confettiSpacing;
+    if (s.confettiShape !== undefined) app.self.confettiShape = s.confettiShape;
+    if (s.confettiColorMode !== undefined) app.self.confettiColorMode = s.confettiColorMode;
+    if (s.confettiRotationMode !== undefined) app.self.confettiRotationMode = s.confettiRotationMode;
+    // Pin the confetti per-stroke seed for determinism
+    if (s.confettiStrokeSeed !== undefined) app.self._confettiStrokeSeed = s.confettiStrokeSeed;
   }, settings);
 }
 
@@ -331,9 +460,39 @@ async function drag(page, sx, sy, ex, ey) {
   await drawPath(page, [{x: sx, y: sy}, {x: ex, y: ey}]);
 }
 
+// Bypass App.handleClear() — it gates on moderator role and silently rejects
+// test-bot requests. We call board.clear() directly so the canvas actually empties.
+async function clearCanvas(page) {
+  await page.evaluate(() => {
+    const app = window.app;
+    app.board?.clear?.();
+    app.board?.tileTracker?.clear?.();
+    app.debugOverlay?.clearAll?.();
+  });
+}
+
+// Re-seed Math.random in the browser so each test starts from a known PRNG state.
+// Without this, tools that consume Math.random (e.g. ConfettiTool.createSeed)
+// are sensitive to how much randomness preceding initialization/tests have used.
+async function reseedRandom(page, seedValue = 12345) {
+  await page.evaluate((s) => {
+    let seed = s;
+    Math.random = () => {
+      seed = (seed * 9301 + 49297) % 233280;
+      return seed / 233280;
+    };
+  }, seedValue);
+}
+
 async function captureCanvas(page) {
-  const element = await page.$('#board');
-  return await element.screenshot();
+  // Grab pixels directly from the main canvas so DOM overlays (tutorial popups,
+  // color panels, layer pills, cursors, etc.) don't pollute the regression.
+  const dataUrl = await page.evaluate(() => {
+    const canvas = window.app.board.mainCanvas;
+    return canvas.toDataURL('image/png');
+  });
+  const base64 = dataUrl.replace(/^data:image\/png;base64,/, '');
+  return Buffer.from(base64, 'base64');
 }
 
 // ─── Main ──────────────────────────────────────────────────────────────────
@@ -387,6 +546,13 @@ async function main() {
       const syncDone = app?.syncClient?.hasCompletedSync === true || (app?.wsClient?.connected && app?.users?.size <= 1);
       return app?.wsClient?.connected && syncDone && brushes && brushes.length > 0;
     }, { timeout: 30000 });
+
+    // Stop the real-time tick loop. Our manual inputBufferManager.tick() calls
+    // become the only source of stamp processing — required for deterministic
+    // confetti tests where stamp count depends on cursor delivery order.
+    await page.evaluate(() => {
+      window.app.inputBufferManager?.stopTickLoop?.();
+    });
     
     const results = [];
     let patternIdx = 0;
@@ -396,7 +562,8 @@ async function main() {
       for (let i = 0; i < toolTest.settings.length; i++) {
         const testName = `${toolTest.name}_step_${i+1}`;
         process.stdout.write(`  [${testName}] ... `);
-        await page.evaluate(() => window.app.handleClear());
+        await clearCanvas(page);
+        await reseedRandom(page);
         await sleep(50);
         await selectTool(page, toolTest.name);
         await setToolSettings(page, toolTest.settings[i]);
@@ -419,7 +586,8 @@ async function main() {
     // 2. Run special cases
     for (const special of SPECIAL_CASES) {
       process.stdout.write(`  [${special.name}] ... `);
-      await page.evaluate(() => window.app.handleClear());
+      await clearCanvas(page);
+      await reseedRandom(page);
       await sleep(100);
       await special.action(page);
       await runComparison(page, special.name, results);
@@ -455,6 +623,10 @@ async function runComparison(page, testName, results) {
   if (IS_GENERATE) {
     fs.writeFileSync(baselinePath, screenshot);
     console.log('SAVED BASELINE');
+    results.push({ name: testName, status: 'generated', diff: 0 });
+  } else if (GEN_MISSING && !fs.existsSync(baselinePath)) {
+    fs.writeFileSync(baselinePath, screenshot);
+    console.log('SAVED MISSING BASELINE');
     results.push({ name: testName, status: 'generated', diff: 0 });
   } else {
     if (!fs.existsSync(baselinePath)) {

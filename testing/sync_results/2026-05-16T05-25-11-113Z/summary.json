@@ -1,0 +1,2573 @@
+{
+  "runId": "2026-05-16T05-25-11-113Z",
+  "url": "http://localhost:3000/go/",
+  "bots": 3,
+  "drawer": 0,
+  "propagationMs": 3500,
+  "passed": 29,
+  "total": 40,
+  "pixelTolerance": 4,
+  "passPct": 99.5,
+  "results": [
+    {
+      "kind": "tool",
+      "tool": "ink",
+      "name": "ink_step_1",
+      "pass": true,
+      "elapsed": 5092,
+      "totalsEqual": true,
+      "totals": [
+        1,
+        1,
+        1
+      ],
+      "baked": [
+        1,
+        1,
+        1
+      ],
+      "worstMatchPct": 99.98195068023374,
+      "worstMaxDelta": 255,
+      "diffs": [
+        {
+          "otherIdx": 1,
+          "matchPct": 99.98195068023374,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 88630,
+              "checked": 88646,
+              "matchPct": 99.98195068023374,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 28,
+                "y": 209,
+                "w": 254,
+                "h": 349
+              }
+            }
+          ]
+        },
+        {
+          "otherIdx": 2,
+          "matchPct": 99.98195068023374,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 88630,
+              "checked": 88646,
+              "matchPct": 99.98195068023374,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 28,
+                "y": 209,
+                "w": 254,
+                "h": 349
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "tool",
+      "tool": "ink",
+      "name": "ink_step_2",
+      "pass": true,
+      "elapsed": 5217,
+      "totalsEqual": true,
+      "totals": [
+        1,
+        1,
+        1
+      ],
+      "baked": [
+        1,
+        1,
+        1
+      ],
+      "worstMatchPct": 99.98690456703224,
+      "worstMaxDelta": 255,
+      "diffs": [
+        {
+          "otherIdx": 1,
+          "matchPct": 99.98690456703224,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 61082,
+              "checked": 61090,
+              "matchPct": 99.98690456703224,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 982,
+                "y": 205,
+                "w": 205,
+                "h": 298
+              }
+            }
+          ]
+        },
+        {
+          "otherIdx": 2,
+          "matchPct": 99.98690456703224,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 61082,
+              "checked": 61090,
+              "matchPct": 99.98690456703224,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 982,
+                "y": 205,
+                "w": 205,
+                "h": 298
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "tool",
+      "tool": "ink",
+      "name": "ink_step_3",
+      "pass": true,
+      "elapsed": 5075,
+      "totalsEqual": true,
+      "totals": [
+        1,
+        1,
+        1
+      ],
+      "baked": [
+        1,
+        1,
+        1
+      ],
+      "worstMatchPct": 99.99116217410517,
+      "worstMaxDelta": 255,
+      "diffs": [
+        {
+          "otherIdx": 1,
+          "matchPct": 99.99116217410517,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 22628,
+              "checked": 22630,
+              "matchPct": 99.99116217410517,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 1285,
+                "y": 519,
+                "w": 146,
+                "h": 155
+              }
+            }
+          ]
+        },
+        {
+          "otherIdx": 2,
+          "matchPct": 99.99116217410517,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 22628,
+              "checked": 22630,
+              "matchPct": 99.99116217410517,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 1285,
+                "y": 519,
+                "w": 146,
+                "h": 155
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "tool",
+      "tool": "ink",
+      "name": "ink_step_4",
+      "pass": true,
+      "elapsed": 5354,
+      "totalsEqual": true,
+      "totals": [
+        1,
+        1,
+        1
+      ],
+      "baked": [
+        1,
+        1,
+        1
+      ],
+      "worstMatchPct": 99.99802181281075,
+      "worstMaxDelta": 255,
+      "diffs": [
+        {
+          "otherIdx": 1,
+          "matchPct": 99.99802181281075,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 151651,
+              "checked": 151654,
+              "matchPct": 99.99802181281075,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 1468,
+                "y": 0,
+                "w": 397,
+                "h": 382
+              }
+            }
+          ]
+        },
+        {
+          "otherIdx": 2,
+          "matchPct": 99.99802181281075,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 151651,
+              "checked": 151654,
+              "matchPct": 99.99802181281075,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 1468,
+                "y": 0,
+                "w": 397,
+                "h": 382
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "tool",
+      "tool": "ink",
+      "name": "ink_step_5",
+      "pass": true,
+      "elapsed": 5025,
+      "totalsEqual": true,
+      "totals": [
+        1,
+        1,
+        1
+      ],
+      "baked": [
+        1,
+        1,
+        1
+      ],
+      "worstMatchPct": 99.98301630434783,
+      "worstMaxDelta": 64,
+      "diffs": [
+        {
+          "otherIdx": 1,
+          "matchPct": 99.98301630434783,
+          "maxDelta": 64,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 17661,
+              "checked": 17664,
+              "matchPct": 99.98301630434783,
+              "maxDelta": 64,
+              "bbox": {
+                "x": 1223,
+                "y": 162,
+                "w": 128,
+                "h": 138
+              }
+            }
+          ]
+        },
+        {
+          "otherIdx": 2,
+          "matchPct": 99.98301630434783,
+          "maxDelta": 64,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 17661,
+              "checked": 17664,
+              "matchPct": 99.98301630434783,
+              "maxDelta": 64,
+              "bbox": {
+                "x": 1223,
+                "y": 162,
+                "w": 128,
+                "h": 138
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "tool",
+      "tool": "brush",
+      "name": "brush_step_1",
+      "pass": true,
+      "elapsed": 5195,
+      "totalsEqual": true,
+      "totals": [
+        1,
+        1,
+        1
+      ],
+      "baked": [
+        1,
+        1,
+        1
+      ],
+      "worstMatchPct": 99.98153107396804,
+      "worstMaxDelta": 255,
+      "diffs": [
+        {
+          "otherIdx": 1,
+          "matchPct": 99.98153107396804,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 64962,
+              "checked": 64974,
+              "matchPct": 99.98153107396804,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 774,
+                "y": 548,
+                "w": 221,
+                "h": 294
+              }
+            }
+          ]
+        },
+        {
+          "otherIdx": 2,
+          "matchPct": 99.98153107396804,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 64962,
+              "checked": 64974,
+              "matchPct": 99.98153107396804,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 774,
+                "y": 548,
+                "w": 221,
+                "h": 294
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "tool",
+      "tool": "brush",
+      "name": "brush_step_2",
+      "pass": true,
+      "elapsed": 5096,
+      "totalsEqual": true,
+      "totals": [
+        1,
+        1,
+        1
+      ],
+      "baked": [
+        1,
+        1,
+        1
+      ],
+      "worstMatchPct": 100,
+      "worstMaxDelta": 255,
+      "diffs": [
+        {
+          "otherIdx": 1,
+          "matchPct": 100,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 43818,
+              "checked": 43818,
+              "matchPct": 100,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 743,
+                "y": 227,
+                "w": 201,
+                "h": 218
+              }
+            }
+          ]
+        },
+        {
+          "otherIdx": 2,
+          "matchPct": 100,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 43818,
+              "checked": 43818,
+              "matchPct": 100,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 743,
+                "y": 227,
+                "w": 201,
+                "h": 218
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "tool",
+      "tool": "brush",
+      "name": "brush_step_3",
+      "pass": true,
+      "elapsed": 5159,
+      "totalsEqual": true,
+      "totals": [
+        1,
+        1,
+        1
+      ],
+      "baked": [
+        1,
+        1,
+        1
+      ],
+      "worstMatchPct": 100,
+      "worstMaxDelta": 255,
+      "diffs": [
+        {
+          "otherIdx": 1,
+          "matchPct": 100,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 141363,
+              "checked": 141363,
+              "matchPct": 100,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 915,
+                "y": 46,
+                "w": 417,
+                "h": 339
+              }
+            }
+          ]
+        },
+        {
+          "otherIdx": 2,
+          "matchPct": 100,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 141363,
+              "checked": 141363,
+              "matchPct": 100,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 915,
+                "y": 46,
+                "w": 417,
+                "h": 339
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "tool",
+      "tool": "brush",
+      "name": "brush_step_4",
+      "pass": false,
+      "elapsed": 5152,
+      "totalsEqual": true,
+      "totals": [
+        1,
+        1,
+        1
+      ],
+      "baked": [
+        1,
+        1,
+        1
+      ],
+      "worstMatchPct": 99.1513085472817,
+      "worstMaxDelta": 14,
+      "diffs": [
+        {
+          "otherIdx": 1,
+          "matchPct": 99.1513085472817,
+          "maxDelta": 14,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": false,
+              "matched": 27922,
+              "checked": 28161,
+              "matchPct": 99.1513085472817,
+              "maxDelta": 14,
+              "bbox": {
+                "x": 598,
+                "y": 691,
+                "w": 189,
+                "h": 149
+              }
+            }
+          ]
+        },
+        {
+          "otherIdx": 2,
+          "matchPct": 99.1513085472817,
+          "maxDelta": 14,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": false,
+              "matched": 27922,
+              "checked": 28161,
+              "matchPct": 99.1513085472817,
+              "maxDelta": 14,
+              "bbox": {
+                "x": 598,
+                "y": 691,
+                "w": 189,
+                "h": 149
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "tool",
+      "tool": "brush",
+      "name": "brush_step_5",
+      "pass": true,
+      "elapsed": 5134,
+      "totalsEqual": true,
+      "totals": [
+        1,
+        1,
+        1
+      ],
+      "baked": [
+        1,
+        1,
+        1
+      ],
+      "worstMatchPct": 100,
+      "worstMaxDelta": 255,
+      "diffs": [
+        {
+          "otherIdx": 1,
+          "matchPct": 100,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 62560,
+              "checked": 62560,
+              "matchPct": 100,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 947,
+                "y": 727,
+                "w": 230,
+                "h": 272
+              }
+            }
+          ]
+        },
+        {
+          "otherIdx": 2,
+          "matchPct": 100,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 62560,
+              "checked": 62560,
+              "matchPct": 100,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 947,
+                "y": 727,
+                "w": 230,
+                "h": 272
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "tool",
+      "tool": "pixel",
+      "name": "pixel_step_1",
+      "pass": true,
+      "elapsed": 4961,
+      "totalsEqual": true,
+      "totals": [
+        1,
+        1,
+        1
+      ],
+      "baked": [
+        1,
+        1,
+        1
+      ],
+      "worstMatchPct": 100,
+      "worstMaxDelta": 255,
+      "diffs": [
+        {
+          "otherIdx": 1,
+          "matchPct": 100,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 82895,
+              "checked": 82895,
+              "matchPct": 100,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 435,
+                "y": 231,
+                "w": 281,
+                "h": 295
+              }
+            }
+          ]
+        },
+        {
+          "otherIdx": 2,
+          "matchPct": 100,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 82895,
+              "checked": 82895,
+              "matchPct": 100,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 435,
+                "y": 231,
+                "w": 281,
+                "h": 295
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "tool",
+      "tool": "pixel",
+      "name": "pixel_step_2",
+      "pass": true,
+      "elapsed": 5051,
+      "totalsEqual": true,
+      "totals": [
+        1,
+        1,
+        1
+      ],
+      "baked": [
+        1,
+        1,
+        1
+      ],
+      "worstMatchPct": 100,
+      "worstMaxDelta": 255,
+      "diffs": [
+        {
+          "otherIdx": 1,
+          "matchPct": 100,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 100928,
+              "checked": 100928,
+              "matchPct": 100,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 680,
+                "y": 504,
+                "w": 332,
+                "h": 304
+              }
+            }
+          ]
+        },
+        {
+          "otherIdx": 2,
+          "matchPct": 100,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 100928,
+              "checked": 100928,
+              "matchPct": 100,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 680,
+                "y": 504,
+                "w": 332,
+                "h": 304
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "tool",
+      "tool": "pixel",
+      "name": "pixel_step_3",
+      "pass": true,
+      "elapsed": 5002,
+      "totalsEqual": true,
+      "totals": [
+        1,
+        1,
+        1
+      ],
+      "baked": [
+        1,
+        1,
+        1
+      ],
+      "worstMatchPct": 100,
+      "worstMaxDelta": 255,
+      "diffs": [
+        {
+          "otherIdx": 1,
+          "matchPct": 100,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 66300,
+              "checked": 66300,
+              "matchPct": 100,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 156,
+                "y": 233,
+                "w": 170,
+                "h": 390
+              }
+            }
+          ]
+        },
+        {
+          "otherIdx": 2,
+          "matchPct": 100,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 66300,
+              "checked": 66300,
+              "matchPct": 100,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 156,
+                "y": 233,
+                "w": 170,
+                "h": 390
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "tool",
+      "tool": "pixel",
+      "name": "pixel_step_4",
+      "pass": true,
+      "elapsed": 5079,
+      "totalsEqual": true,
+      "totals": [
+        1,
+        1,
+        1
+      ],
+      "baked": [
+        1,
+        1,
+        1
+      ],
+      "worstMatchPct": 100,
+      "worstMaxDelta": 255,
+      "diffs": [
+        {
+          "otherIdx": 1,
+          "matchPct": 100,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 110544,
+              "checked": 110544,
+              "matchPct": 100,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 799,
+                "y": 727,
+                "w": 392,
+                "h": 282
+              }
+            }
+          ]
+        },
+        {
+          "otherIdx": 2,
+          "matchPct": 100,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 110544,
+              "checked": 110544,
+              "matchPct": 100,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 799,
+                "y": 727,
+                "w": 392,
+                "h": 282
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "tool",
+      "tool": "pixel",
+      "name": "pixel_step_5",
+      "pass": true,
+      "elapsed": 5092,
+      "totalsEqual": true,
+      "totals": [
+        1,
+        1,
+        1
+      ],
+      "baked": [
+        1,
+        1,
+        1
+      ],
+      "worstMatchPct": 100,
+      "worstMaxDelta": 255,
+      "diffs": [
+        {
+          "otherIdx": 1,
+          "matchPct": 100,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 89342,
+              "checked": 89342,
+              "matchPct": 100,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 578,
+                "y": 173,
+                "w": 262,
+                "h": 341
+              }
+            }
+          ]
+        },
+        {
+          "otherIdx": 2,
+          "matchPct": 100,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 89342,
+              "checked": 89342,
+              "matchPct": 100,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 578,
+                "y": 173,
+                "w": 262,
+                "h": 341
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "tool",
+      "tool": "flowPen",
+      "name": "flowPen_step_1",
+      "pass": true,
+      "elapsed": 5095,
+      "totalsEqual": true,
+      "totals": [
+        1,
+        1,
+        1
+      ],
+      "baked": [
+        1,
+        1,
+        1
+      ],
+      "worstMatchPct": 99.89063568010937,
+      "worstMaxDelta": 255,
+      "diffs": [
+        {
+          "otherIdx": 1,
+          "matchPct": 99.89063568010937,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 29228,
+              "checked": 29260,
+              "matchPct": 99.89063568010937,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 711,
+                "y": 641,
+                "w": 209,
+                "h": 140
+              }
+            }
+          ]
+        },
+        {
+          "otherIdx": 2,
+          "matchPct": 99.89063568010937,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 29228,
+              "checked": 29260,
+              "matchPct": 99.89063568010937,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 711,
+                "y": 641,
+                "w": 209,
+                "h": 140
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "tool",
+      "tool": "flowPen",
+      "name": "flowPen_step_2",
+      "pass": true,
+      "elapsed": 5144,
+      "totalsEqual": true,
+      "totals": [
+        1,
+        1,
+        1
+      ],
+      "baked": [
+        1,
+        1,
+        1
+      ],
+      "worstMatchPct": 99.97359823108148,
+      "worstMaxDelta": 255,
+      "diffs": [
+        {
+          "otherIdx": 1,
+          "matchPct": 99.97359823108148,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 60586,
+              "checked": 60602,
+              "matchPct": 99.97359823108148,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 259,
+                "y": 368,
+                "w": 193,
+                "h": 314
+              }
+            }
+          ]
+        },
+        {
+          "otherIdx": 2,
+          "matchPct": 99.97359823108148,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 60586,
+              "checked": 60602,
+              "matchPct": 99.97359823108148,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 259,
+                "y": 368,
+                "w": 193,
+                "h": 314
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "tool",
+      "tool": "flowPen",
+      "name": "flowPen_step_3",
+      "pass": true,
+      "elapsed": 5273,
+      "totalsEqual": true,
+      "totals": [
+        1,
+        1,
+        1
+      ],
+      "baked": [
+        1,
+        1,
+        1
+      ],
+      "worstMatchPct": 99.96129531673333,
+      "worstMaxDelta": 255,
+      "diffs": [
+        {
+          "otherIdx": 1,
+          "matchPct": 99.96129531673333,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 123968,
+              "checked": 124016,
+              "matchPct": 99.96129531673333,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 1530,
+                "y": 615,
+                "w": 337,
+                "h": 368
+              }
+            }
+          ]
+        },
+        {
+          "otherIdx": 2,
+          "matchPct": 99.96129531673333,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 123968,
+              "checked": 124016,
+              "matchPct": 99.96129531673333,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 1530,
+                "y": 615,
+                "w": 337,
+                "h": 368
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "tool",
+      "tool": "flowPen",
+      "name": "flowPen_step_4",
+      "pass": true,
+      "elapsed": 5249,
+      "totalsEqual": true,
+      "totals": [
+        1,
+        1,
+        1
+      ],
+      "baked": [
+        1,
+        1,
+        1
+      ],
+      "worstMatchPct": 99.98426141784952,
+      "worstMaxDelta": 255,
+      "diffs": [
+        {
+          "otherIdx": 1,
+          "matchPct": 99.98426141784952,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 101645,
+              "checked": 101661,
+              "matchPct": 99.98426141784952,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 918,
+                "y": 525,
+                "w": 329,
+                "h": 309
+              }
+            }
+          ]
+        },
+        {
+          "otherIdx": 2,
+          "matchPct": 99.98426141784952,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 101645,
+              "checked": 101661,
+              "matchPct": 99.98426141784952,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 918,
+                "y": 525,
+                "w": 329,
+                "h": 309
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "tool",
+      "tool": "flowPen",
+      "name": "flowPen_step_5",
+      "pass": true,
+      "elapsed": 5068,
+      "totalsEqual": true,
+      "totals": [
+        1,
+        1,
+        1
+      ],
+      "baked": [
+        1,
+        1,
+        1
+      ],
+      "worstMatchPct": 100,
+      "worstMaxDelta": 2,
+      "diffs": [
+        {
+          "otherIdx": 1,
+          "matchPct": 100,
+          "maxDelta": 2,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 55419,
+              "checked": 55419,
+              "matchPct": 100,
+              "maxDelta": 2,
+              "bbox": {
+                "x": 1039,
+                "y": 422,
+                "w": 273,
+                "h": 203
+              }
+            }
+          ]
+        },
+        {
+          "otherIdx": 2,
+          "matchPct": 100,
+          "maxDelta": 2,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 55419,
+              "checked": 55419,
+              "matchPct": 100,
+              "maxDelta": 2,
+              "bbox": {
+                "x": 1039,
+                "y": 422,
+                "w": 273,
+                "h": 203
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "tool",
+      "tool": "rectangle",
+      "name": "rectangle_step_1",
+      "pass": true,
+      "elapsed": 4818,
+      "totalsEqual": true,
+      "totals": [
+        1,
+        1,
+        1
+      ],
+      "baked": [
+        1,
+        1,
+        1
+      ],
+      "worstMatchPct": 100,
+      "worstMaxDelta": 255,
+      "diffs": [
+        {
+          "otherIdx": 1,
+          "matchPct": 100,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 19491,
+              "checked": 19491,
+              "matchPct": 100,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 1090,
+                "y": 424,
+                "w": 219,
+                "h": 89
+              }
+            }
+          ]
+        },
+        {
+          "otherIdx": 2,
+          "matchPct": 100,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 19491,
+              "checked": 19491,
+              "matchPct": 100,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 1090,
+                "y": 424,
+                "w": 219,
+                "h": 89
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "tool",
+      "tool": "rectangle",
+      "name": "rectangle_step_2",
+      "pass": true,
+      "elapsed": 4829,
+      "totalsEqual": true,
+      "totals": [
+        1,
+        1,
+        1
+      ],
+      "baked": [
+        1,
+        1,
+        1
+      ],
+      "worstMatchPct": 100,
+      "worstMaxDelta": 255,
+      "diffs": [
+        {
+          "otherIdx": 1,
+          "matchPct": 100,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 24150,
+              "checked": 24150,
+              "matchPct": 100,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 603,
+                "y": 0,
+                "w": 115,
+                "h": 210
+              }
+            }
+          ]
+        },
+        {
+          "otherIdx": 2,
+          "matchPct": 100,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 24150,
+              "checked": 24150,
+              "matchPct": 100,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 603,
+                "y": 0,
+                "w": 115,
+                "h": 210
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "tool",
+      "tool": "rectangle",
+      "name": "rectangle_step_3",
+      "pass": true,
+      "elapsed": 5128,
+      "totalsEqual": true,
+      "totals": [
+        1,
+        1,
+        1
+      ],
+      "baked": [
+        1,
+        1,
+        1
+      ],
+      "worstMatchPct": 100,
+      "worstMaxDelta": 255,
+      "diffs": [
+        {
+          "otherIdx": 1,
+          "matchPct": 100,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 13260,
+              "checked": 13260,
+              "matchPct": 100,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 350,
+                "y": 101,
+                "w": 65,
+                "h": 204
+              }
+            }
+          ]
+        },
+        {
+          "otherIdx": 2,
+          "matchPct": 100,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 13260,
+              "checked": 13260,
+              "matchPct": 100,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 350,
+                "y": 101,
+                "w": 65,
+                "h": 204
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "tool",
+      "tool": "rectangle",
+      "name": "rectangle_step_4",
+      "pass": true,
+      "elapsed": 4813,
+      "totalsEqual": true,
+      "totals": [
+        1,
+        1,
+        1
+      ],
+      "baked": [
+        1,
+        1,
+        1
+      ],
+      "worstMatchPct": 100,
+      "worstMaxDelta": 3,
+      "diffs": [
+        {
+          "otherIdx": 1,
+          "matchPct": 100,
+          "maxDelta": 3,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 34200,
+              "checked": 34200,
+              "matchPct": 100,
+              "maxDelta": 3,
+              "bbox": {
+                "x": 98,
+                "y": 151,
+                "w": 225,
+                "h": 152
+              }
+            }
+          ]
+        },
+        {
+          "otherIdx": 2,
+          "matchPct": 100,
+          "maxDelta": 3,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 34200,
+              "checked": 34200,
+              "matchPct": 100,
+              "maxDelta": 3,
+              "bbox": {
+                "x": 98,
+                "y": 151,
+                "w": 225,
+                "h": 152
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "tool",
+      "tool": "rectangle",
+      "name": "rectangle_step_5",
+      "pass": true,
+      "elapsed": 4808,
+      "totalsEqual": true,
+      "totals": [
+        1,
+        1,
+        1
+      ],
+      "baked": [
+        1,
+        1,
+        1
+      ],
+      "worstMatchPct": 100,
+      "worstMaxDelta": 255,
+      "diffs": [
+        {
+          "otherIdx": 1,
+          "matchPct": 100,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 31160,
+              "checked": 31160,
+              "matchPct": 100,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 206,
+                "y": 323,
+                "w": 205,
+                "h": 152
+              }
+            }
+          ]
+        },
+        {
+          "otherIdx": 2,
+          "matchPct": 100,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 31160,
+              "checked": 31160,
+              "matchPct": 100,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 206,
+                "y": 323,
+                "w": 205,
+                "h": 152
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "tool",
+      "tool": "circle",
+      "name": "circle_step_1",
+      "pass": true,
+      "elapsed": 4805,
+      "totalsEqual": true,
+      "totals": [
+        1,
+        1,
+        1
+      ],
+      "baked": [
+        1,
+        1,
+        1
+      ],
+      "worstMatchPct": 100,
+      "worstMaxDelta": 255,
+      "diffs": [
+        {
+          "otherIdx": 1,
+          "matchPct": 100,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 21736,
+              "checked": 21736,
+              "matchPct": 100,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 1550,
+                "y": 212,
+                "w": 152,
+                "h": 143
+              }
+            }
+          ]
+        },
+        {
+          "otherIdx": 2,
+          "matchPct": 100,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 21736,
+              "checked": 21736,
+              "matchPct": 100,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 1550,
+                "y": 212,
+                "w": 152,
+                "h": 143
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "tool",
+      "tool": "circle",
+      "name": "circle_step_2",
+      "pass": true,
+      "elapsed": 4826,
+      "totalsEqual": true,
+      "totals": [
+        1,
+        1,
+        1
+      ],
+      "baked": [
+        1,
+        1,
+        1
+      ],
+      "worstMatchPct": 100,
+      "worstMaxDelta": 255,
+      "diffs": [
+        {
+          "otherIdx": 1,
+          "matchPct": 100,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 32683,
+              "checked": 32683,
+              "matchPct": 100,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 569,
+                "y": 97,
+                "w": 203,
+                "h": 161
+              }
+            }
+          ]
+        },
+        {
+          "otherIdx": 2,
+          "matchPct": 100,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 32683,
+              "checked": 32683,
+              "matchPct": 100,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 569,
+                "y": 97,
+                "w": 203,
+                "h": 161
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "tool",
+      "tool": "circle",
+      "name": "circle_step_3",
+      "pass": true,
+      "elapsed": 4801,
+      "totalsEqual": true,
+      "totals": [
+        1,
+        1,
+        1
+      ],
+      "baked": [
+        1,
+        1,
+        1
+      ],
+      "worstMatchPct": 100,
+      "worstMaxDelta": 255,
+      "diffs": [
+        {
+          "otherIdx": 1,
+          "matchPct": 100,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 13824,
+              "checked": 13824,
+              "matchPct": 100,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 1433,
+                "y": 29,
+                "w": 128,
+                "h": 108
+              }
+            }
+          ]
+        },
+        {
+          "otherIdx": 2,
+          "matchPct": 100,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 13824,
+              "checked": 13824,
+              "matchPct": 100,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 1433,
+                "y": 29,
+                "w": 128,
+                "h": 108
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "tool",
+      "tool": "circle",
+      "name": "circle_step_4",
+      "pass": true,
+      "elapsed": 4814,
+      "totalsEqual": true,
+      "totals": [
+        1,
+        1,
+        1
+      ],
+      "baked": [
+        1,
+        1,
+        1
+      ],
+      "worstMatchPct": 100,
+      "worstMaxDelta": 1,
+      "diffs": [
+        {
+          "otherIdx": 1,
+          "matchPct": 100,
+          "maxDelta": 1,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 26004,
+              "checked": 26004,
+              "matchPct": 100,
+              "maxDelta": 1,
+              "bbox": {
+                "x": 195,
+                "y": 666,
+                "w": 197,
+                "h": 132
+              }
+            }
+          ]
+        },
+        {
+          "otherIdx": 2,
+          "matchPct": 100,
+          "maxDelta": 1,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 26004,
+              "checked": 26004,
+              "matchPct": 100,
+              "maxDelta": 1,
+              "bbox": {
+                "x": 195,
+                "y": 666,
+                "w": 197,
+                "h": 132
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "tool",
+      "tool": "circle",
+      "name": "circle_step_5",
+      "pass": true,
+      "elapsed": 4788,
+      "totalsEqual": true,
+      "totals": [
+        1,
+        1,
+        1
+      ],
+      "baked": [
+        1,
+        1,
+        1
+      ],
+      "worstMatchPct": 100,
+      "worstMaxDelta": 255,
+      "diffs": [
+        {
+          "otherIdx": 1,
+          "matchPct": 100,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 12298,
+              "checked": 12298,
+              "matchPct": 100,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 951,
+                "y": 644,
+                "w": 86,
+                "h": 143
+              }
+            }
+          ]
+        },
+        {
+          "otherIdx": 2,
+          "matchPct": 100,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": true,
+              "matched": 12298,
+              "checked": 12298,
+              "matchPct": 100,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 951,
+                "y": 644,
+                "w": 86,
+                "h": 143
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "tool",
+      "tool": "line",
+      "name": "line_step_1",
+      "pass": false,
+      "elapsed": 4824,
+      "totalsEqual": true,
+      "totals": [
+        1,
+        1,
+        1
+      ],
+      "baked": [
+        1,
+        1,
+        1
+      ],
+      "worstMatchPct": 98.9360526170342,
+      "worstMaxDelta": 31,
+      "diffs": [
+        {
+          "otherIdx": 1,
+          "matchPct": 98.9360526170342,
+          "maxDelta": 31,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": false,
+              "matched": 35801,
+              "checked": 36186,
+              "matchPct": 98.9360526170342,
+              "maxDelta": 31,
+              "bbox": {
+                "x": 208,
+                "y": 93,
+                "w": 222,
+                "h": 163
+              }
+            }
+          ]
+        },
+        {
+          "otherIdx": 2,
+          "matchPct": 98.9360526170342,
+          "maxDelta": 31,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": false,
+              "matched": 35801,
+              "checked": 36186,
+              "matchPct": 98.9360526170342,
+              "maxDelta": 31,
+              "bbox": {
+                "x": 208,
+                "y": 93,
+                "w": 222,
+                "h": 163
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "tool",
+      "tool": "line",
+      "name": "line_step_2",
+      "pass": false,
+      "elapsed": 4811,
+      "totalsEqual": true,
+      "totals": [
+        1,
+        1,
+        1
+      ],
+      "baked": [
+        1,
+        1,
+        1
+      ],
+      "worstMatchPct": 92.48979591836735,
+      "worstMaxDelta": 255,
+      "diffs": [
+        {
+          "otherIdx": 1,
+          "matchPct": 92.48979591836735,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": false,
+              "matched": 18128,
+              "checked": 19600,
+              "matchPct": 92.48979591836735,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 726,
+                "y": 361,
+                "w": 200,
+                "h": 98
+              }
+            }
+          ]
+        },
+        {
+          "otherIdx": 2,
+          "matchPct": 92.48979591836735,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": false,
+              "matched": 18128,
+              "checked": 19600,
+              "matchPct": 92.48979591836735,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 726,
+                "y": 361,
+                "w": 200,
+                "h": 98
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "tool",
+      "tool": "line",
+      "name": "line_step_3",
+      "pass": false,
+      "elapsed": 4819,
+      "totalsEqual": true,
+      "totals": [
+        1,
+        1,
+        1
+      ],
+      "baked": [
+        1,
+        1,
+        1
+      ],
+      "worstMatchPct": 96.19443002940667,
+      "worstMaxDelta": 255,
+      "diffs": [
+        {
+          "otherIdx": 1,
+          "matchPct": 96.19443002940667,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": false,
+              "matched": 33366,
+              "checked": 34686,
+              "matchPct": 96.19443002940667,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 910,
+                "y": 406,
+                "w": 246,
+                "h": 141
+              }
+            }
+          ]
+        },
+        {
+          "otherIdx": 2,
+          "matchPct": 96.19443002940667,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": false,
+              "matched": 33366,
+              "checked": 34686,
+              "matchPct": 96.19443002940667,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 910,
+                "y": 406,
+                "w": 246,
+                "h": 141
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "tool",
+      "tool": "line",
+      "name": "line_step_4",
+      "pass": false,
+      "elapsed": 4851,
+      "totalsEqual": true,
+      "totals": [
+        1,
+        1,
+        1
+      ],
+      "baked": [
+        1,
+        1,
+        1
+      ],
+      "worstMatchPct": 65.54854981084489,
+      "worstMaxDelta": 255,
+      "diffs": [
+        {
+          "otherIdx": 1,
+          "matchPct": 65.54854981084489,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": false,
+              "matched": 2599,
+              "checked": 3965,
+              "matchPct": 65.54854981084489,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 410,
+                "y": 473,
+                "w": 65,
+                "h": 61
+              }
+            }
+          ]
+        },
+        {
+          "otherIdx": 2,
+          "matchPct": 65.54854981084489,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": false,
+              "matched": 2599,
+              "checked": 3965,
+              "matchPct": 65.54854981084489,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 410,
+                "y": 473,
+                "w": 65,
+                "h": 61
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "tool",
+      "tool": "line",
+      "name": "line_step_5",
+      "pass": false,
+      "elapsed": 4868,
+      "totalsEqual": true,
+      "totals": [
+        1,
+        1,
+        1
+      ],
+      "baked": [
+        1,
+        1,
+        1
+      ],
+      "worstMatchPct": 97.91187739463602,
+      "worstMaxDelta": 255,
+      "diffs": [
+        {
+          "otherIdx": 1,
+          "matchPct": 97.91187739463602,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": false,
+              "matched": 51110,
+              "checked": 52200,
+              "matchPct": 97.91187739463602,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 171,
+                "y": 547,
+                "w": 200,
+                "h": 261
+              }
+            }
+          ]
+        },
+        {
+          "otherIdx": 2,
+          "matchPct": 97.91187739463602,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": false,
+              "matched": 51110,
+              "checked": 52200,
+              "matchPct": 97.91187739463602,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 171,
+                "y": 547,
+                "w": 200,
+                "h": 261
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "tool",
+      "tool": "confetti",
+      "name": "confetti_step_1",
+      "pass": false,
+      "elapsed": 5049,
+      "totalsEqual": true,
+      "totals": [
+        1,
+        1,
+        1
+      ],
+      "baked": [
+        1,
+        1,
+        1
+      ],
+      "worstMatchPct": 98.68516719101429,
+      "worstMaxDelta": 255,
+      "diffs": [
+        {
+          "otherIdx": 1,
+          "matchPct": 98.68516719101429,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": false,
+              "matched": 145232,
+              "checked": 147167,
+              "matchPct": 98.68516719101429,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 1023,
+                "y": 264,
+                "w": 367,
+                "h": 401
+              }
+            }
+          ]
+        },
+        {
+          "otherIdx": 2,
+          "matchPct": 98.68516719101429,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": false,
+              "matched": 145232,
+              "checked": 147167,
+              "matchPct": 98.68516719101429,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 1023,
+                "y": 264,
+                "w": 367,
+                "h": 401
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "tool",
+      "tool": "confetti",
+      "name": "confetti_step_2",
+      "pass": false,
+      "elapsed": 5041,
+      "totalsEqual": true,
+      "totals": [
+        1,
+        1,
+        1
+      ],
+      "baked": [
+        1,
+        1,
+        1
+      ],
+      "worstMatchPct": 96.08539414860506,
+      "worstMaxDelta": 255,
+      "diffs": [
+        {
+          "otherIdx": 1,
+          "matchPct": 96.08539414860506,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": false,
+              "matched": 135834,
+              "checked": 141368,
+              "matchPct": 96.08539414860506,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 508,
+                "y": 375,
+                "w": 431,
+                "h": 328
+              }
+            }
+          ]
+        },
+        {
+          "otherIdx": 2,
+          "matchPct": 96.08539414860506,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": false,
+              "matched": 135834,
+              "checked": 141368,
+              "matchPct": 96.08539414860506,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 508,
+                "y": 375,
+                "w": 431,
+                "h": 328
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "tool",
+      "tool": "confetti",
+      "name": "confetti_step_3",
+      "pass": false,
+      "elapsed": 4993,
+      "totalsEqual": true,
+      "totals": [
+        1,
+        1,
+        1
+      ],
+      "baked": [
+        1,
+        1,
+        1
+      ],
+      "worstMatchPct": 97.307260778971,
+      "worstMaxDelta": 255,
+      "diffs": [
+        {
+          "otherIdx": 1,
+          "matchPct": 97.307260778971,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": false,
+              "matched": 127491,
+              "checked": 131019,
+              "matchPct": 97.307260778971,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 526,
+                "y": 582,
+                "w": 357,
+                "h": 367
+              }
+            }
+          ]
+        },
+        {
+          "otherIdx": 2,
+          "matchPct": 97.307260778971,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": false,
+              "matched": 127491,
+              "checked": 131019,
+              "matchPct": 97.307260778971,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 526,
+                "y": 582,
+                "w": 357,
+                "h": 367
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "tool",
+      "tool": "confetti",
+      "name": "confetti_step_4",
+      "pass": false,
+      "elapsed": 5182,
+      "totalsEqual": true,
+      "totals": [
+        1,
+        1,
+        1
+      ],
+      "baked": [
+        1,
+        1,
+        1
+      ],
+      "worstMatchPct": 98.5734914120687,
+      "worstMaxDelta": 255,
+      "diffs": [
+        {
+          "otherIdx": 1,
+          "matchPct": 98.5734914120687,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": false,
+              "matched": 129703,
+              "checked": 131580,
+              "matchPct": 98.5734914120687,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 1156,
+                "y": 169,
+                "w": 340,
+                "h": 387
+              }
+            }
+          ]
+        },
+        {
+          "otherIdx": 2,
+          "matchPct": 98.5734914120687,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": false,
+              "matched": 129703,
+              "checked": 131580,
+              "matchPct": 98.5734914120687,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 1156,
+                "y": 169,
+                "w": 340,
+                "h": 387
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "tool",
+      "tool": "confetti",
+      "name": "confetti_step_5",
+      "pass": false,
+      "elapsed": 5117,
+      "totalsEqual": true,
+      "totals": [
+        1,
+        1,
+        1
+      ],
+      "baked": [
+        1,
+        1,
+        1
+      ],
+      "worstMatchPct": 97.72748407495234,
+      "worstMaxDelta": 255,
+      "diffs": [
+        {
+          "otherIdx": 1,
+          "matchPct": 97.72748407495234,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": false,
+              "matched": 168146,
+              "checked": 172056,
+              "matchPct": 97.72748407495234,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 1456,
+                "y": 315,
+                "w": 402,
+                "h": 428
+              }
+            }
+          ]
+        },
+        {
+          "otherIdx": 2,
+          "matchPct": 97.72748407495234,
+          "maxDelta": 255,
+          "perGroup": [
+            {
+              "groupIdx": 0,
+              "pass": false,
+              "matched": 168146,
+              "checked": 172056,
+              "matchPct": 97.72748407495234,
+              "maxDelta": 255,
+              "bbox": {
+                "x": 1456,
+                "y": 315,
+                "w": 402,
+                "h": 428
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

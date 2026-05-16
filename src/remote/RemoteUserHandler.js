@@ -110,6 +110,8 @@ export class RemoteUserHandler {
    * @returns {void}
    */
   handleMouseMove(user, data) {
+    if (user.id === this.app.sessionIndex) return;
+
     const points = data.ps;
     if (!points || points.length < 2) return;
 
@@ -491,6 +493,8 @@ export class RemoteUserHandler {
    * @returns {void}
    */
   handleMouseDown(user, data = {}) {
+    if (user.id === this.app.sessionIndex) return;
+
     this.ui.markRemoteCursorActivity(user.id);
     user.mousedown = true;
     user._mainCtxDrawCount = 0;
@@ -570,11 +574,9 @@ export class RemoteUserHandler {
           }
           const eraserTool = this.toolManager.getTool('erase');
           if (eraserTool) {
-            eraserTool._resetStrokeState?.(user);
-            eraserTool.appendBufferedPoint(user, pos);
+            eraserTool.onPointerDown(user, pos);
           }
           break;
-          // Skip the initial dot if pressure is 0 — same guard as the ink tool.
         }
         break;
 
@@ -684,11 +686,22 @@ export class RemoteUserHandler {
    * @param {User} user - The remote user.
    * @returns {void}
    */
-  handleMouseUp(user) {
+  handleMouseUp(user, seq = 0) {
+    // Self-reconciliation: If this is the local user's own 'mu' message, it
+    // contains the server-assigned sequence number for the stroke they just
+    // optimistically committed. Update the record in LayerManager so global
+    // ordering is consistent across all clients.
+    if (user.id === this.app.sessionIndex) {
+      const strokeLayer = this.getStrokeLayer(user);
+      this.board.layerManager.reconcileLocalStroke(strokeLayer, user.id, seq);
+      user.mousedown = false;
+      return;
+    }
+
     if (!user.mousedown) return;
 
     if (user.tool === 'imageBrush' && user.imageBrush?._pendingStrokes) {
-      user.imageBrush._pendingStrokes.push({ type: 'up' });
+      user.imageBrush._pendingStrokes.push({ type: 'up', seq });
       user.mousedown = false; // Stop further mouse move processing
       return;
     }
@@ -741,7 +754,13 @@ export class RemoteUserHandler {
               );
             });
           });
-          const lineMargin = user.size + 2;
+          // Mirror LineTool.onPointerUp margin so the hardness blur halo is
+          // included in the dirtyRect, otherwise commitUserStroke crops the
+          // halo off and observers' committed stroke disagrees with drawer's.
+          const lineRadius = user.size;
+          const lineHardness = (user.hardness !== undefined ? user.hardness : 100) / 100;
+          const lineBlur = lineHardness < 1.0 ? (1 - lineHardness) * (20 + user.size * 0.2) : 0;
+          const lineMargin = lineRadius + lineBlur + lineRadius * 0.1 + 2;
           this._expandDirtyRectFromPoints(user, [user.startPos, pos], lineMargin);
         }
         break;
@@ -823,7 +842,7 @@ export class RemoteUserHandler {
       case 'erase': {
         const eraserTool = this.toolManager.getTool('erase');
         if (eraserTool) {
-          eraserTool.commitCurrentLine(user, user.pressure, user.size, user.opacity, false);
+          eraserTool.commitCurrentLine(user, user.pressure, user.size, user.opacity, false, { seq });
         }
         break;
       }
@@ -834,7 +853,7 @@ export class RemoteUserHandler {
       case 'pattern':
         if (!user.panning) {
           const patternTool = this.toolManager.getTool('pattern');
-          if (patternTool) patternTool.remoteEndStroke(user);
+          if (patternTool) patternTool.remoteEndStroke(user, seq);
         }
         break;
     }
@@ -872,11 +891,11 @@ export class RemoteUserHandler {
     }
 
     if (user.tool === 'erase' && user.eraseAllLayers) {
-      this.board.endStrokeAllLayers(user);
+      this.board.endStrokeAllLayers(user, 'destination-out', { seq });
     } else if (user.tool !== 'fill' && user.tool !== 'text' && user.tool !== 'glitchBlur') {
       // Fill tool commits its own stroke via the dedicated FILL message handler
       this.board.releaseSelectionMaskClipForStroke(strokeLayer, user.id);
-      this.board.layerManager.commitUserStroke(strokeLayer, user.id);
+      this.board.layerManager.commitUserStroke(strokeLayer, user.id, { seq });
       if (this.board._compositeCommittedStrokeNow) {
         this.board._compositeCommittedStrokeNow();
       } else {
@@ -1265,6 +1284,7 @@ export class RemoteUserHandler {
         if (entry.type === 'down') {
           tool.lastStampPos.set(user.id, entry.pos);
           user.mousedown = true;
+          tool.drawStamp(user, entry.pos);
         } else if (entry.type === 'stamps') {
           tool.applyStamps(user, entry.pts);
         } else if (entry.type === 'up') {

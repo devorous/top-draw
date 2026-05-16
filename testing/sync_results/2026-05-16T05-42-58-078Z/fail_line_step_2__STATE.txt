@@ -1,0 +1,12 @@
+bot_0:
+  self:    {"n":"bot_0","t":"line","sz":6,"hd":30,"op":0.8,"sp":0,"sm":50,"col":[255,0,0,0.8],"bm":"source-over"}
+  remote:  {"n":"bot_1","t":"ink","sz":10,"hd":100,"op":1,"sp":0,"sm":15,"col":[0,0,0,1],"bm":"source-over"}
+  remote:  {"n":"bot_2","t":"ink","sz":10,"hd":100,"op":1,"sp":0,"sm":15,"col":[0,0,0,1],"bm":"source-over"}
+bot_1:
+  self:    {"n":"bot_1","t":"ink","sz":10,"hd":100,"op":1,"sp":0,"sm":15,"col":[0,0,0,1],"bm":"source-over"}
+  remote:  {"n":"bot_0","t":"line","sz":6,"hd":30,"op":0.8,"sp":0,"sm":50,"col":[255,0,0,0.8],"bm":"source-over"}
+  remote:  {"n":"bot_2","t":"ink","sz":10,"hd":100,"op":1,"sp":0,"sm":15,"col":[0,0,0,1],"bm":"source-over"}
+bot_2:
+  self:    {"n":"bot_2","t":"ink","sz":10,"hd":100,"op":1,"sp":0,"sm":15,"col":[0,0,0,1],"bm":"source-over"}
+  remote:  {"n":"bot_0","t":"line","sz":6,"hd":30,"op":0.8,"sp":0,"sm":50,"col":[255,0,0,0.8],"bm":"source-over"}
+  remote:  {"n":"bot_1","t":"ink","sz":10,"hd":100,"op":1,"sp":0,"sm":15,"col":[0,0,0,1],"bm":"source-over"}

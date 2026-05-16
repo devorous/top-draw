@@ -2338,6 +2338,10 @@ function broadcastToRoom(room, payload, excludeIndex = null) {
   for (let key in POOLED_MSG) { if (POOLED_MSG.hasOwnProperty(key)) delete POOLED_MSG[key]; }
   Object.assign(POOLED_MSG, payload);
 
+  if (room && room.messageSequence !== undefined) {
+    POOLED_MSG.seq = ++room.messageSequence;
+  }
+
   const buffer = Msg.encode(POOLED_MSG).finish();
   const shouldBatch = BATCHABLE_TYPES.has(payload.t);
 
@@ -2364,6 +2368,37 @@ function broadcastToRoom(room, payload, excludeIndex = null) {
       }
     }
   });
+}
+
+/**
+ * Performs the visible part of a disconnect — broadcasts LEFT, frees the
+ * sessionIndex, and runs the room-empty cleanup. Split out of the close
+ * handler so it can also be triggered by the grace timer when a resumable
+ * client fails to come back in time.
+ */
+function finalizeSessionRemoval(room, sessionIndex, ws) {
+  if (!room || sessionIndex === undefined) return;
+  room.sessionManager.removeUser(sessionIndex);
+  room.sessionManager.freeSessionIndex(sessionIndex);
+  if (!ws.isShadowBanned) {
+    broadcastToRoom(room, { t: T.LEFT, u: sessionIndex });
+  }
+
+  if (room.sessionManager.getUserCount() === 0) {
+    room.becameEmptyAt = Date.now();
+    room.settings.mirror = false;
+    room.settings.mirrorRegions = [];
+    room.syncCoordinator.clearPendingRequests();
+    room.setPreview(null);
+    room.clearAllTiles();
+    stopElection(room);
+    removeRecorder(room.id);
+    roomManager.broadcastRoomListUpdate();
+  }
+
+  if (room.getClientCount() === 0 && !(room.pendingDisconnects?.size)) {
+    roomManager.cleanupEmptyRooms();
+  }
 }
 
 wss.on('connection', async (ws, req) => {
@@ -2549,13 +2584,27 @@ wss.on('connection', async (ws, req) => {
     ws.pingRtt = null;
     ws.lowPowerMode = false;
     ws.tabHidden = false;
+    ws.missedPongs = 0;
+    // 2 missed pongs (~60s of silence) indicates a half-open TCP — reap it so
+    // the user doesn't linger as a ghost cursor until the OS keepalive trips.
+    const MAX_MISSED_PONGS = 2;
     ws.pingInterval = setInterval(() => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.pingSentAt = Date.now();
-        sendTo(ws, { t: T.PING });
-      } else {
+      if (ws.readyState !== WebSocket.OPEN) {
         clearInterval(ws.pingInterval);
+        return;
       }
+      if (ws.pingSentAt) {
+        // Previous ping never got a PONG response.
+        ws.missedPongs++;
+        if (ws.missedPongs >= MAX_MISSED_PONGS) {
+          console.warn(`[WS] Reaping half-open socket (session ${ws.sessionIndex ?? 'unassigned'}, ${ws.missedPongs} missed pongs)`);
+          clearInterval(ws.pingInterval);
+          try { ws.terminate(); } catch (_) {}
+          return;
+        }
+      }
+      ws.pingSentAt = Date.now();
+      sendTo(ws, { t: T.PING });
     }, 30000);
   } catch (err) {
     console.error('[WS] Connection handler error:', err);
@@ -2649,8 +2698,44 @@ wss.on('connection', async (ws, req) => {
       }
 
       switch (data.t) {
-        case T.CONNECT:
+        case T.CONNECT: {
           await room.ensureLoaded();
+
+          // Same-session resume: if the client supplied a resumeKey matching a
+          // pending-disconnect entry in this room, reattach to the original
+          // sessionIndex instead of allocating a new one. Peers never see a
+          // LEFT/USERS churn for the brief drop.
+          const incomingResumeKey = data.resumeKey ? String(data.resumeKey) : '';
+          if (incomingResumeKey && room.pendingDisconnects?.has(incomingResumeKey)) {
+            const pending = room.pendingDisconnects.get(incomingResumeKey);
+            const resumedUser = room.sessionManager.getUser(pending.sessionIndex);
+            if (resumedUser) {
+              clearTimeout(pending.timer);
+              room.pendingDisconnects.delete(incomingResumeKey);
+              ws.sessionIndex = pending.sessionIndex;
+              ws.resumeKey = incomingResumeKey;
+              console.log(`[CONNECT] Resumed sessionIndex=${pending.sessionIndex} as "${resumedUser.name}" via resumeKey`);
+              sendTo(ws, {
+                t: T.CONNECT_RESUMED,
+                u: pending.sessionIndex,
+                iid: resumedUser.instanceId,
+                authRole: ws.userRole,
+                authGlobalRole: ws.globalRole || 0,
+                authRoomRole: ws.roomRole || 0,
+                authUsername: resumedUser.name
+              });
+              // Tell peers to drop any half-stroke preview that was active when
+              // the socket dropped — the resumed client starts fresh.
+              broadcastToRoom(room, { t: T.CANCEL, u: pending.sessionIndex });
+              break;
+            }
+            // User got finalized after the timer fired but before we cleared
+            // the map (shouldn't normally happen). Fall through to fresh CONNECT.
+            room.pendingDisconnects.delete(incomingResumeKey);
+          }
+          if (incomingResumeKey) {
+            ws.resumeKey = incomingResumeKey;
+          }
 
           if (getDB()) {
             try {
@@ -2822,6 +2907,7 @@ wss.on('connection', async (ws, req) => {
             roomBroadcaster({ t: T.HIDE_CURSOR, u: sessionIndex });
           }
           break;
+        }
 
         case T.SYNC_REQUEST:
           room.syncCoordinator.handleSyncRequest(ws, data);
@@ -3718,6 +3804,7 @@ wss.on('connection', async (ws, req) => {
             ws.pingRtt = Date.now() - ws.pingSentAt;
             ws.pingSentAt = null;
           }
+          ws.missedPongs = 0;
           ws.lowPowerMode = !!data.lowPowerMode;
           ws.tabHidden = !!data.tabHidden;
           break;
@@ -4525,7 +4612,7 @@ wss.on('connection', async (ws, req) => {
     }
   });
 
-  ws.on('close', () => {
+  ws.on('close', (code, reason) => {
     clientOutbox.delete(ws);
     cancelProbesForSocket(ws);
 
@@ -4543,35 +4630,58 @@ wss.on('connection', async (ws, req) => {
     const sessionIndex = ws.sessionIndex;
     const room = roomManager.getRoomByClient(ws);
 
-    if (room) {
-      room.removeClient(ws);
-      room.updateSnapshotTimer();
+    if (!room) return;
 
-      if (sessionIndex !== undefined) {
-        room.sessionManager.removeUser(sessionIndex);
-        room.sessionManager.freeSessionIndex(sessionIndex);
-        if (!ws.isShadowBanned) {
-          broadcastToRoom(room, { t: T.LEFT, u: sessionIndex });
-        }
+    room.removeClient(ws);
+    room.updateSnapshotTimer();
 
-            if (room.sessionManager.getUserCount() === 0) {
-              room.settings.mirror = false;
-              room.settings.mirrorRegions = [];
-              room.syncCoordinator.clearPendingRequests();
-              room.setPreview(null);
-            // Clear tile data when room empties - stale data shouldn't persist
-            room.clearAllTiles();
-            // Stop uploader election and flush delta recorder
-            stopElection(room);
-            removeRecorder(room.id);
-            roomManager.broadcastRoomListUpdate();
-          }
-      }
+    // Going from many witnesses to one: ask the last user to upload a fresh
+    // snapshot now, so if they drop next the post-empty restore matches what
+    // they actually saw rather than a 15s-stale auto-save.
+    if (room.getClientCount() === 1) {
+      room._requestSnapshot?.();
+    }
 
-      if (room.getClientCount() === 0) {
+    if (sessionIndex === undefined) {
+      if (room.getClientCount() === 0 && !(room.pendingDisconnects?.size)) {
         roomManager.cleanupEmptyRooms();
       }
+      return;
     }
+
+    // Hold the session open briefly for a same-tab reconnect. The client
+    // generates a per-tab resumeKey and replays it on CONNECT; if it lands
+    // within the grace window the user keeps their sessionIndex and peers
+    // never see a LEFT/USERS churn.
+    const INTENTIONAL_CLOSE_CODES = new Set([4000, 4001, 4002, 4003, 4009, 4401, 4408]);
+    const isIntentionalClose = INTENTIONAL_CLOSE_CODES.has(Number(code));
+    const canResume = !!ws.resumeKey && !ws.isShadowBanned && !isIntentionalClose;
+
+    if (canResume) {
+      const user = room.sessionManager.getUser(sessionIndex);
+      // Clear in-progress stroke state so a stale `mousedown` doesn't bleed
+      // into AFK detection or the next stroke if the user does come back.
+      if (user) user.mousedown = false;
+
+      if (!room.pendingDisconnects) room.pendingDisconnects = new Map();
+      const prior = room.pendingDisconnects.get(ws.resumeKey);
+      if (prior) clearTimeout(prior.timer);
+
+      const RESUME_GRACE_MS = 15_000;
+      const timer = setTimeout(() => {
+        const entry = room.pendingDisconnects?.get(ws.resumeKey);
+        if (!entry || entry.timer !== timer) return;
+        room.pendingDisconnects.delete(ws.resumeKey);
+        console.log(`[WS] Grace expired for sessionIndex=${sessionIndex}; finalizing disconnect`);
+        finalizeSessionRemoval(room, sessionIndex, ws);
+      }, RESUME_GRACE_MS);
+
+      room.pendingDisconnects.set(ws.resumeKey, { sessionIndex, timer });
+      console.log(`[WS] Holding session ${sessionIndex} for ${RESUME_GRACE_MS}ms (resumeKey=${ws.resumeKey.slice(0, 8)}…)`);
+      return;
+    }
+
+    finalizeSessionRemoval(room, sessionIndex, ws);
   });
 
   ws.on('error', (error) => {

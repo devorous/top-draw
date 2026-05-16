@@ -198,6 +198,9 @@ export async function sanitizeMessage(data) {
   switch (type) {
     case T.CONNECT:
       sanitized.n = sanitizeString(data.n, MAX_NAME_LENGTH);
+      if (data.resumeKey !== undefined) {
+        sanitized.resumeKey = sanitizeString(data.resumeKey, 64);
+      }
       return sanitized;
 
     case T.MM:

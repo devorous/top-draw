@@ -2196,7 +2196,7 @@ export class Board {
    * End stroke on every layer for a user (erase-all mode).
    * @param {Object} user - User object
    */
-  endStrokeAllLayers(user) {
+  endStrokeAllLayers(user, options = {}) {
     const userId = user?.id ?? this.app?.self?.id ?? 0;
     if (!this.layerManager) return;
     if (this._getSelectionMaskForUser(userId)) {
@@ -2205,10 +2205,10 @@ export class Board {
         this.releaseSelectionMaskClipForStroke(i, userId);
       }
     }
-    const batchTimestamp = Date.now();
+    const batchTimestamp = options.timestamp || Date.now();
     const count = this.layerManager.getLayerCount();
     for (let i = 0; i < count; i++) {
-      this.layerManager.commitUserStroke(i, userId, { eraseAll: true, timestamp: batchTimestamp });
+      this.layerManager.commitUserStroke(i, userId, { eraseAll: true, timestamp: batchTimestamp, ...options });
     }
     this._compositeCommittedStrokeNow();
   }

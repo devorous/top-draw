@@ -1,0 +1,12 @@
+bot_0:
+  self:    {"n":"bot_0","t":"brush","sz":14,"hd":100,"op":1,"sp":0,"sm":30,"col":[184,72,168,1],"bm":"overlay"}
+  remote:  {"n":"bot_1","t":"line","sz":20,"hd":100,"op":1,"sp":0,"sm":50,"col":[50,80,220,1],"bm":"source-over"}
+  remote:  {"n":"bot_2","t":"circle","sz":20,"hd":100,"op":1,"sp":0,"sm":50,"col":[40,180,60,1],"bm":"source-over"}
+bot_1:
+  self:    {"n":"bot_1","t":"line","sz":20,"hd":100,"op":1,"sp":0,"sm":50,"col":[50,80,220,1],"bm":"source-over"}
+  remote:  {"n":"bot_0","t":"brush","sz":14,"hd":100,"op":1,"sp":0,"sm":30,"col":[184,72,168,1],"bm":"overlay"}
+  remote:  {"n":"bot_2","t":"circle","sz":20,"hd":100,"op":1,"sp":0,"sm":50,"col":[40,180,60,1],"bm":"source-over"}
+bot_2:
+  self:    {"n":"bot_2","t":"circle","sz":20,"hd":100,"op":1,"sp":0,"sm":50,"col":[40,180,60,1],"bm":"source-over"}
+  remote:  {"n":"bot_0","t":"brush","sz":14,"hd":100,"op":1,"sp":0,"sm":30,"col":[184,72,168,1],"bm":"overlay"}
+  remote:  {"n":"bot_1","t":"line","sz":20,"hd":100,"op":1,"sp":0,"sm":50,"col":[50,80,220,1],"bm":"source-over"}

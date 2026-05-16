@@ -127,6 +127,7 @@ message Msg {
     BW_REPORT = 132;               // Client→server: report a previously measured uploadBps (e.g. from _discovery)
     METRICS_UPDATE = 133;          // Client→server: batched metrics update (achievements)
     IMAGE_TOOL = 134;              // Image data for image-based tools (image/pattern/confetti)
+    CONNECT_RESUMED = 135;         // Server→client: same-session reattach after a brief disconnect
   }
 
   // Tool enum
@@ -307,6 +308,7 @@ message Msg {
     bool eraseAll    = 13;  // true = erase-all-layers stroke
     string blendBakeMode = 14; // 'existing' or 'background'
     bool activeStroke = 15; // true = in-progress stroke; import into activeStrokeByUser
+    uint64 seq = 16;        // Global message sequence number for ordering
   }
 
   // === Batched Sync Fields ===
@@ -470,6 +472,8 @@ message Msg {
   uint32 text_age_ms = 167;          // TEXT_APPLY: server-stamped age at send time, used for backfill on join
   bool   text_pixel = 168;           // TEXT_APPLY: true → rasterize as a permanent stroke, skip overlay tracking
   uint32 room_text_overlay_lifetime_ms = 169; // ROOM_UPDATE/SETTINGS: per-room ephemeral text lifetime (ms)
+  string resume_key = 170;           // CONNECT/CONNECT_RESUMED: opaque per-tab key for reclaiming a sessionIndex after a brief drop
+  uint64 seq = 171;                  // Global message sequence number (assigned by server)
 }
 
 // New message for storing snapshot layers and thumbnail bundled in R2
