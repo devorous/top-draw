@@ -1,11 +1,11 @@
 {
-  "version": "1.8.4-beta",
+  "version": "1.8.5-beta",
   "notes": "Implemented Discord login logic, Improved user profiles, Added new interactive tutorials, Added confetti brush",
-  "pub_date": "2026-05-16T22:31:52.025Z",
+  "pub_date": "2026-05-16T22:58:47.712Z",
   "platforms": {
     "windows-x86_64": {
-      "url": "https://www.ddraw.ca/desktop-updates/windows-x86_64/Ddraw_1.8.4-beta_x64-setup.exe",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQ01XR1piUDlNenFra3FyOVFxYVlDVEpPM012c3Z3SzhiNUtmYktoTE54cG5ZUHhaZkxzUlc5VjJEQ01WSlhyZTZnVnloMDNvRGM4OVhjeTZmOE9FRjU4cmJkeW5mSGdFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc4OTcwODAyCWZpbGU6RGRyYXdfMS44LjQtYmV0YV94NjQtc2V0dXAuZXhlCmtvYXFnMmZjQnpNclM5bmcvTGxpdzYvZDEvUEhjdU8yYWV5dmZZUy92anc2WDFIWllVMHMvZ2JxODdFN3dod3VjVXc2ejd1K0tLaVZoWEpuaHF2MkRnPT0K"
+      "url": "https://www.ddraw.ca/desktop-updates/windows-x86_64/Ddraw_1.8.5-beta_x64-setup.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQ01XR1piUDlNenB2ZEZwK0YzRFY5TW12NEljOUpvOHZsNnJCd3Z2R1ljSmxWMTBGejkxcjF0OEwrOTRidmI3SXdkTGErb1NmSFFYZFArdE1LZUQ2NGVBZjROalkzTndFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc4OTcyNDY4CWZpbGU6RGRyYXdfMS44LjUtYmV0YV94NjQtc2V0dXAuZXhlCitrNTAyYnNRTjlGYjhCMFhvMGNBYTg3aFdQRXRuTnluVVBNYXlDYXp2bzRtUzFYNlN2aWJXNC9rbEpBRmVyNFZQckFSUXhhK3NjbGxoZy8rWTYrdkRBPT0K"
     }
   }
 }
