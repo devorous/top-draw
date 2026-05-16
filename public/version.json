@@ -1,7 +1,7 @@
 {
-  "latest": "1.8.3-beta",
-  "minRequired": "1.8.3-beta",
-  "releaseDate": "2026-05-15T03:25:28.097Z",
+  "latest": "1.8.4-beta",
+  "minRequired": "1.8.4-beta",
+  "releaseDate": "2026-05-16T22:31:52.025Z",
   "notes": "Implemented Discord login logic, Improved user profiles, Added new interactive tutorials, Added confetti brush",
   "downloadUrl": "https://www.ddraw.ca/download"
 }
