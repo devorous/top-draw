@@ -2533,24 +2533,8 @@ menuBtn: document.getElementById('menuBtn'),
     const el = this.elements.selfListUser;
     if (!el) return;
 
-    // Remove all possible rank classes
-    const rankClasses = ['rank-guest', 'rank-user', 'rank-trusted', 'rank-helper', 'rank-mod', 'rank-admin', 'rank-noble', 'rank-holy', 'rank-deity'];
-    el.classList.remove(...rankClasses);
-
-    const roleClass = RemoteUserUI.roleToClass(role);
-    if (roleClass) {
-      el.classList.add(roleClass);
-    }
-
-    // Also update the self userEntry glow
     const entry = el.closest('.userEntry');
-    if (entry) {
-      entry.classList.remove(...rankClasses);
-      // Only apply row glow for Noble+
-      if (role >= 7 && roleClass) {
-        entry.classList.add(roleClass);
-      }
-    }
+    RemoteUserUI.applyRankClasses(el, entry, role);
   }
 
   /**
@@ -2560,25 +2544,9 @@ menuBtn: document.getElementById('menuBtn'),
    */
   updateRemoteUserRank(sessionIndex, role) {
     const id = `u${sessionIndex}`;
-    const rankClasses = ['rank-guest', 'rank-user', 'rank-trusted', 'rank-helper', 'rank-mod', 'rank-admin', 'rank-noble', 'rank-holy', 'rank-deity'];
-
-    const roleClass = RemoteUserUI.roleToClass(role);
-
     const listUser = document.querySelector(`.listUser.${id}`);
-    if (listUser) {
-      listUser.classList.remove(...rankClasses);
-      if (roleClass) {
-        listUser.classList.add(roleClass);
-      }
-    }
-
     const entry = document.querySelector(`.userEntry.${id}`);
-    if (entry) {
-      entry.classList.remove(...rankClasses);
-      // Only apply row glow for Noble+
-      if (role >= 7 && roleClass) {
-        entry.classList.add(roleClass);
-      }
-    }
+    RemoteUserUI.applyRankClasses(listUser, entry, role);
+    this.remoteUserUI?.syncGroupHeaderRank?.(sessionIndex);
   }
 }

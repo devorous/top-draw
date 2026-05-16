@@ -1233,6 +1233,72 @@ function getRoomClientBySessionIndex(room, sessionIndex) {
   return null;
 }
 
+function isSessionPendingDisconnect(room, sessionIndex) {
+  if (!room?.pendingDisconnects?.size) return false;
+  const numericSessionIndex = Number(sessionIndex);
+  if (!Number.isFinite(numericSessionIndex)) return false;
+
+  for (const entry of room.pendingDisconnects.values()) {
+    if (Number(entry?.sessionIndex) === numericSessionIndex) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function getVisibleJoinedUsers(room) {
+  if (!room) return [];
+  return room.sessionManager
+    .getJoinedUsers()
+    .filter((user) => !isSessionPendingDisconnect(room, user.sessionIndex));
+}
+
+function getUniqueVisibleName(room, name, excludeSessionIndex = null) {
+  const baseName = name || '';
+  if (!baseName) return '';
+
+  const joinedUsers = getVisibleJoinedUsers(room);
+  let uniqueName = baseName;
+  let suffix = 1;
+
+  const isNameTaken = (candidate) => joinedUsers.some((user) =>
+    user.sessionIndex !== excludeSessionIndex &&
+    String(user.name || '').toLowerCase() === candidate.toLowerCase()
+  );
+
+  while (isNameTaken(uniqueName)) {
+    uniqueName = `${baseName}-${suffix}`;
+    suffix++;
+  }
+
+  return uniqueName;
+}
+
+function hasOpenClientForSession(room, sessionIndex) {
+  if (!room || sessionIndex === undefined || sessionIndex === null) return false;
+  const numericSessionIndex = Number(sessionIndex);
+
+  for (const client of room.clients) {
+    if (Number(client.sessionIndex) === numericSessionIndex && client.readyState === WebSocket.OPEN) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function clearPendingDisconnectsForSession(room, sessionIndex) {
+  if (!room?.pendingDisconnects?.size) return;
+  const numericSessionIndex = Number(sessionIndex);
+
+  for (const [resumeKey, entry] of room.pendingDisconnects) {
+    if (Number(entry?.sessionIndex) !== numericSessionIndex) continue;
+    clearTimeout(entry.timer);
+    room.pendingDisconnects.delete(resumeKey);
+  }
+}
+
 function canViewerSeeTargetIp(viewer, targetUser) {
   if (!viewer || !targetUser) return false;
 
@@ -1262,6 +1328,7 @@ function isShadowHiddenFromViewer(subjectUser, viewer) {
 
 function mapUsersForBroadcast(users, viewer = null, room = null) {
   return users
+    .filter(u => !room || !isSessionPendingDisconnect(room, u.sessionIndex))
     .filter(u => !isShadowHiddenFromViewer(u, viewer))
     .map(u => {
       const client = getRoomClientBySessionIndex(room, u.sessionIndex);
@@ -1310,7 +1377,7 @@ function mapUsersForBroadcast(users, viewer = null, room = null) {
 function sendUsersToClient(ws, room, users = null) {
   if (!ws || !room) return;
 
-  const joinedUsers = users || room.sessionManager.getJoinedUsers();
+  const joinedUsers = users || getVisibleJoinedUsers(room);
   sendTo(ws, {
     t: T.USERS,
     us: mapUsersForBroadcast(joinedUsers, ws, room)
@@ -1609,7 +1676,7 @@ function broadcastGlobalMessage({ message, kind = 'notice', issuer = 'Server', p
 function createRoomBroadcaster(room) {
   return (payload) => {
     if (payload?.t === T.USERS) {
-      const joinedUsers = room.sessionManager.getJoinedUsers();
+      const joinedUsers = getVisibleJoinedUsers(room);
       room.clients.forEach((client) => {
         if (client.readyState === WebSocket.OPEN) {
           sendUsersToClient(client, room, joinedUsers);
@@ -1773,7 +1840,7 @@ function setImageToolDataForUser(user, type, imageData) {
 
 function sendImageToolStateToClient(ws, room, users = null) {
   if (!ws || !room) return;
-  const joinedUsers = users || room.sessionManager.getJoinedUsers();
+  const joinedUsers = users || getVisibleJoinedUsers(room);
   for (const user of joinedUsers) {
     if (isShadowHiddenFromViewer(user, ws)) continue;
     for (const type of ['imageBrush', 'pattern', 'confetti']) {
@@ -2005,12 +2072,12 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
       break;
 
     case T.CN:
-      const uniqueName = room.sessionManager.getUniqueName(data.n, sessionIndex);
+      const uniqueName = getUniqueVisibleName(room, data.n, sessionIndex);
       user.name = uniqueName;
 
       console.log(`[CN] Session ${sessionIndex} changing name to "${data.n}" (unique: "${uniqueName}")`);
 
-      const allUsers = room.sessionManager.getJoinedUsers();
+      const allUsers = getVisibleJoinedUsers(room);
       const cnBroadcaster = createRoomBroadcaster(room);
       
       if (!room.sessionManager.isDiscovery) {
@@ -2742,6 +2809,7 @@ wss.on('connection', async (ws, req) => {
               // Tell peers to drop any half-stroke preview that was active when
               // the socket dropped — the resumed client starts fresh.
               broadcastToRoom(room, { t: T.CANCEL, u: pending.sessionIndex });
+              broadcastUsersForRoom(room);
               break;
             }
             // User got finalized after the timer fired but before we cleared
@@ -2818,7 +2886,7 @@ wss.on('connection', async (ws, req) => {
           ws.fingerprintId = identity.fingerprintId || ws.fingerprintId;
           ws.identitySummary = identity.identitySummary || ws.identitySummary;
           const requestedUsername = normalizeUsername(data.n || '');
-          const username = room.sessionManager.getUniqueName(requestedUsername || 'Guest');
+          const username = getUniqueVisibleName(room, requestedUsername || 'Guest');
           console.log(`[CONNECT] Session ${sessionIndex} joining room ${room.id} as "${username}"`);
 
           room.sessionManager.createUser(
@@ -2870,7 +2938,7 @@ wss.on('connection', async (ws, req) => {
             roomBoardSize: room.settings.boardSize
           });
 
-          const allUsers = room.sessionManager.getJoinedUsers();
+          const allUsers = getVisibleJoinedUsers(room);
           const roomBroadcaster = createRoomBroadcaster(room);
 
           const requiresAuthToAppear = getJoinPolicyMinRole(room.settings.joinPolicy) > Role.GUEST;
@@ -4279,7 +4347,7 @@ wss.on('connection', async (ws, req) => {
 
             const user = room.sessionManager.getUser(ws.sessionIndex);
             if (user) {
-              const uniqueName = room.sessionManager.getUniqueName(regUsername, ws.sessionIndex);
+              const uniqueName = getUniqueVisibleName(room, regUsername, ws.sessionIndex);
               user.role = role;
               user.name = uniqueName;
               user.registeredName = regUsername;
@@ -4487,7 +4555,7 @@ wss.on('connection', async (ws, req) => {
 
             const user = room.sessionManager.getUser(ws.sessionIndex);
             if (user) {
-              const uniqueName = room.sessionManager.getUniqueName(userDoc.username, ws.sessionIndex);
+              const uniqueName = getUniqueVisibleName(room, userDoc.username, ws.sessionIndex);
               user.role = effectiveRole;
               user.name = uniqueName;
               user.registeredName = userDoc.username;
@@ -4681,10 +4749,18 @@ wss.on('connection', async (ws, req) => {
       return;
     }
 
+    // If another open socket already owns this session, this close belongs to
+    // an older transport that lost the race during reconnect. Do not start a
+    // grace timer that could later remove the active replacement.
+    if (hasOpenClientForSession(room, sessionIndex)) {
+      clearPendingDisconnectsForSession(room, sessionIndex);
+      return;
+    }
+
     // Hold the session open briefly for a same-tab reconnect. The client
     // generates a per-tab resumeKey and replays it on CONNECT; if it lands
     // within the grace window the user keeps their sessionIndex and peers
-    // never see a LEFT/USERS churn.
+    // can see them reappear without allocating a new slot.
     const INTENTIONAL_CLOSE_CODES = new Set([4000, 4001, 4002, 4003, 4009, 4401, 4408]);
     const isIntentionalClose = INTENTIONAL_CLOSE_CODES.has(Number(code));
     const canResume = !!ws.resumeKey && !ws.isShadowBanned && !isIntentionalClose;
@@ -4709,6 +4785,7 @@ wss.on('connection', async (ws, req) => {
       }, RESUME_GRACE_MS);
 
       room.pendingDisconnects.set(ws.resumeKey, { sessionIndex, timer });
+      broadcastUsersForRoom(room);
       console.log(`[WS] Holding session ${sessionIndex} for ${RESUME_GRACE_MS}ms (resumeKey=${ws.resumeKey.slice(0, 8)}…)`);
       return;
     }

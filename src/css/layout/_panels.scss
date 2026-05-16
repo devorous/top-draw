@@ -72,7 +72,7 @@
     background: color-mix(in srgb, var(--accent-primary, #4ade80), var(--bg-tertiary) 82%);
     box-shadow: inset 2px 0 0 color-mix(in srgb, var(--accent-primary, #4ade80), transparent 25%);
 
-    .listUser {
+    :where(.listUser) {
       color: rgba(255, 255, 255, 0.85);
     }
   }
@@ -82,7 +82,7 @@
   background: color-mix(in srgb, var(--accent-primary, #4ade80), var(--bg-tertiary) 82%);
   box-shadow: inset 2px 0 0 color-mix(in srgb, var(--accent-primary, #4ade80), transparent 25%);
 
-  .listUser {
+  :where(.listUser) {
     color: rgba(255, 255, 255, 0.85);
   }
 }

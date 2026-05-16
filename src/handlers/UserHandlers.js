@@ -19,6 +19,14 @@ function getRoomRoleName(role) {
   return ROOM_ROLE_NAMES[role] || 'Guest';
 }
 
+function getEffectivePayloadRole(userData) {
+  return Math.max(
+    Number(userData?.role || 0),
+    Number(userData?.globalRole || 0),
+    Number(userData?.roomRole || 0)
+  );
+}
+
 function formatPresenceRank(user) {
   const globalRole = Number(user?.globalRole || 0);
   const roomRole = Number(user?.roomRole || 0);
@@ -198,6 +206,7 @@ export function setupUserHandlers(wsClient, app) {
     data.users.forEach(userData => {
 
       const username = userData.name || userData.username || '';
+      const effectiveRole = getEffectivePayloadRole(userData);
 
       if (userData.sessionIndex === app.sessionIndex) {
         // Authoritative update for SELF (e.g. if name was forced unique)
@@ -226,11 +235,11 @@ export function setupUserHandlers(wsClient, app) {
           app._updateBlurCannotDraw?.();
           ui.setSelfUserMuted?.(app.self.isMuted);
         }
-        if (userData.role !== undefined && userData.role !== app.self.role) {
-          app.selfRole = userData.role;
-          app.self.role = userData.role;
-          appState.selfRole = userData.role;
-          ui.updateSelfRole(userData.role);
+        if (userData.role !== undefined && effectiveRole !== app.self.role) {
+          app.selfRole = effectiveRole;
+          app.self.role = effectiveRole;
+          appState.selfRole = effectiveRole;
+          ui.updateSelfRole(effectiveRole);
         }
         if (app.moderation) app.moderation.setRole(app.self.role, app.self.globalRole, app.self.roomRole);
         board.refreshObscureRegionAccess?.();
@@ -265,7 +274,7 @@ export function setupUserHandlers(wsClient, app) {
           username,
           afk: userData.afk || false,
           opacity: userData.color ? userData.color[3] : 1,
-          role: userData.role || 0,
+          role: effectiveRole,
           globalRole: userData.globalRole || 0,
           roomRole: userData.roomRole || 0,
           isMuted: !!userData.isMuted,
@@ -370,18 +379,18 @@ export function setupUserHandlers(wsClient, app) {
           ui.updateRemoteTextLayout(userData.sessionIndex, user);
         }
 
-        if (userData.role !== undefined && userData.role !== user.role) {
-          user.role = userData.role;
-          ui.updateRemoteUserRank(userData.sessionIndex, userData.role);
-        }
-
-        applyUserImageToolState(app, user, userData);
         if (userData.globalRole !== undefined) {
           user.globalRole = userData.globalRole || 0;
         }
         if (userData.roomRole !== undefined) {
           user.roomRole = userData.roomRole || 0;
         }
+        if (userData.role !== undefined && effectiveRole !== user.role) {
+          user.role = effectiveRole;
+          ui.updateRemoteUserRank(userData.sessionIndex, effectiveRole);
+        }
+
+        applyUserImageToolState(app, user, userData);
 
         if (userData.registeredName) {
           user.registeredName = userData.registeredName;

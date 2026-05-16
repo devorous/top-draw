@@ -9,6 +9,7 @@ const REMOTE_CURSOR_IDLE_MS = 5000;
 const GROUP_HEADER_REFRESH_MS = 5000;
 const NOTIFY_USER_ACTIVE_THROTTLE_MS = 500;
 const RECENT_ACTIVITY_HIGHLIGHT_MS = 30000;
+const RANK_CLASSES = ['rank-guest', 'rank-user', 'rank-trusted', 'rank-helper', 'rank-mod', 'rank-admin', 'rank-noble', 'rank-holy', 'rank-deity'];
 
 function renderRemotePreviewContent(element, text = '') {
   if (!element) return;
@@ -352,6 +353,48 @@ export class RemoteUserUI {
     if (userEl) userEl.classList.toggle('muted', !!muted);
   }
 
+  static applyRankClasses(userEl, entryEl, role) {
+    const numericRole = Number(role || 0);
+    const roleClass = RemoteUserUI.roleToClass(numericRole);
+
+    if (userEl) {
+      userEl.classList.remove(...RANK_CLASSES);
+      if (roleClass) userEl.classList.add(roleClass);
+    }
+
+    if (entryEl) {
+      entryEl.classList.remove(...RANK_CLASSES);
+      if (numericRole >= 7 && roleClass) entryEl.classList.add(roleClass);
+    }
+  }
+
+  _syncGroupHeaderRankFromUser(group, userId) {
+    if (!group || String(group.displayUserId) !== String(userId)) return;
+
+    const id = `u${userId}`;
+    const sourceNameEl = group.usersContainer.querySelector(`.listUser.${id}`);
+    const sourceEntryEl = group.usersContainer.querySelector(`.userEntry.${id}`);
+    const headerEl = group.element.querySelector('.groupHeader');
+
+    group.headerNameEl.classList.remove(...RANK_CLASSES);
+    headerEl?.classList.remove(...RANK_CLASSES);
+
+    if (sourceNameEl) {
+      const rankClass = RANK_CLASSES.find((className) => sourceNameEl.classList.contains(className));
+      if (rankClass) group.headerNameEl.classList.add(rankClass);
+    }
+
+    if (sourceEntryEl && headerEl) {
+      const rankClass = RANK_CLASSES.find((className) => sourceEntryEl.classList.contains(className));
+      if (rankClass) headerEl.classList.add(rankClass);
+    }
+  }
+
+  syncGroupHeaderRank(userId) {
+    const groupInfo = this._getGroupForUser(userId);
+    this._syncGroupHeaderRankFromUser(groupInfo?.group, userId);
+  }
+
   _createDiscordBadge(show = false) {
     const badge = document.createElement('span');
     badge.className = 'listDiscordBadge';
@@ -629,6 +672,7 @@ export class RemoteUserUI {
     const nameEl = document.createElement('span');
     nameEl.className = 'listUser groupHeaderName';
     nameEl.textContent = displayUserData.name || displayUserData.username || displayUserId;
+    RemoteUserUI.applyRankClasses(nameEl, groupHeader, displayUserData.role);
     this._applyMutedStateToEntry(groupHeader, nameEl, displayUserData.isMuted);
 
     const discordBadge = this._createDiscordBadge(!!displayUserData.hasDiscord);
@@ -709,8 +753,7 @@ export class RemoteUserUI {
         group.headerNameEl.className = 'listUser groupHeaderName';
         group.headerNameEl.classList.toggle('muted', srcName.classList.contains('muted'));
         group.element.querySelector('.groupHeader')?.classList.toggle('muted', srcName.classList.contains('muted'));
-        if (srcName.classList.contains('admin')) group.headerNameEl.classList.add('admin');
-        else if (srcName.classList.contains('mod')) group.headerNameEl.classList.add('mod');
+        this._syncGroupHeaderRankFromUser(group, group.displayUserId);
       }
 
       const srcDiscord = group.usersContainer.querySelector(`.listDiscordBadge.${id}`);
@@ -726,7 +769,8 @@ export class RemoteUserUI {
     const ipHash = this._groupUserIndex.get(String(userId));
     if (!ipHash) return null;
     const group = this.userGroups.get(ipHash);
-    return group?.userIds?.has(userId) ? { ipHash, group } : null;
+    const hasUser = group?.userIds && Array.from(group.userIds).some((id) => String(id) === String(userId));
+    return hasUser ? { ipHash, group } : null;
   }
 
   _getMostRecentGroupUser(group) {
@@ -841,12 +885,7 @@ export class RemoteUserUI {
     discordBadge.classList.add(id);
 
     const role = userData.role;
-    const roleClass = RemoteUserUI.roleToClass(role);
-    if (roleClass) {
-      userEntry.classList.add(roleClass);
-      // Add glow class to entry row for Noble/Holy/Deity
-      if (role >= 7) entry.classList.add(roleClass);
-    }
+    RemoteUserUI.applyRankClasses(userEntry, entry, role);
     this._applyMutedStateToEntry(entry, userEntry, userData.isMuted);
 
     const syncBtn = document.createElement('a');
@@ -1046,7 +1085,7 @@ export class RemoteUserUI {
 
     // Propagate to group header if this is the display user
     for (const [ipHash, group] of this.userGroups.entries()) {
-      if (group.userIds.has(userId) && group.displayUserId === userId) {
+      if (String(group.displayUserId) === String(userId) && Array.from(group.userIds).some((id) => String(id) === String(userId))) {
         group.headerNameEl.textContent = name;
         this._syncGroupSortMetadata(ipHash);
         break;
@@ -1063,7 +1102,7 @@ export class RemoteUserUI {
     this._applyMutedStateToEntry(entry, userEl, muted);
 
     for (const [ipHash, group] of this.userGroups.entries()) {
-      if (group.userIds.has(userId) && group.displayUserId === userId) {
+      if (String(group.displayUserId) === String(userId) && Array.from(group.userIds).some((id) => String(id) === String(userId))) {
         const header = group.element.querySelector('.groupHeader');
         this._applyMutedStateToEntry(header, group.headerNameEl, muted);
         this._updateGroupSummary(ipHash);
