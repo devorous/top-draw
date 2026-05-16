@@ -2822,11 +2822,13 @@ export class DrawingApp {
     const versionStatus = await ensureClientCanConnect({ showWarning: true });
     if (!versionStatus.allowed) {
       this.syncClient.hideOverlay();
+      if (versionStatus.desktopUpdateResult?.status === 'offline') {
+        return;
+      }
       this.showUpdateRequiredNotice(versionStatus);
       if (this.landingPage) {
         this.landingPage.show();
-        this.landingPage.showError(formatOutdatedClientMessage(versionStatus));
-        this.landingPage.updateConnectionStatus('disconnected');
+        this.landingPage.updateConnectionStatus(this.wsClient?.connected ? 'connected' : 'disconnected');
       }
       return;
     }
@@ -2928,15 +2930,6 @@ export class DrawingApp {
     if (this._reloadRecommended) {
       this._dismissCurrentUpdateForOffline();
     }
-    const hasPassword = !this.auth?.isLoggedIn && this.ui.elements.loginPassword?.value;
-    const hasToken = this.auth?.getStoredToken();
-
-    // If user has credentials or a stored token, try to authenticate before going offline
-    if (hasPassword || hasToken) {
-      await this._authenticateThenGoOffline();
-      return;
-    }
-
     this._enterOfflineMode();
   }
 
@@ -3028,16 +3021,6 @@ export class DrawingApp {
 
     if (this.landingPage) {
       this.landingPage.updateConnectionStatus('connecting');
-    }
-
-    const versionStatus = await ensureClientCanConnect({ showWarning: false });
-    if (!versionStatus.allowed) {
-      this.showUpdateRequiredNotice(versionStatus);
-      if (this.landingPage) {
-        this.landingPage.updateConnectionStatus('disconnected');
-        this.landingPage.showError(formatOutdatedClientMessage(versionStatus));
-      }
-      return;
     }
 
     try {
@@ -3369,6 +3352,10 @@ export class DrawingApp {
 
     const isDiscoveryConnection = !this.currentRoomId || this.currentRoomId === '_discovery';
     if (isDiscoveryConnection) {
+      if (this.landingPage?.isVisible) {
+        void this.checkForRuntimeUpdate({ force: true });
+      }
+
       if (this._pendingLandingLogin) {
         this._pendingLandingLogin = false;
         this.auth?.handleLogin();
@@ -3652,6 +3639,7 @@ export class DrawingApp {
     if (this._versionUpdateNoticed) return;
     // This fetch only succeeds if the new server is responding with its version info
     const status = await getVersionStatus({ force });
+    if (this._versionUpdateNoticed) return;
     if (status?.allowed === false) {
       this._versionUpdateNoticed = true;
       this.showUpdateRequiredNotice(status);
@@ -3701,6 +3689,10 @@ export class DrawingApp {
       retryLabel: isTauriDesktop() ? 'Update App' : 'Refresh',
       offlineLabel: 'Continue Offline'
     });
+
+    if (isTauriDesktop() && !versionStatus.desktopUpdateResult) {
+      void this._promptDesktopUpdateFromRuntimeNotice({ force: true });
+    }
   }
 
   async handleServerUpdateNotice(data = {}) {
@@ -3718,6 +3710,7 @@ export class DrawingApp {
       return;
     }
 
+    if (this._versionUpdateNoticed && !this._awaitingServerRestart) return;
     if (this._isUpdateDismissedForOffline(latest)) return;
     this._versionUpdateNoticed = true;
     this._reloadRecommended = true;
@@ -3747,7 +3740,10 @@ export class DrawingApp {
     this._desktopUpdatePollActive = true;
 
     const attempt = async ({ silent = true } = {}) => {
-      const result = await checkForDesktopUpdates({ silent });
+      const result = await checkForDesktopUpdates({
+        silent,
+        ignoreOfflineDismissal: force
+      });
       if (!result || result.status === 'up-to-date') {
         return false;
       }

@@ -2638,7 +2638,7 @@ wss.on('connection', async (ws, req) => {
     logAsnHandshakeContext(ws, roomId);
     console.log(`[Room] Parsed room ID: ${roomId}`);
 
-    if (!isLocalhostRequest(req, connIp)) {
+    if (!isLocalhostRequest(req, connIp) && roomId !== '_discovery') {
       const versionPolicy = await readVersionPolicy();
       if (isClientVersionMismatch(ws.clientAppVersion, versionPolicy)) {
         const latest = versionPolicy?.latest || versionPolicy?.minRequired || 'current server version';

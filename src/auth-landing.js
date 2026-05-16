@@ -65,7 +65,7 @@ export async function initLandingPhase(options = {}) {
   appState.appPreferences = appPreferences;
 
   // Connect to discovery room to fetch room list
-  wsClient.connect('_discovery');
+  wsClient.connect({}, '_discovery');
 
   return {
     wsClient,

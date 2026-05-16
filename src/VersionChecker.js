@@ -332,7 +332,7 @@ export function formatOutdatedClientMessage(versionInfo) {
   return `This client is out of date (${versionInfo.clientVersion || 'unknown'}). Update to ${latest} to connect. Minimum supported version is ${minimum}.`;
 }
 
-export async function ensureClientCanConnect({ showWarning = true } = {}) {
+export async function ensureClientCanConnect({ showWarning = true, forceDesktopUpdatePrompt = false } = {}) {
   const status = await getVersionStatus();
   if (status.allowed) {
     return status;
@@ -340,7 +340,10 @@ export async function ensureClientCanConnect({ showWarning = true } = {}) {
 
   if (isTauriDesktop()) {
     try {
-      await promptUpdateForVersionMismatch();
+      const desktopUpdateResult = await promptUpdateForVersionMismatch({
+        force: forceDesktopUpdatePrompt || showWarning
+      });
+      status.desktopUpdateResult = desktopUpdateResult;
     } catch (err) {
       console.warn('[VersionChecker] Failed to prompt desktop updater on mismatch:', err);
     }

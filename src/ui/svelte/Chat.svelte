@@ -825,6 +825,11 @@
     if (toasts.length > 3) toasts = toasts.slice(toasts.length - 3);
   }
 
+  function documentNeedsNotification() {
+    if (typeof document === 'undefined') return false;
+    return document.visibilityState !== 'visible' || !document.hasFocus();
+  }
+
   function dismissToast(id) {
     toasts = toasts.filter((toast) => toast.id !== id);
   }
@@ -934,7 +939,7 @@
 
     if (message.type === 'system') return;
 
-    if (!visible && !isChatPopoutOpen()) {
+    if ((!visible || documentNeedsNotification()) && !isChatPopoutOpen()) {
       appState.chatUnreadCount++;
       const preview = message.type === 'image' ? `${message.text ? `${message.text} ` : ''}[image]` : message.text;
       showToast(message.username, preview || '[image]', message.color);
@@ -950,7 +955,7 @@
   function addStaffChannelMessage(message) {
     messages.staff = [...messages.staff, message];
     const popoutOpen = isChatPopoutOpen();
-    const shouldCountUnread = !popoutOpen && (!visible || activeView !== 'staff');
+    const shouldCountUnread = !popoutOpen && (!visible || activeView !== 'staff' || documentNeedsNotification());
     if (shouldCountUnread) {
       appState.chatUnreadCount++;
       const preview = message.type === 'image' ? `${message.text ? `${message.text} ` : ''}[image]` : message.text;
@@ -974,7 +979,7 @@
       dms: nextDms
     };
 
-    if (!message.fromSelf && !visible && !isChatPopoutOpen()) {
+    if (!message.fromSelf && (!visible || documentNeedsNotification()) && !isChatPopoutOpen()) {
       appState.chatUnreadCount++;
       const user = getChatUser(userId);
       const preview = message.type === 'image' ? `${message.text ? `${message.text} ` : ''}[image]` : message.text;

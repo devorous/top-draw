@@ -4,6 +4,8 @@ import { resolveApiUrl } from '../config/serverEndpoints.js';
 let startupCheckScheduled = false;
 const UPDATER_DISABLED = false;
 let updateCheckInFlight = null;
+let updateCheckInFlightNeedsForeground = false;
+let updateCheckInFlightId = 0;
 let mismatchPromptInFlight = null;
 let mismatchPrompted = false;
 let serverUpdatingSoonPrompted = false;
@@ -390,7 +392,7 @@ function showDesktopServerUpdatingSoon(update, serverStatus = {}) {
   });
 }
 
-export async function checkForDesktopUpdates({ silent = false } = {}) {
+export async function checkForDesktopUpdates({ silent = false, ignoreOfflineDismissal = false } = {}) {
   if (!isTauriDesktop()) {
     return { status: 'not-desktop' };
   }
@@ -403,20 +405,26 @@ export async function checkForDesktopUpdates({ silent = false } = {}) {
     return { status: 'disabled' };
   }
 
-  if (updateCheckInFlight) {
+  const needsForeground = !silent || ignoreOfflineDismissal;
+  if (updateCheckInFlight && (!needsForeground || updateCheckInFlightNeedsForeground)) {
     return updateCheckInFlight;
   }
 
-  updateCheckInFlight = runDesktopUpdateCheck({ silent });
+  updateCheckInFlightNeedsForeground = needsForeground;
+  const requestId = ++updateCheckInFlightId;
+  updateCheckInFlight = runDesktopUpdateCheck({ silent, ignoreOfflineDismissal });
 
   try {
     return await updateCheckInFlight;
   } finally {
-    updateCheckInFlight = null;
+    if (requestId === updateCheckInFlightId) {
+      updateCheckInFlight = null;
+      updateCheckInFlightNeedsForeground = false;
+    }
   }
 }
 
-async function runDesktopUpdateCheck({ silent = false } = {}) {
+async function runDesktopUpdateCheck({ silent = false, ignoreOfflineDismissal = false } = {}) {
   try {
     const [{ invoke }, { relaunch }] = await Promise.all([
       import('@tauri-apps/api/core'),
@@ -428,7 +436,7 @@ async function runDesktopUpdateCheck({ silent = false } = {}) {
       return { status: 'up-to-date' };
     }
 
-    if (update.version && getOfflineUpdateDismissal() === update.version) {
+    if (update.version && !ignoreOfflineDismissal && getOfflineUpdateDismissal() === update.version) {
       return { status: 'offline-dismissed', version: update.version };
     }
 
@@ -523,8 +531,8 @@ export function scheduleStartupUpdateCheck() {
  * Trigger a one-time desktop update check when server version policy rejects the client.
  * This avoids relying only on the delayed silent startup check for mismatch cases.
  */
-export async function promptUpdateForVersionMismatch() {
-  if (UPDATER_DISABLED || mismatchPrompted || !isTauriDesktop()) {
+export async function promptUpdateForVersionMismatch({ force = false } = {}) {
+  if (UPDATER_DISABLED || (!force && mismatchPrompted) || !isTauriDesktop()) {
     return { status: 'skipped' };
   }
 
@@ -533,8 +541,13 @@ export async function promptUpdateForVersionMismatch() {
   }
 
   mismatchPromptInFlight = (async () => {
-    const result = await checkForDesktopUpdates({ silent: false });
-    mismatchPrompted = true;
+    const result = await checkForDesktopUpdates({
+      silent: false,
+      ignoreOfflineDismissal: true
+    });
+    if (result?.status !== 'error') {
+      mismatchPrompted = true;
+    }
     mismatchPromptInFlight = null;
     return result;
   })();
