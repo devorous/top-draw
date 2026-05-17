@@ -119,16 +119,32 @@ body.desktop-window-chrome #overlay {
   flex: 1 1 0;
   width: auto;
   min-width: 0;
-  min-height: 38px;
+  min-height: 32px;
   padding-inline: 12px;
   white-space: nowrap;
+}
+
+/* Discord login on its own row, full-width under Login/Register */
+.authDiscordRow {
+  display: flex;
+  width: 100%;
+  margin-top: 8px;
+
+  .authDiscordBtn {
+    width: 100%;
+    max-width: none;
+    min-height: 32px;
+    margin-top: 0;
+    padding-inline: 12px;
+    font-size: 13px;
+  }
 }
 
 .authGuestJoinBtn {
   width: 100%;
   max-width: 220px;
-  min-height: 44px;
-  margin-top: 12px;
+  min-height: 38px;
+  margin-top: 10px;
   background: color-mix(in srgb, var(--accent-primary) 82%, var(--bg-tertiary));
   border-color: var(--accent-primary);
   color: var(--bg-primary);
@@ -775,6 +791,13 @@ body.desktop-window-chrome #landingPage {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
 
+  // Shrink first when the viewport is short — the login dialog above
+  // keeps its natural height, this section gets its own scrollbar.
+  flex: 0 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+
   h3 {
     margin: 0 0 12px 0;
     font-size: 13px;
@@ -782,6 +805,7 @@ body.desktop-window-chrome #landingPage {
     color: var(--text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.08em;
+    flex: 0 0 auto;
   }
 
   ul {
@@ -792,6 +816,12 @@ body.desktop-window-chrome #landingPage {
     color: var(--text-muted);
     font-size: 13px;
     line-height: 1.5;
+    flex: 1 1 auto;
+    min-height: 0;
+    // Cap height so the changelog shrinks (with internal scroll)
+    // before pushing the login dialog around at short viewports.
+    max-height: clamp(60px, 20vh, 280px);
+    overflow-y: auto;
   }
 
   li {

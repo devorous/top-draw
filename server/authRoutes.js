@@ -76,7 +76,11 @@ function getPublicAppBase(req) {
 }
 
 function getDiscordRedirectUri(req) {
-  return process.env.DISCORD_REDIRECT_URI || `${getPublicAppBase(req)}/api/auth/discord/callback`;
+  const resolved = process.env.DISCORD_REDIRECT_URI || `${getPublicAppBase(req)}/api/auth/discord/callback`;
+  console.log('[DiscordDebug] redirect_uri resolved to:', resolved,
+    '| env DISCORD_REDIRECT_URI=', process.env.DISCORD_REDIRECT_URI,
+    '| env PUBLIC_APP_URL=', process.env.PUBLIC_APP_URL);
+  return resolved;
 }
 
 function getDiscordDisplayName(user) {

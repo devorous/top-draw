@@ -169,6 +169,7 @@ export class Auth {
 
     this.els.discordLoginBtn?.addEventListener('click', (e) => {
       e.preventDefault();
+      console.log('[DiscordDebug] discordLoginBtn click fired');
       this.startDiscordOAuth('login');
     });
 
@@ -306,6 +307,7 @@ export class Auth {
   }
 
   async startDiscordOAuth(mode = 'login') {
+    console.log('[DiscordDebug] startDiscordOAuth called, mode=', mode);
     const token = this.getStoredToken();
     if (mode === 'link' && !token) {
       if (this.onError) this.onError('Log in before linking Discord');
@@ -323,6 +325,7 @@ export class Auth {
         body: JSON.stringify({ mode })
       });
       const data = await res.json().catch(() => ({}));
+      console.log('[DiscordDebug] /start response', { ok: res.ok, status: res.status, hasUrl: !!data.url, data });
       if (!res.ok || !data.url) {
         throw new Error(data.error || 'Discord login failed to start');
       }
@@ -353,30 +356,58 @@ export class Auth {
         'popup=yes,width=520,height=720,menubar=no,toolbar=no,location=yes,status=no,scrollbars=yes,resizable=yes'
       );
 
+      console.log('[DiscordDebug] popup opened?', !!popup);
+
       if (!popup) {
         window.location.href = data.url;
         return;
       }
 
+      // Clear stale debug entries
+      try {
+        localStorage.removeItem('__discordDebugPopup');
+        localStorage.removeItem('__discordDebugPopupPosted');
+        localStorage.removeItem('__discordDebugPopupPostError');
+        localStorage.removeItem('__discordDebugPopupEntry');
+      } catch {}
+
       this._discordPopup = popup;
       const closePoll = window.setInterval(() => {
         if (!popup.closed) return;
         window.clearInterval(closePoll);
+        console.log('[DiscordDebug] popup closed, _loading=', this._loading);
+        try {
+          console.log('[DiscordDebug] popup ENTRY (handler reached?):', localStorage.getItem('__discordDebugPopupEntry'));
+          console.log('[DiscordDebug] popup-side info:', localStorage.getItem('__discordDebugPopup'));
+          console.log('[DiscordDebug] popup posted at:', localStorage.getItem('__discordDebugPopupPosted'));
+          console.log('[DiscordDebug] popup post error:', localStorage.getItem('__discordDebugPopupPostError'));
+          console.log('[DiscordDebug] parent origin:', window.location.origin, 'parent href:', window.location.href);
+        } catch {}
         if (this._loading) {
           this.setLoading(false);
         }
       }, 500);
     } catch (err) {
+      console.log('[DiscordDebug] startDiscordOAuth error', err);
       this.setLoading(false);
       if (this.onError) this.onError(err.message);
     }
   }
 
   handleDiscordPopupMessage(event) {
-    if (event.origin !== window.location.origin) return;
+    if (event?.data?.type === 'ddraw:discord-auth' || event?.data?.type?.startsWith?.('ddraw:')) {
+      console.log('[DiscordDebug] postMessage received', { origin: event.origin, expectedOrigin: window.location.origin, data: event.data });
+    }
+    if (event.origin !== window.location.origin) {
+      if (event?.data?.type === 'ddraw:discord-auth') {
+        console.log('[DiscordDebug] postMessage REJECTED on origin mismatch');
+      }
+      return;
+    }
     const payload = event.data;
     if (!payload || payload.type !== 'ddraw:discord-auth') return;
 
+    console.log('[DiscordDebug] handleDiscordPopupMessage accepted, payload=', payload);
     this.setLoading(false);
     this.applyDiscordAuthPayload(payload);
   }
@@ -386,6 +417,18 @@ export class Auth {
   }
 
   handleDiscordAuthResultUrl(resultUrl, { cleanCurrentUrl = false } = {}) {
+    // DiscordDebug: log entry unconditionally — written from the popup window.
+    try {
+      localStorage.setItem('__discordDebugPopupEntry', JSON.stringify({
+        at: Date.now(),
+        resultUrl,
+        currentHref: window.location.href,
+        origin: window.location.origin,
+        hasOpener: !!window.opener,
+        cleanCurrentUrl,
+      }));
+    } catch {}
+
     let url;
     try {
       url = new URL(resultUrl, window.location.origin);
@@ -414,8 +457,28 @@ export class Auth {
       error: params.get('error') || ''
     };
 
+    // DiscordDebug: write what we see to localStorage so the parent can read it
+    // after the popup closes (popup console is hidden).
+    try {
+      localStorage.setItem('__discordDebugPopup', JSON.stringify({
+        at: Date.now(),
+        cleanCurrentUrl,
+        hasOpener: !!window.opener,
+        openerIsSelf: window.opener === window,
+        origin: window.location.origin,
+        status,
+        hasToken: !!payload.token,
+        hasUsername: !!payload.username,
+      }));
+    } catch (e) {}
+
     if (cleanCurrentUrl && window.opener && window.opener !== window) {
-      window.opener.postMessage(payload, window.location.origin);
+      try {
+        window.opener.postMessage(payload, window.location.origin);
+        localStorage.setItem('__discordDebugPopupPosted', String(Date.now()));
+      } catch (e) {
+        try { localStorage.setItem('__discordDebugPopupPostError', String(e?.message || e)); } catch {}
+      }
       window.close();
       return true;
     }
@@ -425,7 +488,9 @@ export class Auth {
   }
 
   applyDiscordAuthPayload(payload) {
+    console.log('[DiscordDebug] applyDiscordAuthPayload', payload);
     if (payload.status !== 'success') {
+      console.log('[DiscordDebug] payload.status !== success, bailing');
       if (this.onError) this.onError(payload.error || 'Discord login failed');
       return;
     }
@@ -436,9 +501,11 @@ export class Auth {
     const needsUsernameSetup = !!payload.needsUsernameSetup;
     const suggestedUsername = payload.suggestedUsername || username;
     if (!token || !username) {
+      console.log('[DiscordDebug] missing token/username, bailing');
       if (this.onError) this.onError('Discord login did not return an account');
       return;
     }
+    console.log('[DiscordDebug] all checks passed, applying token + showLoggedInState');
 
     this.storeToken(token);
     this.storeUsername(username);

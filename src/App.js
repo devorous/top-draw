@@ -1825,9 +1825,9 @@ export class DrawingApp {
         }
 
         appState.toolPreviewVisible = e.target.checked;
-        const patternTool = this.toolManager.getTool('pattern');
-        if (patternTool && e.target.checked) {
-          patternTool.updatePreview(this.self);
+        if (e.target.checked) {
+          appState.toolPreviewMode = 'pattern';
+          this.updatePatternPreviewIfVisible();
         }
       });
     }
@@ -1856,9 +1856,9 @@ export class DrawingApp {
         appState.toolPreviewVisible = e.target.checked;
 
         // Update preview if pattern tool exists
-        const patternTool = this.toolManager.getTool('pattern');
-        if (patternTool && e.target.checked) {
-          patternTool.updatePreview(this.self);
+        if (e.target.checked) {
+          appState.toolPreviewMode = 'pattern';
+          this.updatePatternPreviewIfVisible();
         }
       });
     }
@@ -2503,10 +2503,7 @@ export class DrawingApp {
       this.ui.elements.selectionPatternScaleValue.textContent = `${this.formatPatternOptionValue(scale)}%`;
     }
 
-    const patternTool = this.toolManager.getTool('pattern');
-    if (patternTool && patternTool.updatePreview) {
-      patternTool.updatePreview(this.self);
-    }
+    this.updatePatternPreviewIfVisible();
 
     if (this.connected && this.self.patternBrush) {
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPatternBrush(this._buildPatternPayload()));
@@ -2602,10 +2599,7 @@ export class DrawingApp {
       this.ui.elements.selectionPatternRotationValue.textContent = `${this.formatPatternOptionValue(rotation)}°`;
     }
 
-    const patternTool = this.toolManager.getTool('pattern');
-    if (patternTool && patternTool.updatePreview) {
-      patternTool.updatePreview(this.self);
-    }
+    this.updatePatternPreviewIfVisible();
 
     if (this.connected && this.self.patternBrush) {
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPatternBrush(this._buildPatternPayload()));
@@ -2625,10 +2619,7 @@ export class DrawingApp {
       this.ui.elements.selectionPatternSpacingValue.textContent = this.formatPatternOptionValue(spacing);
     }
 
-    const patternTool = this.toolManager.getTool('pattern');
-    if (patternTool && patternTool.updatePreview) {
-      patternTool.updatePreview(this.self);
-    }
+    this.updatePatternPreviewIfVisible();
 
     if (this.connected && this.self.patternBrush) {
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPatternBrush(this._buildPatternPayload()));
@@ -2648,10 +2639,7 @@ export class DrawingApp {
       this.ui.elements.selectionPatternOffsetXValue.textContent = this.formatPatternOptionValue(offsetX);
     }
 
-    const patternTool = this.toolManager.getTool('pattern');
-    if (patternTool && patternTool.updatePreview) {
-      patternTool.updatePreview(this.self);
-    }
+    this.updatePatternPreviewIfVisible();
 
     if (this.connected && this.self.patternBrush) {
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPatternBrush(this._buildPatternPayload()));
@@ -2671,10 +2659,7 @@ export class DrawingApp {
       this.ui.elements.selectionPatternOffsetYValue.textContent = this.formatPatternOptionValue(offsetY);
     }
 
-    const patternTool = this.toolManager.getTool('pattern');
-    if (patternTool && patternTool.updatePreview) {
-      patternTool.updatePreview(this.self);
-    }
+    this.updatePatternPreviewIfVisible();
 
     if (this.connected && this.self.patternBrush) {
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPatternBrush(this._buildPatternPayload()));
@@ -2689,9 +2674,7 @@ export class DrawingApp {
     if (patternTool) {
       // Clear cache so tiles are regenerated with new color mode
       patternTool._tileCache.clear();
-      if (patternTool.updatePreview) {
-        patternTool.updatePreview(this.self);
-      }
+      this.updatePatternPreviewIfVisible();
     }
 
     // Sync all radio groups (pattern, fill pattern, and selection pattern)
@@ -2770,10 +2753,7 @@ export class DrawingApp {
   handlePatternBrushSelect(brush) {
     this.self.patternBrush = brush;
 
-    const patternTool = this.toolManager.getTool('pattern');
-    if (patternTool && patternTool.updatePreview) {
-      patternTool.updatePreview(this.self);
-    }
+    this.updatePatternPreviewIfVisible();
 
     if (this.connected) {
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPatternBrush(this._buildPatternPayload()));

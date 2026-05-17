@@ -322,6 +322,8 @@
   let rafId = null;
   let mutationObserver = null;
   let preparedStep = null;
+  let revealedTopbarMenu = null;
+  let revealedToolGroups = new Set();
 
   let visibleSteps = $derived(steps.filter((step) => (!step.when || step.when()) && (!activeSection || step.section === activeSection)));
   let currentStep = $derived(visibleSteps[index] || visibleSteps[visibleSteps.length - 1]);
@@ -370,8 +372,60 @@
     return style.display !== 'none' && style.visibility !== 'hidden' && bounds.width > 0 && bounds.height > 0;
   }
 
+  function isToolGroupCollapsed(group) {
+    const subgroup = group?.querySelector?.('.toolSubgroup');
+    return subgroup ? getComputedStyle(subgroup).position === 'absolute' : false;
+  }
+
+  function openTopbarMenuForTarget(target) {
+    const menu = target?.closest?.('#collapsibleBtns');
+    if (!menu || isVisible(target)) return;
+
+    const menuButton = document.getElementById('menuBtn');
+    const toolbar = menu.closest('.boardBtns');
+    const canReveal = isVisible(menuButton) || toolbar?.classList.contains('force-menu-collapse');
+    if (!canReveal) return;
+
+    menu.classList.add('show');
+    revealedTopbarMenu = menu;
+  }
+
+  function openToolGroupForTarget(target) {
+    if (isVisible(target)) return;
+
+    const subgroup = target?.closest?.('.toolSubgroup');
+    const group = target?.closest?.('.toolGroup');
+    if (!subgroup || !group || !isToolGroupCollapsed(group)) return;
+
+    group.classList.remove('is-suppressed');
+    group.classList.add('is-open');
+    revealedToolGroups.add(group);
+  }
+
+  function revealTargetContainers(step = currentStep) {
+    const selectors = [step?.target, step?.fallbackTarget].filter(Boolean);
+    for (const selector of selectors) {
+      for (const target of document.querySelectorAll(selector)) {
+        openTopbarMenuForTarget(target);
+        openToolGroupForTarget(target);
+      }
+    }
+  }
+
+  function cleanupRevealedContainers() {
+    revealedTopbarMenu?.classList.remove('show');
+    revealedTopbarMenu = null;
+
+    for (const group of revealedToolGroups) {
+      group.classList.remove('is-open');
+    }
+    revealedToolGroups = new Set();
+  }
+
   function findTargets(step = currentStep) {
     if (!step?.target) return null;
+    revealTargetContainers(step);
+
     const matches = [];
     for (const primary of document.querySelectorAll(step.target)) {
       if (isVisible(primary)) matches.push(primary);
@@ -390,6 +444,8 @@
   }
 
   function cleanupStep(step) {
+    cleanupRevealedContainers();
+
     if (step?.target?.includes('app-settings-dialog')) {
       appState.appSettingsVisible = false;
     }
@@ -406,6 +462,8 @@
 
   function updateSpotlight() {
     if (!active) return;
+
+    revealTargetContainers(currentStep);
 
     const targets = currentStep?.allowCanvas && !currentStep?.targetControl
       ? findTargets({ target: '#boardContainer, #boards, #board' })
@@ -502,12 +560,14 @@
 
   function stop() {
     storageSet(STOPPED_KEY, 'true');
+    cleanupRevealedContainers();
     promptVisible = false;
     active = false;
   }
 
   function finish() {
     storageSet(FINISHED_KEY, 'true');
+    cleanupRevealedContainers();
     promptVisible = false;
     active = false;
   }
@@ -519,6 +579,7 @@
   }
 
   function startTutorial(section = 'Basic Tutorial') {
+    cleanupRevealedContainers();
     activeSection = section;
     index = 0;
     preparedStep = null;
@@ -616,7 +677,10 @@
   }
 
   $effect(() => {
-    if (!active) return;
+    if (!active) {
+      cleanupRevealedContainers();
+      return;
+    }
     scheduleSpotlight();
   });
 
@@ -1012,19 +1076,91 @@
     opacity: 0.45;
   }
 
-  @media (max-width: 520px) {
+  @media (max-width: 640px), (max-height: 640px) {
     .tutorialToast {
-      top: 8px;
-      padding: 12px;
+      top: max(8px, env(safe-area-inset-top));
+      width: min(330px, calc(100vw - 18px));
+      height: 158px;
+      padding: 7px 9px;
+      border-radius: 7px;
+      box-shadow: 0 12px 34px rgba(0, 0, 0, 0.34);
+    }
+
+    .tutorialPromptToast {
+      height: auto;
+    }
+
+    .tutorialSegmentedBar {
+      height: 30px;
+      margin-top: 8px;
+      border-radius: 6px;
+      padding: 1px;
+    }
+
+    .tutorialSegmentedBar button {
+      border-radius: 5px;
+      font-size: 0.62rem;
+    }
+
+    .tutorialSegmentedBar.mini {
+      height: 21px;
+      margin-top: -3px;
+      margin-bottom: 4px;
+      border-radius: 5px;
+    }
+
+    .tutorialSegmentedBar.mini button {
+      font-size: 0.52rem;
+    }
+
+    .tutorialProgress {
+      height: 12px;
+      gap: 1px;
+      margin: -4px 0 1px;
+    }
+
+    .tutorialProgress button {
+      height: 12px;
+    }
+
+    .tutorialProgress button::before {
+      inset: 4px 0;
+    }
+
+    h2 {
+      margin-bottom: 3px;
+      font-size: 0.72rem;
+      line-height: 1.14;
+    }
+
+    p {
+      font-size: 0.62rem;
+      line-height: 1.2;
+    }
+
+    .tutorialHint {
+      margin-top: 4px;
+      font-size: 0.56rem;
     }
 
     .tutorialActions {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
+      gap: 5px;
+      margin-top: 5px;
     }
 
-    .tutorialActions button:last-child {
-      grid-column: 1 / -1;
+    .tutorialActions button {
+      flex: 1 1 0;
+      height: 23px;
+      padding: 0 5px;
+      border-radius: 5px;
+      font-size: 0.6rem;
+    }
+
+    button {
+      height: 23px;
+      padding: 0 6px;
+      border-radius: 5px;
+      font-size: 0.6rem;
     }
   }
 </style>
