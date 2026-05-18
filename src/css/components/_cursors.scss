@@ -76,3 +76,14 @@
   font-family: 'Newsreader', serif;
 }
 
+body.remote-users-hidden {
+  .cursors .cursor:not(.self),
+  #cursorsSvg .circle:not(.self),
+  #cursorsSvg .square:not(.self),
+  #cursorsSvg .crosshair:not(.self),
+  #userBoards .userBoard,
+  #userList .userEntry:not(.self),
+  #userList .userGroup {
+    display: none !important;
+  }
+}

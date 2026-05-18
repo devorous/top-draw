@@ -69,6 +69,7 @@ export class UI {
     this.initPointerSliders();
     await this._preloadSVGIcons(); // Await preloading of SVG icons
     this.remoteUserUI = new RemoteUserUI(this.elements, this.icons);
+    this.setRemoteUsersConnected(false);
     this.layerPreview.init();
     this.setupScrollIndicator();
     this.initResizableSections();
@@ -2121,6 +2122,10 @@ menuBtn: document.getElementById('menuBtn'),
 
   markRemoteCursorActivity(userId) {
     return this.remoteUserUI.markRemoteCursorActivity(userId);
+  }
+
+  setRemoteUsersConnected(connected) {
+    return this.remoteUserUI?.setRemoteUsersConnected(connected);
   }
   
   /**

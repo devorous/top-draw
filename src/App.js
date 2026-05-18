@@ -2793,6 +2793,7 @@ export class DrawingApp {
     this.users.clear();
     this.connected = false;
     appState.connected = false;
+    this.ui.setRemoteUsersConnected(false);
     this.sessionIndex = null;
     if (this.self) this.self.id = null;
 
@@ -2949,6 +2950,7 @@ export class DrawingApp {
     this.isOfflineMode = true;
     this.connected = false;
     appState.connected = false;
+    this.ui.setRemoteUsersConnected(false);
     this.currentRoomId = 'offline-' + Date.now();
     appState.currentRoomId = this.currentRoomId;
 
@@ -2996,6 +2998,7 @@ export class DrawingApp {
     appState.currentRoomId = null;
     this.connected = false;
     appState.connected = false;
+    this.ui.setRemoteUsersConnected(false);
     TimeMachine.stop();
     this.updateRecordingButtonState();
 
@@ -3399,6 +3402,7 @@ export class DrawingApp {
   handleJoinAfterConnect() {
     this.connected = true;
     appState.connected = true;
+    this.ui.setRemoteUsersConnected(true);
     appState.currentRoomId = this.currentRoomId || null;
     this.ui.hideOverlay();
     this.ui.showCursor();
@@ -3474,6 +3478,7 @@ export class DrawingApp {
     console.log(`[App] Resumed sessionIndex=${sessionIndex} without re-sync`);
     this.connected = true;
     appState.connected = true;
+    this.ui.setRemoteUsersConnected(true);
     this.ui.showConnectionStatus('connected', this.currentRoomId);
     this.ui.hideDisconnectionBanner();
 
@@ -3496,6 +3501,8 @@ export class DrawingApp {
     if (this.intentionalDisconnect) return;
     if (this.isOfflineMode) return;
 
+    this.ui.setRemoteUsersConnected(false);
+
     const onLandingPage = this.landingPage
       && this.landingPage.els.landingPage
       && this.landingPage.els.landingPage.style.display !== 'none';
@@ -3515,6 +3522,7 @@ export class DrawingApp {
   handleWSDisconnect(code, reason) {
     this.connected = false;
     appState.connected = false;
+    this.ui.setRemoteUsersConnected(false);
 
     this.stopPreviewInterval();
     this.stopCheckpointInterval();
@@ -3836,6 +3844,8 @@ export class DrawingApp {
     }
 
     this.connected = true;
+    appState.connected = true;
+    this.ui.setRemoteUsersConnected(true);
     this.ui.hideOverlay();
     this.ui.showCursor();
     this.ui.updateSelfName(username);
@@ -3962,6 +3972,8 @@ export class DrawingApp {
     this._pendingPassword = password || null;
 
     this.connected = true;
+    appState.connected = true;
+    this.ui.setRemoteUsersConnected(true);
     this.ui.hideOverlay();
     this.ui.showCursor();
     this.ui.updateSelfName(name);
@@ -4019,6 +4031,7 @@ export class DrawingApp {
    */
   startOfflineMode() {
     this.connected = true;
+    this.ui.setRemoteUsersConnected(false);
     this.sessionIndex = 1;
     this.self.id = 1;
     const username = this.auth?.getJoinUsername() || this.ui.elements.loginUsername?.value || '';
@@ -4043,6 +4056,7 @@ export class DrawingApp {
    */
   async reconnect() {
     this.ui.showConnectionStatus('connecting');
+    this.ui.setRemoteUsersConnected(false);
 
     if (this.wsClient) {
       this.wsClient.disconnect();
@@ -4614,6 +4628,8 @@ export class DrawingApp {
 
     this.connected = false;
     this.isOfflineMode = false;
+    appState.connected = false;
+    this.ui.setRemoteUsersConnected(false);
     this.sessionIndex = null;
     appState.sessionIndex = null;
     if (this.self) this.self.id = null;

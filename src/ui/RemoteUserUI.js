@@ -66,6 +66,17 @@ export class RemoteUserUI {
     this._initUserListSortControl();
   }
 
+  setRemoteUsersConnected(connected) {
+    document.body?.classList.toggle('remote-users-hidden', !connected);
+
+    if (connected) return;
+
+    this._pendingCursorWrites.clear();
+    for (const userId of this._cursorIdleTimers.keys()) {
+      this._clearCursorIdleTimer(userId);
+    }
+  }
+
   _initUserListSortControl() {
     const sortSelect = document.getElementById('userListSort');
     if (!sortSelect) return;
