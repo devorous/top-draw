@@ -27,6 +27,11 @@ function hasDiscordTag(item) {
   return Array.isArray(item?.tags) && item.tags.includes(DISCORD_TAG);
 }
 
+function getReadyDiscordClient() {
+  if (client?.isReady?.()) return client;
+  return readyPromise;
+}
+
 function getPublicRooms() {
   if (!roomManager) return [];
   return roomManager
@@ -45,9 +50,9 @@ function formatStatusText() {
 
   const roomLines = rooms
     .slice(0, 10)
-    .map(room => `• ${room.id}: ${room.userCount} user${room.userCount === 1 ? '' : 's'}`);
+    .map(room => `- ${room.id}: ${room.userCount} user${room.userCount === 1 ? '' : 's'}`);
   const remaining = rooms.length > roomLines.length
-    ? `\n…and ${rooms.length - roomLines.length} more room${rooms.length - roomLines.length === 1 ? '' : 's'}.`
+    ? `\n...and ${rooms.length - roomLines.length} more room${rooms.length - roomLines.length === 1 ? '' : 's'}.`
     : '';
 
   return `Currently drawing: ${activeUsers} user${activeUsers === 1 ? '' : 's'} across ${rooms.length} public room${rooms.length === 1 ? '' : 's'}.\n${roomLines.join('\n')}${remaining}`;
@@ -76,7 +81,8 @@ async function registerCommands() {
 }
 
 export async function initDiscordBot(options = {}) {
-  if (client || readyPromise) return readyPromise;
+  if (client?.isReady?.()) return client;
+  if (readyPromise) return readyPromise;
 
   const token = process.env.DISCORD_BOT_TOKEN;
   if (!token) {
@@ -87,17 +93,30 @@ export async function initDiscordBot(options = {}) {
   roomManager = options.roomManager || roomManager;
   client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
-  client.once('ready', async () => {
-    console.log(`[Discord] Logged in as ${client.user.tag}`);
-    try {
-      await registerCommands();
-    } catch (err) {
-      if (err?.code === 50001) {
-        console.warn('[Discord] Skipping slash command registration: bot is missing access to DISCORD_GUILD_ID. Invite the bot to that guild or clear DISCORD_GUILD_ID for global command registration.');
-        return;
+  readyPromise = new Promise((resolve) => {
+    client.once('ready', async () => {
+      console.log(`[Discord] Logged in as ${client.user.tag}`);
+      try {
+        await registerCommands();
+      } catch (err) {
+        if (err?.code === 50001) {
+          console.warn('[Discord] Skipping slash command registration: bot is missing access to DISCORD_GUILD_ID. Invite the bot to that guild or clear DISCORD_GUILD_ID for global command registration.');
+          resolve(client);
+          return;
+        }
+        console.error('[Discord] Failed to register slash commands:', err);
       }
-      console.error('[Discord] Failed to register slash commands:', err);
-    }
+
+      resolve(client);
+    });
+
+    client.login(token).catch(err => {
+      console.error('[Discord] Login failed:', err);
+      client?.destroy?.();
+      client = null;
+      readyPromise = null;
+      resolve(null);
+    });
   });
 
   client.on('interactionCreate', async interaction => {
@@ -118,13 +137,6 @@ export async function initDiscordBot(options = {}) {
     console.error('[Discord] Client error:', err);
   });
 
-  readyPromise = client.login(token).catch(err => {
-    client = null;
-    readyPromise = null;
-    console.error('[Discord] Login failed:', err);
-    return null;
-  });
-
   return readyPromise;
 }
 
@@ -141,7 +153,7 @@ export async function postGalleryItemToDiscord(item) {
     return;
   }
 
-  const bot = await readyPromise;
+  const bot = await getReadyDiscordClient();
   if (!bot?.isReady?.()) {
     console.warn('[Discord] Skipping gallery post: bot is not ready');
     return;
@@ -181,7 +193,7 @@ export async function postReleaseUpdateToDiscord(versionInfo) {
     return false;
   }
 
-  const bot = await readyPromise;
+  const bot = await getReadyDiscordClient();
   if (!bot?.isReady?.()) {
     console.warn('[Discord] Skipping release update: bot is not ready');
     return false;

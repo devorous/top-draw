@@ -1170,6 +1170,38 @@ menuBtn: document.getElementById('menuBtn'),
   }
 
   /**
+   * Resolves the one preview surface that belongs to the active tool.
+   * @param {string} tool - Current tool name
+   * @param {Object} [user=null] - Local user object
+   * @returns {{visible: boolean, mode: string}}
+   */
+  getToolPreviewState(tool, user = null) {
+    const previewUser = user || window.app?.self || null;
+
+    switch (tool) {
+      case 'brush':
+      case 'flowPen':
+      case 'ink':
+      case 'pixel':
+      case 'confetti':
+      case 'pattern':
+        return { visible: true, mode: tool };
+      case 'imageBrush':
+        return { visible: !!previewUser?.imageBrush, mode: 'imageBrush' };
+      case 'select': {
+        const selectTool = window.app?.toolManager?.getTool('select');
+        return { visible: !!selectTool?.patternMode, mode: 'pattern' };
+      }
+      case 'fill': {
+        const fillTool = window.app?.toolManager?.getTool('fill');
+        return { visible: !!fillTool?.patternMode, mode: 'pattern' };
+      }
+      default:
+        return { visible: false, mode: appState.toolPreviewMode || 'brush' };
+    }
+  }
+
+  /**
    * Updates tool options and cursor shapes based on the current tool.
    * @param {string} tool - Current tool name
    * @param {Object} [user=null] - Local user object
@@ -1228,8 +1260,9 @@ menuBtn: document.getElementById('menuBtn'),
     if (imageBrushModeOptions) imageBrushModeOptions.style.display = 'none';
     if (confettiModeOptions) confettiModeOptions.style.display = 'none';
     if (this.elements.inkThinningContainer) this.elements.inkThinningContainer.style.display = 'none';
-    appState.toolPreviewVisible = false;
-    appState.toolPreviewMode = 'pattern';
+    const nextToolPreviewState = this.getToolPreviewState(tool, user);
+    appState.toolPreviewMode = nextToolPreviewState.mode;
+    appState.toolPreviewVisible = nextToolPreviewState.visible;
     
     const { blendModeOptions } = this.elements;
     if (blendModeOptions) {
@@ -1251,10 +1284,6 @@ menuBtn: document.getElementById('menuBtn'),
         smoothingContainer.style.display = 'none';
         opacityContainer.style.display = 'block';
         if (selectionModeOptions) selectionModeOptions.style.display = 'block';
-        {
-          const selectTool = window.app?.toolManager?.getTool('select');
-          if (selectTool?.patternMode) appState.toolPreviewVisible = true;
-        }
         break;
 
       case 'brush':
@@ -1263,9 +1292,6 @@ menuBtn: document.getElementById('menuBtn'),
         brushHardness.style.display = 'block';
         if (brushModeOptions) brushModeOptions.style.display = 'block';
         if (cursorStyleContainer) cursorStyleContainer.style.display = 'block';
-        appState.toolPreviewVisible = true;
-        appState.toolPreviewMode = tool;
-        window.app?.toolManager?.getTool(appState.toolPreviewMode)?.updatePreview?.(user);
         break;
 
       case 'ink':
@@ -1274,9 +1300,6 @@ menuBtn: document.getElementById('menuBtn'),
         if (brushModeOptions) brushModeOptions.style.display = 'block';
         if (cursorStyleContainer) cursorStyleContainer.style.display = 'block';
         if (this.elements.inkThinningContainer) this.elements.inkThinningContainer.style.display = 'block';
-        appState.toolPreviewVisible = true;
-        appState.toolPreviewMode = 'ink';
-        window.app?.toolManager?.getTool('ink')?.updatePreview?.(user);
         break;
 
       case 'line':
@@ -1339,9 +1362,6 @@ menuBtn: document.getElementById('menuBtn'),
         this.applyLocalCursorStyle(tool, user);
         brushSpacing.style.display = 'block';
         if (imageBrushModeOptions) imageBrushModeOptions.style.display = 'block';
-        appState.toolPreviewVisible = !!user?.imageBrush;
-        appState.toolPreviewMode = 'imageBrush';
-        window.app?.toolManager?.getTool('imageBrush')?.updatePreview?.(user);
         break;
 
       case 'confetti':
@@ -1356,9 +1376,6 @@ menuBtn: document.getElementById('menuBtn'),
         if (this.elements.confettiSizeVariationContainer) this.elements.confettiSizeVariationContainer.style.display = 'block';
         if (this.elements.confettiOpacityRandomnessContainer) this.elements.confettiOpacityRandomnessContainer.style.display = 'block';
         if (this.elements.confettiSpacingContainer) this.elements.confettiSpacingContainer.style.display = 'block';
-        appState.toolPreviewVisible = true;
-        appState.toolPreviewMode = 'confetti';
-        window.app?.toolManager?.getTool('confetti')?.updatePreview?.(user);
         break;
 
       case 'pattern':
@@ -1370,16 +1387,12 @@ menuBtn: document.getElementById('menuBtn'),
         brushSpacing.style.display = 'none';
         smoothingContainer.style.display = 'none';
         if (patternModeOptions) patternModeOptions.style.display = 'block';
-        appState.toolPreviewVisible = true;
         break;
 
       case 'pixel':
         this.applyLocalCursorStyle(tool, user);
         brushSpacing.style.display = 'block';
         if (brushModeOptions) brushModeOptions.style.display = 'block';
-        appState.toolPreviewVisible = true;
-        appState.toolPreviewMode = 'pixel';
-        window.app?.toolManager?.getTool('pixel')?.updatePreview?.(user);
         break;
 
       case 'fill':
@@ -1388,10 +1401,6 @@ menuBtn: document.getElementById('menuBtn'),
         pressureContainer.style.display = 'none';
         smoothingContainer.style.display = 'none';
         if (fillModeOptions) fillModeOptions.style.display = 'block';
-        {
-          const fillTool = window.app?.toolManager?.getTool('fill');
-          if (fillTool?.patternMode) appState.toolPreviewVisible = true;
-        }
         break;
 
       case 'inkdropper':

@@ -643,6 +643,7 @@ const server = createServer(async (req, res) => {
   // Rate limit helper
   const clientIp = req.socket.remoteAddress || '';
   function rateLimited(limiter) {
+    if (DISABLE_RATE_LIMITS) return false;
     if (!limiter.check(clientIp)) {
       res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '60' });
       res.end(JSON.stringify({ error: 'Too many requests, please try again later' }));
@@ -2449,8 +2450,36 @@ function broadcastToRoom(room, payload, excludeIndex = null) {
  * handler so it can also be triggered by the grace timer when a resumable
  * client fails to come back in time.
  */
+// Grace window during which mod actions (unban/unmute) for a sessionIndex
+// can still resolve back to the user that just departed under it.
+const RECENT_SESSION_TTL_MS = 10 * 60 * 1000;
+
+function recordRecentSession(room, sessionIndex, ws) {
+  if (!room || sessionIndex === undefined || !ws) return;
+  if (!room._recentSessions) room._recentSessions = new Map();
+  room._recentSessions.set(sessionIndex, {
+    userId: ws.userId || null,
+    username: ws.username || '',
+    clientIp: ws.clientIp || null,
+    deviceId: ws.deviceId || null,
+    fingerprintId: ws.fingerprintId || null,
+    departedAt: Date.now(),
+  });
+}
+
+function getRecentSession(room, sessionIndex) {
+  const entry = room?._recentSessions?.get(sessionIndex);
+  if (!entry) return null;
+  if (Date.now() - entry.departedAt > RECENT_SESSION_TTL_MS) {
+    room._recentSessions.delete(sessionIndex);
+    return null;
+  }
+  return entry;
+}
+
 function finalizeSessionRemoval(room, sessionIndex, ws) {
   if (!room || sessionIndex === undefined) return;
+  recordRecentSession(room, sessionIndex, ws);
   room.sessionManager.removeUser(sessionIndex);
   room.sessionManager.freeSessionIndex(sessionIndex);
   if (!ws.isShadowBanned) {
@@ -3240,13 +3269,18 @@ wss.on('connection', async (ws, req) => {
           }
 
           const targetUser = room.sessionManager.getUser(modTargetIndex);
-          const targetName = data.modTargetName || targetWs?.username || targetUser?.name || `User ${modTargetIndex}`;
+          // For post-disconnect actions (unban/unmute issued after the target's
+          // WS already closed — including the close caused by the ban itself),
+          // recover the target identity from the recent-session cache before
+          // falling back to a synthetic "User N" label that won't match the DB.
+          const recentTarget = getRecentSession(room, modTargetIndex);
+          const targetName = data.modTargetName || targetWs?.username || targetUser?.name || recentTarget?.username || `User ${modTargetIndex}`;
           const targetRole = getTargetProtectionRole(targetWs, targetUser);
           const issuerAuthority = getModerationAuthority(ws);
-          const targetUserId = targetWs?.userId || null;
-          const targetIp = targetWs?.clientIp || null;
-          const targetDeviceId = targetWs?.deviceId || null;
-          const targetFingerprintId = targetWs?.fingerprintId || null;
+          const targetUserId = targetWs?.userId || recentTarget?.userId || null;
+          const targetIp = targetWs?.clientIp || recentTarget?.clientIp || null;
+          const targetDeviceId = targetWs?.deviceId || recentTarget?.deviceId || null;
+          const targetFingerprintId = targetWs?.fingerprintId || recentTarget?.fingerprintId || null;
 
           const rejectProtectedTarget = (message) => {
             sendTo(ws, { t: T.MOD_RESULT, a: false, authError: message });

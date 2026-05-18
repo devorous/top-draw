@@ -98,14 +98,25 @@ export function canPerform(role, action) {
 
 /**
  * Check an action against separate room and global ranks.
- * @param {Object} client - WebSocket-like object with .roomRole/.globalRole/.userRole.
+ *
+ * Room and global authority are kept distinct on purpose: a high global role
+ * does not implicitly grant per-room moderation power, and a high room role
+ * does not unlock the global-only actions (those have stricter min ranks in
+ * GLOBAL_ACTION_MIN_ROLE). The two checks are an OR — either path authorizes.
+ *
+ * @param {Object} client - WebSocket-like object with .roomRole/.globalRole.
  * @param {string} action - An Action constant.
  * @returns {boolean}
  */
 export function canPerformForClient(client, action) {
   if (!client) return false;
 
-  const roomRole = Number(client.roomRole ?? client.userRole ?? Role.GUEST);
+  // Per-room check: only the room-scoped role counts. Treat 0 as "no room role"
+  // (Role.GUEST). A previous version had `client.roomRole ?? client.userRole`
+  // as a fallback, but `??` doesn't catch 0 so the fallback was dead, and
+  // bleeding the effective role through here would silently violate the
+  // room/global separation.
+  const roomRole = Number(client.roomRole || Role.GUEST);
   if (canPerform(roomRole, action)) return true;
 
   const globalMinRole = GLOBAL_ACTION_MIN_ROLE[action];

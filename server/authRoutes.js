@@ -377,9 +377,11 @@ export async function handleAuthRegister(req, res) {
 
   const clientIp = getClientIp(req);
   const clientSubnet = getIpSubnet(clientIp);
-  const registerLimit = httpRateLimiter.consume(`auth:register:${clientIp}`, REGISTER_RATE_LIMIT);
-  if (!registerLimit.allowed) {
-    return json(res, 429, { success: false, error: 'Too many registration attempts. Please try again later.' });
+  if (process.env.DISABLE_RATE_LIMITS !== 'true') {
+    const registerLimit = httpRateLimiter.consume(`auth:register:${clientIp}`, REGISTER_RATE_LIMIT);
+    if (!registerLimit.allowed) {
+      return json(res, 429, { success: false, error: 'Too many registration attempts. Please try again later.' });
+    }
   }
 
   let body;
