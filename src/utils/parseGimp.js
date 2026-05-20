@@ -161,8 +161,18 @@ const SELECTION_MODES = {
 };
 
 /**
- * Parse the GIH info line to extract dimensions and selection modes
- * Format: "ncells [dim] rank1 sel1 rank2 sel2 ..." or "ncells key:value key:value ..."
+ * Hard limits to prevent runaway brushes from lagging the app.
+ * GIMP itself caps dim at 4 (GIMP_PIXPIPE_MAXDIM).
+ */
+const MAX_DIMENSIONS = 4;
+const MAX_RANKS_PER_DIM = 32;
+const MAX_TOTAL_CELLS = 256;
+const MAX_FILE_BYTES = 1_500_000;
+
+/**
+ * Parse the GIH info line to extract dimensions and selection modes.
+ * Supports both modern GIMP format (key:value pairs with dim/rank0/sel0/...) and
+ * legacy positional format ("ncells [dim] rank1 sel1 rank2 sel2 ...").
  */
 function parseGihInfo(info) {
   const parts = info.trim().split(/\s+/);
@@ -171,43 +181,99 @@ function parseGihInfo(info) {
     dimensions: []
   };
 
-  // Check if using key:value format (legacy/simple format)
-  if (parts.length > 1 && parts[1].includes(':')) {
-    // Parse key:value pairs
-    for (let i = 1; i < parts.length; i++) {
-      const [key, value] = parts[i].split(':');
-      if (key && value !== undefined) {
-        result[key] = isNaN(Number(value)) ? value : Number(value);
+  const usesKeyValue = parts.slice(1).some((p) => p.includes(':'));
+
+  if (usesKeyValue) {
+    // Modern format: "ncells:N cellwidth:W cellheight:H cellbpp:B ncells:N dim:D
+    //                 cols:C rows:R placement:P rank0:.. rankN:.. sel0:.. selN:.."
+    const kv = {};
+    for (const part of parts) {
+      const colonIdx = part.indexOf(':');
+      if (colonIdx === -1) continue;
+      const key = part.slice(0, colonIdx);
+      const value = part.slice(colonIdx + 1);
+      kv[key] = value;
+    }
+
+    if (kv.ncells !== undefined) {
+      const n = parseInt(kv.ncells, 10);
+      if (!isNaN(n) && n > 0) result.ncells = n;
+    }
+    if (kv.cellwidth !== undefined)  result.cellwidth  = parseInt(kv.cellwidth, 10);
+    if (kv.cellheight !== undefined) result.cellheight = parseInt(kv.cellheight, 10);
+    if (kv.cellbpp !== undefined)    result.cellbpp    = parseInt(kv.cellbpp, 10);
+    if (kv.step !== undefined)       result.step       = parseInt(kv.step, 10);
+    if (kv.cols !== undefined)       result.cols       = parseInt(kv.cols, 10);
+    if (kv.rows !== undefined)       result.rows       = parseInt(kv.rows, 10);
+    if (kv.placement !== undefined)  result.placement  = kv.placement;
+
+    const declaredDim = kv.dim !== undefined ? parseInt(kv.dim, 10) : NaN;
+
+    // Form A — explicit rank0/sel0, rank1/sel1, ... (what GIMP actually writes)
+    if (!isNaN(declaredDim) && declaredDim > 0 && kv.rank0 !== undefined) {
+      for (let i = 0; i < declaredDim; i++) {
+        const ranks = parseInt(kv[`rank${i}`], 10);
+        const sel = kv[`sel${i}`] !== undefined ? kv[`sel${i}`] : 'incremental';
+        if (!isNaN(ranks) && ranks > 0) {
+          result.dimensions.push({
+            ranks,
+            selection: normalizeSelectionMode(sel),
+            currentIndex: 0
+          });
+        }
       }
     }
-    // If no dimensions specified, create a single incremental dimension
+    // Form B — comma-separated lists "ranks:4,8 selection:angular,incremental"
+    else if (kv.ranks !== undefined && String(kv.ranks).includes(',')) {
+      const rankList = String(kv.ranks).split(',').map((s) => parseInt(s, 10));
+      const selList = (kv.selection !== undefined ? String(kv.selection) : '')
+        .split(',').map((s) => s.trim());
+      for (let i = 0; i < rankList.length; i++) {
+        if (isNaN(rankList[i]) || rankList[i] <= 0) continue;
+        result.dimensions.push({
+          ranks: rankList[i],
+          selection: normalizeSelectionMode(selList[i] || 'incremental'),
+          currentIndex: 0
+        });
+      }
+    }
+    // Form C — single ranks:N selection:mode (one dimension)
+    else if (kv.ranks !== undefined) {
+      const ranks = parseInt(kv.ranks, 10);
+      if (!isNaN(ranks) && ranks > 0) {
+        result.dimensions.push({
+          ranks,
+          selection: normalizeSelectionMode(kv.selection || 'incremental'),
+          currentIndex: 0
+        });
+      }
+    }
+
+    // Fallback — treat as single incremental dim spanning all cells
     if (result.dimensions.length === 0 && result.ncells > 1) {
       result.dimensions.push({
         ranks: result.ncells,
-        selection: SELECTION_MODES.INCREMENTAL,
+        selection: normalizeSelectionMode(kv.selection || 'incremental'),
         currentIndex: 0
       });
     }
   } else {
-    // Parse dimension format: ncells [numDimensions] rank1 sel1 rank2 sel2 ...
+    // Legacy positional format: "ncells [dim] rank1 sel1 rank2 sel2 ..."
     let idx = 1;
-
-    // Check if second number is the dimension count
     let numDimensions = 1;
+
     if (parts.length > 1 && !isNaN(parseInt(parts[1], 10))) {
       const possibleDimCount = parseInt(parts[1], 10);
-      // If it's a small number (1-4) and we have enough parts for rank/sel pairs, it's dimension count
-      if (possibleDimCount <= 4 && parts.length >= 2 + possibleDimCount * 2) {
+      if (possibleDimCount >= 1 && possibleDimCount <= MAX_DIMENSIONS &&
+          parts.length >= 2 + possibleDimCount * 2) {
         numDimensions = possibleDimCount;
         idx = 2;
       }
     }
 
-    // Parse rank/selection pairs
-    while (idx < parts.length - 1) {
+    for (let d = 0; d < numDimensions && idx + 1 < parts.length; d++) {
       const ranks = parseInt(parts[idx], 10);
       const selection = (parts[idx + 1] || 'incremental').toLowerCase();
-
       if (!isNaN(ranks) && ranks > 0) {
         result.dimensions.push({
           ranks,
@@ -218,7 +284,6 @@ function parseGihInfo(info) {
       idx += 2;
     }
 
-    // If no dimensions parsed, create default
     if (result.dimensions.length === 0 && result.ncells > 1) {
       result.dimensions.push({
         ranks: result.ncells,
@@ -302,13 +367,15 @@ function getNextBrushIndex(gihObject, context = {}) {
         dim.currentIndex = (dim.currentIndex + 1) % dim.ranks;
         break;
 
-      case SELECTION_MODES.ANGULAR:
-        // Angle is 0-360, map to ranks
-        // 0° = up, 90° = right, 180° = down, 270° = left
-        let normalizedAngle = ((angle % 360) + 360) % 360;
+      case SELECTION_MODES.ANGULAR: {
+        // Angle is 0-360, map to ranks. 0° = up, 90° = right, 180° = down, 270° = left.
+        // Match GIMP's RINT(angle / step) so each cell is centered on its target
+        // direction (e.g. for 4-dir: "up" cell fires for -45°..+45°, not 0°..90°).
+        const normalizedAngle = ((angle % 360) + 360) % 360;
         const angleStep = 360 / dim.ranks;
-        dim.currentIndex = Math.floor(normalizedAngle / angleStep) % dim.ranks;
+        dim.currentIndex = Math.round(normalizedAngle / angleStep) % dim.ranks;
         break;
+      }
 
       case SELECTION_MODES.RANDOM:
         dim.currentIndex = Math.floor(Math.random() * dim.ranks);
@@ -356,45 +423,86 @@ function getNextBrushIndex(gihObject, context = {}) {
 export function parseGih(arrayBuffer) {
   const view = new Uint8Array(arrayBuffer);
 
-  if (view.length > 1500000) {
-    console.error('File too large!');
+  if (view.length > MAX_FILE_BYTES) {
+    console.error(`parseGih: file too large (${view.length} > ${MAX_FILE_BYTES})`);
     return null;
   }
 
   const chunks = splitUint8Array(view, 10);
+  if (chunks.length < 2) {
+    console.error('parseGih: missing brush name/parameter header');
+    return null;
+  }
   const name = chunkToString(chunks[0]);
   const info = chunkToString(chunks[1]);
 
-  // Parse the info line to get dimensions and selection modes
   const gihObject = parseGihInfo(info);
   gihObject.name = name;
 
-  const data = view.slice(chunks[0].length + chunks[1].length + 2);
-  const colorDepth = data[19];
-  const imageBytes = gihObject.cellheight * gihObject.cellwidth * colorDepth;
+  // Enforce sanity limits BEFORE allocating per-cell buffers.
+  if (gihObject.ncells > MAX_TOTAL_CELLS) {
+    console.error(`parseGih: brush "${name}" has ${gihObject.ncells} cells, ` +
+                  `exceeds limit of ${MAX_TOTAL_CELLS}`);
+    return null;
+  }
+  if (gihObject.dimensions.length > MAX_DIMENSIONS) {
+    console.error(`parseGih: brush "${name}" declares ${gihObject.dimensions.length} ` +
+                  `dimensions, exceeds limit of ${MAX_DIMENSIONS}`);
+    return null;
+  }
+  for (const dim of gihObject.dimensions) {
+    if (dim.ranks > MAX_RANKS_PER_DIM) {
+      console.error(`parseGih: brush "${name}" dimension has ${dim.ranks} ranks, ` +
+                    `exceeds limit of ${MAX_RANKS_PER_DIM}`);
+      return null;
+    }
+  }
 
+  const data = view.slice(chunks[0].length + chunks[1].length + 2);
+
+  // Walk each cell's own GBR header to find its size. Each cell starts with:
+  //   bytes 0-3  : header_size (uint32 BE)
+  //   bytes 8-11 : width
+  //   bytes 12-15: height
+  //   bytes 16-19: bytes_per_pixel
   const indices = [];
   let acc = 0;
-
   for (let i = 0; i < gihObject.ncells; i++) {
     indices.push(acc);
-    const headerChunk = data.slice(acc, acc + 4);
-    const headerLength = Number('0x' + concatChunk(headerChunk));
-    const cellSize = imageBytes + headerLength;
-    acc += cellSize;
+    if (acc + 20 > data.length) {
+      console.error(`parseGih: truncated brush data at cell ${i}`);
+      return null;
+    }
+    const headerLength = Number('0x' + concatChunk(data.slice(acc, acc + 4)));
+    const cellWidth    = Number('0x' + concatChunk(data.slice(acc + 8,  acc + 12)));
+    const cellHeight   = Number('0x' + concatChunk(data.slice(acc + 12, acc + 16)));
+    const cellBpp      = Number('0x' + concatChunk(data.slice(acc + 16, acc + 20)));
+    const imageBytes = cellWidth * cellHeight * cellBpp;
+    acc += headerLength + imageBytes;
+    if (acc > data.length) {
+      console.error(`parseGih: cell ${i} extends past end of file`);
+      return null;
+    }
   }
   indices.push(acc);
 
   const brushes = [];
-
   for (let i = 0; i < gihObject.ncells; i++) {
-    const index = indices[i];
-    const currentData = data.slice(index, index + indices[i + 1]);
-    const currentBrush = parseGbr(currentData);
-    brushes.push(currentBrush);
+    const startIdx = indices[i];
+    const endIdx = indices[i + 1];
+    const currentData = data.slice(startIdx, endIdx);
+    brushes.push(parseGbr(currentData));
   }
 
   gihObject.gBrushes = brushes;
+
+  // Backfill cellwidth/cellheight/cellbpp from the first cell if the param
+  // line didn't supply them (positional format, or older writers).
+  if (brushes.length > 0) {
+    if (gihObject.cellwidth  === undefined) gihObject.cellwidth  = brushes[0].width;
+    if (gihObject.cellheight === undefined) gihObject.cellheight = brushes[0].height;
+    if (gihObject.cellbpp    === undefined) gihObject.cellbpp    = brushes[0].colorDepth;
+  }
 
   /**
    * Gets the next brush index based on context.
