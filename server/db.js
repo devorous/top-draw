@@ -77,6 +77,7 @@ export async function connectDB() {
     await safeCreateIndex('room_snapshots', { roomId: 1, timestamp: -1 });
     await safeCreateIndex('room_snapshots', { snapshotId: 1 }, { unique: true });
     await safeCreateIndex('moderation', { active: 1, type: 1, targetIp: 1 });
+    await safeCreateIndex('moderation', { active: 1, type: 1, targetIpKeys: 1 });
     await safeCreateIndex('moderation', { active: 1, type: 1, roomId: 1, targetUserId: 1 });
     await safeCreateIndex('gallery', { createdAt: -1 });
     await safeCreateIndex('gallery', { author: 1, createdAt: -1 });

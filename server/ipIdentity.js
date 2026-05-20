@@ -1,7 +1,27 @@
 /** @fileoverview IP identity and normalization for moderation enforcement and display. */
 
 import { isIPv4, isIPv6 } from 'net';
+import crypto from 'crypto';
 import { Role } from './SessionManager.js';
+
+export const IP_SCOPE_EXACT = 'exact';
+export const IP_SCOPE_SUBNET = 'subnet';
+export const IP_SCOPE_WIDE = 'wide';
+
+const _ipSaltFallback = crypto.randomBytes(32).toString('hex');
+let _warnedNoSalt = false;
+function getIpSalt() {
+  if (process.env.IP_SALT) return process.env.IP_SALT;
+  if (!_warnedNoSalt) {
+    console.warn('[SECURITY] IP_SALT not set — ban fingerprints will not persist across server restarts');
+    _warnedNoSalt = true;
+  }
+  return _ipSaltFallback;
+}
+
+function hmacRangeKey(rangeKey) {
+  return crypto.createHmac('sha256', getIpSalt()).update(rangeKey).digest('hex');
+}
 
 /**
  * Parses and normalizes an IP address string into a canonical form.
@@ -312,4 +332,58 @@ export function obfuscateIp(ip, viewerRole = Role.GUEST) {
   if (!identity) return 'unknown';
 
   return getDisplayIpForTier(identity, getIpMaskTier(viewerRole));
+}
+
+/**
+ * Returns HMAC fingerprints for every range a given IP belongs to.
+ * Used when checking whether a connecting IP matches any stored ban range.
+ *
+ * For IPv4: [hmac(/32), hmac(/24)]
+ * For IPv6: [hmac(/128), hmac(/64), hmac(/48)]
+ *
+ * @param {string} ip - Raw or canonical IP address.
+ * @returns {string[]} - Array of hex HMAC fingerprints; empty if IP invalid.
+ */
+export function fingerprintRangeKeys(ip) {
+  const identity = buildIpIdentity(ip);
+  if (!identity) return [];
+  return identity.rangeKeys.map(hmacRangeKey);
+}
+
+/**
+ * Returns the HMAC fingerprint, raw range key, and human-readable display
+ * for a specific ban scope.
+ *
+ * Scopes:
+ *   'exact'  → /32 (IPv4) or /128 (IPv6)
+ *   'subnet' → /24 (IPv4) or /64 (IPv6)   ← default
+ *   'wide'   → /24 (IPv4, same as subnet) or /48 (IPv6)
+ *
+ * @param {string} ip
+ * @param {'exact'|'subnet'|'wide'} [scope='subnet']
+ * @returns {{fingerprint: string, rangeKey: string, scope: string, displayRange: string, family: 'ipv4'|'ipv6'} | null}
+ */
+export function fingerprintForScope(ip, scope = IP_SCOPE_SUBNET) {
+  const identity = buildIpIdentity(ip);
+  if (!identity) return null;
+
+  let rangeKey;
+  let normalizedScope = scope;
+  if (scope === IP_SCOPE_EXACT) {
+    rangeKey = identity.exactKey;
+  } else if (scope === IP_SCOPE_WIDE) {
+    rangeKey = identity.family === 'ipv6' ? identity.rangeKeys[2] : identity.defaultRangeKey;
+    if (identity.family === 'ipv4') normalizedScope = IP_SCOPE_SUBNET;
+  } else {
+    rangeKey = identity.defaultRangeKey;
+    normalizedScope = IP_SCOPE_SUBNET;
+  }
+
+  return {
+    fingerprint: hmacRangeKey(rangeKey),
+    rangeKey,
+    scope: normalizedScope,
+    displayRange: rangeKey.replace(/^ip[46]:/, ''),
+    family: identity.family
+  };
 }

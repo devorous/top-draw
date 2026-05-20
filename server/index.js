@@ -3259,6 +3259,10 @@ wss.on('connection', async (ws, req) => {
           const modTargetIndex = data.modTarget;
           const modReason = data.modReason || '';
           const modDuration = data.modDuration || 0;
+          // 'exact' | 'subnet' (default) | 'wide' — controls how broadly an IP-based
+          // mod action matches (e.g. /64 vs /128 on IPv6). See server/ipIdentity.js.
+          const rawIpScope = typeof data.modIpScope === 'string' ? data.modIpScope : '';
+          const modIpScope = (rawIpScope === 'exact' || rawIpScope === 'wide') ? rawIpScope : 'subnet';
 
           let targetWs = null;
           for (const client of wss.clients) {
@@ -3330,6 +3334,7 @@ wss.on('connection', async (ws, req) => {
                     targetUserId,
                     targetUsername: targetName,
                     targetIp,
+                    ipScope: modIpScope,
                     reason: modReason,
                     issuedBy: ws.userId || null,
                     issuedByUsername: ws.username || '',
@@ -3379,6 +3384,7 @@ wss.on('connection', async (ws, req) => {
                     targetUserId,
                     targetUsername: targetName,
                     targetIp,
+                    ipScope: modIpScope,
                     reason: modReason,
                     issuedBy: ws.userId || null,
                     issuedByUsername: ws.username || '',
@@ -3516,6 +3522,7 @@ wss.on('connection', async (ws, req) => {
                     targetUserId,
                     targetUsername: targetName,
                     targetIp,
+                    ipScope: modIpScope,
                     targetDeviceId,
                     targetFingerprintId,
                     reason: modReason,

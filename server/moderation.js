@@ -1,8 +1,20 @@
 /** @fileoverview Provides utilities for moderation actions, including IP obfuscation, ban/mute checks, and logging. */
 
 import { getDB } from './db.js';
-import { obfuscateIp as obfuscateIpFromIdentity } from './ipIdentity.js';
+import {
+  obfuscateIp as obfuscateIpFromIdentity,
+  fingerprintRangeKeys,
+  fingerprintForScope,
+  IP_SCOPE_SUBNET
+} from './ipIdentity.js';
+import { Role } from './SessionManager.js';
 
+/**
+ * Builds the per-target $or branches used when checking or revoking actions.
+ * `targetIp` is expanded to HMAC fingerprints of every range the IP belongs to,
+ * matching any stored ban whose `targetIpKeys` contains one of them. Legacy
+ * rows that still carry a cleartext `targetIp` are matched by equality.
+ */
 function buildTargetConditions({
   targetUserId = null,
   targetIp = null,
@@ -12,7 +24,11 @@ function buildTargetConditions({
 } = {}) {
   const conditions = [];
   if (targetUserId) conditions.push({ targetUserId });
-  if (targetIp) conditions.push({ targetIp });
+  if (targetIp) {
+    const keys = fingerprintRangeKeys(targetIp);
+    if (keys.length > 0) conditions.push({ targetIpKeys: { $in: keys } });
+    conditions.push({ targetIp });
+  }
   if (targetUsername) conditions.push({ targetUsername });
   if (targetDeviceId) conditions.push({ targetDeviceId });
   if (targetFingerprintId) conditions.push({ targetFingerprintId });
@@ -136,19 +152,25 @@ export async function checkShadowBan({
 
 /**
  * Records a new moderation action in the database.
+ *
+ * IPs are never stored in cleartext. The caller passes the target's raw IP
+ * plus an `ipScope` ('exact' | 'subnet' | 'wide'); we store only the HMAC
+ * fingerprint of that range plus a masked display string.
+ *
  * @param {Object} opts - Action options.
- * @param {string} opts.type - The type of action ('ban' or 'mute').
- * @param {string|null} opts.targetUserId - The ID of the target user.
- * @param {string} opts.targetUsername - The username of the target user.
- * @param {string} opts.targetIp - The IP of the target user.
- * @param {string|null} [opts.targetDeviceId] - The device ID of the target user.
- * @param {string|null} [opts.targetFingerprintId] - The fingerprint ID of the target user.
- * @param {string} opts.reason - The reason for the action.
- * @param {string} opts.issuedBy - The ID of the moderator who issued the action.
- * @param {string} opts.issuedByUsername - The username of the moderator.
- * @param {number} opts.duration - Duration in minutes (0 for permanent).
- * @param {string} [opts.roomId] - Optional room ID to scope the action.
- * @returns {Promise<Object|null>} - The created moderation entry.
+ * @param {string} opts.type - 'ban' | 'mute' | 'shadowban'
+ * @param {string|null} opts.targetUserId
+ * @param {string} opts.targetUsername
+ * @param {string|null} opts.targetIp - Raw IP (used to derive HMAC; not stored).
+ * @param {'exact'|'subnet'|'wide'} [opts.ipScope='subnet']
+ * @param {string|null} [opts.targetDeviceId]
+ * @param {string|null} [opts.targetFingerprintId]
+ * @param {string} opts.reason
+ * @param {string} opts.issuedBy
+ * @param {string} opts.issuedByUsername
+ * @param {number} opts.duration - Minutes (0 = permanent).
+ * @param {string} [opts.roomId]
+ * @returns {Promise<Object|null>}
  */
 export async function issueModAction(opts) {
   const db = getDB();
@@ -159,11 +181,26 @@ export async function issueModAction(opts) {
     ? new Date(now.getTime() + opts.duration * 60 * 1000)
     : null;
 
+  let targetIpKeys = null;
+  let targetIpScope = null;
+  let targetIpDisplay = null;
+  if (opts.targetIp) {
+    const scoped = fingerprintForScope(opts.targetIp, opts.ipScope || IP_SCOPE_SUBNET);
+    if (scoped) {
+      targetIpKeys = [scoped.fingerprint];
+      targetIpScope = scoped.scope;
+      targetIpDisplay = scoped.displayRange;
+    }
+  }
+
   const entry = {
     type: opts.type,
     targetUserId: opts.targetUserId || null,
     targetUsername: opts.targetUsername,
-    targetIp: opts.targetIp || null,
+    targetIp: null,
+    targetIpKeys,
+    targetIpScope,
+    targetIpDisplay,
     targetDeviceId: opts.targetDeviceId || null,
     targetFingerprintId: opts.targetFingerprintId || null,
     reason: opts.reason || '',
@@ -194,9 +231,7 @@ export async function updateModActionReason(targetUserId, targetIp, type, reason
   const db = getDB();
   if (!db) return false;
 
-  const conditions = [];
-  if (targetUserId) conditions.push({ targetUserId });
-  if (targetIp) conditions.push({ targetIp });
+  const conditions = buildTargetConditions({ targetUserId, targetIp });
   if (conditions.length === 0) return false;
 
   const result = await db.collection('moderation').findOneAndUpdate(
@@ -309,6 +344,10 @@ export async function getModEntries({ showHistory = false, search = '', roomId =
   if (roomId) {
     query.$or = [{ roomId }, { roomId: null }];
   }
+  // Shadowbans are only visible to HOLY+. Defense in depth — UI also hides them.
+  if (viewerRole < Role.HOLY) {
+    query.type = { $ne: 'shadowban' };
+  }
 
   const entries = await db.collection('moderation')
     .find(query)
@@ -316,16 +355,25 @@ export async function getModEntries({ showHistory = false, search = '', roomId =
     .limit(200)
     .toArray();
 
-  return entries.map(e => ({
-    id: e._id.toString(),
-    type: e.type === 'ban' ? 0 : e.type === 'mute' ? 1 : 2,
-    username: e.targetUsername || '',
-    reason: e.reason || '',
-    ip: obfuscateIp(e.targetIp, viewerRole),
-    issuedBy: e.issuedByUsername || '',
-    createdAt: e.createdAt ? e.createdAt.getTime() : 0,
-    expiresAt: e.expiresAt ? e.expiresAt.getTime() : 0,
-    active: e.active,
-    roomId: e.roomId || null
-  }));
+  return entries.map(e => {
+    // New rows store a masked display string (e.g. "2001:db8:abcd:1200::/64").
+    // Legacy rows still carry a cleartext targetIp; obfuscate it by viewer role.
+    const ipDisplay = e.targetIpDisplay
+      ? e.targetIpDisplay
+      : (e.targetIp ? obfuscateIp(e.targetIp, viewerRole) : '');
+
+    return {
+      id: e._id.toString(),
+      type: e.type === 'ban' ? 0 : e.type === 'mute' ? 1 : 2,
+      username: e.targetUsername || '',
+      reason: e.reason || '',
+      ip: ipDisplay,
+      ipScope: e.targetIpScope || null,
+      issuedBy: e.issuedByUsername || '',
+      createdAt: e.createdAt ? e.createdAt.getTime() : 0,
+      expiresAt: e.expiresAt ? e.expiresAt.getTime() : 0,
+      active: e.active,
+      roomId: e.roomId || null
+    };
+  });
 }

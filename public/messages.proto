@@ -275,19 +275,21 @@ message Msg {
   string mod_issuer_name  = 40;  // Issuer username
   bool   mod_show_history = 53;  // MOD_LIST: return all entries (not just active)
   string mod_search       = 54;  // MOD_LIST: filter by username prefix
+  string mod_ip_scope     = 55;  // MOD_ACTION: 'exact' | 'subnet' (default) | 'wide'
 
   // Moderation entry for active bans/mutes list
   message ModEntry {
     string id        = 1;   // DB entry ID
-    uint32 type      = 2;   // 0=ban, 1=mute
+    uint32 type      = 2;   // 0=ban, 1=mute, 2=shadowban
     string username  = 3;
     string reason    = 4;
-    string ip        = 5;   // Obfuscated
+    string ip        = 5;   // Masked range string (e.g. "2001:db8:abcd::/64")
     string issuedBy  = 6;
     uint64 createdAt = 7;
     uint64 expiresAt = 8;   // 0=permanent
     bool   active    = 9;
     string roomId    = 10;  // Room this entry applies to (empty = global)
+    string ipScope   = 11;  // CIDR scope this ban targets (e.g. "/64", "/24", "/128")
   }
   repeated ModEntry mod_entries = 42;  // List of active moderation entries
 
