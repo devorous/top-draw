@@ -1057,6 +1057,137 @@ export class RemoteSelectionHandler {
     this.drawFloatingSelection(user);
   }
 
+  handleSelectionMerge(user, mode, sourceLayer) {
+    if (this._queueIfLoading(user, () => this.handleSelectionMerge(user, mode, sourceLayer))) return;
+
+    const s = user.selection || user.pendingSelection;
+    if (!s || user.floatingCanvas) return;
+
+    const lm = this.board.layerManager;
+    if (!lm) return;
+
+    const userId = user.id;
+    const layerCount = lm.layerGroups.length;
+    const activeLayer = Number.isInteger(sourceLayer) ? sourceLayer : (user.activeLayer ?? 0);
+
+    if (mode === 'up' && activeLayer >= layerCount - 1) return;
+    if (mode === 'down' && activeLayer <= 0) return;
+    if (mode === 'all' && layerCount <= 1) return;
+
+    const ix = Math.floor(s.x);
+    const iy = Math.floor(s.y);
+    const iw = Math.ceil(s.x + s.width) - ix;
+    const ih = Math.ceil(s.y + s.height) - iy;
+    const intS = { x: ix, y: iy, width: iw, height: ih };
+
+    const lassoPath = user.pendingLassoPath && user.pendingLassoPath.length >= 3
+      ? user.pendingLassoPath
+      : (user.lassoPath && user.lassoPath.length >= 3 ? user.lassoPath : null);
+
+    let targetLayer;
+    const sourceLayers = [];
+    if (mode === 'up') {
+      targetLayer = activeLayer + 1;
+      sourceLayers.push(activeLayer);
+    } else if (mode === 'down') {
+      targetLayer = activeLayer - 1;
+      sourceLayers.push(activeLayer);
+    } else {
+      targetLayer = activeLayer;
+      for (let i = 0; i < layerCount; i++) {
+        if (i !== activeLayer) sourceLayers.push(i);
+      }
+    }
+
+    // Force-commit this user's in-progress strokes across all layers so the
+    // merge captures full baked state.
+    for (let i = 0; i < layerCount; i++) {
+      if (lm.layerGroups[i]?.activeStrokeByUser.has(userId)) {
+        lm.commitUserStroke(i, userId);
+      }
+    }
+
+    // Build merged content (selection-sized canvas) for the chosen layer range.
+    const mergedCanvas = document.createElement('canvas');
+    mergedCanvas.width = intS.width;
+    mergedCanvas.height = intS.height;
+    const mergedCtx = mergedCanvas.getContext('2d');
+
+    const fullCanvas = document.createElement('canvas');
+    fullCanvas.width = lm.width;
+    fullCanvas.height = lm.height;
+    const fullCtx = fullCanvas.getContext('2d');
+
+    if (mode === 'all') {
+      lm.compositeLayerRange(fullCtx, 0, layerCount, null);
+    } else {
+      lm.compositeLayerRange(fullCtx, activeLayer, activeLayer + 1, null);
+    }
+    mergedCtx.drawImage(fullCanvas, intS.x, intS.y, intS.width, intS.height, 0, 0, intS.width, intS.height);
+
+    if (lassoPath) {
+      mergedCtx.save();
+      mergedCtx.globalCompositeOperation = 'destination-in';
+      mergedCtx.fillStyle = 'white';
+      mergedCtx.beginPath();
+      mergedCtx.moveTo(lassoPath[0].x - intS.x, lassoPath[0].y - intS.y);
+      for (let i = 1; i < lassoPath.length; i++) {
+        mergedCtx.lineTo(lassoPath[i].x - intS.x, lassoPath[i].y - intS.y);
+      }
+      mergedCtx.closePath();
+      mergedCtx.fill();
+      mergedCtx.restore();
+    }
+
+    const batchTimestamp = typeof lm.allocateHistoryTimestamp === 'function'
+      ? lm.allocateHistoryTimestamp()
+      : Date.now();
+
+    const layersToErase = mode === 'all' ? [...sourceLayers, targetLayer] : sourceLayers;
+    for (const layerIdx of layersToErase) {
+      this._eraseSelectionFromLayer(intS, layerIdx, lassoPath, userId);
+      // Override the timestamp with the shared batch one so undo groups them.
+      const stack = lm.layerGroups[layerIdx]?.strokeStack;
+      if (stack && stack.length > 0) {
+        const last = stack[stack.length - 1];
+        if (last && last.userId === userId) {
+          last.timestamp = batchTimestamp;
+          last.isSelectionMerge = true;
+        }
+      }
+    }
+
+    // Stamp merged content onto target layer as a source-over stroke.
+    lm.beginUserStroke(targetLayer, userId, 'source-over');
+    const active = lm.layerGroups[targetLayer]?.activeStrokeByUser.get(userId);
+    if (active) {
+      active.ctx.drawImage(mergedCanvas, intS.x, intS.y);
+      if (active.dirtyRect) {
+        active.dirtyRect.minX = intS.x;
+        active.dirtyRect.minY = intS.y;
+        active.dirtyRect.maxX = intS.x + intS.width;
+        active.dirtyRect.maxY = intS.y + intS.height;
+      }
+      const tt = this.board.tileTracker;
+      if (tt && active.affectedTiles) {
+        const idxs = tt.getTileIndicesForRect(intS.x, intS.y, intS.width, intS.height);
+        for (const i of idxs) active.affectedTiles.add(i);
+      }
+      this.board.expandDirtyRect(user, intS.x, intS.y, intS.width, intS.height, targetLayer);
+      lm.commitUserStroke(targetLayer, userId, {
+        timestamp: batchTimestamp,
+        isSelectionMerge: true
+      });
+    }
+
+    this.board.activeSelectionLayer = -1;
+    this.board.markCompositeFull();
+    this.board.compositeAllLayers();
+    this.board.addOccupancyForVisibleTilesInRect(userId, intS.x, intS.y, intS.width, intS.height);
+
+    this._cleanupUserSelection(user);
+  }
+
   handleSelectionFlip(user) {
     if (this._queueIfLoading(user, () => this.handleSelectionFlip(user))) return;
     if (!user.floatingCanvas || !user.selection) return;

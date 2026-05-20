@@ -152,7 +152,7 @@ export class WebSocketClient {
       // Selection operations — all mutate canvas state in ways that must stay
       // ordered with the surrounding drawing events.
       T.SEL_LIFT, T.SEL_MOVE, T.SEL_COMMIT, T.SEL_DELETE, T.SEL_FILL,
-      T.SEL_STAMP, T.SEL_CANCEL, T.SEL_TO_BRUSH, T.SEL_FLIP, T.SEL_PENDING, T.SEL_MASK, T.OBSCURE_REGION,
+      T.SEL_STAMP, T.SEL_CANCEL, T.SEL_TO_BRUSH, T.SEL_FLIP, T.SEL_MERGE, T.SEL_PENDING, T.SEL_MASK, T.OBSCURE_REGION,
       // Image paste and async computation results must also respect draw order.
       T.IMG_PASTE, T.GLITCH_RESULT,
     ]);
@@ -1174,6 +1174,14 @@ export class WebSocketClient {
 
       case T.SEL_STAMP:
         this.emit('sel_stamp', { sessionIndex: data.u, layerIndex: data.ly });
+        break;
+
+      case T.SEL_MERGE:
+        this.emit('sel_merge', {
+          sessionIndex: data.u,
+          sourceLayer: data.ly ?? 0,
+          mode: data.g || 'down'
+        });
         break;
 
       case T.SEL_FLIP:
@@ -2234,6 +2242,18 @@ export class WebSocketClient {
   broadcastSelectionStamp(layerIndex) {
     const msg = { t: T.SEL_STAMP };
     if (layerIndex !== undefined) msg.ly = layerIndex;
+    this.send(msg);
+  }
+
+  /**
+   * Broadcasts a selection merge operation between layers.
+   * @param {'up'|'down'|'all'} mode - Merge direction.
+   * @param {number} sourceLayer - The user's source/active layer index.
+   * @returns {void}
+   */
+  broadcastSelectionMerge(mode, sourceLayer) {
+    const msg = { t: T.SEL_MERGE, g: mode };
+    if (sourceLayer !== undefined) msg.ly = sourceLayer;
     this.send(msg);
   }
 

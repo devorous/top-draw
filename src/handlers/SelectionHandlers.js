@@ -64,6 +64,13 @@ export function setupSelectionHandlers(wrapHandler, app) {
     }
   });
 
+  wrapHandler('sel_merge', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (user) {
+      remoteUserHandler.selectionHandler.handleSelectionMerge(user, data.mode, data.sourceLayer);
+    }
+  });
+
   wrapHandler('sel_flip', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {

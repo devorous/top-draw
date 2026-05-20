@@ -616,6 +616,9 @@ export class SelectTool extends Tool {
       apply: document.getElementById('selMenuApply'),
       save: document.getElementById('selMenuSave'),
       cancel: document.getElementById('selMenuCancel'),
+      mergeUp: document.getElementById('selMenuMergeUp'),
+      mergeDown: document.getElementById('selMenuMergeDown'),
+      mergeAll: document.getElementById('selMenuMergeAll'),
     };
 
     if (!this.menuElements.menu) return;
@@ -631,6 +634,9 @@ export class SelectTool extends Tool {
     this.menuElements.apply.addEventListener('click', () => this.deselect());
     this.menuElements.save.addEventListener('click', () => this.saveSelection());
     this.menuElements.cancel.addEventListener('click', () => this.cancelSelection());
+    this.menuElements.mergeUp?.addEventListener('click', () => this.mergeUp());
+    this.menuElements.mergeDown?.addEventListener('click', () => this.mergeDown());
+    this.menuElements.mergeAll?.addEventListener('click', () => this.mergeAll());
   }
 
   /**
@@ -648,6 +654,12 @@ export class SelectTool extends Tool {
     // there is nothing to put back, so the Cancel button is removed entirely.
     const isEphemeralFloat = hasMoved && !this._restoreData;
 
+    const activeLayer = this.board.app?.self?.activeLayer ?? 0;
+    const layerCount = this.board.layerManager?.layerGroups?.length ?? 0;
+    const canMergeUp = !hasMoved && activeLayer < layerCount - 1;
+    const canMergeDown = !hasMoved && activeLayer > 0;
+    const canMergeAll = !hasMoved && layerCount > 1;
+
     this.menuElements.mask?.classList.toggle('hidden', hasMoved);
     this.menuElements.obscure?.classList.toggle('hidden', hasMoved || !this.canCreateObscureRegions());
     this.menuElements.mask?.classList.toggle('active', this.isMaskMode);
@@ -659,6 +671,9 @@ export class SelectTool extends Tool {
     this.menuElements.apply.classList.toggle('hidden', !hasMoved);
     this.menuElements.save.classList.toggle('hidden', false);
     this.menuElements.cancel.classList.toggle('hidden', isEphemeralFloat);
+    this.menuElements.mergeUp?.classList.toggle('hidden', !canMergeUp);
+    this.menuElements.mergeDown?.classList.toggle('hidden', !canMergeDown);
+    this.menuElements.mergeAll?.classList.toggle('hidden', !canMergeAll);
 
     this.menuElements.clear.textContent = hasMoved ? 'Remove' : 'Clear';
     this.menuElements.clear.title = hasMoved ? 'Delete selection contents' : 'Clear selection contents';
@@ -681,7 +696,10 @@ export class SelectTool extends Tool {
           save: 7,
           clone: 8,
           fill: 9,
-          obscure: 10
+          obscure: 10,
+          mergeUp: 11,
+          mergeDown: 12,
+          mergeAll: 13
         }
       : {
           clear: 0,
@@ -694,7 +712,10 @@ export class SelectTool extends Tool {
           stamp: 7,
           apply: 8,
           save: 9,
-          obscure: 10
+          obscure: 10,
+          mergeUp: 11,
+          mergeDown: 12,
+          mergeAll: 13
         };
 
     Object.entries(menuOrder).forEach(([key, order]) => {
@@ -3566,6 +3587,172 @@ export class SelectTool extends Tool {
     this.hideContextMenu();
     this.clearSelection();
     return true;
+  }
+
+  mergeUp() { return this._performMerge('up'); }
+  mergeDown() { return this._performMerge('down'); }
+  mergeAll() { return this._performMerge('all'); }
+
+  /**
+   * Merge the selected region between layers.
+   *  - 'up'/'down': move the active layer's selection contents into the adjacent
+   *    layer; the source region is erased from the active layer.
+   *  - 'all': flatten the selection across every visible layer into the active
+   *    layer; the same region is erased from the other layers.
+   * In all modes, the user's in-flight strokes are committed first so the merge
+   * captures the full visible state without weirdness from active stroke layers.
+   * @param {'up'|'down'|'all'} mode
+   */
+  _performMerge(mode) {
+    if (!this.selection || this.floatingCanvas) return false;
+    const app = this.board.app;
+    const lm = this.board.layerManager;
+    if (!app || !lm) return false;
+
+    const userId = app.self?.id ?? 0;
+    const activeLayer = app.self?.activeLayer ?? 0;
+    const layerCount = lm.layerGroups.length;
+    const s = this.selection;
+    const lassoPath = this.mode === 'lasso' && this.lassoPath && this.lassoPath.length >= 3
+      ? this.lassoPath
+      : null;
+
+    if (mode === 'up' && activeLayer >= layerCount - 1) {
+      app.ui?.showToast?.('No layer above to merge into', 2000);
+      return false;
+    }
+    if (mode === 'down' && activeLayer <= 0) {
+      app.ui?.showToast?.('No layer below to merge into', 2000);
+      return false;
+    }
+    if (mode === 'all' && layerCount <= 1) return false;
+
+    let targetLayer;
+    const sourceLayers = [];
+    if (mode === 'up') {
+      targetLayer = activeLayer + 1;
+      sourceLayers.push(activeLayer);
+    } else if (mode === 'down') {
+      targetLayer = activeLayer - 1;
+      sourceLayers.push(activeLayer);
+    } else {
+      targetLayer = activeLayer;
+      for (let i = 0; i < layerCount; i++) {
+        if (i !== activeLayer) sourceLayers.push(i);
+      }
+    }
+
+    // Commit this user's in-progress strokes across all layers so we operate on
+    // baked state only. Other users' active strokes are untouched.
+    for (let i = 0; i < layerCount; i++) {
+      if (lm.layerGroups[i]?.activeStrokeByUser.has(userId)) {
+        lm.commitUserStroke(i, userId);
+      }
+    }
+
+    // Build the merged content (selection-sized canvas), lasso-masked.
+    const mergedCanvas = mode === 'all'
+      ? this._flattenLayerRangeToSelectionCanvas(0, layerCount, s)
+      : this._flattenLayerRangeToSelectionCanvas(activeLayer, activeLayer + 1, s);
+
+    if (lassoPath) {
+      this.applyLassoMask(mergedCanvas.getContext('2d'), s.x, s.y, lassoPath);
+    }
+
+    const batchTimestamp = typeof lm.allocateHistoryTimestamp === 'function'
+      ? lm.allocateHistoryTimestamp()
+      : Date.now();
+
+    // For 'all', also erase the target layer's existing region so the merged
+    // paint replaces the existing pixels rather than stacking on top of them.
+    const layersToErase = mode === 'all'
+      ? [...sourceLayers, targetLayer]
+      : sourceLayers;
+
+    for (const layerIdx of layersToErase) {
+      this._eraseSingleLayerSelection(layerIdx, s, lassoPath, userId, batchTimestamp);
+    }
+
+    // Stamp the merged content onto the target layer as a single source-over stroke.
+    lm.beginUserStroke(targetLayer, userId, 'source-over');
+    const active = lm.layerGroups[targetLayer]?.activeStrokeByUser.get(userId);
+    if (active) {
+      active.ctx.drawImage(mergedCanvas, s.x, s.y);
+      if (active.dirtyRect) {
+        active.dirtyRect.minX = s.x;
+        active.dirtyRect.minY = s.y;
+        active.dirtyRect.maxX = s.x + s.width;
+        active.dirtyRect.maxY = s.y + s.height;
+      }
+      const tt = this.board.tileTracker;
+      if (tt && active.affectedTiles) {
+        const idxs = tt.getTileIndicesForRect(s.x, s.y, s.width, s.height);
+        for (const i of idxs) active.affectedTiles.add(i);
+      }
+      this.board.expandDirtyRect(app.self, s.x, s.y, s.width, s.height, targetLayer);
+      lm.commitUserStroke(targetLayer, userId, {
+        timestamp: batchTimestamp,
+        isSelectionMerge: true
+      });
+    }
+
+    this.board.compositeTileGrid?.markRect(s.x, s.y, s.width, s.height);
+    this.board.markCompositeFull();
+    this.board.compositeAllLayers();
+    this.board.addOccupancyForVisibleTilesInRect(userId, s.x, s.y, s.width, s.height);
+
+    if (app.wsClient) {
+      app.inputBufferManager.queueBroadcast(() => app.wsClient.broadcastSelectionMerge(mode, activeLayer));
+    }
+
+    this.hideContextMenu();
+    this.clearSelection();
+    return true;
+  }
+
+  /**
+   * Erase the selection region from a single layer as a destination-out stroke.
+   * Shares a batch timestamp with the surrounding merge so undo treats them as one.
+   * @private
+   */
+  _eraseSingleLayerSelection(layerIdx, s, lassoPath, userId, batchTimestamp) {
+    const lm = this.board.layerManager;
+    if (!lm) return;
+
+    lm.beginUserStroke(layerIdx, userId, 'destination-out');
+    const active = lm.layerGroups[layerIdx]?.activeStrokeByUser.get(userId);
+    if (!active) return;
+
+    const ctx = active.ctx;
+    if (active.dirtyRect) {
+      active.dirtyRect.minX = s.x;
+      active.dirtyRect.minY = s.y;
+      active.dirtyRect.maxX = s.x + s.width;
+      active.dirtyRect.maxY = s.y + s.height;
+    }
+
+    if (lassoPath && lassoPath.length >= 3) {
+      ctx.fillStyle = 'white';
+      ctx.beginPath();
+      ctx.moveTo(lassoPath[0].x, lassoPath[0].y);
+      for (let i = 1; i < lassoPath.length; i++) {
+        ctx.lineTo(lassoPath[i].x, lassoPath[i].y);
+      }
+      ctx.closePath();
+      ctx.fill();
+    } else {
+      ctx.fillStyle = 'white';
+      ctx.fillRect(s.x, s.y, s.width, s.height);
+    }
+
+    const user = this.board.app?.self;
+    if (user) this.board.expandDirtyRect(user, s.x, s.y, s.width, s.height, layerIdx);
+
+    lm.commitUserStroke(layerIdx, userId, {
+      timestamp: batchTimestamp,
+      isSelectionMerge: true,
+      isSelectionErase: true
+    });
   }
 
   // Select all

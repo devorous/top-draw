@@ -128,6 +128,7 @@ message Msg {
     METRICS_UPDATE = 133;          // Client→server: batched metrics update (achievements)
     IMAGE_TOOL = 134;              // Image data for image-based tools (image/pattern/confetti)
     CONNECT_RESUMED = 135;         // Server→client: same-session reattach after a brief disconnect
+    SEL_MERGE = 136;               // Merge selection contents between layers (up/down/all)
   }
 
   // Tool enum

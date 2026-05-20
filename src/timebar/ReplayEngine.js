@@ -1976,6 +1976,9 @@ export class ReplayEngine {
         case T.SEL_STAMP:
           this._remoteHandler.selectionHandler.handleSelectionStamp(user, msg.ly ?? 0);
           break;
+        case T.SEL_MERGE:
+          this._remoteHandler.selectionHandler.handleSelectionMerge(user, msg.g || 'down', msg.ly ?? 0);
+          break;
         case T.SEL_FLIP:
           this._remoteHandler.selectionHandler.handleSelectionFlip(user);
           break;
