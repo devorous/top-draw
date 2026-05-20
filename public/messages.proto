@@ -275,7 +275,7 @@ message Msg {
   string mod_issuer_name  = 40;  // Issuer username
   bool   mod_show_history = 53;  // MOD_LIST: return all entries (not just active)
   string mod_search       = 54;  // MOD_LIST: filter by username prefix
-  string mod_ip_scope     = 55;  // MOD_ACTION: 'exact' | 'subnet' (default) | 'wide'
+  string mod_ip_scope     = 172; // MOD_ACTION: 'exact' | 'subnet' (default) | 'wide'
 
   // Moderation entry for active bans/mutes list
   message ModEntry {

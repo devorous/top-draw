@@ -107,10 +107,51 @@
   flex-shrink: 0;
 }
 
-.modTabs {
-  display: flex;
-  gap: 4px;
+.modPanelTitle {
   flex: 1;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: 0.02em;
+}
+
+/* Legacy tab styles retained for any external callers; unused by the unified list. */
+.modTabs {
+  display: none;
+}
+
+.modFilterChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px 8px;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
+.modChip {
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  letter-spacing: 0.02em;
+
+  &:hover {
+    color: var(--text-primary);
+    border-color: var(--border-active);
+  }
+
+  &.active {
+    background: var(--accent-primary);
+    border-color: var(--accent-primary);
+    color: #000;
+  }
 }
 
 .chatCloseBtn {
@@ -248,12 +289,36 @@
 }
 
 .modEntryUser {
+  flex: 1;
   font-weight: 600;
   font-size: 13px;
   color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.modEntryPill {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+
+  &.modEntryPill-bans       { background: rgba(239, 68, 68, 0.18);  color: #fca5a5; }
+  &.modEntryPill-mutes      { background: rgba(234, 179, 8, 0.18);  color: #fde68a; }
+  &.modEntryPill-shadowbans { background: rgba(139, 92, 246, 0.22); color: #c4b5fd; }
+}
+
+.modEntryScope {
+  margin-left: 6px;
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  font-family: monospace;
+  font-size: 10px;
 }
 
 .modEntryStatus {
@@ -499,6 +564,39 @@
   display: flex;
   gap: 6px;
   padding: 0 12px 10px;
+  flex-wrap: wrap;
+}
+
+.modReasonCard-scopeRow {
+  flex: 1 0 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.modReasonCard-scopeLabel {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 500;
+}
+
+.modReasonCard-scope {
+  flex: 1;
+  padding: 5px 8px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+
+  &:focus {
+    outline: none;
+    border-color: var(--border-active);
+  }
 }
 
 .modReasonCard-input {

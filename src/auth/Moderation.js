@@ -11,7 +11,8 @@ export class Moderation {
 
     // Mod panel state
     this.modEntries = [];
-    this.activeTab = 'bans';
+    // 'all' | 'bans' | 'mutes' | 'shadowbans' — chip filter on the unified list.
+    this.filterType = 'all';
     this.panelVisible = false;
     this.showHistory = false;
     this.searchQuery = '';
@@ -33,7 +34,7 @@ export class Moderation {
     this.onSync = null;
     this.onSpectate = null;
     this.onPM = null;
-    this.onModAction = null;         // (actionType, sessionIndex, reason, duration)
+    this.onModAction = null;         // (actionType, sessionIndex, reason, duration, ipScope?)
     this.onModUpdateReason = null;   // (originalActionCode, sessionIndex, reason)
     this.onModGroupUpdateReason = null; // (action, ipHash, reason)
     this.onRequestModList = null;    // ({ showHistory, search })
@@ -194,6 +195,16 @@ export class Moderation {
         el.classList.remove('admin-visible');
       }
     });
+
+    // Gate the Shadow filter chip in the mod panel to HOLY+. The context-menu
+    // visibility loop only touches .menuItem, so this needs its own handling.
+    const isHolyOrDeity = this.isHolyOrDeity();
+    document.querySelectorAll('.modChip.holyOrDeityOnly').forEach(el => {
+      el.style.display = isHolyOrDeity ? '' : 'none';
+    });
+    if (!isHolyOrDeity && this.filterType === 'shadowbans') {
+      this.setFilterType('all');
+    }
   }
 
   /**
@@ -256,16 +267,18 @@ export class Moderation {
       panel.style.display = 'none';
       panel.innerHTML = `
         <div id="modPanelHeader">
-          <div class="modTabs">
-            <button class="modTab active" data-tab="bans">Bans</button>
-            <button class="modTab" data-tab="mutes">Mutes</button>
-            <button class="modTab deityOnly" data-tab="shadowbans">Shadow</button>
-          </div>
+          <span class="modPanelTitle">Moderation</span>
           <button class="chatCloseBtn" id="modPanelCloseBtn">&times;</button>
         </div>
         <div class="modPanelControls">
           <input type="text" id="modSearchInput" class="modSearchInput" placeholder="Search username..." autocomplete="off">
           <button class="modHistoryToggle" id="modHistoryToggle">Active Only</button>
+        </div>
+        <div class="modFilterChips">
+          <button class="modChip active" data-filter="all">All</button>
+          <button class="modChip" data-filter="bans">Bans</button>
+          <button class="modChip" data-filter="mutes">Mutes</button>
+          <button class="modChip holyOrDeityOnly" data-filter="shadowbans">Shadow</button>
         </div>
         <div id="modEntryList" class="modEntryList">
           <div class="modNoEntries">No entries</div>
@@ -276,8 +289,8 @@ export class Moderation {
       // Wire mod panel event listeners
       panel.querySelector('#modPanelCloseBtn')?.addEventListener('click', () => this.hidePanel());
 
-      panel.querySelectorAll('.modTab').forEach(tab => {
-        tab.addEventListener('click', () => this.setActiveTab(tab.dataset.tab));
+      panel.querySelectorAll('.modChip').forEach(chip => {
+        chip.addEventListener('click', () => this.setFilterType(chip.dataset.filter));
       });
 
       const searchInput = panel.querySelector('#modSearchInput');
@@ -540,19 +553,27 @@ export class Moderation {
         this.showReasonCard('kick', sessionIndex, targetName, isGroup, ipHash);
         break;
       case 'ban':
-        // Ban immediately (permanent), then offer reason
+        // Bans defer until the mod confirms scope + reason in the card.
+        // Group bans use the legacy instant flow (no per-IP scope picker for groups).
         if (isGroup) {
           if (this.onModGroupAction) this.onModGroupAction('ban', ipHash, '', 0);
+          this.showWipePromptAfterAction('Banned', targetName, isGroup, sessionIndex, ipHash, targetUsername, anchorRect);
+          this.showReasonCard('ban', sessionIndex, targetName, isGroup, ipHash);
         } else {
-          if (this.onModAction) this.onModAction(2, sessionIndex, '', 0);
+          this.showReasonCard('ban', sessionIndex, targetName, false, ipHash, {
+            deferred: true,
+            targetUsername,
+            anchorRect
+          });
         }
-        this.showWipePromptAfterAction('Banned', targetName, isGroup, sessionIndex, ipHash, targetUsername, anchorRect);
-        this.showReasonCard('ban', sessionIndex, targetName, isGroup, ipHash);
         break;
       case 'shadowban':
         if (isGroup) return;
-        if (this.onModAction) this.onModAction(6, sessionIndex, '', 0);
-        this.showReasonCard('shadowban', sessionIndex, targetName, false, ipHash);
+        this.showReasonCard('shadowban', sessionIndex, targetName, false, ipHash, {
+          deferred: true,
+          targetUsername,
+          anchorRect
+        });
         break;
     }
   }
@@ -742,9 +763,27 @@ export class Moderation {
   // --- Reason Card (non-blocking, shown after instant action) ---
 
   /**
-   * Show a small non-blocking card to optionally add a reason after an instant action.
+   * Show a small non-blocking card.
+   *
+   * Two modes:
+   *  - Default (kick/mute or group ban): the action has already fired; this
+   *    card only collects an optional reason and sends a MOD_UPDATE_REASON.
+   *  - Deferred (per-user ban/shadowban): the action has NOT fired yet. The
+   *    card includes an IP-scope dropdown (Subnet / Exact / Wide) and a
+   *    confirm button. Submitting issues the original MOD_ACTION with the
+   *    chosen scope + reason in a single payload.
+   *
+   * @param {string} action - 'kick' | 'mute' | 'ban' | 'shadowban'
+   * @param {number|null} sessionIndex
+   * @param {string} targetName
+   * @param {boolean} isGroup
+   * @param {string|null} ipHash
+   * @param {Object} [opts]
+   * @param {boolean} [opts.deferred=false] - Card issues the action on submit.
+   * @param {string}  [opts.targetUsername]
+   * @param {DOMRect} [opts.anchorRect]
    */
-  showReasonCard(action, sessionIndex, targetName, isGroup, ipHash) {
+  showReasonCard(action, sessionIndex, targetName, isGroup, ipHash, opts = {}) {
     const existing = document.getElementById('modReasonCard');
     if (existing) existing.remove();
 
@@ -752,19 +791,35 @@ export class Moderation {
     const actionCode = actionCodes[action];
     const isDanger = action === 'ban' || action === 'shadowban';
     const pastTense = { kick: 'Kicked', mute: 'Muted', ban: 'Banned', shadowban: 'Shadow Banned' };
-    const actionLabel = pastTense[action] || action;
+    const futureTense = { ban: 'Ban', shadowban: 'Shadow Ban' };
+    const deferred = !!opts.deferred;
+    const titlePrefix = deferred ? '' : '✓ ';
+    const titleVerb = deferred ? (futureTense[action] || action) : (pastTense[action] || action);
+    const submitLabel = deferred ? (futureTense[action] || 'Confirm') : 'Add';
+
+    const scopePicker = deferred ? `
+      <label class="modReasonCard-scopeRow">
+        <span class="modReasonCard-scopeLabel">IP scope</span>
+        <select id="modReasonScope" class="modReasonCard-scope">
+          <option value="subnet" selected>Subnet (/24 v4, /64 v6)</option>
+          <option value="exact">Exact IP only</option>
+          <option value="wide">Wide (IPv6 /48)</option>
+        </select>
+      </label>
+    ` : '';
 
     const card = document.createElement('div');
     card.id = 'modReasonCard';
-    card.className = `modReasonCard${isDanger ? ' danger' : ''}`;
+    card.className = `modReasonCard${isDanger ? ' danger' : ''}${deferred ? ' deferred' : ''}`;
     card.innerHTML = `
       <div class="modReasonCard-header">
-        <span class="modReasonCard-title">✓ ${actionLabel}: <strong>${this.escapeHtml(targetName)}</strong></span>
+        <span class="modReasonCard-title">${titlePrefix}${titleVerb}: <strong>${this.escapeHtml(targetName)}</strong></span>
         <button class="modReasonCard-close" id="modReasonClose" title="Dismiss">✕</button>
       </div>
       <div class="modReasonCard-body">
-        <input type="text" id="modReasonInput" class="modReasonCard-input" placeholder="Add a reason... (optional)" maxlength="200" autocomplete="off">
-        <button class="modReasonCard-submit" id="modReasonSubmit">Add</button>
+        ${scopePicker}
+        <input type="text" id="modReasonInput" class="modReasonCard-input" placeholder="${deferred ? 'Reason (optional)' : 'Add a reason... (optional)'}" maxlength="200" autocomplete="off">
+        <button class="modReasonCard-submit" id="modReasonSubmit">${submitLabel}</button>
       </div>
       <div class="modReasonCard-timer" id="modReasonTimer"></div>
     `;
@@ -776,6 +831,7 @@ export class Moderation {
     const submitBtn = card.querySelector('#modReasonSubmit');
     const closeBtn = card.querySelector('#modReasonClose');
     const timerBar = card.querySelector('#modReasonTimer');
+    const scopeSelect = card.querySelector('#modReasonScope');
 
     input.focus();
 
@@ -790,7 +846,13 @@ export class Moderation {
 
     const submit = () => {
       const reason = input.value.trim();
-      if (reason) {
+      if (deferred) {
+        const scope = scopeSelect?.value || 'subnet';
+        if (this.onModAction) this.onModAction(actionCode, sessionIndex, reason, 0, scope);
+        if (action === 'ban') {
+          this.showWipePromptAfterAction('Banned', targetName, false, sessionIndex, ipHash, opts.targetUsername, opts.anchorRect);
+        }
+      } else if (reason) {
         if (isGroup) {
           if (this.onModGroupUpdateReason) this.onModGroupUpdateReason(action, ipHash, reason);
         } else {
@@ -816,9 +878,12 @@ export class Moderation {
         timerBar.style.width = '0%';
       });
     });
+    // Changing scope shouldn't trigger the auto-dismiss reset path, but it
+    // also shouldn't bubble up keys when the select is open.
+    scopeSelect?.addEventListener('keydown', (e) => e.stopPropagation());
 
-    // Auto-dismiss timer with progress bar
-    const AUTO_DISMISS_MS = 8000;
+    // Deferred bans give the mod more time to decide than a post-action reason.
+    const AUTO_DISMISS_MS = deferred ? 20000 : 8000;
     requestAnimationFrame(() => {
       timerBar.style.transition = `width ${AUTO_DISMISS_MS}ms linear`;
       timerBar.style.width = '0%';
@@ -876,13 +941,12 @@ export class Moderation {
     this._requestList();
   }
 
-  setActiveTab(tab) {
-    this.activeTab = tab;
+  setFilterType(filter) {
+    this.filterType = filter;
 
-    // Update tab button states
-    const tabs = document.querySelectorAll('.modTab');
-    tabs.forEach(t => {
-      t.classList.toggle('active', t.dataset.tab === tab);
+    const chips = document.querySelectorAll('.modChip');
+    chips.forEach(c => {
+      c.classList.toggle('active', c.dataset.filter === filter);
     });
 
     this.renderEntries();
@@ -898,6 +962,7 @@ export class Moderation {
       username: e.username || '',
       reason: e.reason || '',
       ip: e.ip || '',
+      ipScope: e.ipScope || '',
       issuedBy: e.issuedBy || '',
       createdAt: e.createdAt || 0,
       expiresAt: e.expiresAt || 0,
@@ -910,17 +975,22 @@ export class Moderation {
     const list = document.getElementById('modEntryList');
     if (!list) return;
 
-    const filtered = this.modEntries.filter(e => e.type === this.activeTab);
+    const filter = this.filterType || 'all';
+    const filtered = filter === 'all'
+      ? this.modEntries
+      : this.modEntries.filter(e => e.type === filter);
 
     if (filtered.length === 0) {
+      const filterLabel = filter === 'all' ? 'entries' : filter;
       const label = this.searchQuery
-        ? `No ${this.activeTab} match "${this.escapeHtml(this.searchQuery)}"`
-        : `No ${this.activeTab}`;
+        ? `No ${filterLabel} match "${this.escapeHtml(this.searchQuery)}"`
+        : `No ${filterLabel}`;
       list.innerHTML = `<div class="modNoEntries">${label}</div>`;
       return;
     }
 
     const now = Date.now();
+    const pillFor = { bans: 'BAN', mutes: 'MUTE', shadowbans: 'SHADOW' };
 
     list.innerHTML = filtered.map(entry => {
       const createdDate = entry.createdAt
@@ -935,10 +1005,16 @@ export class Moderation {
       const statusClass = !entry.active ? 'revoked' : isExpired ? 'expired' : 'active';
 
       const canRemove = entry.active && !isExpired;
+      const pillLabel = pillFor[entry.type] || entry.type.toUpperCase();
+      const pillClass = `modEntryPill modEntryPill-${entry.type}`;
+      const scopeBadge = entry.ipScope
+        ? `<span class="modEntryScope" title="IP match scope">${this.escapeHtml(entry.ipScope)}</span>`
+        : '';
 
       return `
         <div class="modEntry ${statusClass}">
           <div class="modEntryTop">
+            <span class="${pillClass}">${pillLabel}</span>
             <span class="modEntryUser">${this.escapeHtml(entry.username)}</span>
             <span class="modEntryStatus ${statusClass}">${statusLabel}</span>
           </div>
@@ -948,7 +1024,7 @@ export class Moderation {
             <span>${createdDate}</span>
           </div>
           <div class="modEntryMeta">
-            <span class="modEntryIp">${this.escapeHtml(entry.ip)}</span>
+            <span class="modEntryIp">${this.escapeHtml(entry.ip)}${scopeBadge ? ' ' : ''}${scopeBadge}</span>
             <span>expires: ${expiresDate}</span>
           </div>
           ${canRemove ? `<button class="modEntryRemove" data-id="${this.escapeHtml(entry.id)}" data-type="${entry.type}" data-username="${this.escapeHtml(entry.username)}">Revoke</button>` : ''}

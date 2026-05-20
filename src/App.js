@@ -664,8 +664,8 @@ export class DrawingApp {
       }
       this.svelteComponents.chat.openDM(targetUser.id ?? sessionIndex, targetUser);
     };
-    this.moderation.onModAction = (actionType, sessionIndex, reason, duration) => {
-      this.wsClient.sendModAction(actionType, sessionIndex, reason, duration);
+    this.moderation.onModAction = (actionType, sessionIndex, reason, duration, ipScope) => {
+      this.wsClient.sendModAction(actionType, sessionIndex, reason, duration, ipScope);
     };
     this.moderation.onModUpdateReason = (originalActionCode, sessionIndex, reason) => {
       // Reuse modDuration to carry the original action code so server knows which entry to update

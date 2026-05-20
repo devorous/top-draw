@@ -2465,14 +2465,16 @@ export class WebSocketClient {
    * @param {number} duration - Optional duration in seconds.
    * @returns {void}
    */
-  sendModAction(actionType, targetSessionIndex, reason, duration) {
-    this.send({
+  sendModAction(actionType, targetSessionIndex, reason, duration, ipScope) {
+    const payload = {
       t: T.MOD_ACTION,
       modActionType: actionType,
       modTarget: targetSessionIndex,
       modReason: reason || '',
       modDuration: duration || 0
-    });
+    };
+    if (ipScope) payload.modIpScope = ipScope;
+    this.send(payload);
   }
 
   /**
