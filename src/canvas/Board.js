@@ -3035,6 +3035,7 @@ export class Board {
     }
 
     this.topCtx.clearRect(0, 0, width, height);
+    if (this.topCanvas.style.opacity !== '') this.topCanvas.style.opacity = '';
     this.clearSelectionOverlay();
     if (this.selectionMask && !this._maskManagedBySelectTool) {
       this.drawMaskDarkenOverlay(0);
