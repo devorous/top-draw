@@ -2,6 +2,7 @@
 
 import { defineConfig } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
+import { VitePWA } from 'vite-plugin-pwa';
 import { resolve } from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
@@ -49,6 +50,77 @@ export default defineConfig({
   plugins: [
     svelte(),
     versionInjectionPlugin(),
+    VitePWA({
+      registerType: 'autoUpdate',
+      injectRegister: false,
+      includeAssets: [
+        'images/pepper.ico',
+        'images/pwa-192.png',
+        'images/pwa-512.png',
+        'images/pwa-512-maskable.png',
+      ],
+      manifest: {
+        name: 'Top Draw',
+        short_name: 'TopDraw',
+        description: 'Real-time collaborative drawing — works offline too.',
+        start_url: '/go/',
+        scope: '/',
+        display: 'standalone',
+        background_color: '#1a1a1a',
+        theme_color: '#1a1a1a',
+        orientation: 'any',
+        icons: [
+          { src: 'images/pwa-192.png', sizes: '192x192', type: 'image/png' },
+          { src: 'images/pwa-512.png', sizes: '512x512', type: 'image/png' },
+          {
+            src: 'images/pwa-512-maskable.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable',
+          },
+        ],
+      },
+      workbox: {
+        globPatterns: ['**/*.{js,css,html,svg,ico,woff2,png,webmanifest}'],
+        globIgnores: ['**/brushes/**', '**/snapshots/**'],
+        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
+        navigateFallback: '/go/index.html',
+        navigateFallbackDenylist: [/^\/api/, /^\/ws/, /^\/gallery/, /^\/chat/, /^\/board-viewer/],
+        cleanupOutdatedCaches: true,
+        runtimeCaching: [
+          {
+            urlPattern: /\/brushes\/.*\.(gbr|gih|json)$/,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'brushes',
+              expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 * 30 },
+            },
+          },
+          {
+            urlPattern: /^https:\/\/fonts\.googleapis\.com/,
+            handler: 'StaleWhileRevalidate',
+            options: { cacheName: 'google-fonts-stylesheets' },
+          },
+          {
+            urlPattern: /^https:\/\/fonts\.gstatic\.com/,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'google-fonts-webfonts',
+              expiration: { maxEntries: 30, maxAgeSeconds: 60 * 60 * 24 * 365 },
+            },
+          },
+          {
+            urlPattern: /^https:\/\/unpkg\.com\/vanilla-picker/,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'vendor-cdn',
+              expiration: { maxEntries: 5, maxAgeSeconds: 60 * 60 * 24 * 90 },
+            },
+          },
+        ],
+      },
+      devOptions: { enabled: false },
+    }),
     {
       name: 'go-spa-fallback',
       configureServer(server) {

@@ -3,11 +3,13 @@
 import { inject } from '@vercel/analytics';
 import './css/main.scss';
 import { scheduleStartupUpdateCheck } from './platform/updater.js';
+import { setupServiceWorker } from './platform/registerSW.js';
 import { installAppConfirmGlobal } from './ui/ConfirmDialog.js';
 
 inject();
 
 installAppConfirmGlobal();
+setupServiceWorker();
 
 // Auto-reload once when a dynamically imported chunk fails to load (stale cache after deploy)
 window.addEventListener('unhandledrejection', (event) => {
