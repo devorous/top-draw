@@ -4,6 +4,7 @@
   import { isTauriDesktop } from '../../platform/desktop.js';
   import { isChatPopoutOpen } from '../../platform/chatPopoutBridge.js';
   import { playSfx } from '../../utils/sfx.js';
+  import { DEFAULT_SFX_PREFERENCES, saveAppPreferences } from '../../config/AppPreferences.js';
   import WindowTitleBar from './WindowTitleBar.svelte';
 
   const CHAT_MODE_STORAGE_KEY = 'topdraw-chat-mode';
@@ -363,6 +364,61 @@
     chatMode = chatMode === 'compact' ? 'full' : 'compact';
     persistChatMode(chatMode);
     scheduleApplyStoredPosition();
+  }
+
+  let lastNonZeroSfxVolume = $state(DEFAULT_SFX_PREFERENCES.volume);
+
+  function getSfxPrefs() {
+    return {
+      ...DEFAULT_SFX_PREFERENCES,
+      ...(appState.appPreferences?.general?.sfx ?? {})
+    };
+  }
+
+  function getSfxVolume() {
+    const value = Number(getSfxPrefs().volume);
+    return Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : DEFAULT_SFX_PREFERENCES.volume;
+  }
+
+  function persistSfxVolume(volume) {
+    const clamped = Math.min(1, Math.max(0, Number(volume) || 0));
+    const nextPreferences = {
+      ...(appState.appPreferences ?? {}),
+      general: {
+        ...(appState.appPreferences?.general ?? {}),
+        sfx: {
+          ...getSfxPrefs(),
+          volume: clamped
+        }
+      }
+    };
+    appState.appPreferences = saveAppPreferences(nextPreferences);
+  }
+
+  function handleSfxSliderInput(event) {
+    const value = Number(event.currentTarget.value);
+    if (!Number.isFinite(value)) return;
+    if (value > 0) lastNonZeroSfxVolume = value;
+    persistSfxVolume(value);
+  }
+
+  function toggleSfxMute() {
+    const current = getSfxVolume();
+    if (current > 0) {
+      lastNonZeroSfxVolume = current;
+      persistSfxVolume(0);
+    } else {
+      const restore = lastNonZeroSfxVolume > 0 ? lastNonZeroSfxVolume : DEFAULT_SFX_PREFERENCES.volume;
+      persistSfxVolume(restore);
+    }
+  }
+
+  function getSfxIcon() {
+    const v = getSfxVolume();
+    if (v <= 0) return '\u{1F507}';
+    if (v < 0.34) return '\u{1F508}';
+    if (v < 0.67) return '\u{1F509}';
+    return '\u{1F50A}';
   }
 
   function showPublic() {
@@ -2020,6 +2076,29 @@
       className="chat-titlebar"
     >
       {#snippet children()}
+        <div class="titlebar-sfx" title="SFX volume">
+          <button
+            class="titlebar-btn sfx-mute-btn"
+            onclick={toggleSfxMute}
+            title={getSfxVolume() > 0 ? 'Mute SFX' : 'Unmute SFX'}
+            aria-label={getSfxVolume() > 0 ? 'Mute SFX' : 'Unmute SFX'}
+            type="button"
+          >
+            <span class="sfx-icon" aria-hidden="true">{getSfxIcon()}</span>
+          </button>
+          <input
+            class="sfx-slider"
+            type="range"
+            min="0"
+            max="1"
+            step="0.05"
+            value={getSfxVolume()}
+            oninput={handleSfxSliderInput}
+            aria-label="SFX volume"
+            title="SFX volume — {Math.round(getSfxVolume() * 100)}%"
+            style="--sfx-fill: {Math.round(getSfxVolume() * 100)}%"
+          />
+        </div>
         <button class="titlebar-btn ranks-btn" onclick={() => appState.ranksDialogVisible = true} title="View ranks and their abilities" type="button">Ranks</button>
       {/snippet}
     </WindowTitleBar>
@@ -2260,6 +2339,111 @@
     color: var(--text-primary);
     transform: none;
     opacity: 1;
+  }
+
+  .titlebar-sfx {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 6px;
+    align-self: stretch;
+  }
+
+  .sfx-mute-btn {
+    display: grid;
+    place-items: center;
+    width: 24px;
+    min-width: 24px;
+    height: 100%;
+    align-self: stretch;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    color: var(--text-primary);
+    opacity: 0.75;
+    cursor: pointer;
+    transition: opacity 0.15s, background 0.15s, transform 0.15s;
+  }
+
+  .sfx-mute-btn:hover {
+    background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
+    opacity: 1;
+    transform: none;
+  }
+
+  .sfx-icon {
+    font-size: 0.78rem;
+    line-height: 1;
+  }
+
+  .sfx-slider {
+    --sfx-fill: 70%;
+    --sfx-track: color-mix(in srgb, var(--text-primary) 24%, transparent);
+    width: 64px;
+    height: 4px;
+    margin: 0;
+    padding: 0;
+    background: linear-gradient(
+      to right,
+      var(--accent-primary) 0%,
+      var(--accent-primary) var(--sfx-fill),
+      var(--sfx-track) var(--sfx-fill),
+      var(--sfx-track) 100%
+    );
+    border-radius: 999px;
+    outline: none;
+    cursor: pointer;
+    -webkit-appearance: none;
+    appearance: none;
+    opacity: 0.9;
+  }
+
+  .sfx-slider:hover {
+    opacity: 1;
+  }
+
+  .sfx-slider::-webkit-slider-runnable-track {
+    height: 4px;
+    background: transparent;
+    border-radius: 999px;
+  }
+
+  .sfx-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 10px;
+    height: 10px;
+    margin-top: -3px;
+    border-radius: 999px;
+    background: var(--accent-primary);
+    border: 1px solid color-mix(in srgb, black 25%, transparent);
+    cursor: pointer;
+  }
+
+  .sfx-slider::-moz-range-thumb {
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    background: var(--accent-primary);
+    border: 1px solid color-mix(in srgb, black 25%, transparent);
+    cursor: pointer;
+  }
+
+  .sfx-slider::-moz-range-track {
+    height: 4px;
+    background: transparent;
+    border-radius: 999px;
+  }
+
+  .sfx-slider::-moz-range-progress {
+    height: 4px;
+    background: var(--accent-primary);
+    border-radius: 999px;
+  }
+
+  .chat-shell.mini .sfx-slider {
+    width: 44px;
   }
 
   .chat-shell {
@@ -2881,10 +3065,6 @@
     position: relative;
     z-index: 1;
     overflow: hidden;
-  }
-
-  .chat-shell.compact .chat-rail {
-    padding-bottom: 112px;
   }
 
   .rail-tab,

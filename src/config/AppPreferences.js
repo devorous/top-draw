@@ -2,7 +2,7 @@ import { getDefaultKeybindings, KEYBIND_ACTIONS_BY_ID } from '../input/keybinds/
 import { normalizeBinding } from '../input/keybinds/KeybindMatcher.js';
 
 export const APP_PREFERENCES_STORAGE_KEY = 'topDrawAppPreferences';
-const APP_PREFERENCES_VERSION = 9;
+const APP_PREFERENCES_VERSION = 10;
 const SIDEBAR_SIDES = new Set(['left', 'right']);
 // The 3 base colors from which all theme CSS variables are derived.
 // Empty string means "use the CSS default".
@@ -12,7 +12,7 @@ export const THEME_BASE_COLORS = {
   text: '#f0f2f5'
 };
 export const DEFAULT_SFX_PREFERENCES = Object.freeze({
-  volume: 1,
+  volume: 0.7,
   chat: true,
   staff: true,
   inbox: true
@@ -183,6 +183,11 @@ function sanitizePreferences(rawPreferences) {
     ? false
     : !!parsed.general?.scrollToZoom;
 
+  let migratedSfx = parsed.general?.sfx;
+  if (parsedVersion < 10) {
+    migratedSfx = { ...(migratedSfx && typeof migratedSfx === 'object' ? migratedSfx : {}), volume: DEFAULT_SFX_PREFERENCES.volume };
+  }
+
   return {
     version: APP_PREFERENCES_VERSION,
     general: {
@@ -199,7 +204,7 @@ function sanitizePreferences(rawPreferences) {
       scrollToZoom: migratedScrollToZoom,
       showFloatingArt: migratedShowFloatingArt,
       chatOpacity: sanitizeChatOpacity(parsed.general?.chatOpacity),
-      sfx: sanitizeSfx(parsed.general?.sfx)
+      sfx: sanitizeSfx(migratedSfx)
     },
     keybinds: sanitizeKeybinds(migratedKeybinds)
   };
