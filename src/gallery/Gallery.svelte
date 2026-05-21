@@ -265,6 +265,28 @@
     }
   }
 
+  function buildPageList(current, total) {
+    if (total <= 7) {
+      return Array.from({ length: total }, (_, i) => i + 1);
+    }
+    const out = [1];
+    const start = Math.max(2, current - 1);
+    const end = Math.min(total - 1, current + 1);
+    if (start > 2) out.push('…');
+    for (let p = start; p <= end; p++) out.push(p);
+    if (end < total - 1) out.push('…');
+    out.push(total);
+    return out;
+  }
+
+  function goToPage(p) {
+    if (p < 1 || p > totalPages || p === page) return;
+    page = p;
+    fetchCurrentPage();
+  }
+
+  let pageList = $derived(buildPageList(page, totalPages));
+
   function fetchCurrentPage() {
     if (showLiked) return fetchLikedImages();
     if (showFavorites) return fetchFavorites();
@@ -1071,9 +1093,22 @@
 
       {#if totalPages > 1}
         <div class="pagination">
-          <button class="btn-ghost small" disabled={page <= 1} onclick={() => { page--; fetchCurrentPage(); }} onpointerup={(e) => e.pointerType !== 'mouse' && (page--, fetchCurrentPage())}>← Prev</button>
-          <span>{page} / {totalPages}</span>
-          <button class="btn-ghost small" disabled={page >= totalPages} onclick={() => { page++; fetchCurrentPage(); }} onpointerup={(e) => e.pointerType !== 'mouse' && (page++, fetchCurrentPage())}>Next →</button>
+          <button class="btn-ghost small pg-arrow" disabled={page <= 1} onclick={() => goToPage(page - 1)} onpointerup={(e) => e.pointerType !== 'mouse' && goToPage(page - 1)} aria-label="Previous page">←</button>
+          {#each pageList as entry}
+            {#if entry === '…'}
+              <span class="pg-ellipsis">…</span>
+            {:else}
+              <button
+                class="pg-num"
+                class:active={entry === page}
+                disabled={entry === page}
+                onclick={() => goToPage(entry)}
+                onpointerup={(e) => e.pointerType !== 'mouse' && goToPage(entry)}
+                aria-label={`Page ${entry}`}
+              >{entry}</button>
+            {/if}
+          {/each}
+          <button class="btn-ghost small pg-arrow" disabled={page >= totalPages} onclick={() => goToPage(page + 1)} onpointerup={(e) => e.pointerType !== 'mouse' && goToPage(page + 1)} aria-label="Next page">→</button>
         </div>
       {/if}
         </section>
@@ -1897,10 +1932,42 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 1.5rem;
+    flex-wrap: wrap;
+    gap: 0.4rem;
     margin-top: 3rem;
     font-size: 0.85rem;
     color: var(--text-dim);
+  }
+  .pg-num {
+    min-width: 2rem;
+    padding: 0.4rem 0.7rem;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    color: var(--text-dim);
+    font: inherit;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .pg-num:hover:not(:disabled):not(.active) {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .pg-num.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #0f0f13;
+    font-weight: 600;
+    cursor: default;
+  }
+  .pg-ellipsis {
+    padding: 0 0.3rem;
+    color: var(--text-dim);
+    user-select: none;
+  }
+  .pg-arrow {
+    min-width: 2rem;
+    padding: 0.4rem 0.7rem;
   }
 
   /* ── Buttons ── */

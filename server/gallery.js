@@ -564,11 +564,18 @@ export async function handleGalleryLike(req, res, id) {
 
     const newLikesCount = updated?.likesCount || 1;
 
-    // Broadcast to rooms when image first becomes eligible (1 like + room tag)
+    // Broadcast to rooms when image first becomes eligible (1 like + room tag).
+    // Only items created in the current calendar month participate in the floating
+    // gallery rotation, matching the monthly reset behaviour of the list endpoint.
     if (newLikesCount === 1 && broadcastFloatingArtUpdate) {
-      const item = toClientGalleryItem(updated, new Set([id]));
-      const tags = updated?.tags || [];
-      broadcastFloatingArtUpdate(tags, item);
+      const createdAt = updated?.createdAt ? new Date(updated.createdAt) : null;
+      const now = new Date();
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      if (createdAt && createdAt >= startOfMonth) {
+        const item = toClientGalleryItem(updated, new Set([id]));
+        const tags = updated?.tags || [];
+        broadcastFloatingArtUpdate(tags, item);
+      }
     }
 
     json(res, 200, { liked: true, likesCount: newLikesCount });
@@ -1136,11 +1143,17 @@ export async function handleFloatingArtList(req, res) {
         : { $exists: true }
     };
 
+    // Monthly rotation: only surface items created during the current calendar month.
+    // Resets automatically at the start of each month.
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
     const [includedItems, taggedItems] = await Promise.all([
       includeIds.length > 0
         ? db.collection('gallery')
             .find({
-              _id: { $in: includeIds.map(id => new ObjectId(id)) }
+              _id: { $in: includeIds.map(id => new ObjectId(id)) },
+              createdAt: { $gte: startOfMonth }
             })
             .toArray()
         : Promise.resolve([]),
@@ -1148,7 +1161,8 @@ export async function handleFloatingArtList(req, res) {
         .find({
           ...baseQuery,
         tags: roomTag,
-        likesCount: { $gte: minLikes }
+        likesCount: { $gte: minLikes },
+        createdAt: { $gte: startOfMonth }
       })
       .sort({ likesCount: -1, createdAt: -1 })
       .limit(limit)
