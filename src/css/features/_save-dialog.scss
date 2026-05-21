@@ -425,11 +425,11 @@
     white-space: nowrap;
   }
 
-  textarea {
+  textarea,
+  input[type="text"] {
     width: 320px;
     max-width: 36vw;
-    min-height: 56px;
-    resize: vertical;
+    min-height: 36px;
     background: color-mix(in srgb, var(--bg-primary) 88%, transparent);
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-sm);
@@ -446,6 +446,11 @@
       border-color: var(--accent-primary);
       box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-primary) 45%, transparent);
     }
+  }
+
+  textarea {
+    min-height: 56px;
+    resize: vertical;
   }
 }
 
@@ -464,6 +469,11 @@
     max-width: none;
     min-height: 148px;
     max-height: calc(100vh - 220px);
+  }
+
+  input[type="text"] {
+    width: 100%;
+    max-width: none;
   }
 }
 
@@ -602,7 +612,8 @@
       line-height: 1.2;
     }
 
-    textarea {
+    textarea,
+    input[type="text"] {
       width: 100%;
     }
   }

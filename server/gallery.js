@@ -168,11 +168,13 @@ function normalizeTags(input) {
 
 function toClientGalleryItem(item, likedGalleryIds = null) {
   const id = item._id.toString();
+  const tagUsername = item.tagUsername !== false;
   return {
     id,
     url: item.url,
     thumbUrl: item.thumbUrl || item.url,
-    author: item.author,
+    author: tagUsername ? item.author : 'Anonymous',
+    tagUsername,
     title: item.title || '',
     tags: Array.isArray(item.tags) ? item.tags : [],
     likesCount: item.likesCount || 0,
@@ -299,7 +301,8 @@ export async function handleGalleryUpload(req, res) {
     return json(res, 400, { error: 'Invalid request body' });
   }
 
-  const { imageData, title, tags } = body;
+  const { imageData, title, tags, tagUsername } = body;
+  const tagUsernameFlag = tagUsername !== false;
   if (!imageData || typeof imageData !== 'string' || !imageData.startsWith('data:image/')) {
     return json(res, 400, { error: 'Missing or invalid imageData' });
   }
@@ -425,7 +428,8 @@ export async function handleGalleryUpload(req, res) {
     imageHash,
     author: authUser.username,
     authorId: authUser._id.toString(),
-    title: (title || '').substring(0, 100).trim(),
+    tagUsername: tagUsernameFlag,
+    title: (title || '').substring(0, 48).trim(),
     tags: normalizedTags,
     likes: [],
     likesCount: 0,
@@ -439,7 +443,8 @@ export async function handleGalleryUpload(req, res) {
       id: result.insertedId.toString(),
       url,
       thumbUrl,
-      author: authUser.username,
+      author: tagUsernameFlag ? authUser.username : 'Anonymous',
+      tagUsername: tagUsernameFlag,
       title: doc.title,
       tags: doc.tags,
       likesCount: 0,

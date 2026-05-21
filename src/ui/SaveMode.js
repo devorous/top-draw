@@ -47,7 +47,8 @@ export class SaveMode {
     // Options state
     this.transparent = false;
     this.shareToDiscord = false;
-    this.galleryCaption = '';
+    this.tagUsername = true;
+    this.galleryTitle = '';
     this.preExistingCanvasFixedSelection = false;
 
     this._createElements();
@@ -126,6 +127,10 @@ export class SaveMode {
           <input type="checkbox" id="saveModeShareDiscord">
           <span>Share to Discord</span>
         </label>
+        <label class="saveModeOptionsCheckbox">
+          <input type="checkbox" id="saveModeTagUsername" checked>
+          <span>Tag Username</span>
+        </label>
       </div>
       <div class="saveModeOptionsPanelFooter">
         <button class="btn secondary" id="saveModeCancelInteractive">Cancel</button>
@@ -138,9 +143,9 @@ export class SaveMode {
     this.captionPanel = document.createElement('div');
     this.captionPanel.className = 'saveModeCaptionPanel';
     this.captionPanel.innerHTML = `
-      <label class="saveModeOptionsField saveModeCaptionField" for="saveModeCaption">
-        <span>Gallery Caption</span>
-        <textarea id="saveModeCaption" rows="6" maxlength="280" placeholder="Add a short caption for the gallery (optional)"></textarea>
+      <label class="saveModeOptionsField saveModeCaptionField" for="saveModeTitle">
+        <span>Title</span>
+        <input id="saveModeTitle" type="text" maxlength="48" placeholder="Add a title for the gallery (optional, max 48 chars)" />
       </label>
     `;
 
@@ -229,9 +234,13 @@ export class SaveMode {
       this.shareToDiscord = e.target.checked;
     });
 
-    this.captionInput = this.captionPanel.querySelector('#saveModeCaption');
-    this.captionInput?.addEventListener('input', (e) => {
-      this.galleryCaption = e.target.value;
+    this.optionsPanel.querySelector('#saveModeTagUsername').addEventListener('change', (e) => {
+      this.tagUsername = e.target.checked;
+    });
+
+    this.titleInput = this.captionPanel.querySelector('#saveModeTitle');
+    this.titleInput?.addEventListener('input', (e) => {
+      this.galleryTitle = e.target.value;
     });
 
     // Escape key to close
@@ -264,11 +273,13 @@ export class SaveMode {
     this.preExistingCanvasFixedSelection = false;
     this.transparent = false;
     this.shareToDiscord = false;
-    this.galleryCaption = '';
+    this.tagUsername = true;
+    this.galleryTitle = '';
     this.activeTool = 'select';
     this.optionsPanel.querySelector('#saveModeTransparent').checked = false;
     this.optionsPanel.querySelector('#saveModeShareDiscord').checked = false;
-    if (this.captionInput) this.captionInput.value = '';
+    this.optionsPanel.querySelector('#saveModeTagUsername').checked = true;
+    if (this.titleInput) this.titleInput.value = '';
 
     // Size canvases to match board
     const [height, width] = this.board.dimensions;
@@ -816,8 +827,9 @@ export class SaveMode {
       if (!saved) return;
     } else {
       await this.app.handleSaveToGallery(canvas, {
-        title: this.galleryCaption.trim(),
-        tags: this.shareToDiscord ? ['discord'] : []
+        title: this.galleryTitle.trim(),
+        tags: this.shareToDiscord ? ['discord'] : [],
+        tagUsername: this.tagUsername
       });
     }
 
@@ -967,11 +979,13 @@ export class SaveMode {
     this.lassoPoints = [];
     this.transparent = false;
     this.shareToDiscord = false;
-    this.galleryCaption = '';
+    this.tagUsername = true;
+    this.galleryTitle = '';
     this.activeTool = fixedSelection ? 'pan' : 'select';
     this.optionsPanel.querySelector('#saveModeTransparent').checked = false;
     this.optionsPanel.querySelector('#saveModeShareDiscord').checked = false;
-    if (this.captionInput) this.captionInput.value = '';
+    this.optionsPanel.querySelector('#saveModeTagUsername').checked = true;
+    if (this.titleInput) this.titleInput.value = '';
 
     // Size canvases to match the pre-existing canvas
     this.snapshotCanvas.width = canvas.width;
