@@ -1737,6 +1737,8 @@ export class DrawingApp {
         if (this.connected) {
           this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastSimulatePressureChange(simulate));
         }
+        this.updateCurrentToolPresetSettings();
+        this.updateActiveToolPreview();
       });
     }
 

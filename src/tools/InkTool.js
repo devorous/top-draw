@@ -420,14 +420,18 @@ export class InkTool extends Tool {
     drawPreviewStrokeGuide(ctx, points, user.color || [0, 0, 0]);
 
     const thinning = Math.max(0, Math.min(1, Number(user.thinning ?? 0.5)));
+    const simulatePressure = user.simulatePressure !== undefined ? user.simulatePressure : true;
     const smoothing = Math.max(0, Math.min(50, Number(user.smoothing ?? 15))) / 50;
     const strokePoints = points.map(point => [point.x, point.y, point.pressure]);
+    const effectiveThinning = !simulatePressure
+      ? 0.95
+      : Math.min(0.99, thinning * Math.max(1, 17.5 / 10));
     const outlinePoints = getStroke(strokePoints, {
-      size: 17.5,
-      thinning: Math.min(0.99, thinning),
+      size: Math.max(0.1, (17.5 * 2) / (1 + thinning)),
+      thinning: effectiveThinning,
       smoothing,
       streamline: 0.3 + smoothing * 0.7,
-      simulatePressure: false,
+      simulatePressure,
       last: true
     });
 
