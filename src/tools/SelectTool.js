@@ -616,6 +616,7 @@ export class SelectTool extends Tool {
       apply: document.getElementById('selMenuApply'),
       save: document.getElementById('selMenuSave'),
       cancel: document.getElementById('selMenuCancel'),
+      merge: document.getElementById('selMenuMerge'),
       mergeUp: document.getElementById('selMenuMergeUp'),
       mergeDown: document.getElementById('selMenuMergeDown'),
       mergeAll: document.getElementById('selMenuMergeAll'),
@@ -656,9 +657,10 @@ export class SelectTool extends Tool {
 
     const activeLayer = this.board.app?.self?.activeLayer ?? 0;
     const layerCount = this.board.layerManager?.layerGroups?.length ?? 0;
-    const canMergeUp = !hasMoved && activeLayer < layerCount - 1;
-    const canMergeDown = !hasMoved && activeLayer > 0;
-    const canMergeAll = !hasMoved && layerCount > 1;
+    const mergeAllowed = !hasMoved && this.canCreateObscureRegions();
+    const canMergeUp = mergeAllowed && activeLayer < layerCount - 1;
+    const canMergeDown = mergeAllowed && activeLayer > 0;
+    const canMergeAll = mergeAllowed && layerCount > 1;
 
     this.menuElements.mask?.classList.toggle('hidden', hasMoved);
     this.menuElements.obscure?.classList.toggle('hidden', hasMoved || !this.canCreateObscureRegions());
@@ -674,6 +676,7 @@ export class SelectTool extends Tool {
     this.menuElements.mergeUp?.classList.toggle('hidden', !canMergeUp);
     this.menuElements.mergeDown?.classList.toggle('hidden', !canMergeDown);
     this.menuElements.mergeAll?.classList.toggle('hidden', !canMergeAll);
+    this.menuElements.merge?.classList.toggle('hidden', !(canMergeUp || canMergeDown || canMergeAll));
 
     this.menuElements.clear.textContent = hasMoved ? 'Remove' : 'Clear';
     this.menuElements.clear.title = hasMoved ? 'Delete selection contents' : 'Clear selection contents';
@@ -697,9 +700,7 @@ export class SelectTool extends Tool {
           clone: 8,
           fill: 9,
           obscure: 10,
-          mergeUp: 11,
-          mergeDown: 12,
-          mergeAll: 13
+          merge: 11
         }
       : {
           clear: 0,
@@ -713,9 +714,7 @@ export class SelectTool extends Tool {
           apply: 8,
           save: 9,
           obscure: 10,
-          mergeUp: 11,
-          mergeDown: 12,
-          mergeAll: 13
+          merge: 11
         };
 
     Object.entries(menuOrder).forEach(([key, order]) => {
@@ -3627,19 +3626,32 @@ export class SelectTool extends Tool {
     }
     if (mode === 'all' && layerCount <= 1) return false;
 
+    // flatten range = layers to composite into mergedCanvas (preserves z-order).
+    // layersToErase = layers whose selection region is wiped before stamping.
+    // For 'up' we MUST flatten both source+target so target's content stays on
+    // top of source in the merged canvas (target had higher z-order), then erase
+    // both. For 'down', source was already on top, so flattening source alone
+    // and stamping source-over on the target's existing content works.
     let targetLayer;
     const sourceLayers = [];
+    let flattenStart, flattenEnd;
     if (mode === 'up') {
       targetLayer = activeLayer + 1;
       sourceLayers.push(activeLayer);
+      flattenStart = activeLayer;
+      flattenEnd = activeLayer + 2;
     } else if (mode === 'down') {
       targetLayer = activeLayer - 1;
       sourceLayers.push(activeLayer);
+      flattenStart = activeLayer;
+      flattenEnd = activeLayer + 1;
     } else {
       targetLayer = activeLayer;
       for (let i = 0; i < layerCount; i++) {
         if (i !== activeLayer) sourceLayers.push(i);
       }
+      flattenStart = 0;
+      flattenEnd = layerCount;
     }
 
     // Commit this user's in-progress strokes across all layers so we operate on
@@ -3651,9 +3663,7 @@ export class SelectTool extends Tool {
     }
 
     // Build the merged content (selection-sized canvas), lasso-masked.
-    const mergedCanvas = mode === 'all'
-      ? this._flattenLayerRangeToSelectionCanvas(0, layerCount, s)
-      : this._flattenLayerRangeToSelectionCanvas(activeLayer, activeLayer + 1, s);
+    const mergedCanvas = this._flattenLayerRangeToSelectionCanvas(flattenStart, flattenEnd, s);
 
     if (lassoPath) {
       this.applyLassoMask(mergedCanvas.getContext('2d'), s.x, s.y, lassoPath);
@@ -3663,9 +3673,10 @@ export class SelectTool extends Tool {
       ? lm.allocateHistoryTimestamp()
       : Date.now();
 
-    // For 'all', also erase the target layer's existing region so the merged
-    // paint replaces the existing pixels rather than stacking on top of them.
-    const layersToErase = mode === 'all'
+    // For 'up' and 'all', the merged canvas already contains the target layer's
+    // content, so erase the target's region too — the stamp replaces it rather
+    // than double-stacking. For 'down', the target keeps its existing pixels.
+    const layersToErase = (mode === 'up' || mode === 'all')
       ? [...sourceLayers, targetLayer]
       : sourceLayers;
 
@@ -3673,7 +3684,9 @@ export class SelectTool extends Tool {
       this._eraseSingleLayerSelection(layerIdx, s, lassoPath, userId, batchTimestamp);
     }
 
-    // Stamp the merged content onto the target layer as a single source-over stroke.
+    // Stamp the merged content onto the target layer as a single source-over
+    // stroke. Visual z-order is already correct in the merged canvas (the
+    // flatten range was chosen so target's content sits above source's).
     lm.beginUserStroke(targetLayer, userId, 'source-over');
     const active = lm.layerGroups[targetLayer]?.activeStrokeByUser.get(userId);
     if (active) {

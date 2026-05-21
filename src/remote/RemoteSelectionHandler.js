@@ -1086,17 +1086,24 @@ export class RemoteSelectionHandler {
 
     let targetLayer;
     const sourceLayers = [];
+    let flattenStart, flattenEnd;
     if (mode === 'up') {
       targetLayer = activeLayer + 1;
       sourceLayers.push(activeLayer);
+      flattenStart = activeLayer;
+      flattenEnd = activeLayer + 2;
     } else if (mode === 'down') {
       targetLayer = activeLayer - 1;
       sourceLayers.push(activeLayer);
+      flattenStart = activeLayer;
+      flattenEnd = activeLayer + 1;
     } else {
       targetLayer = activeLayer;
       for (let i = 0; i < layerCount; i++) {
         if (i !== activeLayer) sourceLayers.push(i);
       }
+      flattenStart = 0;
+      flattenEnd = layerCount;
     }
 
     // Force-commit this user's in-progress strokes across all layers so the
@@ -1118,11 +1125,7 @@ export class RemoteSelectionHandler {
     fullCanvas.height = lm.height;
     const fullCtx = fullCanvas.getContext('2d');
 
-    if (mode === 'all') {
-      lm.compositeLayerRange(fullCtx, 0, layerCount, null);
-    } else {
-      lm.compositeLayerRange(fullCtx, activeLayer, activeLayer + 1, null);
-    }
+    lm.compositeLayerRange(fullCtx, flattenStart, flattenEnd, null);
     mergedCtx.drawImage(fullCanvas, intS.x, intS.y, intS.width, intS.height, 0, 0, intS.width, intS.height);
 
     if (lassoPath) {
@@ -1143,7 +1146,9 @@ export class RemoteSelectionHandler {
       ? lm.allocateHistoryTimestamp()
       : Date.now();
 
-    const layersToErase = mode === 'all' ? [...sourceLayers, targetLayer] : sourceLayers;
+    const layersToErase = (mode === 'up' || mode === 'all')
+      ? [...sourceLayers, targetLayer]
+      : sourceLayers;
     for (const layerIdx of layersToErase) {
       this._eraseSelectionFromLayer(intS, layerIdx, lassoPath, userId);
       // Override the timestamp with the shared batch one so undo groups them.
@@ -1157,7 +1162,9 @@ export class RemoteSelectionHandler {
       }
     }
 
-    // Stamp merged content onto target layer as a source-over stroke.
+    // Stamp merged content onto target layer as source-over. Visual z-order is
+    // already correct in the merged canvas (flatten range was chosen so target
+    // sits above source for 'up').
     lm.beginUserStroke(targetLayer, userId, 'source-over');
     const active = lm.layerGroups[targetLayer]?.activeStrokeByUser.get(userId);
     if (active) {

@@ -5000,6 +5000,14 @@ export class DrawingApp {
     if (this.connected) {
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastLayerChange(layerIndex));
     }
+
+    // Selection menu options (e.g. Merge Up/Down) depend on active layer, so
+    // refresh the menu if there's a live selection.
+    const selectTool = this.toolManager?.tools?.select;
+    const realSelect = selectTool?.realTool || selectTool;
+    if (realSelect?.selection && typeof realSelect.showContextMenu === 'function') {
+      realSelect.showContextMenu(true);
+    }
   }
 
   handleLayerVisibilityToggle(layerIndex) {

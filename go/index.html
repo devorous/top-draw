@@ -715,10 +715,15 @@
           <button class="menuItem" id="selMenuApply" title="Apply and deselect">Apply</button>
           <button class="menuItem" id="selMenuSave" title="Save selection as image">Save</button>
           <button class="menuItem" id="selMenuCancel" title="Cancel selection">Cancel</button>
-          <button class="menuItem menuItemWide" id="selMenuObscure" title="Blur this region until viewers click Show">Obscure</button>
-          <button class="menuItem" id="selMenuMergeUp" title="Move selection contents up one layer">Merge ↑</button>
-          <button class="menuItem" id="selMenuMergeDown" title="Move selection contents down one layer">Merge ↓</button>
-          <button class="menuItem" id="selMenuMergeAll" title="Flatten selection across all layers into the active layer">Merge ⇕</button>
+          <button class="menuItem" id="selMenuObscure" title="Blur this region until viewers click Show">Obscure</button>
+          <div class="menuItem menuItemDropdown" id="selMenuMerge" tabindex="0" title="Merge selection into another layer">
+            <span class="menuItemDropdownLabel">Merge</span>
+            <div class="menuDropdownPanel">
+              <button class="menuItem" id="selMenuMergeUp" title="Move selection contents up one layer">Merge Up</button>
+              <button class="menuItem" id="selMenuMergeAll" title="Flatten selection across all layers into the active layer">Merge All</button>
+              <button class="menuItem" id="selMenuMergeDown" title="Move selection contents down one layer">Merge Down</button>
+            </div>
+          </div>
         </div>
 
         <!-- User Context Menu (right-click on user list) -->

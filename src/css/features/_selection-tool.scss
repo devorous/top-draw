@@ -63,6 +63,66 @@
       min-width: 92px;
     }
   }
+
+  .menuItemDropdown {
+    position: relative;
+    padding: 6px 10px;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-primary);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    white-space: nowrap;
+    text-align: center;
+    user-select: none;
+    outline: none;
+
+    &:hover,
+    &:focus-within {
+      background: var(--bg-elevated);
+      border-color: var(--accent-primary);
+      color: var(--accent-primary);
+
+      .menuDropdownPanel {
+        opacity: 1;
+        visibility: visible;
+        pointer-events: auto;
+        // On open: no delay
+        transition: opacity 120ms ease, visibility 0s linear 0s;
+      }
+    }
+
+    &.hidden {
+      display: none;
+    }
+
+    .menuDropdownPanel {
+      // Always rendered (so we can add a close delay), but invisible until hover.
+      // Panel overlays the trigger: top: 0 places the first option exactly where
+      // the Merge button was — no gap to cross, cursor stays inside hover region.
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transition: opacity 80ms ease, visibility 0s linear 250ms;
+      position: absolute;
+      display: flex;
+      top: 0;
+      left: 0;
+      right: auto;
+      flex-direction: column;
+      gap: 4px;
+      padding: 0;
+      background: transparent;
+      border: none;
+      box-shadow: none;
+      z-index: 21;
+      min-width: 100%;
+      width: max-content;
+    }
+  }
 }
 
 .obscureRegion {
