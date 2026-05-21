@@ -180,6 +180,12 @@ export class SnapshotManager {
     }
   }
 
+  _getLocalIssuerName() {
+    const self = this.app.self;
+    const name = self?.registeredName || self?.username;
+    return (name && name !== 'Unknown') ? name : 'You';
+  }
+
   /**
    * Captures the current board state and stores it in IndexedDB. No network traffic.
    */
@@ -205,7 +211,7 @@ export class SnapshotManager {
         id,
         roomId,
         ts,
-        issuer: this.app.self?.username || this.app.self?.registeredName || 'You',
+        issuer: this._getLocalIssuerName(),
         layers,
         thumb,
         name: `Local ${new Date(ts).toLocaleTimeString()}`

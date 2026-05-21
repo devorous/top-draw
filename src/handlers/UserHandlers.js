@@ -527,8 +527,6 @@ export function setupUserHandlers(wsClient, app) {
       applyRoomBoardSize(app, data.boardSize, { showToast: !!app.connected });
     }
 
-    // Re-evaluate on any settings change that could affect upload eligibility
-    app._updatePreviewUploadEligibility();
     // Mirror is not persisted to DB, but update it locally
     app.currentRoomData = {
       ...currentRoomData,
@@ -537,6 +535,8 @@ export function setupUserHandlers(wsClient, app) {
       mirrorRegions: data.mirrorRegions || []
     };
     appState.currentRoomData = app.currentRoomData;
+    // Re-evaluate after currentRoomData has the latest uploader fields.
+    app._updatePreviewUploadEligibility();
     app.updateRoomSettingsButtonVisibility?.();
     board.refreshObscureRegionAccess?.();
     applySelfInactiveState();
