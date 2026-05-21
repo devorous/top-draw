@@ -31,21 +31,33 @@ function hmacRangeKey(rangeKey) {
  */
 function normalizeIp(ip) {
   if (!ip) return null;
+  let value = String(ip).trim();
+
+  if (value.startsWith('[')) {
+    const bracketEnd = value.indexOf(']');
+    if (bracketEnd > 0) value = value.slice(1, bracketEnd);
+  } else {
+    const ipv4WithPort = value.match(/^(\d{1,3}(?:\.\d{1,3}){3}):\d+$/);
+    if (ipv4WithPort) value = ipv4WithPort[1];
+  }
+
+  const zoneIndex = value.indexOf('%');
+  if (zoneIndex !== -1) value = value.slice(0, zoneIndex);
 
   // Check for IPv4-mapped IPv6 (::ffff:x.x.x.x)
-  const v4MappedMatch = ip.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i);
+  const v4MappedMatch = value.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i);
   if (v4MappedMatch) {
     return { family: 'ipv4', canonical: v4MappedMatch[1] };
   }
 
   // Try IPv4
-  if (isIPv4(ip)) {
-    return { family: 'ipv4', canonical: ip };
+  if (isIPv4(value)) {
+    return { family: 'ipv4', canonical: value };
   }
 
   // Try IPv6 - normalize by expanding and then re-compressing
-  if (isIPv6(ip)) {
-    const canonical = normalizeIpv6(ip);
+  if (isIPv6(value)) {
+    const canonical = normalizeIpv6(value);
     return { family: 'ipv6', canonical };
   }
 
