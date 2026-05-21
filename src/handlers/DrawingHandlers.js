@@ -354,7 +354,7 @@ export function setupDrawingHandlers(wrapHandler, app) {
     if (!user || !data.imageData) return;
 
     const bounds = { x: data.x, y: data.y, width: data.width, height: data.height };
-    const pendingGlitch = remoteUserHandler.queueRemoteGlitchImage(user, bounds);
+    const pendingGlitch = remoteUserHandler.queueRemoteGlitchImage(user, bounds, data.layerIndex);
     if (!pendingGlitch) return;
 
     const img = new Image();

@@ -201,9 +201,9 @@ export class GlitchBlurTool extends Tool {
     }
     this.strokePoints.delete(userId);
 
-    const strokeImage = this._captureLocalStrokeImage(user, userId);
+    const strokeImages = this._captureLocalStrokeImages(user, userId);
     this._endTargetLayerStrokes(user, userId);
-    this._broadcastLocalStrokeImage(strokeImage);
+    this._broadcastLocalStrokeImages(strokeImages);
 
     this.lastStampPos.delete(userId);
     this.clearSnapshot(userId);
@@ -217,31 +217,36 @@ export class GlitchBlurTool extends Tool {
     this.board.requestUpdate();
   }
 
-  _captureLocalStrokeImage(user, userId) {
-    if (user !== this.board.app?.self) return null;
+  _captureLocalStrokeImages(user, userId) {
+    if (user !== this.board.app?.self) return [];
 
-    const active = this.board.layerManager?.getActiveStroke(0, userId);
-    const sourceCanvas = active?.canvas;
-    if (!sourceCanvas) return null;
+    const strokeImages = [];
+    for (const layerIdx of this._getTargetLayers()) {
+      const active = this.board.layerManager?.getActiveStroke(layerIdx, userId);
+      const sourceCanvas = active?.canvas;
+      if (!sourceCanvas) continue;
 
-    let bounds = this._findStrokeContentBounds(sourceCanvas, active.dirtyRect);
-    if (!bounds && user.blurBounds) {
-      const x = Math.floor(Math.max(0, user.blurBounds.minX));
-      const y = Math.floor(Math.max(0, user.blurBounds.minY));
-      const width = Math.ceil(Math.min(sourceCanvas.width, user.blurBounds.maxX)) - x;
-      const height = Math.ceil(Math.min(sourceCanvas.height, user.blurBounds.maxY)) - y;
-      if (width > 0 && height > 0) bounds = { x, y, width, height };
+      let bounds = this._findStrokeContentBounds(sourceCanvas, active.dirtyRect);
+      if (!bounds && user.blurBounds) {
+        const x = Math.floor(Math.max(0, user.blurBounds.minX));
+        const y = Math.floor(Math.max(0, user.blurBounds.minY));
+        const width = Math.ceil(Math.min(sourceCanvas.width, user.blurBounds.maxX)) - x;
+        const height = Math.ceil(Math.min(sourceCanvas.height, user.blurBounds.maxY)) - y;
+        if (width > 0 && height > 0) bounds = { x, y, width, height };
+      }
+      if (!bounds) continue;
+
+      const cropCanvas = document.createElement('canvas');
+      cropCanvas.width = bounds.width;
+      cropCanvas.height = bounds.height;
+      cropCanvas
+        .getContext('2d')
+        .drawImage(sourceCanvas, bounds.x, bounds.y, bounds.width, bounds.height, 0, 0, bounds.width, bounds.height);
+
+      strokeImages.push({ layerIdx, bounds, cropCanvas });
     }
-    if (!bounds) return null;
 
-    const cropCanvas = document.createElement('canvas');
-    cropCanvas.width = bounds.width;
-    cropCanvas.height = bounds.height;
-    cropCanvas
-      .getContext('2d')
-      .drawImage(sourceCanvas, bounds.x, bounds.y, bounds.width, bounds.height, 0, 0, bounds.width, bounds.height);
-
-    return { bounds, cropCanvas };
+    return strokeImages;
   }
 
   _findStrokeContentBounds(canvas, dirtyRect = null) {
@@ -287,49 +292,52 @@ export class GlitchBlurTool extends Tool {
     };
   }
 
-  _broadcastLocalStrokeImage(strokeImage) {
-    if (!strokeImage || !this.board.app?.wsClient || !this.board.app?.connected) return;
-    const { bounds, cropCanvas } = strokeImage;
+  _broadcastLocalStrokeImages(strokeImages) {
+    if (!strokeImages?.length || !this.board.app?.wsClient || !this.board.app?.connected) return;
     const maxDataUrlLength = 3 * 1024 * 1024;
 
-    // Validate bounds before broadcasting
-    if (!Number.isFinite(bounds.x) || !Number.isFinite(bounds.y) ||
-        !Number.isFinite(bounds.width) || !Number.isFinite(bounds.height) ||
-        bounds.width <= 0 || bounds.height <= 0) {
-      return;
-    }
-
-    let dataUrl = cropCanvas.toDataURL('image/png');
-    if (dataUrl.length > maxDataUrlLength) {
-      const webpDataUrl = cropCanvas.toDataURL('image/webp', 0.9);
-      if (webpDataUrl?.startsWith('data:image/webp') && webpDataUrl.length < dataUrl.length) {
-        dataUrl = webpDataUrl;
+    for (const { layerIdx, bounds, cropCanvas } of strokeImages) {
+      // Validate bounds before broadcasting
+      if (!Number.isFinite(bounds.x) || !Number.isFinite(bounds.y) ||
+          !Number.isFinite(bounds.width) || !Number.isFinite(bounds.height) ||
+          bounds.width <= 0 || bounds.height <= 0) {
+        continue;
       }
-    }
-    if (dataUrl.length > maxDataUrlLength) {
-      console.warn('[GlitchBlurTool] Skipping oversized glitch result broadcast:', {
-        width: bounds.width,
-        height: bounds.height,
-        bytes: dataUrl.length
-      });
-      return;
-    }
 
-    const sendGlitchResult = () => {
-      this.board.app.wsClient.broadcastGlitchResult(
-        bounds.x,
-        bounds.y,
-        bounds.width,
-        bounds.height,
-        dataUrl
-      );
-    };
+      let dataUrl = cropCanvas.toDataURL('image/png');
+      if (dataUrl.length > maxDataUrlLength) {
+        const webpDataUrl = cropCanvas.toDataURL('image/webp', 0.9);
+        if (webpDataUrl?.startsWith('data:image/webp') && webpDataUrl.length < dataUrl.length) {
+          dataUrl = webpDataUrl;
+        }
+      }
+      if (dataUrl.length > maxDataUrlLength) {
+        console.warn('[GlitchBlurTool] Skipping oversized glitch result broadcast:', {
+          layerIdx,
+          width: bounds.width,
+          height: bounds.height,
+          bytes: dataUrl.length
+        });
+        continue;
+      }
 
-    const inputBufferManager = this.board.app.inputBufferManager;
-    if (inputBufferManager?.queueBroadcast) {
-      inputBufferManager.queueBroadcast(sendGlitchResult, { snapshot: false });
-    } else {
-      sendGlitchResult();
+      const sendGlitchResult = () => {
+        this.board.app.wsClient.broadcastGlitchResult(
+          bounds.x,
+          bounds.y,
+          bounds.width,
+          bounds.height,
+          dataUrl,
+          layerIdx
+        );
+      };
+
+      const inputBufferManager = this.board.app.inputBufferManager;
+      if (inputBufferManager?.queueBroadcast) {
+        inputBufferManager.queueBroadcast(sendGlitchResult, { snapshot: false });
+      } else {
+        sendGlitchResult();
+      }
     }
   }
 

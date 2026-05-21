@@ -842,6 +842,9 @@ export async function sanitizeMessage(data) {
 
   if (IMAGE_MESSAGE_TYPES.has(type)) {
     Object.assign(sanitized, sanitizeImageRect(data));
+    if (type === T.GLITCH_RESULT && data.ly !== undefined) {
+      sanitized.ly = clampInt(data.ly, 0, MAX_LAYER_INDEX, 0);
+    }
     if (Array.isArray(data.cr)) {
       sanitized.cr = sanitizeFloatArray(data.cr, {
         requireEvenLength: true,

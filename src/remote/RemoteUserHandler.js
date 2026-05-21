@@ -957,9 +957,9 @@ export class RemoteUserHandler {
     }
   }
 
-  queueRemoteGlitchImage(user, bounds) {
+  queueRemoteGlitchImage(user, bounds, layerIndex = null) {
     if (!user || !bounds || bounds.width <= 0 || bounds.height <= 0) return null;
-    const token = { user, bounds, resultCanvas: null, canceled: false };
+    const token = { user, bounds, layerIndex, resultCanvas: null, canceled: false };
     const queue = this.pendingGlitchImagesByUser.get(user.id) || [];
     queue.push(token);
     this.pendingGlitchImagesByUser.set(user.id, queue);
@@ -1003,7 +1003,7 @@ export class RemoteUserHandler {
       }
       if (!token.resultCanvas) break;
       queue.shift();
-      this.commitRemoteGlitchImage(token.user, token.resultCanvas, token.bounds);
+      this.commitRemoteGlitchImage(token.user, token.resultCanvas, token.bounds, token.layerIndex);
     }
 
     if (queue.length === 0) {
@@ -1011,7 +1011,7 @@ export class RemoteUserHandler {
     }
   }
 
-  commitRemoteGlitchImage(user, resultCanvas, bounds) {
+  commitRemoteGlitchImage(user, resultCanvas, bounds, layerIndex = null) {
     if (!user || !resultCanvas || !bounds || bounds.width <= 0 || bounds.height <= 0) return;
     const pendingUndoCount = this.pendingGlitchUndoByUser.get(user.id) || 0;
     if (pendingUndoCount > 0) {
@@ -1023,13 +1023,13 @@ export class RemoteUserHandler {
       return;
     }
 
-    const layerIndex = this.getStrokeLayer(user);
-    const group = this.board.layerManager?.getLayerGroup(layerIndex);
+    const targetLayer = Number.isFinite(Number(layerIndex)) ? Number(layerIndex) : this.getStrokeLayer(user);
+    const group = this.board.layerManager?.getLayerGroup(targetLayer);
     let active = group?.activeStrokeByUser?.get(user.id);
     if (!active) {
       const blendMode = user.blendMode || 'source-over';
-      this.board.layerManager.beginUserStroke(layerIndex, user.id, blendMode, user.blendBakeMode);
-      this.board.applySelectionMaskClipForStroke(layerIndex, user.id);
+      this.board.layerManager.beginUserStroke(targetLayer, user.id, blendMode, user.blendBakeMode);
+      this.board.applySelectionMaskClipForStroke(targetLayer, user.id);
       active = group?.activeStrokeByUser?.get(user.id);
     }
     if (!active?.ctx) return;
@@ -1043,8 +1043,8 @@ export class RemoteUserHandler {
     this.board.layerManager._expandDirtyRect(active.dirtyRect, bounds.x, bounds.y, bounds.width, bounds.height);
     this.board.compositeTileGrid?.markRect(bounds.x, bounds.y, bounds.width, bounds.height);
 
-    this.board.releaseSelectionMaskClipForStroke(layerIndex, user.id);
-    this.board.layerManager.commitUserStroke(layerIndex, user.id, {
+    this.board.releaseSelectionMaskClipForStroke(targetLayer, user.id);
+    this.board.layerManager.commitUserStroke(targetLayer, user.id, {
       isRemoteGlitchImage: true
     });
     if (this.board._compositeCommittedStrokeNow) {

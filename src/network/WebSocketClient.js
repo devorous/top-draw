@@ -1249,6 +1249,7 @@ export class WebSocketClient {
           y: data.sy,
           width: data.sw,
           height: data.sh,
+          layerIndex: data.ly,
           imageData: data.g
         });
         break;
@@ -2314,15 +2315,17 @@ export class WebSocketClient {
    * @param {number} height - Height of the blur region.
    * @param {string} dataUrl - Base64 PNG data URL of the blur result.
    */
-  broadcastGlitchResult(x, y, width, height, dataUrl) {
-    this.send({
+  broadcastGlitchResult(x, y, width, height, dataUrl, layerIndex) {
+    const msg = {
       t: T.GLITCH_RESULT,
       sx: Math.round(x),
       sy: Math.round(y),
       sw: Math.round(width),
       sh: Math.round(height),
       g: dataUrl
-    });
+    };
+    if (layerIndex !== undefined) msg.ly = layerIndex;
+    this.send(msg);
   }
 
   /**
