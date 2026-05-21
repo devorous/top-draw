@@ -2236,9 +2236,7 @@
         {:else if activeView === 'staff'}
           <section class="conversation-view">
             <div class="message-stream" bind:this={publicMessagesEl} onscroll={(event) => handleMessageScroll('staff', event)}>
-              {#if messages.staff.length === 0}
-                <div class="message-empty">Staff chat is empty.</div>
-              {:else}
+              {#if messages.staff.length > 0}
                 {#each groupedStaffMessages as msg (msg.id)}
                   {@render channelRow(msg)}
                 {/each}
