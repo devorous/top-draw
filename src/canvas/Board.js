@@ -2855,8 +2855,6 @@ export class Board {
       return;
     }
 
-    const upperLayersHaveBlendModes = this.layerManager.rangeHasBlendModeStrokes(splitLayer + 1, totalLayers);
-
     if ((isDrawing && eraseAll) || activeEraserPreviewIsAllLayers) {
       const mainDirtyRects = this._getFullMainDirtyRects(dirtyRects);
       this._fillBackgroundLayers(mainDirtyRects);
@@ -2873,8 +2871,7 @@ export class Board {
     }
     else if (
       (isDrawing || previewUsesFlattenedOverlay || hasActiveSelection) &&
-      splitLayer + 1 < totalLayers &&
-      (previewUsesFlattenedOverlay || !upperLayersHaveBlendModes)
+      splitLayer + 1 < totalLayers
     ) {
       if (previewUsesFlattenedOverlay) {
         const mainDirtyRects = this._getSplitMainDirtyRects(splitLayer + 1, dirtyRects);
