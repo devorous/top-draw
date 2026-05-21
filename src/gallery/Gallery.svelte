@@ -35,6 +35,7 @@
   let lightbox = $state(null);
   let likedIds = $state(new Set());
   let sort = $state('newest'); // 'newest' | 'top' | 'views'
+  let topPeriod = $state('all'); // 'week' | 'month' | 'year' | 'all'
   let authorFilter = $state(null); // username string or null
   let tagFilter = $state(null); // tag string or null
   let showFavorites = $state(false); // viewing favorites mode
@@ -83,6 +84,7 @@
     error = null;
     try {
       let url = `${API_BASE}/api/gallery?page=${page}&limit=24&sort=${sort}`;
+      if (sort === 'top') url += `&period=${topPeriod}`;
       if (authorFilter) url += `&author=${encodeURIComponent(authorFilter)}`;
       if (tagFilter) url += `&tag=${encodeURIComponent(tagFilter)}`;
       const res = await fetch(url, { headers: authHeaders() });
@@ -124,6 +126,15 @@
   function setSort(newSort) {
     if (sort === newSort) return;
     sort = newSort;
+    page = 1;
+    fetchGallery();
+    fetchSidebar();
+  }
+
+  function setTopPeriod(period) {
+    if (period === topPeriod) return;
+    topPeriod = period;
+    if (sort !== 'top') sort = 'top';
     page = 1;
     fetchGallery();
     fetchSidebar();
@@ -981,10 +992,9 @@
     <a href="/" class="wordmark">DDraw</a>
     <div class="nav-links">
       <span class="nav-active">gallery</span>
-      {#if user}
-        <a href="/messenger/" class="nav-link">messenger</a>
-      {/if}
-      <a href="/go/" class="nav-cta" target="_blank">draw →</a>
+      <a href="/board/" class="nav-link">board (beta)</a>
+      <a href="/messenger/" class="nav-link">messenger</a>
+      <a href="/go/" class="nav-enter" target="_blank">Draw Now! →</a>
       <span class="nav-divider">|</span>
       {#if user}
         <button class="btn-text" class:active={showFavorites} onclick={toggleFavoritesView} onpointerup={(e) => e.pointerType !== 'mouse' && toggleFavoritesView()}>favorites</button>
@@ -1000,7 +1010,17 @@
   <header>
     <div class="header-top">
       <div>
-        <h1>{showLiked ? 'My Likes' : (showFavorites ? 'My Favorites' : (authorFilter ? `${authorFilter}'s Art` : (tagFilter ? `#${tagFilter}` : 'Gallery')))}</h1>
+        {#if showLiked}
+          <h1>My Likes</h1>
+        {:else if showFavorites}
+          <h1>My Favorites</h1>
+        {:else if authorFilter}
+          <h1>{authorFilter}'s Art</h1>
+        {:else if tagFilter}
+          <h1>#{tagFilter}</h1>
+        {:else}
+          <h1 class="ggallery">GGallery</h1>
+        {/if}
         <p>
           {#if showLiked}
             <button class="btn-link" onclick={toggleLikedView} onpointerup={(e) => e.pointerType !== 'mouse' && toggleLikedView()}>back to all</button>
@@ -1016,11 +1036,23 @@
         </p>
       </div>
       {#if !showFavorites && !showLiked}
+        <div class="view-toggle" aria-label="Gallery view">
+          <span class="active">Grid</span>
+          <a href="/board/">Board</a>
+        </div>
         <div class="sort-controls">
           <button class="sort-btn" class:active={sort === 'newest'} onclick={() => setSort('newest')} onpointerup={(e) => e.pointerType !== 'mouse' && setSort('newest')}>Newest</button>
           <button class="sort-btn" class:active={sort === 'top'} onclick={() => setSort('top')} onpointerup={(e) => e.pointerType !== 'mouse' && setSort('top')}>Top</button>
           <button class="sort-btn" class:active={sort === 'views'} onclick={() => setSort('views')} onpointerup={(e) => e.pointerType !== 'mouse' && setSort('views')}>Views</button>
         </div>
+        {#if sort === 'top'}
+          <div class="top-period-controls" aria-label="Top time range">
+            <button class="period-btn" class:active={topPeriod === 'week'} onclick={() => setTopPeriod('week')} onpointerup={(e) => e.pointerType !== 'mouse' && setTopPeriod('week')}>Week</button>
+            <button class="period-btn" class:active={topPeriod === 'month'} onclick={() => setTopPeriod('month')} onpointerup={(e) => e.pointerType !== 'mouse' && setTopPeriod('month')}>Month</button>
+            <button class="period-btn" class:active={topPeriod === 'year'} onclick={() => setTopPeriod('year')} onpointerup={(e) => e.pointerType !== 'mouse' && setTopPeriod('year')}>Year</button>
+            <button class="period-btn" class:active={topPeriod === 'all'} onclick={() => setTopPeriod('all')} onpointerup={(e) => e.pointerType !== 'mouse' && setTopPeriod('all')}>All time</button>
+          </div>
+        {/if}
       {/if}
     </div>
   </header>
@@ -1069,7 +1101,7 @@
                 class:liked={likedIds.has(item.id)}
                 onclick={(e) => { e.stopPropagation(); like(item); }}
                 onpointerup={(e) => { e.stopPropagation(); e.pointerType !== 'mouse' && like(item); }}
-                aria-label="Like"
+                aria-label={`${item.likesCount || 0} likes`}
               >
                 <svg class="like-icon" viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
                   <path d="M1.24264 8.24264L8 15L14.7574 8.24264C15.553 7.44699 16 6.36786 16 5.24264V5.05234C16 2.8143 14.1857 1 11.9477 1C10.7166 1 9.55233 1.55959 8.78331 2.52086L8 3.5L7.21669 2.52086C6.44767 1.55959 5.28338 1 4.05234 1C1.8143 1 0 2.8143 0 5.05234V5.24264C0 6.36786 0.44699 7.44699 1.24264 8.24264Z"/>
@@ -1464,6 +1496,17 @@
     color: var(--accent);
     font-weight: 600;
   }
+  .nav-enter {
+    background: var(--accent);
+    color: #000 !important;
+    padding: 0.5rem 1rem;
+    border-radius: 50px;
+    font-weight: 700;
+  }
+  .nav-enter:hover {
+    color: #000 !important;
+    transform: translateY(-1px) scale(1.03);
+  }
   .nav-divider { color: var(--border); }
   .nav-user {
     color: var(--text);
@@ -1515,14 +1558,61 @@
     -webkit-text-fill-color: transparent;
     background-clip: text;
   }
+  header h1.ggallery {
+    font-family: 'Fredoka', sans-serif;
+    font-weight: 700;
+    font-size: clamp(2.2rem, 5vw, 3.4rem);
+    line-height: 1;
+    letter-spacing: -0.02em;
+    background: none;
+    -webkit-text-fill-color: initial;
+    color: var(--accent);
+    transform: rotate(-2deg);
+    display: inline-block;
+  }
   header p { color: var(--text-dim); font-size: 0.9rem; }
+
+  .view-toggle {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px;
+    margin-bottom: 0.75rem;
+    border: 1.5px solid var(--border);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.035);
+  }
+  .view-toggle a,
+  .view-toggle span {
+    min-width: 76px;
+    padding: 0.42rem 0.8rem;
+    border-radius: 4px;
+    color: var(--text-dim);
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-align: center;
+    transition: color 0.2s, background 0.2s, transform 0.2s;
+  }
+  .view-toggle a:hover {
+    color: var(--accent);
+    transform: translateY(-1px);
+  }
+  .view-toggle .active {
+    color: #000;
+    background: var(--accent);
+  }
 
   .sort-controls {
     display: flex;
     gap: 0.5rem;
     margin-bottom: 0.5rem;
+    flex-wrap: wrap;
   }
-  .sort-btn {
+  .top-period-controls {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+  .sort-btn, .period-btn {
     background: none;
     border: 2px solid var(--border);
     color: var(--text-dim);
@@ -1533,12 +1623,17 @@
     cursor: pointer;
     transition: all 0.2s;
   }
-  .sort-btn:hover {
+  .period-btn {
+    border-width: 1.5px;
+    font-size: 0.74rem;
+    padding: 0.3rem 0.7rem;
+  }
+  .sort-btn:hover, .period-btn:hover {
     border-color: var(--accent);
     color: var(--accent);
     transform: translateY(-1px);
   }
-  .sort-btn.active {
+  .sort-btn.active, .period-btn.active {
     border-color: var(--accent);
     color: var(--accent);
     background: rgba(0, 212, 170, 0.1);
@@ -1803,12 +1898,18 @@
   }
   .card-author {
     font-size: 0.8rem;
-    color: var(--text-dim);
+    color: rgba(255, 255, 255, 0.7);
     background: none;
     border: none;
     font-family: inherit;
     cursor: pointer;
-    padding: 0;
+    padding: 4px 8px;
+    margin: -4px -8px;
+    min-height: 24px;
+    min-width: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-start;
     transition: color 0.15s;
   }
   .card-author:hover { color: var(--accent); }
@@ -1841,7 +1942,7 @@
     background: rgba(255, 255, 255, 0.03);
     border: 1.5px solid var(--border);
     border-radius: 999px;
-    color: var(--text-dim);
+    color: rgba(255, 255, 255, 0.7);
     font-family: inherit;
     font-size: 0.76rem;
     padding: 0.32rem 0.65rem;

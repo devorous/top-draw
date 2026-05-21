@@ -1,14 +1,64 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
-    <title>GGallery</title>
-    <meta name="description" content="Browse artwork created in ddraw, the collaborative drawing app.">
-    <link rel="icon" href="/images/pepper.ico">
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="index, follow">
+    <title>GGallery — Community Art from DDraw</title>
+    <meta name="description" content="Browse community artwork made in DDraw, the free real-time collaborative drawing app. Discover paintings, sketches, and pixel art created by anyone, anywhere.">
+    <meta name="keywords" content="ddraw gallery, collaborative drawing gallery, online art gallery, community artwork, digital art, free drawing app art">
+    <link rel="icon" href="/images/pepper.ico">
+    <link rel="canonical" href="https://ddraw.ca/gallery/">
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://ddraw.ca/gallery/">
+    <meta property="og:title" content="GGallery — Community Art from DDraw">
+    <meta property="og:description" content="Browse community artwork made in DDraw, the free real-time collaborative drawing app.">
+    <meta property="og:image" content="https://ddraw.ca/images/app-preview.jpeg">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image">
+    <meta property="twitter:url" content="https://ddraw.ca/gallery/">
+    <meta property="twitter:title" content="GGallery — Community Art from DDraw">
+    <meta property="twitter:description" content="Browse community artwork made in DDraw, the free real-time collaborative drawing app.">
+    <meta property="twitter:image" content="https://ddraw.ca/images/app-preview.jpeg">
+
+    <!-- Structured Data -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "CollectionPage",
+      "name": "GGallery",
+      "description": "Community artwork made in DDraw, the free real-time collaborative drawing app.",
+      "url": "https://ddraw.ca/gallery/",
+      "isPartOf": {
+        "@type": "WebSite",
+        "name": "DDraw",
+        "url": "https://ddraw.ca"
+      },
+      "breadcrumb": {
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+          { "@type": "ListItem", "position": 1, "name": "DDraw", "item": "https://ddraw.ca/" },
+          { "@type": "ListItem", "position": 2, "name": "Gallery", "item": "https://ddraw.ca/gallery/" }
+        ]
+      }
+    }
+    </script>
   </head>
   <body>
     <div id="app"></div>
+    <noscript>
+      <div style="padding: 2rem; text-align: center; font-family: sans-serif;">
+        <h1>GGallery — Community Art from DDraw</h1>
+        <p>Browse artwork created in DDraw, the free real-time collaborative drawing app.</p>
+        <p><a href="/">Return to DDraw home</a> · <a href="/go/">Open the drawing app</a></p>
+        <p>Please enable JavaScript to view the gallery.</p>
+      </div>
+    </noscript>
     <script type="module" src="/src/gallery/main.js"></script>
   </body>
 </html>

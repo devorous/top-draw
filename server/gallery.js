@@ -224,6 +224,7 @@ async function recordGalleryLike(db, { galleryId, userId, username }) {
  *   - page (default 1)
  *   - limit (default 24, max 50)
  *   - sort: newest (default), top, views
+ *   - period: week, month, year, all (top sort only; default all)
  *   - author: filter by username
  *   - tag: filter by tag
  */
@@ -244,6 +245,12 @@ export async function handleGalleryList(req, res) {
     views: { views: -1, createdAt: -1 },
   };
   const sort = sortOptions[sortParam] || sortOptions.newest;
+  const periodParam = urlObj.searchParams.get('period') || 'all';
+  const topPeriodMs = {
+    week: 7 * 24 * 60 * 60 * 1000,
+    month: 30 * 24 * 60 * 60 * 1000,
+    year: 365 * 24 * 60 * 60 * 1000,
+  };
 
   // Author filter
   const author = urlObj.searchParams.get('author');
@@ -251,6 +258,9 @@ export async function handleGalleryList(req, res) {
   const query = {};
   if (author) query.author = author;
   if (tag) query.tags = tag;
+  if (sortParam === 'top' && topPeriodMs[periodParam]) {
+    query.createdAt = { $gte: new Date(Date.now() - topPeriodMs[periodParam]) };
+  }
 
   try {
     const [items, total] = await Promise.all([

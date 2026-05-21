@@ -226,7 +226,8 @@
       <a href="#features">cool stuff</a>
       <a href="#download">get app</a>
       <a href="/gallery/" target="_blank">gallery</a>
-      <a href="/go/" class="nav-enter">ENTER IT →</a>
+      <a href="/messenger/" target="_blank">messenger</a>
+      <a href="/go/" class="nav-enter">Draw Now! →</a>
     </div>
   </nav>
 
@@ -352,6 +353,16 @@
     </div>
   </section>
 
+  <section class="messenger-card-section">
+    <div class="messenger-card">
+      <div>
+        <h2>DDraw Messenger</h2>
+        <p>End-to-end encrypted chat for the friends you draw with. Sign in once, then message privately — no servers reading your mail, no ads.</p>
+      </div>
+      <a href="/messenger/" class="messenger-btn">Open Messenger →</a>
+    </div>
+  </section>
+
   <section id="download" class="download-card-section">
     <div class="funky-card">
       <div class="card-content">
@@ -425,6 +436,7 @@
       </div>
       <div class="foot-links">
         <a href="/gallery/">Gallery</a>
+        <a href="/messenger/">Messenger</a>
         <a href="#features">Features</a>
         <a href="#download">Download</a>
       </div>
@@ -818,6 +830,38 @@
     transition: all 0.2s;
   }
   .discord-btn:hover { transform: translateY(-2px); box-shadow: 0 10px 24px rgba(0,0,0,0.18); }
+
+  .messenger-card-section { padding: 2rem 2rem 0; max-width: 1200px; margin: 0 auto; }
+  .messenger-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1.5rem;
+    padding: 2rem;
+    background: #00d4aa;
+    border: 3px solid #fff;
+    border-radius: 20px;
+    box-shadow: 0 16px 34px rgba(0,212,170,0.28);
+    color: #0f0f13;
+  }
+  .messenger-card h2 { font-size: 2.2rem; margin-bottom: 0.4rem; }
+  .messenger-card p { max-width: 48ch; color: rgba(15,15,19,0.78); }
+  .messenger-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 48px;
+    padding: 0.9rem 1.4rem;
+    background: #0f0f13;
+    color: #00d4aa;
+    border-radius: 12px;
+    font-family: 'Fredoka', sans-serif;
+    font-weight: 700;
+    white-space: nowrap;
+    transition: all 0.2s;
+  }
+  .messenger-btn:hover { transform: translateY(-2px); box-shadow: 0 10px 24px rgba(0,0,0,0.18); }
+
   .download-card-section { padding: 2rem 2rem 4rem; max-width: 1200px; margin: 0 auto; }
   .funky-card {
     background: #c800c8;
@@ -947,6 +991,8 @@
     .hero-preview { order: 2; max-width: 500px; margin: 0 auto; }
     .discord-card { flex-direction: column; align-items: flex-start; }
     .discord-btn { width: 100%; }
+    .messenger-card { flex-direction: column; align-items: flex-start; }
+    .messenger-btn { width: 100%; }
     .foot-content { flex-direction: column; gap: 2rem; align-items: center; text-align: center; }
   }
 </style>
