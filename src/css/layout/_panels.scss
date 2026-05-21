@@ -133,12 +133,28 @@
   display: block;
 }
 
-.listDiscordBadge {
+.userBadges {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: 0 0 auto;
+  line-height: 0;
+}
+
+.userBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 15px;
   height: 15px;
   flex: 0 0 15px;
-  background: #5865f2;
-  mask: url('/svgs/discord.svg') center / contain no-repeat;
+  color: currentColor;
+
+  svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
 }
 
 .listUser {

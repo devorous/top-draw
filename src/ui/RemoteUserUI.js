@@ -4,6 +4,7 @@
 
 import { normalizeTextFont } from '../config/textFonts.js';
 import { getPreviewTextLayout, getTextLineHeight } from '../utils/textLayout.js';
+import { badgesForUser, renderBadgesInto } from './Badges.js';
 
 const REMOTE_CURSOR_IDLE_MS = 5000;
 const GROUP_HEADER_REFRESH_MS = 5000;
@@ -406,13 +407,11 @@ export class RemoteUserUI {
     this._syncGroupHeaderRankFromUser(groupInfo?.group, userId);
   }
 
-  _createDiscordBadge(show = false) {
-    const badge = document.createElement('span');
-    badge.className = 'listDiscordBadge';
-    badge.title = 'Discord linked';
-    badge.setAttribute('aria-label', 'Discord linked');
-    badge.style.display = show ? '' : 'none';
-    return badge;
+  _createBadgesContainer(userData, extraClass = '') {
+    const container = document.createElement('span');
+    container.className = extraClass ? `userBadges ${extraClass}` : 'userBadges';
+    renderBadgesInto(container, badgesForUser(userData));
+    return container;
   }
 
   setReplayModeActive(active) {
@@ -686,14 +685,14 @@ export class RemoteUserUI {
     RemoteUserUI.applyRankClasses(nameEl, groupHeader, displayUserData.role);
     this._applyMutedStateToEntry(groupHeader, nameEl, displayUserData.isMuted);
 
-    const discordBadge = this._createDiscordBadge(!!displayUserData.hasDiscord);
+    const badgesEl = this._createBadgesContainer(displayUserData);
 
     const countBadge = document.createElement('span');
     countBadge.className = 'groupCountBadge';
     countBadge.textContent = '+1';
 
     groupHeader.appendChild(colorToolWrap);
-    groupHeader.appendChild(discordBadge);
+    groupHeader.appendChild(badgesEl);
     groupHeader.appendChild(nameEl);
     groupHeader.appendChild(countBadge);
 
@@ -712,7 +711,7 @@ export class RemoteUserUI {
       displayUserId,
       headerToolEl: toolEl,
       headerColorEl: colorEl,
-      headerDiscordEl: discordBadge,
+      headerBadgesEl: badgesEl,
       headerNameEl: nameEl,
       headerCountEl: countBadge,
       pendingDisplayUpdate: null,
@@ -767,9 +766,15 @@ export class RemoteUserUI {
         this._syncGroupHeaderRankFromUser(group, group.displayUserId);
       }
 
-      const srcDiscord = group.usersContainer.querySelector(`.listDiscordBadge.${id}`);
-      if (group.headerDiscordEl) {
-        group.headerDiscordEl.style.display = srcDiscord?.style.display === 'none' ? 'none' : '';
+      const srcBadges = group.usersContainer.querySelector(`.userBadges.${id}`);
+      if (group.headerBadgesEl) {
+        if (srcBadges) {
+          group.headerBadgesEl.innerHTML = srcBadges.innerHTML;
+          group.headerBadgesEl.style.display = srcBadges.style.display || (srcBadges.childElementCount > 0 ? '' : 'none');
+        } else {
+          group.headerBadgesEl.textContent = '';
+          group.headerBadgesEl.style.display = 'none';
+        }
       }
       // Rotating the display user is a header-only visual change — do NOT
       // re-sort here, or the list flickers as remote cursors move around.
@@ -892,8 +897,7 @@ export class RemoteUserUI {
     userEntry.className = `listUser ${id}`;
     userEntry.textContent = userData.name || userData.username || userId;
 
-    const discordBadge = this._createDiscordBadge(!!userData.hasDiscord);
-    discordBadge.classList.add(id);
+    const badgesEl = this._createBadgesContainer(userData, id);
 
     const role = userData.role;
     RemoteUserUI.applyRankClasses(userEntry, entry, role);
@@ -913,7 +917,7 @@ export class RemoteUserUI {
     };
 
     entry.appendChild(colorToolWrap);
-    entry.appendChild(discordBadge);
+    entry.appendChild(badgesEl);
     entry.appendChild(userEntry);
     entry.appendChild(syncBtn);
 
