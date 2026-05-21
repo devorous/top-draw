@@ -3,6 +3,20 @@
   import { appState, clearSnapshotHistoryState, toggleSnapshotMenu, setSnapshotSource } from '../../state.svelte.js';
   import { T } from '../../../shared/MessageTypes.js';
   import * as wasm from '../../wasm/ddraw_wasm.js';
+  import { getLocalSnapshotSettings, saveLocalSnapshotSettings } from '../../remote/SnapshotManager.js';
+
+  let showLocalSettings = $state(false);
+  let localSettings = $state(getLocalSnapshotSettings());
+
+  function toggleLocalSettings() {
+    if (!showLocalSettings) localSettings = getLocalSnapshotSettings();
+    showLocalSettings = !showLocalSettings;
+  }
+
+  function updateLocalSetting(patch) {
+    localSettings = saveLocalSnapshotSettings({ ...localSettings, ...patch });
+    window.app?.snapshotManager?.refreshLocalCapture?.();
+  }
 
   let snapshots = $derived(appState.snapshots || []);
   let snapshotHasMore = $derived(appState.snapshotHasMore);
@@ -703,14 +717,22 @@
           >
             Server
           </button>
-          <button 
-            class="snap-source-btn" 
-            class:active={snapshotSource === 'local'} 
+          <button
+            class="snap-source-btn"
+            class:active={snapshotSource === 'local'}
             onclick={() => handleSourceChange('local')}
           >
             Local
           </button>
         </div>
+        {#if snapshotSource === 'local'}
+          <button class="snap-settings-btn" class:active={showLocalSettings} onclick={toggleLocalSettings} title="Local snapshot settings">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+            </svg>
+          </button>
+        {/if}
       </div>
       <div class="snap-header-right">
         <button class="snap-reload-btn" onclick={refresh} onpointerup={(e) => e.pointerType !== 'mouse' && refresh()} title="Refresh">&#8635;</button>
@@ -784,6 +806,50 @@
       {/if}
     </div>
 
+    {#if snapshotSource === 'local' && showLocalSettings}
+      <div class="snap-local-settings">
+        <div class="snap-local-settings-row">
+          <label class="snap-local-toggle">
+            <input
+              type="checkbox"
+              checked={localSettings.enabled}
+              onchange={(e) => updateLocalSetting({ enabled: e.currentTarget.checked })}
+            />
+            <span>Enable local snapshots</span>
+          </label>
+          <span class="snap-local-hint">Stored in your browser (IndexedDB) for recovery.</span>
+        </div>
+        <div class="snap-local-settings-row">
+          <label class="snap-local-field">
+            <span>Interval</span>
+            <input
+              type="number"
+              min="5"
+              max="600"
+              step="5"
+              disabled={!localSettings.enabled}
+              value={localSettings.intervalSec}
+              onchange={(e) => updateLocalSetting({ intervalSec: parseInt(e.currentTarget.value, 10) })}
+            />
+            <span class="snap-local-suffix">sec</span>
+          </label>
+          <label class="snap-local-field">
+            <span>Keep last</span>
+            <input
+              type="number"
+              min="1"
+              max="500"
+              step="1"
+              disabled={!localSettings.enabled}
+              value={localSettings.maxCount}
+              onchange={(e) => updateLocalSetting({ maxCount: parseInt(e.currentTarget.value, 10) })}
+            />
+            <span class="snap-local-suffix">snapshots</span>
+          </label>
+        </div>
+      </div>
+    {/if}
+
     <!-- Thumbnail strip -->
     <div
       class="snap-strip-wrap"
@@ -808,8 +874,10 @@
             {:else}
               Only registered users can view board history unless they are alone in the room.
             {/if}
+          {:else if !localSettings.enabled}
+            Local snapshots are disabled. Click the gear icon above to enable automatic captures.
           {:else}
-            No local snapshots yet. They are captured every 30s for recovery.
+            No local snapshots yet. They are captured every {localSettings.intervalSec}s for recovery.
           {/if}
         </span>
       {:else}
@@ -1015,6 +1083,36 @@
   .btn.primary:disabled { opacity: 0.4; cursor: not-allowed; }
   .btn.danger { background: rgba(220, 53, 69, 0.2); color: #ff6b6b; border: 1px solid rgba(220, 53, 69, 0.4); }
   .btn.danger:hover { background: rgba(220, 53, 69, 0.4); }
+
+  .snap-settings-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 26px; height: 26px; background: transparent; border: 1px solid #333;
+    border-radius: 5px; color: var(--text-secondary, #aaa); cursor: pointer; margin-left: 4px;
+  }
+  .snap-settings-btn:hover { background: var(--bg-elevated, #2a2a2a); color: #fff; }
+  .snap-settings-btn.active { background: var(--accent-primary, #7c5cbf); color: #fff; border-color: var(--accent-primary, #7c5cbf); }
+
+  .snap-local-settings {
+    background: var(--bg-tertiary, #111); border-top: 1px solid var(--border-subtle, #333);
+    padding: 10px 16px; display: flex; flex-direction: column; gap: 8px; flex-shrink: 0;
+  }
+  .snap-local-settings-row {
+    display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+  }
+  .snap-local-toggle {
+    display: inline-flex; align-items: center; gap: 6px; color: #ddd; font-size: 12px; cursor: pointer;
+  }
+  .snap-local-toggle input { cursor: pointer; }
+  .snap-local-hint { font-size: 11px; color: #777; }
+  .snap-local-field {
+    display: inline-flex; align-items: center; gap: 6px; color: #bbb; font-size: 12px;
+  }
+  .snap-local-field input {
+    width: 64px; padding: 3px 6px; background: #0a0a0a; border: 1px solid #333;
+    border-radius: 4px; color: #eee; font-size: 12px;
+  }
+  .snap-local-field input:disabled { opacity: 0.4; cursor: not-allowed; }
+  .snap-local-suffix { color: #777; font-size: 11px; }
 
   .snap-back-to-present {
     position: absolute; right: 18px; bottom: 128px; display: inline-flex;

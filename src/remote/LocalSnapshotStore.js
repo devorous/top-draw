@@ -133,6 +133,37 @@ export class LocalSnapshotStore {
     });
   }
 
+  /**
+   * Deletes oldest snapshots in a room beyond `keep` count.
+   * @param {string} roomId
+   * @param {number} keep - Max number of snapshots to retain
+   */
+  async pruneRoom(roomId, keep) {
+    if (!Number.isFinite(keep) || keep < 1) return 0;
+    const tx = await this._tx([STORE, META_STORE], 'readwrite');
+    const fullStore = tx.objectStore(STORE);
+    const metaStore = tx.objectStore(META_STORE);
+    const range = IDBKeyRange.bound([roomId, -Infinity], [roomId, Infinity]);
+
+    return new Promise((resolve, reject) => {
+      let seen = 0;
+      let removed = 0;
+      const req = metaStore.index('roomId_ts').openCursor(range, 'prev');
+      req.onsuccess = (e) => {
+        const cursor = e.target.result;
+        if (!cursor) return resolve(removed);
+        seen++;
+        if (seen > keep) {
+          fullStore.delete(cursor.value.id);
+          cursor.delete();
+          removed++;
+        }
+        cursor.continue();
+      };
+      req.onerror = () => reject(req.error);
+    });
+  }
+
   async clearRoom(roomId) {
     const tx = await this._tx([STORE, META_STORE], 'readwrite');
     const fullStore = tx.objectStore(STORE);

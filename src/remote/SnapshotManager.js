@@ -5,6 +5,43 @@ import { LocalSnapshotStore } from './LocalSnapshotStore.js';
 
 const LOCAL_CAPTURE_INTERVAL_MS = 30000;
 
+const LOCAL_SETTINGS_KEY = 'topdraw_localSnapshotSettings';
+const LOCAL_SETTINGS_DEFAULTS = Object.freeze({
+  enabled: false,        // Disabled by default — periodic captures cause noticeable stutters on slower machines
+  intervalSec: 30,
+  maxCount: 50,
+});
+
+export function getLocalSnapshotSettings() {
+  try {
+    const raw = localStorage.getItem(LOCAL_SETTINGS_KEY);
+    if (!raw) return { ...LOCAL_SETTINGS_DEFAULTS };
+    const parsed = JSON.parse(raw);
+    return {
+      enabled: typeof parsed.enabled === 'boolean' ? parsed.enabled : LOCAL_SETTINGS_DEFAULTS.enabled,
+      intervalSec: clampInt(parsed.intervalSec, 5, 600, LOCAL_SETTINGS_DEFAULTS.intervalSec),
+      maxCount: clampInt(parsed.maxCount, 1, 500, LOCAL_SETTINGS_DEFAULTS.maxCount),
+    };
+  } catch {
+    return { ...LOCAL_SETTINGS_DEFAULTS };
+  }
+}
+
+export function saveLocalSnapshotSettings(partial) {
+  const next = { ...getLocalSnapshotSettings(), ...partial };
+  next.intervalSec = clampInt(next.intervalSec, 5, 600, LOCAL_SETTINGS_DEFAULTS.intervalSec);
+  next.maxCount = clampInt(next.maxCount, 1, 500, LOCAL_SETTINGS_DEFAULTS.maxCount);
+  next.enabled = !!next.enabled;
+  try { localStorage.setItem(LOCAL_SETTINGS_KEY, JSON.stringify(next)); } catch {}
+  return next;
+}
+
+function clampInt(value, min, max, fallback) {
+  const n = parseInt(value, 10);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, n));
+}
+
 export class SnapshotManager {
   /**
    * @param {DrawingApp} app - The main application instance
@@ -163,14 +200,27 @@ export class SnapshotManager {
   }
 
   /**
-   * Begins capturing snapshots to the local IndexedDB store at a fixed cadence.
+   * Begins capturing snapshots to the local IndexedDB store at the user-configured cadence.
    * Used by non-uploader clients as a black-box recovery buffer.
+   * Skips entirely if the user has not enabled local capture (default: disabled).
+   * @param {number} [intervalMsOverride] - Optional explicit interval; otherwise read from user settings
    */
-  startLocalCapture(intervalMs = LOCAL_CAPTURE_INTERVAL_MS) {
+  startLocalCapture(intervalMsOverride) {
     this.stopLocalCapture();
+    const settings = getLocalSnapshotSettings();
+    if (!settings.enabled) return;
+    const intervalMs = intervalMsOverride || settings.intervalSec * 1000;
     this._localCaptureTimer = setInterval(() => this.captureLocalSnapshot(), intervalMs);
     // Initial capture after a short delay
     setTimeout(() => this.captureLocalSnapshot(), 3000);
+  }
+
+  /**
+   * Restart local capture using the latest persisted settings. Call after the user
+   * changes settings to apply a new interval / re-enable capture.
+   */
+  refreshLocalCapture() {
+    this.startLocalCapture();
   }
 
   stopLocalCapture() {
@@ -216,6 +266,8 @@ export class SnapshotManager {
         thumb,
         name: `Local ${new Date(ts).toLocaleTimeString()}`
       });
+      const { maxCount } = getLocalSnapshotSettings();
+      await store.pruneRoom(roomId, maxCount);
     } catch (err) {
       console.warn('[SnapshotManager] Local capture failed:', err);
     }
