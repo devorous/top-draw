@@ -62,6 +62,7 @@ export class Board {
     this.app = null;
 
     this.activeSelectionLayer = -1;
+    this.activeFillPreviewLayer = -1;
     this.interactionBlocks = [];
 
     this.selectionMask = null;
@@ -2834,7 +2835,10 @@ export class Board {
     const previewUsesFlattenedOverlay = !!activeEraserPreview && !activeEraserPreviewIsAllLayers;
 
     const hasActiveSelection = this.activeSelectionLayer >= 0;
-    const splitLayer = hasActiveSelection ? this.activeSelectionLayer : ((previewUsesFlattenedOverlay ? activeEraserPreview?.layerIndex : null) ?? activeLayerIdx);
+    const hasFillPreview = this.activeFillPreviewLayer >= 0;
+    const splitLayer = hasActiveSelection
+      ? this.activeSelectionLayer
+      : (hasFillPreview ? this.activeFillPreviewLayer : ((previewUsesFlattenedOverlay ? activeEraserPreview?.layerIndex : null) ?? activeLayerIdx));
     const dirtyRects = Array.isArray(pendingDirtyRects) && pendingDirtyRects.length > 0
       ? pendingDirtyRects
       : null;
@@ -2870,7 +2874,7 @@ export class Board {
       this._clearUpperLayers(mainDirtyRects);
     }
     else if (
-      (isDrawing || previewUsesFlattenedOverlay || hasActiveSelection) &&
+      (isDrawing || previewUsesFlattenedOverlay || hasActiveSelection || hasFillPreview) &&
       splitLayer + 1 < totalLayers
     ) {
       if (previewUsesFlattenedOverlay) {

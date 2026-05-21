@@ -455,6 +455,7 @@ export class FloodFillTool {
     if (this._active) {
       this.board.topCtx.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
     }
+    this._clearPreviewLayer();
     if (this._previewTimer !== null) {
       clearTimeout(this._previewTimer);
       this._previewTimer = null;
@@ -464,6 +465,19 @@ export class FloodFillTool {
     this._imageData = null;
     this._fillParams = null;
     this._pendingPreview = false;
+  }
+
+  _setPreviewLayer(layerIndex) {
+    this.board.activeFillPreviewLayer = layerIndex;
+    this.board.markCompositeFull?.();
+    this.board.requestUpdate?.();
+  }
+
+  _clearPreviewLayer() {
+    if (this.board.activeFillPreviewLayer < 0) return;
+    this.board.activeFillPreviewLayer = -1;
+    this.board.markCompositeFull?.();
+    this.board.requestUpdate?.();
   }
 
   _countFilledPixels(result) {
@@ -707,6 +721,9 @@ export class FloodFillTool {
           this._renderMaskComposite(topCtx, entry.result, fillR, fillG, fillB, userOpacity, this._blurRadius, width, height, user);
         });
       }
+      this._setPreviewLayer(this._fillParams.activeLayer);
+    } else {
+      this._clearPreviewLayer();
     }
   }
 
@@ -721,6 +738,7 @@ export class FloodFillTool {
     const topCtx = this.board.topCtx;
     topCtx.clearRect(0, 0, width, height);
     this._renderMask(topCtx, result, fillR, fillG, fillB, userOpacity, 0, width, height, user);
+    this._setPreviewLayer(this._fillParams.activeLayer);
   }
 
   async onPointerUp(user, pos, e) {
@@ -747,6 +765,7 @@ export class FloodFillTool {
 
     // Clear preview
     this.board.topCtx.clearRect(0, 0, width, height);
+    this._clearPreviewLayer();
 
     if (result) {
       const fillLimit = this._isFillTooLarge(result, width, height);
