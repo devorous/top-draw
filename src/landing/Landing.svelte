@@ -34,23 +34,14 @@
   }
 
   const STROKES = [
-    {
-      points: sampleBezierSkewed([[22, 238], [110, 135], [305, 82], [458, 62]], 72, 0.35),
-      color: '#ffdd00', size: 18, thinning: 0.74, 
-    },
-    {
-      points: sampleBezier([[48, 98], [165, 148], [308, 162], [452, 205]], 55),
-      color: '#c800c8', size: 9, thinning: 0.58, 
-    },
-    {
-      points: sampleBezier([[118, 262], [178, 192], [244, 188], [288, 258]], 44),
-      color: '#00d4aa', size: 13, thinning: 0.85, opacity: 0.5,
-    },
-    {
-      points: sampleBezierSkewed([[332, 252], [368, 210], [418, 218], [452, 248]], 30, 0.25),
-      color: 'rgba(255,255,255,0.4)', size: 7, thinning: 0.7,
-    },
+    { bz: [[22, 238], [110, 135], [305, 82], [458, 62]], n: 72, peakT: 0.35, color: '#ffdd00', size: 18, thinning: 0.74 },
+    { bz: [[48, 98], [165, 148], [308, 162], [452, 205]], n: 55, color: '#c800c8', size: 9, thinning: 0.58 },
+    { bz: [[118, 262], [178, 192], [244, 188], [288, 258]], n: 44, color: '#00d4aa', size: 13, thinning: 0.85, opacity: 0.5 },
+    { bz: [[332, 252], [368, 210], [418, 218], [452, 248]], n: 30, peakT: 0.25, color: '#287ac1', size: 7, thinning: 0.7 },
   ];
+  for (const s of STROKES) {
+    s.points = s.peakT !== undefined ? sampleBezierSkewed(s.bz, s.n, s.peakT) : sampleBezier(s.bz, s.n);
+  }
 
   const TL = [
     { start: 400,  end: 1900, idx: 0 },
@@ -59,8 +50,68 @@
     { start: 4420, end: 4980, idx: 3 },
   ];
 
+  const CURSORS = [
+    { strokeIdxs: [0, 2] },
+    { strokeIdxs: [1, 3] },
+  ];
+
+  let cursor1El = $state(null);
+  let cursor2El = $state(null);
+
   function easeInOut(t) {
     return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+  }
+
+  function bezierAt([p0, p1, p2, p3], t) {
+    const mt = 1 - t;
+    return [
+      mt**3*p0[0] + 3*mt**2*t*p1[0] + 3*mt*t**2*p2[0] + t**3*p3[0],
+      mt**3*p0[1] + 3*mt**2*t*p1[1] + 3*mt*t**2*p2[1] + t**3*p3[1],
+    ];
+  }
+
+  function bezierTangent([p0, p1, p2, p3], t) {
+    const mt = 1 - t;
+    const dx = 3*mt**2*(p1[0]-p0[0]) + 6*mt*t*(p2[0]-p1[0]) + 3*t**2*(p3[0]-p2[0]);
+    const dy = 3*mt**2*(p1[1]-p0[1]) + 6*mt*t*(p2[1]-p1[1]) + 3*t**2*(p3[1]-p2[1]);
+    const len = Math.hypot(dx, dy) || 1;
+    return [dx/len, dy/len];
+  }
+
+  function updateCursor(el, strokeIdxs, elapsed) {
+    if (!el) return;
+    const FADE_MS = 140;
+    let best = null;
+    for (const idx of strokeIdxs) {
+      const phase = TL[idx];
+      if (elapsed < phase.start - FADE_MS || elapsed > phase.end + FADE_MS) continue;
+      let progress, alpha;
+      if (elapsed < phase.start) {
+        progress = 0;
+        alpha = (elapsed - (phase.start - FADE_MS)) / FADE_MS;
+      } else if (elapsed > phase.end) {
+        progress = 1;
+        alpha = 1 - (elapsed - phase.end) / FADE_MS;
+      } else {
+        progress = (elapsed - phase.start) / (phase.end - phase.start);
+        alpha = 1;
+      }
+      if (!best || alpha > best.alpha) best = { phase, progress, alpha };
+    }
+    if (!best) { el.style.opacity = '0'; return; }
+    const s = STROKES[best.phase.idx];
+    const t = easeInOut(best.progress);
+    const [bx, by] = bezierAt(s.bz, t);
+    // Lead the centerline by half-stroke along the tangent so the circle sits
+    // at the visible tip (perfect-freehand renders a round cap at the endpoint).
+    const [tx, ty] = bezierTangent(s.bz, t);
+    const lead = s.size * 0.5;
+    const x = bx + tx * lead;
+    const y = by + ty * lead;
+    el.style.left = `${(x / VW) * 100}%`;
+    el.style.top = `${(y / VH) * 100}%`;
+    el.style.opacity = String(best.alpha);
+    el.style.setProperty('--rc-size-vp', String(s.size));
   }
 
   $effect(() => {
@@ -135,6 +186,9 @@
         }
       }
 
+      updateCursor(cursor1El, CURSORS[0].strokeIdxs, elapsed);
+      updateCursor(cursor2El, CURSORS[1].strokeIdxs, elapsed);
+
       requestAnimationFrame(frame);
     }
 
@@ -197,22 +251,91 @@
         <div class="preview-container">
           <div class="blob-bg"></div>
           <div class="preview-chrome">
-            <div class="chrome-bar">
-              <div class="chrome-dots"><span></span><span></span><span></span></div>
-              <span class="chrome-title">DDraw — falling forward</span>
+            <div class="app-topbar">
+              <div class="topbar-cluster">
+                <button class="iconBtn" aria-label="Undo" tabindex="-1">
+                  <img src="/images/undo-icon.svg" alt="" />
+                </button>
+                <button class="iconBtn" aria-label="Redo" tabindex="-1">
+                  <img src="/images/redo-icon.svg" alt="" />
+                </button>
+                <span class="topbar-divider"></span>
+                <button class="iconBtn" aria-label="Mirror" tabindex="-1">
+                  <img src="/images/mirror.svg" alt="" />
+                </button>
+                <span class="topbar-divider"></span>
+                <span class="zoom-pct">100%</span>
+                <button class="iconBtn small" aria-label="Zoom out" tabindex="-1">
+                  <img src="/images/magnifying-glass-minus.svg" alt="" />
+                </button>
+                <button class="iconBtn small" aria-label="Zoom in" tabindex="-1">
+                  <img src="/images/magnifying-glass-plus.svg" alt="" />
+                </button>
+              </div>
+              <div class="topbar-cluster right ddraw-letters" aria-hidden="true">
+                <span class="ltr l-d1">D</span>
+                <span class="ltr l-d2">D</span>
+                <span class="ltr l-r">R</span>
+                <span class="ltr l-a">A</span>
+                <span class="ltr l-w">W</span>
+              </div>
             </div>
-            <div class="canvas-wrap">
-               {#if !canvasReady}
-                <img
-                  src="/images/preview-fallback.png"
-                  alt="DDraw collaborative drawing app preview - real-time canvas with smooth drawing tools"
-                  fetchpriority="high"
-                  width="480"
-                  height="300"
-                  style="position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1;"
-                />
-              {/if}
-              <canvas bind:this={canvasEl} style="position: relative; z-index: 2;"></canvas>
+            <div class="app-body">
+              <div class="canvas-wrap">
+                <div class="canvas-grid"></div>
+                {#if !canvasReady}
+                  <img
+                    src="/images/preview-fallback.png"
+                    alt="DDraw collaborative drawing app preview - real-time canvas with smooth drawing tools"
+                    fetchpriority="high"
+                    width="480"
+                    height="300"
+                    class="canvas-fallback"
+                  />
+                {/if}
+                <canvas bind:this={canvasEl}></canvas>
+                <div class="remote-cursors" aria-hidden="true">
+                  <div class="rc" bind:this={cursor1El}>
+                    <div class="rc-circle"></div>
+                    <span class="rc-name">ravi</span>
+                  </div>
+                  <div class="rc" bind:this={cursor2El}>
+                    <div class="rc-circle"></div>
+                    <span class="rc-name">moss</span>
+                  </div>
+                </div>
+              </div>
+              <aside class="app-tools" aria-hidden="true">
+                <button class="tool-btn selected" tabindex="-1" title="Brush">
+                  <img src="/images/brush-icon.svg" alt="" />
+                </button>
+                <button class="tool-btn" tabindex="-1" title="Eraser">
+                  <img src="/images/eraser-icon.svg" alt="" />
+                </button>
+                <button class="tool-btn" tabindex="-1" title="Line">
+                  <img src="/images/line-icon.svg" alt="" />
+                </button>
+                <button class="tool-btn" tabindex="-1" title="Rectangle">
+                  <img src="/images/rectangle-icon.svg" alt="" />
+                </button>
+                <button class="tool-btn" tabindex="-1" title="Circle">
+                  <img src="/images/circle-icon.svg" alt="" />
+                </button>
+                <button class="tool-btn" tabindex="-1" title="Text">
+                  <img src="/images/text-icon.svg" alt="" />
+                </button>
+                <button class="tool-btn" tabindex="-1" title="Select">
+                  <img src="/images/select-icon.svg" alt="" />
+                </button>
+                <button class="tool-btn pepper-btn" tabindex="-1" title="DDraw">
+                  <img src="/images/pepper.png" alt="" />
+                </button>
+                <span class="tools-divider"></span>
+                <div class="swatch-stack" title="Colors">
+                  <span class="swatch swatch-secondary" style="background:#c800c8"></span>
+                  <span class="swatch swatch-primary" style="background:#ffdd00"></span>
+                </div>
+              </aside>
             </div>
           </div>
         </div>
@@ -407,23 +530,263 @@
     100% { transform: scale(1.2) translate(5%, 5%); }
   }
   .preview-chrome {
-    border: 3px solid #fff;
-    background: #000;
-    border-radius: 16px;
+    --bg-primary: #1a1d23;
+    --bg-secondary: #242830;
+    --bg-tertiary: #2d323c;
+    --bg-elevated: #363c4a;
+    --surface-glass: rgba(45, 50, 60, 0.85);
+    --accent: #00d4aa;
+    --accent-hover: #00e6b8;
+    --text-primary: #f0f2f5;
+    --text-secondary: #a0a8b8;
+    --text-muted: #6b7280;
+    --border-subtle: rgba(255, 255, 255, 0.08);
+
+    background: var(--bg-primary);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 14px;
     overflow: hidden;
     transform: rotate(2deg);
-    box-shadow: 20px 20px 0px rgba(0,212,170,0.3);
+    box-shadow:
+      20px 20px 0px rgba(0, 212, 170, 0.25),
+      0 30px 60px rgba(0, 0, 0, 0.55),
+      0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+    font-family: 'Inter', sans-serif;
   }
-  .chrome-bar {
-    height: 40px; background: #222;
-    display: flex; align-items: center; padding: 0 16px; gap: 12px;
-    border-bottom: 2px solid #333;
+
+  /* ── Faux app top bar (mirrors .boardBtns) ── */
+  .app-topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    height: 36px;
+    padding: 0 10px;
+    background: var(--surface-glass);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border-subtle);
   }
-  .chrome-dots { display: flex; gap: 6px; }
-  .chrome-dots span { width: 10px; height: 10px; border-radius: 50%; background: #444; }
-  .chrome-title { font-size: 12px; color: #777; font-weight: 600; }
-  .canvas-wrap { aspect-ratio: 1.6; background: #111; }
-  canvas { width: 100%; height: 100%; }
+  .topbar-cluster {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .topbar-cluster.right { gap: 4px; }
+  .topbar-divider {
+    width: 1px;
+    height: 16px;
+    background: var(--border-subtle);
+    margin: 0 2px;
+  }
+  .iconBtn {
+    width: 24px;
+    height: 24px;
+    padding: 4px;
+    border-radius: 6px;
+    background: transparent;
+    border: 1px solid transparent;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: default;
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+  .iconBtn.small { width: 22px; height: 22px; padding: 3px; }
+  .iconBtn img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    filter: brightness(0) invert(0.65);
+  }
+  .iconBtn:hover {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: var(--border-subtle);
+  }
+  .iconBtn:hover img { filter: brightness(0) invert(0.95); }
+  .zoom-pct {
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-secondary);
+    padding: 0 4px;
+    font-weight: 500;
+  }
+  .ddraw-letters {
+    display: flex;
+    align-items: baseline;
+    gap: 2px;
+    font-family: 'Fredoka', sans-serif;
+    font-weight: 700;
+    font-size: 15px;
+    letter-spacing: -0.02em;
+    user-select: none;
+    padding-right: 2px;
+  }
+  .ltr {
+    display: inline-block;
+    line-height: 1;
+    transform-origin: center;
+  }
+  .ltr.l-d1 { color: #00d4aa; transform: rotate(-6deg) translateY(-1px); }
+  .ltr.l-d2 { color: #ffdd00; transform: rotate(4deg); }
+  .ltr.l-r  { color: #ff7ad6; transform: rotate(-3deg) translateY(1px); }
+  .ltr.l-a  { color: #00d4aa; transform: rotate(5deg); }
+  .ltr.l-w  { color: #c800c8; transform: rotate(-4deg) translateY(-1px); }
+
+  /* ── App body: canvas + tools rail ── */
+  .app-body {
+    display: flex;
+    flex-direction: row;
+    background: var(--bg-primary);
+    aspect-ratio: 1.55;
+  }
+  .canvas-wrap {
+    position: relative;
+    flex: 1 1 auto;
+    background: #fdfdfa;
+    overflow: hidden;
+    container-type: inline-size;
+  }
+  .canvas-grid {
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0, 0, 0, 0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0, 0, 0, 0.04) 1px, transparent 1px);
+    background-size: 24px 24px;
+    pointer-events: none;
+    z-index: 0;
+  }
+  .canvas-fallback {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+  }
+  canvas {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    z-index: 2;
+  }
+
+  /* ── Remote cursors (mirrors real app .cursor / .name styling) ──
+     Position is JS-driven (set via .style.left/top) for perfect sync with
+     the stroke animation. Circle size matches the stroke width via cqw. */
+  .remote-cursors {
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    pointer-events: none;
+  }
+  .rc {
+    position: absolute;
+    left: 0;
+    top: 0;
+    opacity: 0;
+    --rc-size-vp: 10;
+  }
+  .rc-circle {
+    position: absolute;
+    /* Center the circle on .rc's anchor (which is the cursor tip). */
+    transform: translate(-50%, -50%);
+    /* Diameter in screen px = (stroke virtual size) * canvas-wrap width / 480 */
+    width: calc(var(--rc-size-vp) * 100cqw / 480);
+    height: calc(var(--rc-size-vp) * 100cqw / 480);
+    border-radius: 50%;
+    border: 1.2px solid #3a4150;
+    box-sizing: border-box;
+  }
+  .rc-name {
+    position: absolute;
+    top: calc(var(--rc-size-vp) * 50cqw / 480 + 2px);
+    left: calc(var(--rc-size-vp) * 55cqw / 480 + 2px);
+    font-family: 'Inter', sans-serif;
+    font-size: 11px;
+    font-weight: 500;
+    color: rgba(47, 55, 69, 0.55);
+    text-shadow: 0 0 1px rgba(255, 255, 255, 0.55);
+    white-space: nowrap;
+  }
+  /* ── Tools rail (mirrors real .tools panel) ── */
+  .app-tools {
+    width: 44px;
+    flex-shrink: 0;
+    background: var(--bg-secondary);
+    border-left: 1px solid var(--border-subtle);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    padding: 6px 0;
+  }
+  .tool-btn {
+    width: 32px;
+    height: 32px;
+    padding: 5px;
+    border-radius: 8px;
+    background: transparent;
+    border: 1px solid transparent;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: default;
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+  .tool-btn img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    filter: brightness(0) invert(0.65);
+    transition: filter 0.15s ease;
+  }
+  .tool-btn:hover {
+    background: rgba(255, 255, 255, 0.06);
+  }
+  .tool-btn:hover img { filter: brightness(0) invert(0.95); }
+  .tool-btn.selected {
+    background: var(--bg-elevated);
+    border-color: rgba(0, 212, 170, 0.35);
+    box-shadow: 0 0 0 1px rgba(0, 212, 170, 0.15) inset;
+  }
+  .tool-btn.selected img {
+    filter: brightness(0) saturate(100%) invert(0) sepia(52%) saturate(1000%) hue-rotate(115deg) brightness(95%) contrast(101%);
+  }
+  .tool-btn.pepper-btn img {
+    filter: none;
+  }
+  .tool-btn.pepper-btn:hover img {
+    filter: drop-shadow(0 0 6px rgba(255, 100, 100, 0.5));
+  }
+  .tools-divider {
+    width: 24px;
+    height: 1px;
+    background: var(--border-subtle);
+    margin: 4px 0;
+  }
+  .swatch-stack {
+    position: relative;
+    width: 32px;
+    height: 32px;
+    margin-top: 2px;
+  }
+  .swatch {
+    position: absolute;
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    border: 1.5px solid var(--bg-secondary);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1);
+  }
+  .swatch-secondary {
+    bottom: 2px;
+    right: 2px;
+  }
+  .swatch-primary {
+    top: 2px;
+    left: 2px;
+    z-index: 2;
+  }
 
   /* ── Funky Download Card ── */
   .discord-card-section { padding: 2rem 2rem 0; max-width: 1200px; margin: 0 auto; }
