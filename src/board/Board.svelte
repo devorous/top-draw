@@ -3,6 +3,7 @@
 
   const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
   const TOKEN_KEY = 'topDrawAuthToken';
+  const USERNAME_KEY = 'topDrawUsername';
   const COMMENT_PREVIEW_LIMIT = 4;
 
   let items = $state([]);
@@ -22,6 +23,11 @@
   let sidebarLoading = $state(false);
   let likedIds = $state(new Set());
   let user = $state(null);
+  let authLoading = $state(false);
+  let authError = $state(null);
+  let showAuthModal = $state(false);
+  let authMode = $state('login');
+  let authForm = $state({ username: '', password: '', email: '' });
   let revealed = $state(new Set());
 
   function authHeaders() {
@@ -34,7 +40,12 @@
     if (!token) { user = null; return; }
     try {
       const res = await fetch(`${API_BASE}/api/auth/me`, { headers: authHeaders() });
-      if (!res.ok) { user = null; return; }
+      if (!res.ok) {
+        localStorage.removeItem(TOKEN_KEY);
+        localStorage.removeItem(USERNAME_KEY);
+        user = null;
+        return;
+      }
       const data = await res.json();
       if (data.success) {
         user = { username: data.username, role: data.role, userId: data.userId };
@@ -43,8 +54,90 @@
     } catch {}
   }
 
+  async function handleLogin() {
+    if (authLoading) return;
+    authError = null;
+    if (!authForm.username || !authForm.password) {
+      authError = 'Username and password required';
+      return;
+    }
+
+    authLoading = true;
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: authForm.username, password: authForm.password })
+      });
+      const data = await res.json();
+      if (data.success) {
+        localStorage.setItem(TOKEN_KEY, data.token);
+        localStorage.setItem(USERNAME_KEY, data.username);
+        user = { username: data.username, role: data.role, userId: data.userId };
+        likedIds = new Set(Array.isArray(data.likedGalleryIds) ? data.likedGalleryIds : []);
+        closeAuthModal();
+      } else {
+        authError = data.error || 'Login failed';
+      }
+    } catch {
+      authError = 'Connection error';
+    } finally {
+      authLoading = false;
+    }
+  }
+
+  async function handleRegister() {
+    if (authLoading) return;
+    authError = null;
+    if (!authForm.username || !authForm.password) {
+      authError = 'Username and password required';
+      return;
+    }
+
+    authLoading = true;
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: authForm.username,
+          password: authForm.password,
+          email: authForm.email || undefined
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        localStorage.setItem(TOKEN_KEY, data.token);
+        localStorage.setItem(USERNAME_KEY, data.username);
+        user = { username: data.username, role: data.role, userId: data.userId };
+        likedIds = new Set(Array.isArray(data.likedGalleryIds) ? data.likedGalleryIds : []);
+        closeAuthModal();
+      } else {
+        authError = data.error || 'Registration failed';
+      }
+    } catch {
+      authError = 'Connection error';
+    } finally {
+      authLoading = false;
+    }
+  }
+
+  function openAuthModal(mode = 'login') {
+    authMode = mode;
+    authForm = { username: '', password: '', email: '' };
+    authError = null;
+    showAuthModal = true;
+  }
+
+  function closeAuthModal() {
+    showAuthModal = false;
+    authForm = { username: '', password: '', email: '' };
+    authError = null;
+  }
+
   function logout() {
     localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(USERNAME_KEY);
     user = null;
     likedIds = new Set();
   }
@@ -148,7 +241,7 @@
 
   async function toggleLike(item) {
     if (!user) {
-      window.location.href = '/gallery/';
+      openAuthModal('login');
       return;
     }
     const wasLiked = likedIds.has(item.id);
@@ -182,7 +275,7 @@
     tagFilter = tag;
     page = 1;
     if (typeof window !== 'undefined') {
-      window.history.pushState({}, '', `/board/?tag=${encodeURIComponent(tag)}`);
+      window.history.pushState({}, '', `/gallery/?tag=${encodeURIComponent(tag)}`);
     }
     fetchBoard();
     fetchSidebar();
@@ -192,7 +285,7 @@
     tagFilter = null;
     page = 1;
     if (typeof window !== 'undefined') {
-      window.history.pushState({}, '', '/board/');
+      window.history.pushState({}, '', '/gallery/');
     }
     fetchBoard();
     fetchSidebar();
@@ -249,8 +342,7 @@
   <nav>
     <a href="/" class="wordmark">DDraw</a>
     <div class="nav-links">
-      <a href="/gallery/" class="nav-link">tile view</a>
-      <span class="nav-active">board</span>
+      <span class="nav-active">gallery</span>
       <a href="/messenger/" class="nav-link">messenger</a>
       <a href="/go/" class="nav-enter" target="_blank">Draw Now! →</a>
       <span class="nav-divider">|</span>
@@ -258,7 +350,7 @@
         <span class="nav-user">{user.username}</span>
         <button class="nav-auth-text" onclick={logout}>logout</button>
       {:else}
-        <a href="/gallery/" class="nav-login">Log in</a>
+        <button class="nav-login" onclick={() => openAuthModal('login')}>Log in</button>
       {/if}
     </div>
   </nav>
@@ -274,14 +366,15 @@
           {:else}
             Board view
           {/if}
-          <span class="badge">prototype</span>
+          <span class="badge">default</span>
         </p>
         <div class="view-toggle" aria-label="Gallery view">
-          <a href="/gallery/">Grid</a>
           <span class="active">Board</span>
+          <a href="/gallery/grid/">Grid</a>
         </div>
         <div class="sorts">
           <button class:active={sort === 'newest'} onclick={() => setSort('newest')}>Newest</button>
+          <button class:active={sort === 'active'} onclick={() => setSort('active')}>Active</button>
           <button class:active={sort === 'top'} onclick={() => setSort('top')}>Top</button>
           <button class:active={sort === 'views'} onclick={() => setSort('views')}>Views</button>
         </div>
@@ -306,11 +399,14 @@
           <p class="tag-strip-empty">{sidebarLoading ? 'Loading tags...' : 'No tags yet'}</p>
         {:else}
           <div class="tag-strip-list">
-            {#each sidebarTags as entry}
+            {#each sidebarTags.slice(0, 24) as entry}
               <button class="tag-chip" class:active={tagFilter === entry.tag} onclick={() => filterByTag(entry.tag)}>
                 #{entry.tag} <span>{entry.count}</span>
               </button>
             {/each}
+            {#if sidebarTags.length > 24}
+              <span class="tag-more">...</span>
+            {/if}
           </div>
         {/if}
       </section>
@@ -409,7 +505,7 @@
                 {/if}
               {:else}
                 <p class="login-to-comment">
-                  <a href={`/gallery/${item.id}`}>Log in</a> to leave a comment
+                  <button class="btn-link" onclick={() => openAuthModal('login')}>Log in</button> to leave a comment
                 </p>
               {/if}
             </div>
@@ -428,10 +524,54 @@
   </main>
 
   <footer>
-    <span>DDraw · GGallery board (prototype)</span>
-    <a href="/gallery/">← classic tile view</a>
+    <span>DDraw · GGallery board</span>
+    <a href="/gallery/grid/">← classic grid view</a>
   </footer>
 </div>
+
+{#if showAuthModal}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="modal-backdrop" role="presentation" onclick={closeAuthModal} onkeydown={(e) => e.key === 'Escape' && closeAuthModal()}>
+    <div class="modal" role="dialog" aria-modal="true" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
+      <button class="modal-close" onclick={closeAuthModal}>×</button>
+      <h2>{authMode === 'login' ? 'Login' : 'Register'}</h2>
+
+      <form onsubmit={(e) => { e.preventDefault(); authMode === 'login' ? handleLogin() : handleRegister(); }}>
+        <label>
+          <span>Username</span>
+          <input type="text" bind:value={authForm.username} autocomplete="username" />
+        </label>
+        <label>
+          <span>Password</span>
+          <input type="password" bind:value={authForm.password} autocomplete={authMode === 'login' ? 'current-password' : 'new-password'} />
+        </label>
+        {#if authMode === 'register'}
+          <label>
+            <span>Email (optional)</span>
+            <input type="email" bind:value={authForm.email} autocomplete="email" />
+          </label>
+        {/if}
+
+        {#if authError}
+          <p class="auth-error">{authError}</p>
+        {/if}
+
+        <button type="submit" class="btn-primary" disabled={authLoading}>
+          {authLoading ? '...' : (authMode === 'login' ? 'Login' : 'Register')}
+        </button>
+      </form>
+
+      <p class="auth-switch">
+        {#if authMode === 'login'}
+          Don't have an account? <button class="btn-link" onclick={() => { authMode = 'register'; authError = null; }}>Register</button>
+        {:else}
+          Already have an account? <button class="btn-link" onclick={() => { authMode = 'login'; authError = null; }}>Login</button>
+        {/if}
+      </p>
+    </div>
+  </div>
+{/if}
 
 <style>
   :global(*, *::before, *::after) { box-sizing: border-box; margin: 0; padding: 0; }
@@ -523,10 +663,13 @@
   }
   .nav-login {
     background: var(--magenta);
+    border: none;
     color: #fff !important;
     padding: 0.5rem 0.95rem;
     border-radius: 50px;
     font-weight: 700;
+    font: inherit;
+    cursor: pointer;
   }
   .nav-login:hover {
     color: #fff !important;
@@ -553,7 +696,7 @@
   }
   .header-layout {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
+    grid-template-columns: minmax(280px, 0.72fr) minmax(420px, 1fr);
     gap: 1.5rem;
     align-items: start;
   }
@@ -658,12 +801,10 @@
 
   .tag-strip {
     align-self: stretch;
-    max-height: 168px;
     padding: 0.85rem;
     border: 1.5px solid var(--border);
     border-radius: 8px;
     background: rgba(255, 255, 255, 0.025);
-    overflow: hidden;
   }
   .tag-strip-head {
     display: flex;
@@ -684,22 +825,6 @@
     display: flex;
     flex-wrap: wrap;
     gap: 0.45rem;
-    max-height: 104px;
-    overflow-y: auto;
-    padding-right: 0.25rem;
-    scrollbar-width: thin;
-    scrollbar-color: rgba(0, 212, 170, 0.45) rgba(255, 255, 255, 0.05);
-  }
-  .tag-strip-list::-webkit-scrollbar {
-    width: 8px;
-  }
-  .tag-strip-list::-webkit-scrollbar-track {
-    background: rgba(255, 255, 255, 0.05);
-    border-radius: 999px;
-  }
-  .tag-strip-list::-webkit-scrollbar-thumb {
-    background: rgba(0, 212, 170, 0.55);
-    border-radius: 999px;
   }
   .tag-chip {
     display: inline-flex;
@@ -723,6 +848,12 @@
     border-color: rgba(0,212,170,0.45);
     color: var(--accent);
     background: rgba(0,212,170,0.1);
+  }
+  .tag-more {
+    align-self: center;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    padding: 0 0.25rem;
   }
 
   main {
@@ -750,14 +881,14 @@
 
   .post-head {
     display: grid;
-    grid-template-columns: 140px minmax(0, 1fr);
+    grid-template-columns: 220px minmax(0, 1fr);
     gap: 1rem;
   }
   .post-thumb {
     position: relative;
     display: block;
-    width: 140px;
-    height: 140px;
+    width: 220px;
+    aspect-ratio: 16 / 9;
     border-radius: 6px;
     overflow: hidden;
     background: var(--bg3);
@@ -765,10 +896,8 @@
   }
   .post-thumb img {
     width: 100%; height: 100%;
-    object-fit: cover;
-    transition: transform 0.25s;
+    object-fit: contain;
   }
-  .post-thumb:hover img { transform: scale(1.03); }
   .post-thumb img.censored { filter: blur(28px); }
   .reveal {
     position: absolute; inset: 0;
@@ -866,7 +995,7 @@
   .reply {
     display: grid;
     grid-template-columns: auto auto minmax(0, 1fr) auto;
-    align-items: baseline;
+    align-items: start;
     gap: 0.5rem;
     font-size: 0.85rem;
     line-height: 1.4;
@@ -878,8 +1007,9 @@
   .reply-text {
     color: var(--text);
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
   }
   .reply-date { color: var(--text-muted); font-size: 0.72rem; }
 
@@ -934,18 +1064,120 @@
     cursor: not-allowed;
     opacity: 0.45;
   }
+  .btn-primary {
+    display: inline-block;
+    padding: 0.7rem 1.75rem;
+    background: var(--accent);
+    color: #0f0f13;
+    font-family: inherit;
+    font-weight: 600;
+    font-size: 0.88rem;
+    letter-spacing: 0.04em;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .btn-primary:hover:not(:disabled) {
+    background: #00f0c3;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 212, 170, 0.3);
+  }
+  .btn-primary:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .btn-link {
+    background: none;
+    border: none;
+    color: var(--accent);
+    cursor: pointer;
+    font: inherit;
+    padding: 0;
+    text-decoration: underline;
+  }
   .login-to-comment, .comment-error {
     color: var(--text-muted);
     font-size: 0.82rem;
   }
-  .login-to-comment a {
-    color: var(--accent);
-    font-weight: 600;
-  }
-  .login-to-comment a:hover { text-decoration: underline; }
   .comment-error {
     margin-top: 0.4rem;
     color: #e07070;
+  }
+
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.85);
+    z-index: 1100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+    backdrop-filter: blur(4px);
+    animation: fadeIn 0.15s ease;
+  }
+  .modal {
+    background: var(--bg2);
+    border: 2px solid var(--accent);
+    border-radius: 12px;
+    padding: 2rem;
+    max-width: 360px;
+    width: 100%;
+    position: relative;
+    animation: slideUp 0.2s ease;
+    box-shadow: 0 20px 60px rgba(0, 212, 170, 0.2);
+  }
+  .modal-close {
+    position: absolute;
+    top: 0.75rem;
+    right: 0.75rem;
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    font-size: 1.2rem;
+    cursor: pointer;
+  }
+  .modal-close:hover { color: var(--text); }
+  .modal h2 {
+    font-size: 1.25rem;
+    font-weight: 400;
+    margin-bottom: 1.5rem;
+  }
+  .modal form {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+  .modal label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    font-size: 0.82rem;
+    color: var(--text-dim);
+  }
+  .modal input {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0.6rem 0.75rem;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 0.9rem;
+  }
+  .modal input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .auth-error {
+    color: #e07070;
+    font-size: 0.82rem;
+  }
+  .auth-switch {
+    margin-top: 1.25rem;
+    font-size: 0.82rem;
+    color: var(--text-dim);
+    text-align: center;
   }
 
   .state {
@@ -961,6 +1193,8 @@
     animation: spin 0.8s linear infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes slideUp { from { transform: translateY(16px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 
   .pagination {
     margin-top: 2rem;
@@ -1006,10 +1240,8 @@
   @media (max-width: 640px) {
     header, main, footer { padding-left: 1.25rem; padding-right: 1.25rem; }
     .header-layout { grid-template-columns: 1fr; gap: 1rem; }
-    .tag-strip { max-height: 150px; }
-    .tag-strip-list { max-height: 88px; }
-    .post-head { grid-template-columns: 90px minmax(0, 1fr); gap: 0.75rem; }
-    .post-thumb { width: 90px; height: 90px; }
+    .post-head { grid-template-columns: 120px minmax(0, 1fr); gap: 0.75rem; }
+    .post-thumb { width: 120px; }
     .post-actions { flex-wrap: wrap; gap: 0.5rem; }
     .open-thread { margin-left: 0; }
   }

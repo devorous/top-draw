@@ -170,7 +170,7 @@ export class Moderation {
    * Injects mod-only toolbar buttons and panel into the DOM on first mod+ login.
    */
   updateModVisibility() {
-    const hasToolbar = !!document.getElementById('modBtn');
+    const hasToolbar = !!document.getElementById('bansBtn');
     const hasPanel = !!document.getElementById('modPanel');
 
     if (this.isMod() && (!this._modUIInjected || !hasToolbar || !hasPanel)) {
@@ -212,16 +212,16 @@ export class Moderation {
    * Called once when user is first confirmed as mod+.
    */
   _injectModUI() {
-    const hasToolbar = !!document.getElementById('modBtn');
+    const hasToolbar = !!document.getElementById('bansBtn');
     const hasPanel = !!document.getElementById('modPanel');
     if (hasToolbar && hasPanel) {
       this._modUIInjected = true;
       return;
     }
 
-    // --- Toolbar buttons ---
+    // --- Left-side toolbar buttons (Clear / Dev) ---
     const collapsible = document.getElementById('collapsibleBtns');
-    if (collapsible && !hasToolbar) {
+    if (collapsible && !document.getElementById('clearBtn')) {
       const fragment = document.createDocumentFragment();
 
       // Clear button (inserted at the start of collapsible)
@@ -247,16 +247,20 @@ export class Moderation {
       devBtn.addEventListener('click', () => { if (this.onToggleDevMode) this.onToggleDevMode(); });
       fragment.appendChild(devBtn);
 
-      // Mod button
-      const modBtn = document.createElement('a');
-      modBtn.className = 'btn modOnly';
-      modBtn.id = 'modBtn';
-      modBtn.textContent = 'Mod';
-      modBtn.addEventListener('click', () => this.togglePanel());
-      fragment.appendChild(modBtn);
-
       // Insert before the first child so Clear appears first
       collapsible.insertBefore(fragment, collapsible.firstChild);
+    }
+
+    // --- Bans button, right side between Save and Room Settings ---
+    const roomSettingsBtn = document.getElementById('roomSettingsBtn');
+    if (roomSettingsBtn && !hasToolbar) {
+      const bansBtn = document.createElement('a');
+      bansBtn.className = 'btn modOnly';
+      bansBtn.id = 'bansBtn';
+      bansBtn.title = 'Bans & Mutes';
+      bansBtn.textContent = 'Bans';
+      bansBtn.addEventListener('click', () => this.togglePanel());
+      roomSettingsBtn.parentNode.insertBefore(bansBtn, roomSettingsBtn);
     }
 
     // --- Mod panel ---
@@ -267,7 +271,7 @@ export class Moderation {
       panel.style.display = 'none';
       panel.innerHTML = `
         <div id="modPanelHeader">
-          <span class="modPanelTitle">Moderation</span>
+          <span class="modPanelTitle">Bans &amp; Mutes</span>
           <button class="chatCloseBtn" id="modPanelCloseBtn">&times;</button>
         </div>
         <div class="modPanelControls">
@@ -309,7 +313,7 @@ export class Moderation {
       }
     }
 
-    this._modUIInjected = !!document.getElementById('modBtn') && !!document.getElementById('modPanel');
+    this._modUIInjected = !!document.getElementById('bansBtn') && !!document.getElementById('modPanel');
   }
 
   /**
@@ -985,14 +989,25 @@ export class Moderation {
       const label = this.searchQuery
         ? `No ${filterLabel} match "${this.escapeHtml(this.searchQuery)}"`
         : `No ${filterLabel}`;
-      list.innerHTML = `<div class="modNoEntries">${label}</div>`;
+      list.innerHTML = `
+        <div class="modTableWrap">
+          <table class="modTable">
+            <thead>
+              <tr><th>Type</th><th>User</th><th>Reason</th><th>By</th><th>Expires</th><th></th></tr>
+            </thead>
+            <tbody>
+              <tr><td colspan="6" class="modTableEmpty">${label}</td></tr>
+            </tbody>
+          </table>
+        </div>
+      `;
       return;
     }
 
     const now = Date.now();
     const pillFor = { bans: 'BAN', mutes: 'MUTE', shadowbans: 'SHADOW' };
 
-    list.innerHTML = filtered.map(entry => {
+    const rowsHtml = filtered.map(entry => {
       const createdDate = entry.createdAt
         ? new Date(Number(entry.createdAt)).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })
         : '';
@@ -1010,27 +1025,44 @@ export class Moderation {
       const scopeBadge = entry.ipScope
         ? `<span class="modEntryScope" title="IP match scope">${this.escapeHtml(entry.ipScope)}</span>`
         : '';
+      const reason = entry.reason ? `"${this.escapeHtml(entry.reason)}"` : '<span class="modTableMuted">—</span>';
+      const ipLine = entry.ip
+        ? `<div class="modTableSub modEntryIp">${this.escapeHtml(entry.ip)}${scopeBadge ? ' ' : ''}${scopeBadge}</div>`
+        : '';
 
       return `
-        <div class="modEntry ${statusClass}">
-          <div class="modEntryTop">
-            <span class="${pillClass}">${pillLabel}</span>
-            <span class="modEntryUser">${this.escapeHtml(entry.username)}</span>
-            <span class="modEntryStatus ${statusClass}">${statusLabel}</span>
-          </div>
-          ${entry.reason ? `<div class="modEntryReason">"${this.escapeHtml(entry.reason)}"</div>` : ''}
-          <div class="modEntryMeta">
-            <span>by ${this.escapeHtml(entry.issuedBy || 'Unknown')}</span>
-            <span>${createdDate}</span>
-          </div>
-          <div class="modEntryMeta">
-            <span class="modEntryIp">${this.escapeHtml(entry.ip)}${scopeBadge ? ' ' : ''}${scopeBadge}</span>
-            <span>expires: ${expiresDate}</span>
-          </div>
-          ${canRemove ? `<button class="modEntryRemove" data-id="${this.escapeHtml(entry.id)}" data-type="${entry.type}" data-username="${this.escapeHtml(entry.username)}">Revoke</button>` : ''}
-        </div>
+        <tr class="modTableRow ${statusClass}">
+          <td><span class="${pillClass}">${pillLabel}</span></td>
+          <td>
+            <div class="modTableUser">
+              <strong>${this.escapeHtml(entry.username)}</strong>
+              <span class="modEntryStatus ${statusClass}">${statusLabel}</span>
+            </div>
+            ${ipLine}
+          </td>
+          <td class="modTableReason">${reason}</td>
+          <td>
+            <div>${this.escapeHtml(entry.issuedBy || 'Unknown')}</div>
+            <div class="modTableSub">${createdDate}</div>
+          </td>
+          <td>${expiresDate}</td>
+          <td class="modTableActions">
+            ${canRemove ? `<button class="modEntryRemove" data-id="${this.escapeHtml(entry.id)}" data-type="${entry.type}" data-username="${this.escapeHtml(entry.username)}">Revoke</button>` : ''}
+          </td>
+        </tr>
       `;
     }).join('');
+
+    list.innerHTML = `
+      <div class="modTableWrap">
+        <table class="modTable">
+          <thead>
+            <tr><th>Type</th><th>User</th><th>Reason</th><th>By</th><th>Expires</th><th></th></tr>
+          </thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      </div>
+    `;
 
     // Wire up revoke buttons
     list.querySelectorAll('.modEntryRemove').forEach(btn => {

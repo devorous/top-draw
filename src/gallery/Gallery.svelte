@@ -7,7 +7,9 @@
 
   const TOKEN_KEY = 'topDrawAuthToken';
   const USERNAME_KEY = 'topDrawUsername';
+  const LAYOUT_KEY = 'topDrawGalleryLayout';
   const HOLY_ROLE = 8;
+  const BOARD_COMMENT_PREVIEW = 4;
 
   // Track if lightbox was opened from a profile (to return to it)
   let openedFromProfile = $state(null);
@@ -34,7 +36,7 @@
   let totalPages = $state(1);
   let lightbox = $state(null);
   let likedIds = $state(new Set());
-  let sort = $state('newest'); // 'newest' | 'top' | 'views'
+  let sort = $state('newest'); // 'newest' | 'active' | 'top' | 'views'
   let topPeriod = $state('all'); // 'week' | 'month' | 'year' | 'all'
   let authorFilter = $state(null); // username string or null
   let tagFilter = $state(null); // tag string or null
@@ -42,6 +44,18 @@
   let showLiked = $state(false); // viewing liked images mode
   let favoritedIds = $state(new Set()); // ids user has favorited
   let revealedNsfwIds = $state(new Set());
+
+  // Layout state: 'grid' or 'board'
+  let layout = $state('grid');
+
+  // Board layout per-item state
+  let boardCommentsById = $state({});       // { [itemId]: comment[] }  (preview or full)
+  let boardCommentCountsById = $state({});  // { [itemId]: number }
+  let boardCommentDraftsById = $state({});
+  let boardCommentSubmittingById = $state({});
+  let boardCommentErrorsById = $state({});
+  let boardExpandedThreadIds = $state(new Set()); // item ids whose full thread is loaded
+  let boardThreadLoadingIds = $state(new Set());
 
   // Sidebar state
   let recentCommentsFeed = $state([]);
@@ -93,11 +107,130 @@
       items = data.items;
       syncLikedFromItems(items);
       totalPages = data.pages;
+      if (layout === 'board') fetchBoardCommentsForItems(items);
     } catch (e) {
       error = 'Could not load gallery. Try again later.';
     } finally {
       loading = false;
     }
+  }
+
+  function setLayout(next) {
+    if (next === layout) return;
+    layout = next;
+    try { localStorage.setItem(LAYOUT_KEY, next); } catch {}
+    if (next === 'board') {
+      fetchBoardCommentsForItems(items);
+    }
+  }
+
+  function initialLayoutFromEnv() {
+    if (typeof window === 'undefined') return 'grid';
+    // Path-based default: /gallery/grid/ -> grid, otherwise board
+    const path = window.location.pathname.replace(/\/+$/, '');
+    const pathDefault = /\/gallery\/grid$/.test(path) ? 'grid' : 'board';
+    try {
+      const stored = localStorage.getItem(LAYOUT_KEY);
+      if (stored === 'grid' || stored === 'board') return stored;
+    } catch {}
+    return pathDefault;
+  }
+
+  async function fetchBoardCommentsForItems(forItems) {
+    if (!forItems?.length) return;
+    const nextComments = { ...boardCommentsById };
+    const nextCounts = { ...boardCommentCountsById };
+    await Promise.all(forItems.map(async (item) => {
+      // Skip if thread already expanded (full thread loaded)
+      if (boardExpandedThreadIds.has(item.id)) return;
+      try {
+        const res = await fetch(`${API_BASE}/api/gallery/${item.id}/comments`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const list = data.comments || [];
+        nextCounts[item.id] = list.length;
+        nextComments[item.id] = list.slice(-BOARD_COMMENT_PREVIEW);
+      } catch {}
+    }));
+    boardCommentsById = nextComments;
+    boardCommentCountsById = nextCounts;
+  }
+
+  function boardCommentCountFor(item) {
+    return boardCommentCountsById[item.id] ?? item.commentsCount ?? boardCommentsById[item.id]?.length ?? 0;
+  }
+
+  async function expandBoardThread(item) {
+    if (boardExpandedThreadIds.has(item.id) || boardThreadLoadingIds.has(item.id)) return;
+    boardThreadLoadingIds = new Set([...boardThreadLoadingIds, item.id]);
+    try {
+      const res = await fetch(`${API_BASE}/api/gallery/${item.id}/comments`);
+      if (res.ok) {
+        const data = await res.json();
+        const list = data.comments || [];
+        boardCommentsById = { ...boardCommentsById, [item.id]: list };
+        boardCommentCountsById = { ...boardCommentCountsById, [item.id]: list.length };
+        boardExpandedThreadIds = new Set([...boardExpandedThreadIds, item.id]);
+      }
+    } catch {} finally {
+      const next = new Set(boardThreadLoadingIds);
+      next.delete(item.id);
+      boardThreadLoadingIds = next;
+    }
+  }
+
+  function collapseBoardThread(item) {
+    const list = boardCommentsById[item.id] || [];
+    boardCommentsById = { ...boardCommentsById, [item.id]: list.slice(-BOARD_COMMENT_PREVIEW) };
+    const next = new Set(boardExpandedThreadIds);
+    next.delete(item.id);
+    boardExpandedThreadIds = next;
+  }
+
+  async function submitBoardComment(item) {
+    if (!user || boardCommentSubmittingById[item.id]) {
+      if (!user) openAuthModal('login');
+      return;
+    }
+    const text = (boardCommentDraftsById[item.id] || '').trim();
+    if (!text) return;
+
+    boardCommentSubmittingById = { ...boardCommentSubmittingById, [item.id]: true };
+    boardCommentErrorsById = { ...boardCommentErrorsById, [item.id]: null };
+    try {
+      const res = await fetch(`${API_BASE}/api/gallery/${item.id}/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ text })
+      });
+      if (!res.ok) throw new Error('comment failed');
+      const comment = await res.json();
+      const current = boardCommentsById[item.id] || [];
+      const nextList = boardExpandedThreadIds.has(item.id)
+        ? [...current, comment]
+        : [...current, comment].slice(-BOARD_COMMENT_PREVIEW);
+      boardCommentsById = { ...boardCommentsById, [item.id]: nextList };
+      boardCommentDraftsById = { ...boardCommentDraftsById, [item.id]: '' };
+      const nextCount = boardCommentCountFor(item) + 1;
+      boardCommentCountsById = { ...boardCommentCountsById, [item.id]: nextCount };
+      items = items.map(i => i.id === item.id ? { ...i, commentsCount: nextCount } : i);
+    } catch {
+      boardCommentErrorsById = { ...boardCommentErrorsById, [item.id]: 'Could not post comment. Try again.' };
+    } finally {
+      boardCommentSubmittingById = { ...boardCommentSubmittingById, [item.id]: false };
+    }
+  }
+
+  function shortDate(d) {
+    const diff = Date.now() - new Date(d).getTime();
+    const m = Math.floor(diff / 60000);
+    if (m < 1) return 'now';
+    if (m < 60) return `${m}m`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `${h}h`;
+    const days = Math.floor(h / 24);
+    if (days < 7) return `${days}d`;
+    return formatDate(d);
   }
 
   async function fetchSidebar() {
@@ -860,7 +993,8 @@
       closeLightboxFromHistory();
     } else {
       const profilePathMatch = window.location.pathname.match(/^\/gallery\/([^/?#]+)\/?$/);
-      authorFilter = profilePathMatch ? decodeURIComponent(profilePathMatch[1]) : null;
+      const profileSegment = profilePathMatch ? decodeURIComponent(profilePathMatch[1]) : null;
+      authorFilter = profileSegment && profileSegment !== 'grid' ? profileSegment : null;
       page = 1;
       fetchGallery();
       fetchSidebar();
@@ -951,7 +1085,10 @@
 
     const profilePathMatch = window.location.pathname.match(/^\/gallery\/([^/?#]+)\/?$/);
     if (profilePathMatch) {
-      authorFilter = decodeURIComponent(profilePathMatch[1]);
+      const profileSegment = decodeURIComponent(profilePathMatch[1]);
+      if (profileSegment !== 'grid') {
+        authorFilter = profileSegment;
+      }
     }
 
     // Handle ?id= to open specific image
@@ -974,6 +1111,7 @@
   }
 
   onMount(() => {
+    layout = initialLayoutFromEnv();
     checkAuth();
     checkUrlParams();
     fetchGallery();
@@ -992,7 +1130,6 @@
     <a href="/" class="wordmark">DDraw</a>
     <div class="nav-links">
       <span class="nav-active">gallery</span>
-      <a href="/board/" class="nav-link">board (beta)</a>
       <a href="/messenger/" class="nav-link">messenger</a>
       <a href="/go/" class="nav-enter" target="_blank">Draw Now! →</a>
       <span class="nav-divider">|</span>
@@ -1036,12 +1173,42 @@
         </p>
       </div>
       {#if !showFavorites && !showLiked}
-        <div class="view-toggle" aria-label="Gallery view">
-          <span class="active">Grid</span>
-          <a href="/board/">Board</a>
+        <div class="view-toggle" aria-label="Gallery view" role="tablist">
+          <button
+            class="view-toggle-btn"
+            class:active={layout === 'board'}
+            onclick={() => setLayout('board')}
+            onpointerup={(e) => e.pointerType !== 'mouse' && setLayout('board')}
+            aria-label="Board view"
+            aria-pressed={layout === 'board'}
+            title="Board view"
+          >
+            <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+              <rect x="1" y="1" width="16" height="3" rx="1"/>
+              <rect x="1" y="7.5" width="16" height="3" rx="1"/>
+              <rect x="1" y="14" width="16" height="3" rx="1"/>
+            </svg>
+          </button>
+          <button
+            class="view-toggle-btn"
+            class:active={layout === 'grid'}
+            onclick={() => setLayout('grid')}
+            onpointerup={(e) => e.pointerType !== 'mouse' && setLayout('grid')}
+            aria-label="Grid view"
+            aria-pressed={layout === 'grid'}
+            title="Grid view"
+          >
+            <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+              <rect x="1" y="1" width="6.5" height="6.5" rx="1"/>
+              <rect x="10.5" y="1" width="6.5" height="6.5" rx="1"/>
+              <rect x="1" y="10.5" width="6.5" height="6.5" rx="1"/>
+              <rect x="10.5" y="10.5" width="6.5" height="6.5" rx="1"/>
+            </svg>
+          </button>
         </div>
         <div class="sort-controls">
           <button class="sort-btn" class:active={sort === 'newest'} onclick={() => setSort('newest')} onpointerup={(e) => e.pointerType !== 'mouse' && setSort('newest')}>Newest</button>
+          <button class="sort-btn" class:active={sort === 'active'} onclick={() => setSort('active')} onpointerup={(e) => e.pointerType !== 'mouse' && setSort('active')}>Active</button>
           <button class="sort-btn" class:active={sort === 'top'} onclick={() => setSort('top')} onpointerup={(e) => e.pointerType !== 'mouse' && setSort('top')}>Top</button>
           <button class="sort-btn" class:active={sort === 'views'} onclick={() => setSort('views')} onpointerup={(e) => e.pointerType !== 'mouse' && setSort('views')}>Views</button>
         </div>
@@ -1077,6 +1244,29 @@
     {:else}
       <div class="gallery-layout">
         <section class="gallery-main">
+            <section class="tag-strip" aria-label="Image tags">
+              <div class="tag-strip-head">
+                <h2>Image Tags</h2>
+                {#if tagFilter}
+                  <button class="btn-link small-link" onclick={clearTagFilter} onpointerup={(e) => e.pointerType !== 'mouse' && clearTagFilter()}>clear</button>
+                {/if}
+              </div>
+              {#if sidebarTags.length === 0}
+                <p class="tag-strip-empty">{sidebarLoading ? 'Loading tags...' : 'No tags yet'}</p>
+              {:else}
+                <div class="tag-strip-list">
+                  {#each sidebarTags.slice(0, 24) as entry}
+                    <button class="tag-chip" class:active={tagFilter === entry.tag} onclick={() => filterByTag(entry.tag)} onpointerup={(e) => e.pointerType !== 'mouse' && filterByTag(entry.tag)}>
+                      #{entry.tag} <span>{entry.count}</span>
+                    </button>
+                  {/each}
+                  {#if sidebarTags.length > 24}
+                    <span class="tag-more">...</span>
+                  {/if}
+                </div>
+              {/if}
+            </section>
+          {#if layout === 'grid'}
           <div class="grid">
         {#each items as item (item.id)}
           <div class="card" role="button" tabindex="0" onclick={() => openLightbox(item)} onpointerup={(e) => e.pointerType !== 'mouse' && openLightbox(item)} onkeydown={(e) => e.key === 'Enter' && openLightbox(item)}>
@@ -1122,6 +1312,103 @@
           </div>
         {/each}
       </div>
+          {:else}
+          <div class="feed">
+            {#each items as item (item.id)}
+              <article class="post">
+                <div class="post-head">
+                  <button class="post-thumb" onclick={() => openLightbox(item)} onpointerup={(e) => e.pointerType !== 'mouse' && openLightbox(item)} aria-label={`Open ${item.title || 'image'}`}>
+                    <img src={item.thumbUrl || item.url} alt={item.title || 'artwork'} loading="lazy" class:censored={isNsfw(item) && !isNsfwRevealed(item)} />
+                    {#if isNsfw(item) && !isNsfwRevealed(item)}
+                      <span class="reveal" onclick={(e) => { e.stopPropagation(); revealNsfw(item); }} onpointerup={(e) => { e.stopPropagation(); e.pointerType !== 'mouse' && revealNsfw(item); }} role="button" tabindex="0">
+                        <span>NSFW</span><strong>Reveal</strong>
+                      </span>
+                    {/if}
+                  </button>
+
+                  <div class="post-body">
+                    <div class="post-meta">
+                      <button class="post-author" onclick={() => profileDialog.show(item.author)} onpointerup={(e) => e.pointerType !== 'mouse' && profileDialog.show(item.author)}>{item.author}</button>
+                      <span class="post-dot">·</span>
+                      <span class="post-date">{shortDate(item.createdAt)}</span>
+                      {#if item.tags?.length}
+                        <span class="post-dot">·</span>
+                        <span class="post-tags">
+                          {#each item.tags.slice(0, 4) as tag}
+                            <button class="post-tag" onclick={() => filterByTag(tag)} onpointerup={(e) => e.pointerType !== 'mouse' && filterByTag(tag)}>#{tag}</button>
+                          {/each}
+                        </span>
+                      {/if}
+                    </div>
+                    {#if item.title}
+                      <h2 class="post-title">{item.title}</h2>
+                    {/if}
+                    {#if item.description}
+                      <p class="post-description">{item.description}</p>
+                    {/if}
+                    <div class="post-actions">
+                      <button class="like board-like" class:liked={likedIds.has(item.id)} onclick={() => like(item)} onpointerup={(e) => e.pointerType !== 'mouse' && like(item)}>
+                        <svg viewBox="0 0 16 16" fill="currentColor" width="14" height="14"><path d="M1.24 8.24L8 15l6.76-6.76A4.76 4.76 0 0016 5.24v-.19A4.05 4.05 0 0011.95 1c-1.23 0-2.4.56-3.17 1.52L8 3.5l-.78-.98A4.05 4.05 0 004.05 1 4.05 4.05 0 000 5.05v.19c0 1.13.45 2.21 1.24 3z"/></svg>
+                        {item.likesCount || 0}
+                      </button>
+                      <button class="comments-count" onclick={() => openLightbox(item)} onpointerup={(e) => e.pointerType !== 'mouse' && openLightbox(item)}>
+                        <svg viewBox="0 0 16 16" fill="currentColor" width="14" height="14"><path d="M14 1H2a1 1 0 00-1 1v9a1 1 0 001 1h2v3l3-3h7a1 1 0 001-1V2a1 1 0 00-1-1z"/></svg>
+                        {boardCommentCountFor(item)}
+                      </button>
+                      <button class="open-thread" onclick={() => openLightbox(item)} onpointerup={(e) => e.pointerType !== 'mouse' && openLightbox(item)}>Open thread →</button>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="thread-panel">
+                  {#if boardCommentsById[item.id]?.length}
+                    <ul class="thread">
+                      {#each boardCommentsById[item.id] as c (c.id)}
+                        <li class="reply">
+                          <span class="reply-arrow">↳</span>
+                          <button class="reply-author" onclick={() => profileDialog.show(c.author)} onpointerup={(e) => e.pointerType !== 'mouse' && profileDialog.show(c.author)}>{c.author}:</button>
+                          <span class="reply-text">{c.text}</span>
+                          <span class="reply-date">{shortDate(c.createdAt)}</span>
+                        </li>
+                      {/each}
+                    </ul>
+                    {#if !boardExpandedThreadIds.has(item.id) && boardCommentCountFor(item) > boardCommentsById[item.id].length}
+                      <button class="more-comments" onclick={() => expandBoardThread(item)} onpointerup={(e) => e.pointerType !== 'mouse' && expandBoardThread(item)} disabled={boardThreadLoadingIds.has(item.id)}>
+                        {boardThreadLoadingIds.has(item.id) ? 'Loading...' : `↓ Show all ${boardCommentCountFor(item)} comments`}
+                      </button>
+                    {:else if boardExpandedThreadIds.has(item.id) && boardCommentsById[item.id].length > BOARD_COMMENT_PREVIEW}
+                      <button class="more-comments" onclick={() => collapseBoardThread(item)} onpointerup={(e) => e.pointerType !== 'mouse' && collapseBoardThread(item)}>↑ Collapse thread</button>
+                    {/if}
+                  {:else if boardCommentCountFor(item) === 0}
+                    <p class="thread-empty">No comments yet</p>
+                  {/if}
+
+                  {#if user}
+                    <form class="board-comment-form" onsubmit={(e) => { e.preventDefault(); submitBoardComment(item); }}>
+                      <input
+                        type="text"
+                        bind:value={boardCommentDraftsById[item.id]}
+                        placeholder="Add a comment..."
+                        maxlength="500"
+                        disabled={boardCommentSubmittingById[item.id]}
+                      />
+                      <button type="submit" disabled={!boardCommentDraftsById[item.id]?.trim() || boardCommentSubmittingById[item.id]}>
+                        {boardCommentSubmittingById[item.id] ? '...' : 'Post'}
+                      </button>
+                    </form>
+                    {#if boardCommentErrorsById[item.id]}
+                      <p class="board-comment-error">{boardCommentErrorsById[item.id]}</p>
+                    {/if}
+                  {:else}
+                    <p class="login-to-comment">
+                      <button class="btn-link" onclick={() => openAuthModal('login')} onpointerup={(e) => e.pointerType !== 'mouse' && openAuthModal('login')}>Log in</button> to leave a comment
+                    </p>
+                  {/if}
+                </div>
+              </article>
+            {/each}
+          </div>
+          {/if}
 
       {#if totalPages > 1}
         <div class="pagination">
@@ -1146,26 +1433,6 @@
         </section>
 
         <aside class="gallery-sidebar">
-          <div class="sidebar-card">
-            <div class="sidebar-head">
-              <h2>Image Tags</h2>
-              {#if tagFilter}
-                <button class="btn-link small-link" onclick={clearTagFilter}>clear</button>
-              {/if}
-            </div>
-            {#if sidebarTags.length === 0}
-              <p class="sidebar-empty">{sidebarLoading ? 'Loading tags...' : 'No tags yet'}</p>
-            {:else}
-              <div class="sidebar-tags">
-                {#each sidebarTags as entry}
-                  <button class="tag-chip sidebar-tag" class:active={tagFilter === entry.tag} onclick={() => filterByTag(entry.tag)} onpointerup={(e) => e.pointerType !== 'mouse' && filterByTag(entry.tag)}>
-                    #{entry.tag} <span>{entry.count}</span>
-                  </button>
-                {/each}
-              </div>
-            {/if}
-          </div>
-
           <div class="sidebar-card">
             <div class="sidebar-head">
               <h2>Recent Comments</h2>
@@ -1246,6 +1513,9 @@
 
           {#if lightbox.title}
             <p class="lb-caption">{lightbox.title}</p>
+          {/if}
+          {#if lightbox.description}
+            <p class="lb-description">{lightbox.description}</p>
           {/if}
 
           <div class="lb-actions">
@@ -1647,9 +1917,43 @@
 
   .gallery-layout {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 320px;
+    grid-template-columns: minmax(0, 1fr) 240px;
     gap: 1.5rem;
     align-items: start;
+  }
+  .gallery-layout.no-sidebar {
+    grid-template-columns: minmax(0, 1fr);
+    max-width: 880px;
+    margin: 0 auto;
+  }
+
+  .tag-strip {
+    padding: 0.85rem 1rem;
+    margin-bottom: 1.5rem;
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.025);
+  }
+  .tag-strip-head {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    margin-bottom: 0.65rem;
+  }
+  .tag-strip h2 {
+    color: var(--text);
+    font-size: 0.88rem;
+    font-weight: 600;
+  }
+  .tag-strip-empty {
+    color: var(--text-dim);
+    font-size: 0.82rem;
+  }
+  .tag-strip-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+    align-items: center;
   }
 
   .gallery-main {
@@ -1797,7 +2101,7 @@
   /* ── Grid ── */
   .grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
     gap: 1.25rem;
     align-items: start;
   }
@@ -2639,6 +2943,294 @@
     text-align: center;
   }
 
+  /* ── View toggle (icon buttons) ── */
+  .view-toggle {
+    gap: 4px;
+  }
+  .view-toggle-btn {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    cursor: pointer;
+    padding: 0.5rem 1.1rem;
+    border-radius: 4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.2s, background 0.2s, transform 0.2s;
+    font: inherit;
+  }
+  .view-toggle-btn:hover {
+    color: var(--accent);
+    transform: translateY(-1px);
+  }
+  .view-toggle-btn.active {
+    color: #000;
+    background: var(--accent);
+  }
+  .view-toggle-btn.active:hover {
+    color: #000;
+    transform: none;
+  }
+  .view-toggle-btn svg {
+    display: block;
+  }
+
+  /* ── Board layout ── */
+  .feed {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+  .post {
+    background: var(--bg2);
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    padding: 1rem 1.25rem;
+    transition: border-color 0.2s;
+  }
+  .post:hover { border-color: rgba(255, 255, 255, 0.18); }
+
+  .post-head {
+    display: grid;
+    grid-template-columns: 275px minmax(0, 1fr);
+    gap: 1rem;
+  }
+  .post-thumb {
+    position: relative;
+    display: block;
+    width: 275px;
+    aspect-ratio: 16 / 11.25;
+    border-radius: 6px;
+    overflow: hidden;
+    background: var(--bg2);
+    border: 1.5px solid var(--border);
+    padding: 0;
+    cursor: pointer;
+  }
+  .post-thumb img {
+    width: 100%; height: 100%;
+    object-fit: contain;
+    display: block;
+  }
+  .post-thumb img.censored { filter: blur(28px); }
+  .reveal {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 0.25rem;
+    background: rgba(0,0,0,0.5);
+    border: none;
+    color: #fff;
+    font: inherit;
+    font-size: 0.7rem;
+    cursor: pointer;
+  }
+  .reveal strong { color: var(--yellow); font-size: 0.85rem; }
+
+  .post-body { display: flex; flex-direction: column; gap: 0.5rem; min-width: 0; }
+  .post-meta {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    font-size: 0.82rem;
+    color: var(--text-dim);
+  }
+  .post-author {
+    background: none;
+    border: none;
+    color: var(--accent);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 0;
+  }
+  .post-author:hover { text-decoration: underline; }
+  .post-dot { color: var(--text-dim); }
+  .post-tags { display: inline-flex; flex-wrap: wrap; gap: 0.35rem; }
+  .post-tag {
+    color: var(--text-dim);
+    font-size: 0.78rem;
+    padding: 0.1rem 0.45rem;
+    border: none;
+    border-radius: 4px;
+    background: rgba(255,255,255,0.04);
+    cursor: pointer;
+    font: inherit;
+    transition: all 0.15s;
+  }
+  .post-tag:hover { color: var(--accent); background: rgba(0,212,170,0.1); }
+
+  .post-title {
+    font-family: 'Fredoka', sans-serif;
+    font-weight: 600;
+    font-size: 1.1rem;
+    color: var(--text);
+    letter-spacing: -0.01em;
+    line-height: 1.2;
+  }
+  .post-description {
+    font-size: 0.88rem;
+    line-height: 1.45;
+    color: rgba(255, 255, 255, 0.78);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .lb-description {
+    font-size: 0.88rem;
+    line-height: 1.5;
+    color: rgba(255, 255, 255, 0.78);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .post-actions {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-top: auto;
+    padding-top: 0.4rem;
+    font-size: 0.82rem;
+  }
+  .like.board-like, .comments-count, .open-thread {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    font: inherit;
+    cursor: pointer;
+    padding: 4px 8px;
+    margin: -4px -8px;
+    min-height: 24px;
+    border-radius: 4px;
+    transition: color 0.15s, background 0.15s;
+  }
+  .like.board-like:hover { color: #e07070; }
+  .like.board-like.liked { color: #e07070; }
+  .comments-count:hover { color: var(--accent); }
+  .open-thread {
+    margin-left: auto;
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .open-thread:hover { background: rgba(0,212,170,0.1); }
+
+  .thread-panel {
+    margin-top: 0.9rem;
+    padding-top: 0.8rem;
+    border-top: 1px dashed var(--border);
+  }
+  .thread {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    margin-bottom: 0.6rem;
+    padding: 0;
+  }
+  .reply {
+    display: grid;
+    grid-template-columns: auto auto minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    line-height: 1.4;
+    color: var(--text-dim);
+    padding-left: 0.5rem;
+  }
+  .reply-arrow { color: var(--text-dim); }
+  .reply-author {
+    color: var(--magenta);
+    font-weight: 600;
+    background: none;
+    border: none;
+    font: inherit;
+    cursor: pointer;
+    padding: 0;
+  }
+  .reply-author:hover { text-decoration: underline; }
+  .reply-text {
+    color: var(--text);
+    overflow-wrap: anywhere;
+  }
+  .reply-date { color: var(--text-dim); font-size: 0.72rem; }
+
+  .more-comments {
+    display: inline-flex;
+    margin-bottom: 0.65rem;
+    font-size: 0.82rem;
+    color: var(--accent);
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    font: inherit;
+  }
+  .more-comments:hover { text-decoration: underline; }
+  .more-comments:disabled { opacity: 0.6; cursor: default; }
+
+  .thread-empty {
+    font-size: 0.78rem;
+    color: var(--text-dim);
+    margin-bottom: 0.65rem;
+  }
+
+  .board-comment-form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.5rem;
+    align-items: center;
+  }
+  .board-comment-form input {
+    min-width: 0;
+    height: 36px;
+    border: 1.5px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.84rem;
+    padding: 0 0.7rem;
+  }
+  .board-comment-form input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(0, 212, 170, 0.12);
+  }
+  .board-comment-form button {
+    height: 36px;
+    border: 1.5px solid var(--accent);
+    border-radius: 4px;
+    background: rgba(0, 212, 170, 0.12);
+    color: var(--accent);
+    font: inherit;
+    font-size: 0.8rem;
+    font-weight: 700;
+    padding: 0 0.8rem;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, opacity 0.15s;
+  }
+  .board-comment-form button:hover:not(:disabled) {
+    background: var(--accent);
+    color: #000;
+  }
+  .board-comment-form button:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+  }
+  .board-comment-error {
+    margin-top: 0.4rem;
+    color: #e07070;
+    font-size: 0.8rem;
+  }
+  .login-to-comment {
+    color: var(--text-dim);
+    font-size: 0.82rem;
+  }
+
   /* ── Responsive ── */
   @media (max-width: 768px) {
     nav, header, main, footer { padding-left: 1.25rem; padding-right: 1.25rem; }
@@ -2665,6 +3257,10 @@
     .lb-tags-row,
     .tag-editor-row,
     .lb-actions { flex-wrap: wrap; }
+    .post-head { grid-template-columns: 150px minmax(0, 1fr); gap: 0.75rem; }
+    .post-thumb { width: 150px; }
+    .post-actions { flex-wrap: wrap; gap: 0.5rem; }
+    .open-thread { margin-left: 0; }
   }
 
   .lightbox-stage:fullscreen {

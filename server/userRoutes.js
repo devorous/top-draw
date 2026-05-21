@@ -96,6 +96,7 @@ export async function handleUserProfile(req, res, username) {
       role: user.role || 1,
       createdAt: user.createdAt || null,
       avatar: user.avatar || null,
+      status: user.status || '',
       distanceDrawn: user.distanceDrawn || 0,
       totalStrokes: user.totalStrokes || 0,
       timeSpentMs: user.timeSpentMs || 0,
@@ -121,8 +122,8 @@ export async function handleUserProfile(req, res, username) {
 }
 
 /**
- * PATCH /api/users/me/profile — update bio and/or avatar for the authenticated user.
- * Body: { bio?: string, avatar?: string|null }  (avatar is a data URL)
+ * PATCH /api/users/me/profile — update status and/or avatar for the authenticated user.
+ * Body: { status?: string, avatar?: string|null }  (avatar is a data URL)
  */
 export async function handleUpdateProfile(req, res) {
   const db = getDB();
@@ -140,6 +141,17 @@ export async function handleUpdateProfile(req, res) {
   }
 
   const updates = {};
+
+  if (payload.status !== undefined) {
+    if (payload.status === null) {
+      updates.status = '';
+    } else if (typeof payload.status === 'string') {
+      const trimmed = payload.status.replace(/\s+/g, ' ').trim().slice(0, 140);
+      updates.status = trimmed;
+    } else {
+      return json(res, 400, { error: 'Status must be a string' });
+    }
+  }
 
   if (payload.avatar !== undefined) {
     if (payload.avatar === null || payload.avatar === '') {

@@ -159,6 +159,8 @@ export default defineConfig({
         chat: resolve(__dirname, 'chat/index.html'),
         boardViewer: resolve(__dirname, 'board-viewer/index.html'),
         gallery: resolve(__dirname, 'gallery/index.html'),
+        galleryGrid: resolve(__dirname, 'gallery/grid/index.html'),
+        board: resolve(__dirname, 'board/index.html'),
       },
       output: {
         manualChunks(id) {

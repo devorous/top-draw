@@ -653,7 +653,7 @@ menuBtn: document.getElementById('menuBtn'),
       disconnectBtn: document.getElementById('disconnectBtn'),
       userContextMenu: document.getElementById('userContextMenu'),
       modPanel: null, // injected dynamically by Moderation._injectModUI()
-      modBtn: null // injected dynamically by Moderation._injectModUI()
+      bansBtn: null // injected dynamically by Moderation._injectModUI()
     };
 
     const tutorialTargets = [

@@ -477,6 +477,10 @@
   }
 }
 
+.saveModeDescriptionField textarea {
+  min-height: 72px;
+}
+
 .saveModeOptionsPanelFooter {
   display: flex;
   align-items: center;

@@ -572,7 +572,7 @@ function getChatOpacity() {
         {/if}
 
         {#if activeTab === TAB_GENERAL}
-          <section class="settings-panel">
+          <section class="settings-panel settings-panel-general">
             <div class="settings-toggles-row">
               <label class="settings-toggle-compact">
                 <input
@@ -632,7 +632,7 @@ function getChatOpacity() {
               </label>
             </div>
 
-<div class="settings-slider-stack">
+            <div class="settings-slider-stack">
               <div class="settings-slider-card">
                 <label class="settings-slider-label" for="sfx-volume">
                   <span class="settings-slider-title">SFX Volume</span>
@@ -971,6 +971,11 @@ function getChatOpacity() {
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-md);
     padding: 1rem;
+  }
+
+  .settings-panel-general {
+    padding-top: 1.65rem;
+    padding-bottom: 0.35rem;
   }
 
   .settings-actions {

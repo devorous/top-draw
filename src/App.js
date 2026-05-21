@@ -4564,6 +4564,7 @@ export class DrawingApp {
         body: JSON.stringify({
           imageData,
           title: metadata.title || '',
+          description: metadata.description || '',
           tags: tags,
           tagUsername: metadata.tagUsername !== false
         }),

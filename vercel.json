@@ -19,7 +19,11 @@
     { "source": "/go", "destination": "/go/index.html" },
     { "source": "/go/(.*)", "destination": "/go/index.html" },
     { "source": "/gallery/:id([a-f0-9]{24})", "destination": "/api/gallery-preview?id=:id" },
+    { "source": "/gallery/grid", "destination": "/gallery/grid/index.html" },
+    { "source": "/gallery/grid/(.*)", "destination": "/gallery/grid/index.html" },
     { "source": "/gallery", "destination": "/gallery/index.html" },
-    { "source": "/gallery/(.*)", "destination": "/gallery/index.html" }
+    { "source": "/gallery/(.*)", "destination": "/gallery/index.html" },
+    { "source": "/board", "destination": "/gallery/index.html" },
+    { "source": "/board/(.*)", "destination": "/gallery/index.html" }
   ]
 }

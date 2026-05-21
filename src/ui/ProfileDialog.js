@@ -355,6 +355,114 @@ const STYLES = `
   color: #e07070;
   text-align: center;
 }
+
+.profile-status {
+  margin-top: 1rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.05);
+  border-radius: 8px;
+  padding: 0.7rem 0.85rem;
+}
+.profile-status-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: rgba(255,255,255,0.85);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.profile-status-text.empty {
+  color: rgba(255,255,255,0.4);
+  font-style: italic;
+}
+.profile-status.clickable {
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.profile-status.clickable:hover {
+  background: rgba(255,255,255,0.06);
+  border-color: rgba(255,255,255,0.12);
+}
+
+.profile-status-quick {
+  margin-top: 1rem;
+}
+.profile-status-quick input {
+  width: 100%;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 8px;
+  color: #fff;
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.6rem 0.85rem;
+  transition: border-color 0.15s, background 0.15s;
+}
+.profile-status-quick input::placeholder { color: rgba(255,255,255,0.4); }
+.profile-status-quick input:focus {
+  outline: none;
+  border-color: rgba(0, 212, 170, 0.5);
+  background: rgba(255,255,255,0.05);
+}
+
+.profile-status-editor {
+  margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.profile-status-editor textarea {
+  width: 100%;
+  min-height: 60px;
+  max-height: 120px;
+  resize: vertical;
+  background: rgba(0,0,0,0.3);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 6px;
+  color: #fff;
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.6rem 0.75rem;
+}
+.profile-status-editor textarea:focus {
+  outline: none;
+  border-color: #00d4aa;
+  box-shadow: 0 0 0 1px rgba(0, 212, 170, 0.4);
+}
+.profile-status-editor-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.72rem;
+  color: rgba(255,255,255,0.45);
+}
+.profile-status-editor-actions { display: flex; gap: 0.5rem; }
+.profile-status-editor-actions button {
+  background: none;
+  border: 1px solid rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.7);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 0.4rem 0.8rem;
+  border-radius: 4px;
+  transition: all 0.15s;
+}
+.profile-status-editor-actions button.primary {
+  border-color: #00d4aa;
+  color: #00d4aa;
+  background: rgba(0, 212, 170, 0.1);
+}
+.profile-status-editor-actions button.primary:hover:not(:disabled) {
+  background: #00d4aa;
+  color: #121212;
+}
+.profile-status-editor-actions button:disabled { opacity: 0.5; cursor: default; }
 `;
 
 function rankClass(role) {
@@ -447,7 +555,12 @@ export class ProfileDialog {
     this._data = null;
     this._savingAvatar = false;
     this._editError = '';
+    this._editingStatus = false;
+    this._statusDraft = '';
+    this._savingStatus = false;
   }
+
+  get _STATUS_MAX() { return 140; }
 
   _buildGalleryUrl(pathSegment) {
     const base = String(this.galleryBaseUrl || '/gallery').replace(/\/$/, '');
@@ -473,6 +586,9 @@ export class ProfileDialog {
     this._injectStyles();
     this.close();
     this._editError = '';
+    this._editingStatus = false;
+    this._statusDraft = '';
+    this._savingStatus = false;
 
     this._backdrop = document.createElement('div');
     this._backdrop.className = 'profile-dialog-backdrop';
@@ -571,6 +687,36 @@ export class ProfileDialog {
       ? `<div class="profile-edit-error">${this._escapeHtml(this._editError)}</div>`
       : '';
 
+    const status = (data.status || '').trim();
+    let statusHtml = '';
+    if (this._editingStatus && isOwn) {
+      const remaining = this._STATUS_MAX - (this._statusDraft || '').length;
+      statusHtml = `
+        <div class="profile-status-editor">
+          <textarea data-input="status" maxlength="${this._STATUS_MAX}" placeholder="Add a status or short blurb..."${this._savingStatus ? ' disabled' : ''}>${this._escapeHtml(this._statusDraft)}</textarea>
+          <div class="profile-status-editor-row">
+            <span>${remaining} left</span>
+            <div class="profile-status-editor-actions">
+              <button data-action="cancel-status"${this._savingStatus ? ' disabled' : ''}>Cancel</button>
+              <button class="primary" data-action="save-status"${this._savingStatus ? ' disabled' : ''}>${this._savingStatus ? 'Saving...' : 'Save'}</button>
+            </div>
+          </div>
+        </div>`;
+    } else if (status) {
+      const clickable = isOwn ? ' clickable' : '';
+      const action = isOwn ? ' data-action="edit-status"' : '';
+      const role = isOwn ? ' role="button" tabindex="0"' : '';
+      statusHtml = `
+        <div class="profile-status${clickable}"${action}${role}>
+          <div class="profile-status-text">${this._escapeHtml(status)}</div>
+        </div>`;
+    } else if (isOwn) {
+      statusHtml = `
+        <div class="profile-status-quick">
+          <input type="text" data-input="status-quick" maxlength="${this._STATUS_MAX}" placeholder="Add a status..."${this._savingStatus ? ' disabled' : ''}>
+        </div>`;
+    }
+
     body.innerHTML = `
       <div class="profile-header">
         <div class="profile-avatar-wrap">
@@ -588,6 +734,8 @@ export class ProfileDialog {
       </div>
 
       ${errHtml}
+
+      ${statusHtml}
 
       <div class="profile-stats-grid">
         <div class="profile-stat">
@@ -660,6 +808,78 @@ export class ProfileDialog {
 
     const removeAvatar = root.querySelector('[data-action="remove-avatar"]');
     if (removeAvatar) removeAvatar.addEventListener('click', () => this._removeAvatar());
+
+    const editStatus = root.querySelector('[data-action="edit-status"]');
+    if (editStatus) {
+      editStatus.addEventListener('click', () => this._beginStatusEdit());
+      editStatus.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          this._beginStatusEdit();
+        }
+      });
+    }
+
+    const cancelStatus = root.querySelector('[data-action="cancel-status"]');
+    if (cancelStatus) cancelStatus.addEventListener('click', () => this._cancelStatusEdit());
+
+    const saveStatus = root.querySelector('[data-action="save-status"]');
+    if (saveStatus) saveStatus.addEventListener('click', () => this._saveStatus());
+
+    const quickInput = root.querySelector('[data-input="status-quick"]');
+    if (quickInput) {
+      const expand = () => {
+        this._statusDraft = quickInput.value;
+        this._editingStatus = true;
+        this._renderProfile();
+      };
+      quickInput.addEventListener('focus', expand);
+      quickInput.addEventListener('input', expand);
+    }
+
+    const statusInput = root.querySelector('[data-input="status"]');
+    if (statusInput) {
+      statusInput.addEventListener('input', (e) => {
+        this._statusDraft = e.target.value;
+        const row = root.querySelector('.profile-status-editor-row span');
+        if (row) row.textContent = `${this._STATUS_MAX - this._statusDraft.length} left`;
+      });
+      statusInput.focus();
+      const len = statusInput.value.length;
+      statusInput.setSelectionRange(len, len);
+    }
+  }
+
+  _beginStatusEdit() {
+    this._statusDraft = this._data?.status || '';
+    this._editingStatus = true;
+    this._editError = '';
+    this._renderProfile();
+  }
+
+  _cancelStatusEdit() {
+    this._editingStatus = false;
+    this._statusDraft = '';
+    this._editError = '';
+    this._renderProfile();
+  }
+
+  async _saveStatus() {
+    if (this._savingStatus) return;
+    this._savingStatus = true;
+    this._editError = '';
+    this._renderProfile();
+    try {
+      const updated = await this._patchProfile({ status: this._statusDraft });
+      this._data.status = updated.status ?? this._statusDraft.trim();
+      this._editingStatus = false;
+      this._statusDraft = '';
+    } catch (err) {
+      this._editError = err?.message || 'Failed to save status';
+    } finally {
+      this._savingStatus = false;
+      this._renderProfile();
+    }
   }
 
   async _handleAvatarFile(e) {

@@ -145,7 +145,11 @@ export class SaveMode {
     this.captionPanel.innerHTML = `
       <label class="saveModeOptionsField saveModeCaptionField" for="saveModeTitle">
         <span>Title</span>
-        <input id="saveModeTitle" type="text" maxlength="48" placeholder="Add a title for the gallery (optional, max 48 chars)" />
+        <input id="saveModeTitle" type="text" maxlength="60" placeholder="Short title (optional, max 60 chars)" />
+      </label>
+      <label class="saveModeOptionsField saveModeCaptionField saveModeDescriptionField" for="saveModeDescription">
+        <span>Description</span>
+        <textarea id="saveModeDescription" maxlength="300" rows="2" placeholder="Describe your image (optional, max 300 chars)"></textarea>
       </label>
     `;
 
@@ -243,6 +247,11 @@ export class SaveMode {
       this.galleryTitle = e.target.value;
     });
 
+    this.descriptionInput = this.captionPanel.querySelector('#saveModeDescription');
+    this.descriptionInput?.addEventListener('input', (e) => {
+      this.galleryDescription = e.target.value;
+    });
+
     // Escape key to close
     this._keyHandler = (e) => {
       if (e.key === 'Escape' && this.isActive) {
@@ -275,11 +284,13 @@ export class SaveMode {
     this.shareToDiscord = false;
     this.tagUsername = true;
     this.galleryTitle = '';
+    this.galleryDescription = '';
     this.activeTool = 'select';
     this.optionsPanel.querySelector('#saveModeTransparent').checked = false;
     this.optionsPanel.querySelector('#saveModeShareDiscord').checked = false;
     this.optionsPanel.querySelector('#saveModeTagUsername').checked = true;
     if (this.titleInput) this.titleInput.value = '';
+    if (this.descriptionInput) this.descriptionInput.value = '';
 
     // Size canvases to match board
     const [height, width] = this.board.dimensions;
@@ -828,6 +839,7 @@ export class SaveMode {
     } else {
       await this.app.handleSaveToGallery(canvas, {
         title: this.galleryTitle.trim(),
+        description: (this.galleryDescription || '').trim(),
         tags: this.shareToDiscord ? ['discord'] : [],
         tagUsername: this.tagUsername
       });
@@ -981,11 +993,13 @@ export class SaveMode {
     this.shareToDiscord = false;
     this.tagUsername = true;
     this.galleryTitle = '';
+    this.galleryDescription = '';
     this.activeTool = fixedSelection ? 'pan' : 'select';
     this.optionsPanel.querySelector('#saveModeTransparent').checked = false;
     this.optionsPanel.querySelector('#saveModeShareDiscord').checked = false;
     this.optionsPanel.querySelector('#saveModeTagUsername').checked = true;
     if (this.titleInput) this.titleInput.value = '';
+    if (this.descriptionInput) this.descriptionInput.value = '';
 
     // Size canvases to match the pre-existing canvas
     this.snapshotCanvas.width = canvas.width;

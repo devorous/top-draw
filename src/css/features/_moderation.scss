@@ -84,10 +84,11 @@
   display: none;
   flex-direction: column;
   position: absolute;
-  right: 220px;
+  right: 16px;
   top: 60px;
-  width: 320px;
-  max-height: 540px;
+  width: 720px;
+  max-width: calc(100vw - 32px);
+  max-height: 600px;
   background: var(--surface-glass);
   backdrop-filter: blur(16px);
   border: 1px solid var(--border-subtle);
@@ -253,10 +254,7 @@
 .modEntryList {
   flex: 1;
   overflow-y: auto;
-  padding: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  padding: 10px;
 }
 
 .modNoEntries {
@@ -264,6 +262,94 @@
   text-align: center;
   color: var(--text-muted);
   font-size: 13px;
+}
+
+/* Table layout — mirrors .moderation-table in RoomSettings.svelte */
+.modTableWrap {
+  overflow-x: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+}
+
+.modTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.modTable th,
+.modTable td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: middle;
+}
+
+.modTable th {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  background: var(--bg-secondary);
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.modTable tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.modTableRow {
+  &.revoked,
+  &.expired {
+    opacity: 0.55;
+  }
+}
+
+.modTableUser {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.2;
+
+  strong {
+    color: var(--text-primary);
+    font-weight: 600;
+    font-size: 13px;
+  }
+}
+
+.modTableSub {
+  color: var(--text-muted);
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+.modTableMuted {
+  color: var(--text-muted);
+}
+
+.modTableReason {
+  color: var(--text-secondary);
+  font-style: italic;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modTableActions {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.modTableEmpty {
+  text-align: center;
+  color: var(--text-muted);
+  padding: 24px 16px;
 }
 
 .modEntry {

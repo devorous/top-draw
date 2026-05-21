@@ -537,65 +537,105 @@ export class Auth {
    * Helper to switch between elements with a fade and height animation
    */
   async _transitionTo(toEl, fromEls = []) {
-    const duration = 200; // Match CSS transition duration
+    const duration = 240;
     const wrapper = this.els.authFormWrapper;
     const compactLayout = this.isCompactHeightLayout();
+    const visibleFromEls = fromEls.filter((el) => el && el.style.display !== 'none');
 
-    // 1. Measure current height
-    let oldHeight = 0;
-    if (wrapper && !compactLayout) {
-      oldHeight = wrapper.offsetHeight;
-      wrapper.style.height = oldHeight + 'px';
-    }
+    // Bump a per-call token so a rapid re-entry cancels cleanup from the previous run.
+    const token = (this._transitionToken || 0) + 1;
+    this._transitionToken = token;
 
-    // 2. Start fading out old elements
-    fromEls.forEach(el => {
-      if (el && el.style.display !== 'none') {
-        el.classList.remove('auth-fade-in');
-        el.classList.add('auth-fade-out');
-      }
-    });
-
-    // Wait for fade out
-    await new Promise(r => setTimeout(r, duration));
-
-    // 3. Hide old elements and prepare new element (but keep it invisible)
-    fromEls.forEach(el => {
-      if (el) {
+    if (!toEl) {
+      visibleFromEls.forEach((el) => {
         el.style.display = 'none';
-        el.classList.remove('auth-fade-out');
-      }
+        el.style.opacity = '';
+        el.style.transform = '';
+        el.style.position = '';
+        el.style.left = '';
+        el.style.right = '';
+        el.style.top = '';
+      });
+      if (wrapper) wrapper.style.height = '';
+      return;
+    }
+
+    // Measure starting height before any DOM mutations.
+    const oldHeight = wrapper && !compactLayout ? wrapper.offsetHeight : 0;
+
+    // Stage the incoming element invisibly so we can measure its target height
+    // without it affecting layout (absolute positioning takes it out of flow).
+    toEl.classList.remove('auth-fade-in', 'auth-fade-out');
+    toEl.style.display = 'flex';
+    toEl.style.opacity = '0';
+    toEl.style.transform = 'translateY(6px)';
+    toEl.style.position = 'absolute';
+    toEl.style.left = '0';
+    toEl.style.right = '0';
+    toEl.style.top = '0';
+    toEl.style.pointerEvents = 'none';
+
+    // Pin the outgoing elements in place via absolute positioning so the wrapper
+    // height can tween freely while both panels cross-fade in the same spot.
+    visibleFromEls.forEach((el) => {
+      el.classList.remove('auth-fade-in', 'auth-fade-out');
+      el.style.position = 'absolute';
+      el.style.left = '0';
+      el.style.right = '0';
+      el.style.top = '0';
+      el.style.pointerEvents = 'none';
     });
 
-    if (toEl) {
-      toEl.style.display = 'flex';
-      toEl.style.opacity = '0';
-      toEl.style.transform = 'translateY(10px)';
+    // Force a reflow so the next style changes animate from the staged values.
+    if (wrapper) {
+      wrapper.style.height = oldHeight ? oldHeight + 'px' : '';
+      // eslint-disable-next-line no-unused-expressions
+      wrapper.offsetHeight;
     }
 
-    // 4. Measure new height and animate
-    if (wrapper && toEl && !compactLayout) {
-      const newHeight = wrapper.scrollHeight;
+    // Measure incoming target height now that it's in the DOM (still invisible).
+    const newHeight = (toEl.scrollHeight || toEl.offsetHeight || oldHeight) || 0;
+
+    // Kick off the parallel transitions on the next frame.
+    await new Promise((r) => requestAnimationFrame(() => r()));
+    if (this._transitionToken !== token) return;
+
+    if (wrapper && !compactLayout && newHeight) {
       wrapper.style.height = newHeight + 'px';
-      
-      // Wait for height animation
-      await new Promise(r => setTimeout(r, duration));
     }
 
-    // 5. Fade in new element
-    if (toEl) {
-      toEl.style.opacity = '';
-      toEl.style.transform = '';
-      toEl.classList.add('auth-fade-in');
-      
-      // Cleanup
-      setTimeout(() => {
-        toEl.classList.remove('auth-fade-in');
-        if (wrapper) wrapper.style.height = '';
-      }, duration);
-    } else if (wrapper) {
-      wrapper.style.height = '';
-    }
+    visibleFromEls.forEach((el) => {
+      el.style.opacity = '0';
+      el.style.transform = 'translateY(-6px)';
+    });
+
+    toEl.style.opacity = '';
+    toEl.style.transform = '';
+
+    await new Promise((r) => setTimeout(r, duration));
+    if (this._transitionToken !== token) return;
+
+    // Restore the incoming element to normal flow.
+    toEl.style.position = '';
+    toEl.style.left = '';
+    toEl.style.right = '';
+    toEl.style.top = '';
+    toEl.style.pointerEvents = '';
+    toEl.style.opacity = '';
+    toEl.style.transform = '';
+
+    visibleFromEls.forEach((el) => {
+      el.style.display = 'none';
+      el.style.position = '';
+      el.style.left = '';
+      el.style.right = '';
+      el.style.top = '';
+      el.style.pointerEvents = '';
+      el.style.opacity = '';
+      el.style.transform = '';
+    });
+
+    if (wrapper) wrapper.style.height = '';
   }
 
   /**
@@ -1432,12 +1472,18 @@ export class Auth {
     }, 10000);
 
     // Send token if we have one — covers room switches within a session,
-    // "remember me" across page reloads, and page refreshes with a stored token
-    if (this.wsClient?.connected) {
+    // "remember me" across page reloads, and page refreshes with a stored token.
+    // Gate on sessionIndex (set when the server's CONNECT reply arrives) rather
+    // than `connected`: the socket flips `connected=true` before the initial
+    // CONNECT message is actually sent, so sending AUTH_LOGIN on `connected`
+    // alone can race the CONNECT and arrive at the server with no room/session.
+    const isReady = () => this.wsClient?.connected && this.wsClient?.sessionIndex != null;
+    if (isReady()) {
       void this.wsClient.sendAuthTokenLogin(token);
     } else {
       const checkConnection = () => {
-        if (this.wsClient?.connected) {
+        if (!this._autoLoginInFlight || this._autoLoginToken !== token) return;
+        if (isReady()) {
           void this.wsClient.sendAuthTokenLogin(token);
         } else {
           setTimeout(checkConnection, 100);

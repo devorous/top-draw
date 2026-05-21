@@ -176,6 +176,7 @@ function toClientGalleryItem(item, likedGalleryIds = null) {
     author: tagUsername ? item.author : 'Anonymous',
     tagUsername,
     title: item.title || '',
+    description: item.description || '',
     tags: Array.isArray(item.tags) ? item.tags : [],
     likesCount: item.likesCount || 0,
     liked: likedGalleryIds ? likedGalleryIds.has(id) : false,
@@ -223,7 +224,7 @@ async function recordGalleryLike(db, { galleryId, userId, username }) {
  * Query params:
  *   - page (default 1)
  *   - limit (default 24, max 50)
- *   - sort: newest (default), top, views
+ *   - sort: newest (default), active, top, views
  *   - period: week, month, year, all (top sort only; default all)
  *   - author: filter by username
  *   - tag: filter by tag
@@ -263,8 +264,39 @@ export async function handleGalleryList(req, res) {
   }
 
   try {
+    const isActiveSort = sortParam === 'active';
+    const itemsPromise = isActiveSort
+      ? db.collection('gallery').aggregate([
+        { $match: query },
+        {
+          $lookup: {
+            from: 'comments',
+            let: { galleryId: { $toString: '$_id' } },
+            pipeline: [
+              { $match: { $expr: { $eq: ['$galleryId', '$$galleryId'] } } },
+              { $sort: { createdAt: -1 } },
+              { $limit: 1 },
+              { $project: { _id: 0, createdAt: 1 } }
+            ],
+            as: 'latestComment'
+          }
+        },
+        {
+          $addFields: {
+            activeAt: {
+              $ifNull: [{ $arrayElemAt: ['$latestComment.createdAt', 0] }, '$createdAt']
+            }
+          }
+        },
+        { $sort: { activeAt: -1, createdAt: -1 } },
+        { $skip: skip },
+        { $limit: limit },
+        { $project: { latestComment: 0, activeAt: 0 } }
+      ]).toArray()
+      : db.collection('gallery').find(query).sort(sort).skip(skip).limit(limit).toArray();
+
     const [items, total] = await Promise.all([
-      db.collection('gallery').find(query).sort(sort).skip(skip).limit(limit).toArray(),
+      itemsPromise,
       db.collection('gallery').countDocuments(query),
     ]);
 
@@ -311,7 +343,7 @@ export async function handleGalleryUpload(req, res) {
     return json(res, 400, { error: 'Invalid request body' });
   }
 
-  const { imageData, title, tags, tagUsername } = body;
+  const { imageData, title, description, tags, tagUsername } = body;
   const tagUsernameFlag = tagUsername !== false;
   if (!imageData || typeof imageData !== 'string' || !imageData.startsWith('data:image/')) {
     return json(res, 400, { error: 'Missing or invalid imageData' });
@@ -439,7 +471,8 @@ export async function handleGalleryUpload(req, res) {
     author: authUser.username,
     authorId: authUser._id.toString(),
     tagUsername: tagUsernameFlag,
-    title: (title || '').substring(0, 48).trim(),
+    title: (title || '').substring(0, 60).trim(),
+    description: (description || '').substring(0, 300).trim(),
     tags: normalizedTags,
     likes: [],
     likesCount: 0,
@@ -456,6 +489,7 @@ export async function handleGalleryUpload(req, res) {
       author: tagUsernameFlag ? authUser.username : 'Anonymous',
       tagUsername: tagUsernameFlag,
       title: doc.title,
+      description: doc.description,
       tags: doc.tags,
       likesCount: 0,
       views: 0,
@@ -569,7 +603,7 @@ export async function handleGalleryLike(req, res, id) {
     const updated = await db.collection('gallery').findOneAndUpdate(
       { _id: objectId },
       { $inc: { likesCount: 1 } },
-      { returnDocument: 'after', projection: { likesCount: 1, tags: 1, _id: 1, url: 1, thumbUrl: 1, author: 1, authorId: 1, title: 1, createdAt: 1, views: 1 } }
+      { returnDocument: 'after', projection: { likesCount: 1, tags: 1, _id: 1, url: 1, thumbUrl: 1, author: 1, authorId: 1, title: 1, description: 1, createdAt: 1, views: 1 } }
     );
 
     const newLikesCount = updated?.likesCount || 1;

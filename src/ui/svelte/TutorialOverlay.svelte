@@ -318,6 +318,7 @@
   let rect = $state(null);
   let targetMissing = $state(false);
   let toastPosition = $state(null);
+  let topbarBottom = $state(0);
   let dragState = null;
   let rafId = null;
   let mutationObserver = null;
@@ -460,9 +461,20 @@
     }
   }
 
+  function updateTopbarBottom() {
+    const topbar = document.querySelector('.boardBtns');
+    if (topbar) {
+      const bounds = topbar.getBoundingClientRect();
+      topbarBottom = Math.max(0, bounds.bottom);
+    } else {
+      topbarBottom = 0;
+    }
+  }
+
   function updateSpotlight() {
     if (!active) return;
 
+    updateTopbarBottom();
     revealTargetContainers(currentStep);
 
     const targets = currentStep?.allowCanvas && !currentStep?.targetControl
@@ -609,7 +621,7 @@
     const board = document.getElementById('boardContainer');
     if (isVisible(board) && !isVisible(landing)) {
       storageSet(VISIT_MARKER_KEY, 'true');
-      promptVisible = true;
+      startTutorial('Basic Tutorial');
     }
   }
 
@@ -766,7 +778,7 @@
     <div
       class="tutorialToast"
       class:dragged={!!toastPosition}
-      style={toastPosition ? `left:${toastPosition.x}px;top:${toastPosition.y}px;transform:none;` : ''}
+      style={toastPosition ? `left:${toastPosition.x}px;top:${toastPosition.y}px;transform:none;` : `top:${topbarBottom + 8}px;`}
       role="dialog"
       tabindex="-1"
       aria-label="Tutorial"
