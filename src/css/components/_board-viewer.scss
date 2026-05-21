@@ -158,6 +158,11 @@
   cursor: pointer;
 }
 
+html[data-sidebar-side='left'] .boardViewerLaunch {
+  left: auto;
+  right: 8px;
+}
+
 .boardViewerLaunch:hover {
   background: var(--bg-elevated);
   border-color: var(--accent-primary);

@@ -28,6 +28,16 @@
   }
 }
 
+html[data-sidebar-side='left'] .viewHud {
+  left: auto;
+  right: 16px;
+
+  @include respond-below(sm) {
+    left: auto;
+    right: 8px;
+  }
+}
+
 .viewHudBtn {
   display: inline-flex;
   flex-direction: column;
