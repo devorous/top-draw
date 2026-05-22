@@ -35,6 +35,13 @@ import puppeteer from 'puppeteer';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import {
+  PIXEL_TOLERANCE,
+  NEIGHBOR_RADIUS,
+  PASS_PCT,
+  captureLayerSnapshotsInPage,
+  diffSnapshots,
+} from '../lib/layerDiff.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -703,174 +710,12 @@ async function stopTickLoop(page) {
   await page.evaluate(() => window.app.inputBufferManager?.stopTickLoop?.());
 }
 
-// Pixel-tolerance comparison. Canvas rendering is intentionally a bit
-// non-deterministic (AA jitter, used as a fingerprinting signal in the wild),
-// so we accept small per-channel deltas and report a % match instead of an
-// exact hash. We diff each layer group's *model* state (flatCanvas +
-// strokeStack composited in timestamp order) rather than the rendered
-// mainCanvas, which sidesteps live preview / cursor / scheduling noise.
-const PIXEL_TOLERANCE = 16;    // max |channel delta| considered a match. Canvas AA is noisy enough that small deltas are not sync bugs.
-const NEIGHBOR_RADIUS = 2;     // morphological slack — a mismatched px passes if any neighbor within R matches the other side. Absorbs AA edge jitter.
-const PASS_PCT        = 99.5;  // % matching pixels in the union dirty bbox
+// Pixel-tolerance comparison. The diff fixture (tolerance / neighbour slack /
+// pass %) lives in ../lib/layerDiff.mjs so the chrome-devtools parity suite
+// uses identical numbers. See that file for rationale.
 
 async function captureLayerSnapshots(page) {
-  return page.evaluate(() => {
-    const lm = window.app.board?.layerManager;
-    if (!lm || !lm.layerGroups) return [];
-    const out = [];
-    for (let gi = 0; gi < lm.layerGroups.length; gi++) {
-      const group = lm.layerGroups[gi];
-      const empty = group.strokeStack.length === 0 && !group.flatCanvas;
-      if (empty) continue;
-
-      const cvs = document.createElement('canvas');
-      cvs.width = lm.width;
-      cvs.height = lm.height;
-      const ctx = cvs.getContext('2d');
-      if (group.flatCanvas) ctx.drawImage(group.flatCanvas, 0, 0);
-      const sorted = [...group.strokeStack].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
-      for (const s of sorted) {
-        if (!s.canvas) continue;
-        ctx.globalCompositeOperation = s.blendMode || 'source-over';
-        ctx.drawImage(s.canvas, s.x || 0, s.y || 0);
-      }
-      ctx.globalCompositeOperation = 'source-over';
-
-      // Compute dirty bbox (alpha > 0) so we only transfer the painted region.
-      const imageData = ctx.getImageData(0, 0, cvs.width, cvs.height);
-      const data = imageData.data;
-      const w = cvs.width, h = cvs.height;
-      let minX = w, minY = h, maxX = -1, maxY = -1;
-      for (let y = 0; y < h; y++) {
-        const row = y * w * 4;
-        for (let x = 0; x < w; x++) {
-          if (data[row + x * 4 + 3] > 0) {
-            if (x < minX) minX = x;
-            if (x > maxX) maxX = x;
-            if (y < minY) minY = y;
-            if (y > maxY) maxY = y;
-          }
-        }
-      }
-
-      let bbox = null, bboxPixelsB64 = null;
-      if (maxX >= 0) {
-        bbox = { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 };
-        const cropped = ctx.getImageData(bbox.x, bbox.y, bbox.w, bbox.h);
-        const u8 = new Uint8Array(cropped.data.buffer);
-        let binary = '';
-        const CHUNK = 0x8000;
-        for (let i = 0; i < u8.length; i += CHUNK) {
-          binary += String.fromCharCode.apply(null, u8.subarray(i, i + CHUNK));
-        }
-        bboxPixelsB64 = btoa(binary);
-      }
-
-      out.push({
-        groupIdx: gi,
-        canvasW: w,
-        canvasH: h,
-        strokeStackLen: group.strokeStack.length,
-        hasBaked: !!group.flatCanvas,
-        bbox,
-        bboxPixelsB64,
-      });
-    }
-    return out;
-  });
-}
-
-/** Diff one bot's snapshots against another's. Returns per-group + overall stats. */
-function diffSnapshots(refSnaps, otherSnaps, tolerance = PIXEL_TOLERANCE) {
-  // Align by groupIdx — either side missing a group means "all transparent"
-  const groupIdxs = new Set([...refSnaps.map(s => s.groupIdx), ...otherSnaps.map(s => s.groupIdx)]);
-  const refByIdx   = new Map(refSnaps.map(s => [s.groupIdx, s]));
-  const otherByIdx = new Map(otherSnaps.map(s => [s.groupIdx, s]));
-
-  const perGroup = [];
-  let allPass = true;
-  let overallMatched = 0, overallChecked = 0, overallMaxDelta = 0;
-
-  for (const gi of [...groupIdxs].sort((a,b) => a - b)) {
-    const a = refByIdx.get(gi);
-    const b = otherByIdx.get(gi);
-    const bboxA = a?.bbox, bboxB = b?.bbox;
-
-    if (!bboxA && !bboxB) {
-      perGroup.push({ groupIdx: gi, pass: true, matchPct: 100, maxDelta: 0, matched: 0, checked: 0, empty: true });
-      continue;
-    }
-
-    // Union bbox in canvas coords
-    const u = {
-      x: Math.min(bboxA?.x ?? Infinity, bboxB?.x ?? Infinity),
-      y: Math.min(bboxA?.y ?? Infinity, bboxB?.y ?? Infinity),
-    };
-    const maxRight  = Math.max((bboxA ? bboxA.x + bboxA.w : -Infinity), (bboxB ? bboxB.x + bboxB.w : -Infinity));
-    const maxBottom = Math.max((bboxA ? bboxA.y + bboxA.h : -Infinity), (bboxB ? bboxB.y + bboxB.h : -Infinity));
-    u.w = maxRight - u.x;
-    u.h = maxBottom - u.y;
-
-    const aBuf = bboxA ? Buffer.from(a.bboxPixelsB64, 'base64') : null;
-    const bBuf = bboxB ? Buffer.from(b.bboxPixelsB64, 'base64') : null;
-
-    const readPixel = (buf, bbox, x, y) => {
-      // Out-of-bbox → fully transparent
-      if (!buf || x < bbox.x || x >= bbox.x + bbox.w || y < bbox.y || y >= bbox.y + bbox.h) {
-        return [0, 0, 0, 0];
-      }
-      const lx = x - bbox.x;
-      const ly = y - bbox.y;
-      const i = (ly * bbox.w + lx) * 4;
-      return [buf[i], buf[i+1], buf[i+2], buf[i+3]];
-    };
-
-    const pixelDelta = (pa, pb) => Math.max(
-      Math.abs(pa[0] - pb[0]),
-      Math.abs(pa[1] - pb[1]),
-      Math.abs(pa[2] - pb[2]),
-      Math.abs(pa[3] - pb[3]),
-    );
-
-    // Morphological match: a pixel passes if EITHER (a) the same-coord pixels
-    // match within tolerance, OR (b) some neighbor within NEIGHBOR_RADIUS on
-    // the other side matches the drawer pixel (and vice versa). This absorbs
-    // sub-pixel AA jitter that's intrinsic to canvas rendering.
-    let matched = 0, checked = 0, maxDelta = 0;
-    for (let y = u.y; y < u.y + u.h; y++) {
-      for (let x = u.x; x < u.x + u.w; x++) {
-        const pa = readPixel(aBuf, bboxA, x, y);
-        const pb = readPixel(bBuf, bboxB, x, y);
-        const dCenter = pixelDelta(pa, pb);
-        if (dCenter > maxDelta) maxDelta = dCenter;
-        checked++;
-        if (dCenter <= tolerance) { matched++; continue; }
-
-        // Center mismatched — check if any neighbor on the OTHER side matches.
-        let ok = false;
-        for (let dy = -NEIGHBOR_RADIUS; dy <= NEIGHBOR_RADIUS && !ok; dy++) {
-          for (let dx = -NEIGHBOR_RADIUS; dx <= NEIGHBOR_RADIUS && !ok; dx++) {
-            if (dx === 0 && dy === 0) continue;
-            const nb = readPixel(bBuf, bboxB, x + dx, y + dy);
-            if (pixelDelta(pa, nb) <= tolerance) { ok = true; break; }
-            const na = readPixel(aBuf, bboxA, x + dx, y + dy);
-            if (pixelDelta(na, pb) <= tolerance) { ok = true; break; }
-          }
-        }
-        if (ok) matched++;
-      }
-    }
-    const pct = checked ? (matched / checked) * 100 : 100;
-    const pass = pct >= PASS_PCT;
-    if (!pass) allPass = false;
-    overallMatched += matched;
-    overallChecked += checked;
-    if (maxDelta > overallMaxDelta) overallMaxDelta = maxDelta;
-    perGroup.push({ groupIdx: gi, pass, matched, checked, matchPct: pct, maxDelta, bbox: u });
-  }
-
-  const overallPct = overallChecked ? (overallMatched / overallChecked) * 100 : 100;
-  return { pass: allPass, matchPct: overallPct, maxDelta: overallMaxDelta, matched: overallMatched, checked: overallChecked, perGroup };
+  return page.evaluate(captureLayerSnapshotsInPage);
 }
 
 /**

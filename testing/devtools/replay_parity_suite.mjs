@@ -1,0 +1,495 @@
+#!/usr/bin/env node
+/**
+ * @fileoverview Replay Parity Suite — verifies that the local Recorder +
+ * ReplayEngine produces byte-identical pixels to the live drawing path.
+ *
+ * Driven via the Chrome DevTools Protocol (puppeteer wraps CDP). Three tabs:
+ *
+ *   Tab A — drawer  (records its own session)
+ *   Tab B — observer (independent live mirror, sanity check on broadcast)
+ *   Tab C — replay viewer (boots /go/ but stays out of the room;
+ *           gets fed the recording bundle from A and runs ReplayEngine)
+ *
+ * Pass criterion (per test case):
+ *   - A↔B  diff passes (live broadcast/handler path correct — same oracle as
+ *     comprehensive_sync_suite.js)
+ *   - A↔C  diff passes (Recorder + ReplayEngine path is pixel-identical)
+ *
+ * Uses the SAME pixel tolerance/diff helpers as the puppeteer sync suite via
+ * the shared testing/lib/layerDiff.mjs module. A regression visible only in
+ * A↔C is therefore a real replay-only bug, not a tolerance drift.
+ *
+ * Usage:
+ *   node testing/devtools/replay_parity_suite.mjs
+ *   node testing/devtools/replay_parity_suite.mjs --headed
+ *   node testing/devtools/replay_parity_suite.mjs --only=brush_step_1,ink_step_1
+ *
+ * Env vars:
+ *   TARGET_URL       http://localhost:3000/go/
+ *   HEADLESS         "false" to show the browser windows
+ *   PROPAGATION_MS   3500
+ */
+
+import puppeteer from 'puppeteer';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import {
+  PIXEL_TOLERANCE,
+  PASS_PCT,
+  captureLayerSnapshotsInPage,
+  captureReplayLayerSnapshotsInPage,
+  diffSnapshots,
+} from '../lib/layerDiff.mjs';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// ─── Config ────────────────────────────────────────────────────────────────
+
+const TARGET_URL     = process.env.TARGET_URL    || 'http://localhost:3000/go/';
+const HEADLESS       = process.env.HEADLESS !== 'false';
+const PROPAGATION_MS = parseInt(process.env.PROPAGATION_MS || '3500', 10);
+const REPLAY_SETTLE_MS = parseInt(process.env.REPLAY_SETTLE_MS || '1500', 10);
+
+const args = process.argv.slice(2);
+let NAME_FILTER = null;
+for (const a of args) {
+  if (a === '--headed') process.env.HEADLESS = 'false';
+  else if (a.startsWith('--only=')) NAME_FILTER = a.slice('--only='.length).split(',').map((s) => s.trim());
+  else if (a.startsWith('--')) { console.error(`Unknown flag: ${a}`); process.exit(2); }
+}
+
+const RUN_ID = new Date().toISOString().replace(/[:.]/g, '-');
+const RESULTS_DIR = path.join(__dirname, '..', 'sync_results', `parity_${RUN_ID}`);
+
+// ─── Test matrix ───────────────────────────────────────────────────────────
+
+const TEST_CASES = [
+  {
+    name: 'brush_step_1',
+    action: async (page) => {
+      await selectTool(page, 'brush');
+      await setToolSettings(page, { size: 30, color: [220, 60, 60, 1], hardness: 100 });
+      await drawPath(page, [{ x: 300, y: 300 }, { x: 700, y: 400 }, { x: 1100, y: 350 }]);
+    },
+  },
+  {
+    name: 'brush_blend_modes',
+    action: async (page) => {
+      const modes = [
+        { blendMode: 'source-over', color: [255, 0, 0, 0.8] },
+        { blendMode: 'multiply',    color: [0, 255, 0, 0.8] },
+        { blendMode: 'screen',      color: [0, 0, 255, 0.8] },
+      ];
+      await selectTool(page, 'brush');
+      for (let i = 0; i < modes.length; i++) {
+        await setToolSettings(page, { size: 80, hardness: 100, ...modes[i] });
+        const y = 250 + i * 60;
+        await drawPath(page, [{ x: 300, y }, { x: 900, y: y + 100 }, { x: 1500, y }]);
+      }
+    },
+  },
+  {
+    name: 'ink_step_1',
+    action: async (page) => {
+      await selectTool(page, 'ink');
+      await setToolSettings(page, { size: 20, color: [0, 0, 0, 1], smoothing: 40 });
+      await drawPath(page, [{ x: 300, y: 300 }, { x: 700, y: 500 }, { x: 1100, y: 300 }]);
+    },
+  },
+  {
+    name: 'flowPen_step_1',
+    action: async (page) => {
+      await selectTool(page, 'flowPen');
+      await setToolSettings(page, { size: 25, color: [0, 100, 200, 1] });
+      await drawPath(page, [{ x: 300, y: 300 }, { x: 700, y: 400 }, { x: 1100, y: 300 }]);
+    },
+  },
+  {
+    name: 'shape_set',
+    action: async (page) => {
+      await selectTool(page, 'rectangle');
+      await setToolSettings(page, { size: 6, color: [255, 0, 0, 1] });
+      await drawPath(page, [{ x: 300, y: 300 }, { x: 700, y: 500 }]);
+      await selectTool(page, 'circle');
+      await setToolSettings(page, { size: 6, color: [0, 0, 255, 1] });
+      await drawPath(page, [{ x: 800, y: 300 }, { x: 1200, y: 500 }]);
+      await selectTool(page, 'line');
+      await setToolSettings(page, { size: 4, color: [0, 200, 0, 1] });
+      await drawPath(page, [{ x: 300, y: 600 }, { x: 1200, y: 700 }]);
+    },
+  },
+  {
+    name: 'eraser_over_strokes',
+    action: async (page) => {
+      await selectTool(page, 'brush');
+      await setToolSettings(page, { size: 40, color: [220, 60, 60, 1], hardness: 100 });
+      await drawPath(page, [{ x: 300, y: 400 }, { x: 1200, y: 400 }]);
+      await selectTool(page, 'erase');
+      await setToolSettings(page, { size: 50 });
+      await drawPath(page, [{ x: 400, y: 350 }, { x: 1100, y: 450 }]);
+    },
+  },
+  {
+    name: 'undo_after_strokes',
+    action: async (page) => {
+      await selectTool(page, 'brush');
+      const variations = [
+        { color: [255, 0, 0, 1], size: 30 },
+        { color: [0, 255, 0, 1], size: 25 },
+        { color: [0, 0, 255, 1], size: 35 },
+      ];
+      for (let i = 0; i < variations.length; i++) {
+        await setToolSettings(page, { ...variations[i], hardness: 100 });
+        const y = 300 + i * 100;
+        await drawPath(page, [{ x: 300, y }, { x: 700, y: y + 40 }, { x: 1100, y }]);
+      }
+      await page.evaluate(() => {
+        window.app.handleUndo?.();
+        window.app.inputBufferManager?.tick();
+      });
+      await sleep(250);
+    },
+  },
+];
+
+// ─── Page Helpers ──────────────────────────────────────────────────────────
+
+async function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
+async function selectTool(page, tool) {
+  await page.evaluate((t) => window.app.selectTool(t), tool);
+}
+
+async function setToolSettings(page, settings) {
+  await page.evaluate((s) => {
+    const app = window.app;
+    if (s.size !== undefined)      app.handleSizeChange({ target: { value: s.size } });
+    if (s.color !== undefined)     app.handleColorInputChange(s.color);
+    if (s.blendMode !== undefined) app.handleBlendModeChange(s.blendMode);
+    if (s.smoothing !== undefined) app.handleSmoothingChange({ target: { value: s.smoothing } });
+    if (s.hardness !== undefined)  app.handleHardnessChange({ target: { value: s.hardness } });
+  }, settings);
+}
+
+async function getClientCoords(page, boardX, boardY) {
+  return page.evaluate((bx, by) => {
+    const board = window.app.board;
+    const containerRect = board.container.getBoundingClientRect();
+    const rad = board.rotation * Math.PI / 180;
+    const cos = Math.cos(rad), sin = Math.sin(rad);
+    let rx = bx * board.zoom;
+    let ry = by * board.zoom;
+    if (board.canvasFlipped) rx = (board.getWidth() - bx) * board.zoom;
+    const rxr = rx * cos + ry * sin;
+    const ryr = -rx * sin + ry * cos;
+    return {
+      clientX: rxr + board.panX + containerRect.left,
+      clientY: ryr + board.panY + containerRect.top,
+    };
+  }, boardX, boardY);
+}
+
+async function drawPath(page, points) {
+  const clientPoints = [];
+  for (const p of points) clientPoints.push(await getClientCoords(page, p.x, p.y));
+  await page.evaluate(async (pts) => {
+    const app = window.app;
+    const ev = (c) => ({ button: 0, pointerType: 'mouse', clientX: c.clientX, clientY: c.clientY, preventDefault: () => {} });
+    app.handlePointerDown(ev(pts[0]));
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1], b = pts[i];
+      const steps = 4;
+      for (let s = 1; s <= steps; s++) {
+        const t = s / steps;
+        const cur = {
+          clientX: a.clientX + (b.clientX - a.clientX) * t,
+          clientY: a.clientY + (b.clientY - a.clientY) * t,
+        };
+        app.handlePointerMove(ev(cur));
+        app.inputBufferManager?.tick();
+        await new Promise((r) => setTimeout(r, 5));
+      }
+    }
+    app.handlePointerUp(ev(pts[pts.length - 1]));
+    app.inputBufferManager?.tick();
+  }, clientPoints);
+  await sleep(250);
+}
+
+async function reseedRandom(page, seedValue = 12345) {
+  await page.evaluate((s) => {
+    let seed = s;
+    Math.random = () => {
+      seed = (seed * 9301 + 49297) % 233280;
+      return seed / 233280;
+    };
+  }, seedValue);
+}
+
+async function clearCanvas(page) {
+  await page.evaluate(() => {
+    const app = window.app;
+    app.board?.clear?.();
+    app.board?.tileTracker?.clear?.();
+    app.debugOverlay?.clearAll?.();
+  });
+}
+
+async function stopTickLoop(page) {
+  await page.evaluate(() => window.app.inputBufferManager?.stopTickLoop?.());
+}
+
+// ─── Tab Lifecycle ─────────────────────────────────────────────────────────
+
+async function spawnTab(browser, label, room, { joinRoom = true } = {}) {
+  const page = await browser.newPage();
+
+  page.on('console', (msg) => {
+    const txt = msg.text();
+    if (/\[ERROR\]|\[SYNC\]|\[Recorder\]|\[TimeMachine\]/i.test(txt)) {
+      process.stdout.write(`  [${label}] ${txt}\n`);
+    }
+  });
+  page.on('pageerror', (err) => process.stderr.write(`  [${label} ERROR] ${err.message}\n`));
+
+  // Pin Math.random + Date.now BEFORE the document loads.
+  await page.evaluateOnNewDocument(() => {
+    let seed = 12345;
+    Math.random = () => {
+      seed = (seed * 9301 + 49297) % 233280;
+      return seed / 233280;
+    };
+    const fixedDate = new Date('2026-05-05T12:00:00Z').getTime();
+    Date.now = () => fixedDate;
+  });
+
+  await page.goto(TARGET_URL, { waitUntil: 'networkidle2' });
+  await page.waitForFunction(() => window.app !== undefined && window.app.self != null, { timeout: 60_000 });
+
+  if (joinRoom) {
+    await page.evaluate((n, r) => {
+      window.app.self.username = n;
+      window.app.handleRoomSelected(r);
+    }, label, room);
+
+    await page.waitForFunction(() => {
+      const app = window.app;
+      const syncDone = app?.syncClient?.hasCompletedSync === true || (app?.wsClient?.connected && app?.users?.size <= 1);
+      return app?.wsClient?.connected && syncDone;
+    }, { timeout: 60_000 });
+
+    await stopTickLoop(page);
+  }
+
+  return { label, page };
+}
+
+// ─── Recorder bridge (Tab A) ───────────────────────────────────────────────
+
+async function startRecording(page) {
+  await page.evaluate(() => {
+    if (!window.app.recorder) throw new Error('app.recorder not present');
+    window.app.recorder.start(window.app);
+  });
+}
+
+async function stopRecording(page) {
+  // Returns the JSON-safe bundle. The bundle's `assets` is a Map in the
+  // Recorder; for transit we convert to a plain object (deltas + snapshots
+  // are already JSON-friendly because we structuredClone'd them at capture).
+  return page.evaluate(() => {
+    const rec = window.app.recorder.stop();
+    if (!rec) return null;
+    return {
+      version: rec.version,
+      roomId: rec.roomId,
+      startedAt: rec.startedAt,
+      endedAt: rec.endedAt,
+      openingSnapshot: rec.openingSnapshot,
+      deltas: rec.deltas,
+      intraCheckpoints: rec.intraCheckpoints,
+      // Map → plain object so it survives evaluate's structured-clone serialiser.
+      assets: rec.assets instanceof Map ? Object.fromEntries(rec.assets) : (rec.assets ?? {}),
+    };
+  });
+}
+
+// ─── Replay viewer (Tab C) ─────────────────────────────────────────────────
+
+async function loadBundleIntoReplayer(page, bundle) {
+  // Push the bundle in, then call TimeMachine.loadFromRecording. That call
+  // seeks to sessionEnd as part of loading, so the replay engine's
+  // layerManager is fully populated when we capture.
+  await page.evaluate(async (b) => {
+    if (!window.app?.TimeMachine?.loadFromRecording) {
+      throw new Error('TimeMachine.loadFromRecording not present');
+    }
+    // Rehydrate the Map back from the plain object.
+    const rec = { ...b, assets: new Map(Object.entries(b.assets || {})) };
+    await window.app.TimeMachine.loadFromRecording(rec);
+  }, bundle);
+}
+
+// ─── Per-test run ──────────────────────────────────────────────────────────
+
+async function runCase(tabs, testCase) {
+  const t0 = Date.now();
+  const { drawer, observer, replayer } = tabs;
+
+  // Reset everyone to a clean board + deterministic RNG.
+  await clearCanvas(drawer.page);
+  await clearCanvas(observer.page);
+  await sleep(400);
+  await reseedRandom(drawer.page);
+  await reseedRandom(observer.page);
+  await reseedRandom(replayer.page);
+  await sleep(150);
+
+  // Start the tape and run the test action.
+  await startRecording(drawer.page);
+  await testCase.action(drawer.page);
+  await sleep(PROPAGATION_MS);
+
+  // Capture live state from both live tabs.
+  const snapsA = await drawer.page.evaluate(captureLayerSnapshotsInPage);
+  const snapsB = await observer.page.evaluate(captureLayerSnapshotsInPage);
+
+  // Stop recording and ship the bundle to the replay viewer.
+  const bundle = await stopRecording(drawer.page);
+  if (!bundle) throw new Error('Recorder.stop() returned null');
+
+  await loadBundleIntoReplayer(replayer.page, bundle);
+  await sleep(REPLAY_SETTLE_MS);
+
+  // Capture replay state from the dedicated viewer tab.
+  const snapsC = await replayer.page.evaluate(captureReplayLayerSnapshotsInPage);
+
+  const liveDiff = diffSnapshots(snapsA, snapsB);
+  const replayDiff = diffSnapshots(snapsA, snapsC);
+
+  // Always tear down the replay viewer's TimeMachine so the next case starts
+  // clean. (loadFromRecording leaves the replay canvas visible until stop().)
+  await replayer.page.evaluate(() => window.app.TimeMachine.stop?.());
+
+  const elapsed = Date.now() - t0;
+  return {
+    name: testCase.name,
+    elapsed,
+    deltaCount: bundle.deltas.length,
+    liveDiff,
+    replayDiff,
+    pass: liveDiff.pass && replayDiff.pass,
+  };
+}
+
+// ─── Main ──────────────────────────────────────────────────────────────────
+
+async function main() {
+  fs.mkdirSync(RESULTS_DIR, { recursive: true });
+  const roomName = `parity_${Date.now()}`;
+
+  console.log(`\nTop Draw — Replay Parity Suite`);
+  console.log(`Run:        ${RUN_ID}`);
+  console.log(`URL:        ${TARGET_URL}`);
+  console.log(`Room:       ${roomName}`);
+  console.log(`Tolerance:  ±${PIXEL_TOLERANCE}px, ≥${PASS_PCT}% match`);
+  console.log(`Results:    ${RESULTS_DIR}\n`);
+
+  const browser = await puppeteer.launch({
+    headless: HEADLESS,
+    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    defaultViewport: { width: 1920, height: 1080 },
+  });
+
+  const tabs = {};
+  const results = [];
+
+  try {
+    process.stdout.write('Spawning tabs ');
+    tabs.drawer   = await spawnTab(browser, 'drawer',   roomName, { joinRoom: true });   process.stdout.write('A ');
+    tabs.observer = await spawnTab(browser, 'observer', roomName, { joinRoom: true });   process.stdout.write('B ');
+    tabs.replayer = await spawnTab(browser, 'replayer', null,     { joinRoom: false });  process.stdout.write('C\n');
+
+    // Wait for A and B to see each other before any test runs.
+    const deadline = Date.now() + 30_000;
+    while (Date.now() < deadline) {
+      const a = await tabs.drawer.page.evaluate(() => window.app?.users?.size ?? 0);
+      const b = await tabs.observer.page.evaluate(() => window.app?.users?.size ?? 0);
+      if (a >= 2 && b >= 2) break;
+      await sleep(250);
+    }
+    console.log('Live pair connected.\n');
+
+    const cases = TEST_CASES.filter((tc) => !NAME_FILTER || NAME_FILTER.includes(tc.name));
+    if (cases.length === 0) {
+      console.log('No test cases match filter.');
+      return;
+    }
+
+    for (const tc of cases) {
+      process.stdout.write(`  ${tc.name.padEnd(28)} ... `);
+      try {
+        const r = await runCase(tabs, tc);
+        results.push(r);
+        const status = r.pass ? '✅ PASS' : '❌ FAIL';
+        const live = `live ${r.liveDiff.matchPct.toFixed(2)}%`;
+        const replay = `replay ${r.replayDiff.matchPct.toFixed(2)}%`;
+        const deltas = `Δ ${r.deltaCount}`;
+        console.log(`${status}  ${live}  ${replay}  ${deltas}  (${r.elapsed}ms)`);
+        if (!r.pass) {
+          if (!r.liveDiff.pass)   console.log(`     live↕  maxΔ ${r.liveDiff.maxDelta}  match ${r.liveDiff.matchPct.toFixed(3)}%`);
+          if (!r.replayDiff.pass) console.log(`     replay maxΔ ${r.replayDiff.maxDelta}  match ${r.replayDiff.matchPct.toFixed(3)}%`);
+        }
+      } catch (err) {
+        console.log(`💥 ERROR: ${err.message}`);
+        results.push({ name: tc.name, pass: false, error: err.message });
+      }
+    }
+
+    const passed = results.filter((r) => r.pass).length;
+    console.log('\n' + '─'.repeat(60));
+    console.log(`RESULTS: ${passed}/${results.length} passed`);
+    console.log('─'.repeat(60));
+
+    fs.writeFileSync(
+      path.join(RESULTS_DIR, 'summary.json'),
+      JSON.stringify(
+        {
+          runId: RUN_ID,
+          url: TARGET_URL,
+          pixelTolerance: PIXEL_TOLERANCE,
+          passPct: PASS_PCT,
+          passed,
+          total: results.length,
+          results: results.map((r) => ({
+            name: r.name,
+            pass: r.pass,
+            elapsed: r.elapsed,
+            deltaCount: r.deltaCount,
+            error: r.error,
+            liveMatchPct: r.liveDiff?.matchPct,
+            replayMatchPct: r.replayDiff?.matchPct,
+            liveMaxDelta: r.liveDiff?.maxDelta,
+            replayMaxDelta: r.replayDiff?.maxDelta,
+          })),
+        },
+        null,
+        2,
+      ),
+    );
+
+    process.exitCode = passed === results.length ? 0 : 1;
+  } catch (err) {
+    console.error('\nFatal error:', err);
+    process.exitCode = 1;
+  } finally {
+    for (const t of Object.values(tabs)) await t.page.close().catch(() => {});
+    await browser.close();
+  }
+}
+
+main().catch((err) => {
+  console.error('Uncaught error:', err);
+  process.exit(1);
+});

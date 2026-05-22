@@ -22,6 +22,16 @@
   }
 
   async function handleUndoToState() {
+    if (TimeMachine.isLocalReplay) {
+      if (await window.showAppConfirm('Replace your current board with this state?', {
+        title: 'Undo to here',
+        confirmLabel: 'Undo',
+        danger: true
+      })) {
+        TimeMachine.restoreLocalToCurrentState();
+      }
+      return;
+    }
     if (await window.showAppConfirm('Are you sure you want to revert the board to this state for everyone?', {
       title: 'Revert board?',
       confirmLabel: 'Revert',
@@ -33,6 +43,64 @@
 
   let isScrubbing = false;
   let scrubberElement = $state(); // Will be assigned to the .custom-scrubber div
+  let viewportElement = $state(); // The horizontally-scrollable wrapper
+
+  // ── Horizontal-zoom configuration ────────────────────────────────────────
+  // The viewport shows viewportSeconds of tape at once; the inner scrubber
+  // is wider than the viewport when the recording is longer, so the user can
+  // scroll horizontally to reach earlier moments. Mouse wheel over the
+  // timebar zooms in/out. Auto-scroll keeps the playhead onscreen during
+  // playback. pxPerSecond is derived from the viewport's current width so
+  // things stay responsive when side panels open/close.
+  let viewportSeconds = $state(30);
+  const VIEWPORT_SECONDS_MIN = 5;
+  const VIEWPORT_SECONDS_MAX = 600;
+  let viewportWidthPx = $state(700);
+
+  let durationMs = $derived.by(() => {
+    const { sessionStart, sessionEnd } = TimeMachine;
+    return Math.max(0, (sessionEnd || 0) - (sessionStart || 0));
+  });
+
+  let pxPerSecond = $derived.by(() => {
+    if (viewportWidthPx <= 0) return 12;
+    return viewportWidthPx / viewportSeconds;
+  });
+
+  // Wheel zoom — preserve the tape position under the cursor so zoom feels
+  // anchored. Native horizontal trackpad scroll still works because we only
+  // hijack the event when deltaY is the dominant axis.
+  function handleViewportWheel(event) {
+    if (!viewportElement) return;
+    if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
+    event.preventDefault();
+    const rect = viewportElement.getBoundingClientRect();
+    const cursorXInViewport = event.clientX - rect.left;
+    const cursorXInScrubber = viewportElement.scrollLeft + cursorXInViewport;
+    const cursorTapeSecond = cursorXInScrubber / pxPerSecond;
+    const factor = event.deltaY > 0 ? 1.2 : 1 / 1.2;
+    const next = Math.max(VIEWPORT_SECONDS_MIN, Math.min(VIEWPORT_SECONDS_MAX, viewportSeconds * factor));
+    if (next === viewportSeconds) return;
+    viewportSeconds = next;
+    // After Svelte re-renders the new width, restore the cursor anchor.
+    queueMicrotask(() => {
+      if (!viewportElement) return;
+      const newPxPerSec = viewportWidthPx / viewportSeconds;
+      const newCursorXInScrubber = cursorTapeSecond * newPxPerSec;
+      viewportElement.scrollLeft = Math.max(0, newCursorXInScrubber - cursorXInViewport);
+    });
+  }
+
+  // Inner scrubber's width. min = viewport (so short tapes don't get squished).
+  let scrubberWidthPx = $derived.by(() => {
+    const tapeSeconds = durationMs / 1000;
+    const px = tapeSeconds * pxPerSecond;
+    return Math.max(viewportWidthPx, px);
+  });
+
+  // Track viewport width with a ResizeObserver so pxPerSecond stays meaningful
+  // when the user opens/closes side panels.
+  let viewportResizeObserver = null;
 
   function calculateScrubTime(event, element) {
     const rect = element.getBoundingClientRect();
@@ -88,6 +156,15 @@
     document.addEventListener('mouseup', handleGlobalMouseUp);
     document.addEventListener('touchmove', handleGlobalTouchMove);
     document.addEventListener('touchend', handleGlobalTouchEnd);
+
+    if (viewportElement && typeof ResizeObserver !== 'undefined') {
+      viewportResizeObserver = new ResizeObserver((entries) => {
+        const w = entries[0]?.contentRect?.width;
+        if (w && w > 0) viewportWidthPx = w;
+      });
+      viewportResizeObserver.observe(viewportElement);
+      viewportWidthPx = viewportElement.clientWidth || viewportWidthPx;
+    }
   });
 
   onDestroy(() => { // Added onDestroy
@@ -95,6 +172,33 @@
     document.removeEventListener('mouseup', handleGlobalMouseUp);
     document.removeEventListener('touchmove', handleGlobalTouchMove);
     document.removeEventListener('touchend', handleGlobalTouchEnd);
+    document.body.classList.remove('replay-playback-mode');
+    viewportResizeObserver?.disconnect?.();
+  });
+
+  // Auto-scroll the viewport during playback so the playhead stays onscreen.
+  // While the user is actively scrubbing we leave their scroll position alone.
+  $effect(() => {
+    if (!viewportElement || isScrubbing) return;
+    const { sessionStart, sessionEnd, currentTime } = TimeMachine;
+    if (!sessionStart || sessionEnd <= sessionStart) return;
+    const headPx = ((currentTime - sessionStart) / 1000) * pxPerSecond;
+    const left = viewportElement.scrollLeft;
+    const right = left + viewportWidthPx;
+    // Anchor playhead at 25% from the left edge once it crosses the right
+    // half — gives the viewer some lead-in on the upcoming content.
+    if (headPx < left + viewportWidthPx * 0.1 || headPx > right - viewportWidthPx * 0.2) {
+      const target = Math.max(0, headPx - viewportWidthPx * 0.25);
+      viewportElement.scrollTo({ left: target, behavior: TimeMachine.isPlaying ? 'auto' : 'smooth' });
+    }
+  });
+
+  $effect(() => {
+    if (typeof document === 'undefined') return;
+    document.body.classList.toggle(
+      'replay-playback-mode',
+      TimeMachine.isPlaying && TimeMachine.isReviewing
+    );
   });
 
   // Calculate percentage for slider background
@@ -126,10 +230,13 @@
     const duration = sessionEnd - sessionStart;
     const tickMarks = [];
 
-    // Determine major tick interval
-    let majorInterval = 1000 * 15; // 15 s
-    if (duration > 1000 * 60 * 5) majorInterval = 1000 * 60;     // 1 min
-    if (duration > 1000 * 60 * 30) majorInterval = 1000 * 60 * 5; // 5 min
+    // Major tick interval depends on duration. Minor ticks are 1/5 of major
+    // — gives the eye a steady cadence between labels without crowding.
+    let majorInterval = 1000 * 5; // 5 s
+    if (duration > 1000 * 60)       majorInterval = 1000 * 10;     // 10 s
+    if (duration > 1000 * 60 * 5)   majorInterval = 1000 * 30;     // 30 s
+    if (duration > 1000 * 60 * 30)  majorInterval = 1000 * 60 * 2; // 2 min
+    const minorInterval = majorInterval / 5;
 
     for (let time = sessionStart; time <= sessionEnd; time += majorInterval) {
       tickMarks.push({
@@ -140,6 +247,13 @@
       });
     }
 
+    for (let time = sessionStart; time <= sessionEnd; time += minorInterval) {
+      const position = ((time - sessionStart) / duration) * 100;
+      // Skip positions that overlap a major tick
+      if (tickMarks.some(t => Math.abs(t.position - position) < 0.05)) continue;
+      tickMarks.push({ position, type: 'minor', timestamp: time });
+    }
+
     // Merge checkpoint markers with major ticks
     markers.forEach(marker => {
       const existingLabelTick = tickMarks.find(
@@ -147,13 +261,6 @@
       );
       if (existingLabelTick) {
         existingLabelTick.type = 'major-snapshot';
-      } else if (marker.position <= 100) {
-        tickMarks.push({
-          position: marker.position,
-          type: 'snapshot',
-          index: marker.index,
-          timestamp: marker.timestamp
-        });
       }
     });
 
@@ -171,7 +278,7 @@
   </div>
 
   <button class="floating-catch-up-btn" onclick={() => TimeMachine.catchUp()}>
-    Jump To Present
+    {TimeMachine.isLocalReplay ? 'Return To Live' : 'Jump To Present'}
   </button>
 {/if}
 
@@ -201,7 +308,11 @@
         {/if}
       </button>
 
-      <div class="scrubber-container">
+      <div
+        class="scrubber-viewport"
+        bind:this={viewportElement}
+        onwheel={handleViewportWheel}
+      >
         <div
           class="custom-scrubber"
           bind:this={scrubberElement}
@@ -213,10 +324,26 @@
           aria-valuemax="100"
           aria-valuenow={progressPercent}
           tabindex="0"
+          style="width: {scrubberWidthPx}px"
         >
+          <div class="snapshot-marker-row">
+            {#each markers as m}
+              <div
+                class="snapshot-marker"
+                style="left: {m.position}%"
+                title="Snapshot {m.index + 1} • {formatRelativeTime(m.timestamp)}"
+              >◆</div>
+            {/each}
+          </div>
           <div class="scrubber-track">
             <div class="scrubber-progress" style="width: {progressPercent}%"></div>
-            <div class="scrubber-thumb" style="left: {progressPercent}%"></div>
+            {#each markers as m}
+              <div
+                class="snapshot-line"
+                style="left: {m.position}%"
+                title="Snapshot {m.index + 1}"
+              ></div>
+            {/each}
             {#each allTickMarks as tick}
               {#if tick.type === 'major' || tick.type === 'major-snapshot'}
                 <div
@@ -224,37 +351,35 @@
                   style="left: {tick.position}%"
                   title={formatRelativeTime(tick.timestamp)}
                 ></div>
-              {:else if tick.type === 'snapshot'}
-                <div
-                  class="tick-mark snapshot-tick"
-                  style="left: {tick.position}%"
-                  title="Checkpoint {tick.index + 1} at {formatRelativeTime(tick.timestamp)}"
-                ></div>
+              {:else if tick.type === 'minor'}
+                <div class="tick-mark minor-tick" style="left: {tick.position}%"></div>
+              {/if}
+            {/each}
+            <div class="scrubber-thumb" style="left: {progressPercent}%"></div>
+          </div>
+          <div class="time-labels-container">
+            {#each allTickMarks as tick}
+              {#if tick.label && (tick.type === 'major' || tick.type === 'major-snapshot')}
+                <div class="time-label" style="left: {tick.position}%">
+                  {tick.label}
+                </div>
               {/if}
             {/each}
           </div>
         </div>
-        <div class="time-labels-container">
-          {#each allTickMarks as tick}
-            {#if tick.label && (tick.type === 'major' || tick.type === 'major-snapshot')}
-              <div class="time-label" style="left: {tick.position}%">
-                {tick.label}
-              </div>
-            {/if}
-          {/each}
-        </div>
       </div>
 
       {#if TimeMachine.isReviewing}
-        <button class="catch-up-btn" onclick={() => TimeMachine.catchUp()}>
-          Catch Up
-        </button>
-        
-        {#if appState.isModerator}
-          <button class="mod-undo-btn" onclick={handleUndoToState}>
-            Restore to here
+        <div class="review-actions">
+          {#if TimeMachine.isLocalReplay || appState.isModerator}
+            <button class="mod-undo-btn" onclick={handleUndoToState}>
+              {TimeMachine.isLocalReplay ? 'Undo to here' : 'Restore to here'}
+            </button>
+          {/if}
+          <button class="catch-up-btn" onclick={() => TimeMachine.catchUp()}>
+            {TimeMachine.isLocalReplay ? 'Return Live' : 'Catch Up'}
           </button>
-        {/if}
+        </div>
       {/if}
     </div>
   </div>
@@ -290,6 +415,30 @@
     }
   }
 
+  /* Hide overlays / chat / popovers during playback, but keep the top board
+     toolbar (zoom in/out, rotate) and undo/redo HUD so the viewer can pan and
+     zoom around the replay. The userList is hidden separately via JS so bot
+     cursors stay visible without the sidebar entries. */
+  :global(body.replay-playback-mode #boardMenu),
+  :global(body.replay-playback-mode #chatMount),
+  :global(body.replay-playback-mode #chatToastContainer),
+  :global(body.replay-playback-mode #boardColorPickerPanelMount),
+  :global(body.replay-playback-mode #floatingPaletteMount),
+  :global(body.replay-playback-mode #selectionMenu),
+  :global(body.replay-playback-mode #userContextMenu),
+  :global(body.replay-playback-mode #selfContextMenu),
+  :global(body.replay-playback-mode .toast),
+  :global(body.replay-playback-mode .history-badge),
+  :global(body.replay-playback-mode .floating-catch-up-btn) {
+    opacity: 0 !important;
+    pointer-events: none !important;
+    transition: opacity 180ms ease;
+  }
+
+  :global(body.replay-playback-mode #boards) {
+    box-shadow: none;
+  }
+
   .floating-catch-up-btn {
     position: fixed;
     right: 20px;
@@ -323,8 +472,8 @@
     bottom: 20px;
     left: 50%;
     transform: translateX(-50%);
-    width: 90%;
-    max-width: 800px;
+    width: 92%;
+    max-width: 1100px;
     z-index: 10001;
     transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 
@@ -412,36 +561,61 @@
       }
     }
 
-    .scrubber-container {
+    .scrubber-viewport {
       flex: 1;
       position: relative;
-      display: flex;
-      flex-direction: column;
-      gap: 0;
+      overflow-x: auto;
+      overflow-y: hidden;
       padding-top: 2px;
-      padding-bottom: 10px;
+      padding-bottom: 4px;
+      /* Slim scrollbar so it doesn't dominate at the bottom of the bar. */
+      &::-webkit-scrollbar { height: 6px; }
+      &::-webkit-scrollbar-thumb {
+        background: rgba(160, 174, 192, 0.5);
+        border-radius: 3px;
+      }
+      &::-webkit-scrollbar-thumb:hover { background: rgba(160, 174, 192, 0.8); }
+      &::-webkit-scrollbar-track { background: rgba(255, 255, 255, 0.04); }
     }
 
     .custom-scrubber {
       position: relative;
-      width: 100%;
-      height: 36px; /* Increased height by 1.5x from 24px */
+      /* width set inline based on duration × pxPerSecond */
+      height: 60px;
       cursor: grab;
       display: flex;
-      align-items: center;
+      flex-direction: column;
+
+      .snapshot-marker-row {
+        position: relative;
+        height: 14px;
+        margin-bottom: 1px;
+      }
+
+      .snapshot-marker {
+        position: absolute;
+        top: 0;
+        transform: translateX(-50%);
+        color: #2dd4bf;
+        font-size: 10px;
+        line-height: 14px;
+        text-shadow: 0 0 4px rgba(45, 212, 191, 0.6);
+        pointer-events: none;
+        user-select: none;
+      }
 
       .scrubber-track {
         width: 100%;
-        height: 27px; /* Increased height by 1.5x from 18px */
+        height: 27px;
         background: rgba(255, 255, 255, 0.1);
         border-radius: 0;
         position: relative;
-        overflow: hidden; /* Keep ticks inside if needed */
+        overflow: visible;
       }
 
       .scrubber-progress {
         height: 100%;
-        background: rgba(160, 174, 192, 0.3); /* Subtle fill */
+        background: rgba(160, 174, 192, 0.3);
         position: absolute;
         left: 0;
         top: 0;
@@ -449,14 +623,26 @@
 
       .scrubber-thumb {
         position: absolute;
-        top: 0;
+        top: -3px;
         width: 2px;
-        height: 36px; /* Increased height by 1.5x from 24px */
+        height: 33px;
         background: #fff;
         border-radius: 1px;
         transform: translateX(-50%);
-        box-shadow: 0 0 8px rgba(255, 255, 255, 0.5);
+        box-shadow: 0 0 8px rgba(255, 255, 255, 0.6);
         z-index: 5;
+        pointer-events: none;
+      }
+
+      .snapshot-line {
+        position: absolute;
+        top: -3px;
+        bottom: -3px;
+        width: 2px;
+        background: #2dd4bf;
+        box-shadow: 0 0 6px rgba(45, 212, 191, 0.5);
+        transform: translateX(-50%);
+        z-index: 3;
         pointer-events: none;
       }
 
@@ -469,18 +655,14 @@
         pointer-events: none;
 
         &.major-tick {
-          height: 100%; /* Tick takes full height of track */
-          background: rgba(255, 255, 255, 0.4);
-          width: 1px;
+          top: 0;
+          background: rgba(255, 255, 255, 0.45);
         }
 
-        &.snapshot-tick {
-          height: 100%;
-          background: #2dd4bf;
-          width: 3px;
-          z-index: 2;
+        &.minor-tick {
+          height: 9px;
+          background: rgba(255, 255, 255, 0.35);
         }
-
       }
     }
 
@@ -495,10 +677,17 @@
         top: 0;
         transform: translateX(-50%);
         font-size: 9px;
-        color: #64748b;
+        color: #94a3b8;
         white-space: nowrap;
         pointer-events: none;
       }
+    }
+
+    .review-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      align-items: stretch;
     }
 
     .catch-up-btn {

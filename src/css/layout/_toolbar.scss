@@ -173,6 +173,43 @@
   background: #f87171;
 }
 
+/* Local-tape recorder. Separate from #recordBtn (server timeline) so the
+   two recording concepts don't share styling — they have different states. */
+#tapeRecBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#tapeRecBtn .tapeRecGlyph {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #ef4444;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06);
+  transition: transform var(--transition-fast), background var(--transition-fast);
+}
+
+#tapeRecBtn.is-recording {
+  background: rgba(239, 68, 68, 0.18);
+  color: #fecaca;
+}
+
+#tapeRecBtn.is-recording .tapeRecGlyph {
+  animation: tape-rec-pulse 1.4s ease-in-out infinite;
+}
+
+#tapeRecBtn .tapeRecElapsed {
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+@keyframes tape-rec-pulse {
+  0%, 100% { transform: scale(1);   opacity: 1;   }
+  50%      { transform: scale(0.6); opacity: 0.55; }
+}
+
 .saveUploadGroup {
   display: flex;
   gap: var(--space-2);

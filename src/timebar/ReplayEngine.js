@@ -62,6 +62,14 @@ class ReplayBoard {
     this.app = null;
     this._needsComposite = false;
     this._dirtyRects = [];
+    // Per-stroke composite dirty rects. Each endStroke() appends the freshly
+    // committed stroke's bounds; compositeAllLayers() consumes + clears them.
+    // When non-empty, compositeLayerRange clips to those rects instead of
+    // clear+redrawing the whole canvas.
+    this._compositeDirtyRects = [];
+    // When true, the next compositeAllLayers() call must redraw the full
+    // canvas (full rebuild path). Set by _runActionBatch on rebaseSnapshot.
+    this._fullComposite = true;
 
     this.selectionOverlayPadding = 500;
     this.selectionOverlay = document.createElement('canvas');
@@ -83,6 +91,25 @@ class ReplayBoard {
   getHeight() { return this.dimensions[0]; }
 
   setMirror(m) { this.mirror = !!m; }
+
+  // ── stubs ──────────────────────────────────────────────────────────────
+  // RemoteUserHandler calls these on the live Board during MD/MM/MU. They
+  // exist to apply selection masking and mirror drawing, which the replay
+  // path doesn't need (no live selection in the replay engine, mirrors are
+  // already baked into the recorded stroke data). Missing methods throw and
+  // are silently swallowed by ReplayEngine._processAction's try/catch — so
+  // they have to exist as no-ops or strokes never commit.
+  applySelectionMaskClipForStroke(_layerIndex, _userId) { return false; }
+  releaseSelectionMaskClipForStroke(_layerIndex, _userId) {}
+  withSelectionMaskClip(ctx, _userId, drawFn) {
+    if (typeof drawFn === 'function') drawFn();
+  }
+  forEachMirrorRegion(_target, _callback) {}
+  getActiveMirrorRegions() { return Array.isArray(this.mirrorRegions) ? this.mirrorRegions : []; }
+  renderMirrorRegions() {}
+  clearTop() {
+    if (this.topCtx) this.topCtx.clearRect(0, 0, this.getWidth(), this.getHeight());
+  }
 
   // Stroke lifecycle — delegates to real LayerManager
   beginStroke(user, blendModeOverride) {
@@ -108,6 +135,7 @@ class ReplayBoard {
     const activeLayer = isBlurFilter ? 0 : (user?.activeLayer ?? 0);
     const userId = user?.id ?? 0;
     this.layerManager.commitUserStroke(activeLayer, userId, extraProps);
+    this._captureCommittedDirtyRect(activeLayer, userId);
   }
 
   endStrokeAllLayers(user) {
@@ -116,7 +144,39 @@ class ReplayBoard {
     const count = this.layerManager.getLayerCount();
     for (let i = 0; i < count; i++) {
       this.layerManager.commitUserStroke(i, userId, { eraseAll: true, timestamp: batchTimestamp });
+      this._captureCommittedDirtyRect(i, userId);
     }
+  }
+
+  /**
+   * After a commit, pull the just-pushed stroke record's bounds out of the
+   * LayerManager and append to the pending dirty-rect list. Safe no-op if the
+   * commit produced no record (zero-area stroke, etc.).
+   * @param {number} layerIndex
+   * @param {number} userId
+   * @private
+   */
+  _captureCommittedDirtyRect(layerIndex, userId) {
+    if (this._fullComposite) return; // full composite already scheduled
+    const group = this.layerManager?.layerGroups?.[layerIndex];
+    if (!group) return;
+    let record = null;
+    if (group.flatStrokeRecords && group.flatStrokeRecords.length > 0) {
+      const last = group.flatStrokeRecords[group.flatStrokeRecords.length - 1];
+      if (last && last.userId === userId) record = last;
+    }
+    if (!record && group.strokeStack.length > 0) {
+      const last = group.strokeStack[group.strokeStack.length - 1];
+      if (last && last.userId === userId) record = last;
+    }
+    if (!record || !Number.isFinite(record.width) || !Number.isFinite(record.height)) return;
+    if (record.width <= 0 || record.height <= 0) return;
+    this._compositeDirtyRects.push({
+      x: record.x,
+      y: record.y,
+      width: record.width,
+      height: record.height,
+    });
   }
 
   /**
@@ -324,8 +384,19 @@ class ReplayBoard {
       splitLayer + 1 < totalLayers &&
       !this.layerManager.rangeHasBlendModeStrokes(splitLayer + 1, totalLayers);
 
-    this.mainCtx.clearRect(0, 0, this.getWidth(), this.getHeight());
-    this.upperLayersCtx?.clearRect(0, 0, this.getWidth(), this.getHeight());
+    // Dirty-rect path: only the regions touched by strokes committed since the
+    // last composite need to be repainted. Full-composite mode (snapshot
+    // rebase, first frame, mode flip) skips this and clears everything.
+    const useDirty =
+      !this._fullComposite &&
+      this._compositeDirtyRects.length > 0 &&
+      !hasActiveSelection;
+    const dirtyRects = useDirty ? this._compositeDirtyRects : null;
+
+    if (!useDirty) {
+      this.mainCtx.clearRect(0, 0, this.getWidth(), this.getHeight());
+      this.upperLayersCtx?.clearRect(0, 0, this.getWidth(), this.getHeight());
+    }
 
     if (canSplitUpperLayers) {
       this.layerManager.compositeLayerRange(
@@ -333,14 +404,14 @@ class ReplayBoard {
         0,
         splitLayer + 1,
         this.backgroundColor,
-        []
+        dirtyRects
       );
       this.layerManager.compositeLayerRange(
         this.upperLayersCtx,
         splitLayer + 1,
         totalLayers,
         null,
-        []
+        dirtyRects
       );
     } else {
       this.layerManager.compositeLayerRange(
@@ -348,10 +419,12 @@ class ReplayBoard {
         0,
         totalLayers,
         this.backgroundColor,
-        []
+        dirtyRects
       );
     }
 
+    this._compositeDirtyRects.length = 0;
+    this._fullComposite = false;
     this.layerManager.needsComposite = false;
   }
 
@@ -482,11 +555,60 @@ export class ReplayEngine {
   }
 
   /**
+   * Resize the replay engine's canvases + LayerManager to match a recording's
+   * board dimensions. The engine is constructed with the live board's size at
+   * App boot, but the board can grow (room joins with a larger boardSize)
+   * before a recording is loaded. Snapshots captured at the new size would
+   * otherwise blit into a too-small replay canvas and get truncated.
+   * @param {number} width
+   * @param {number} height
+   */
+  resize(width, height) {
+    if (!width || !height) return;
+    if (width === this.width && height === this.height) return;
+    this.width = width;
+    this.height = height;
+    for (const cvs of [this.outputCanvas, this.topCanvas, this._snapshotCanvas]) {
+      if (cvs) { cvs.width = width; cvs.height = height; }
+    }
+    if (this._replayBoard) {
+      this._replayBoard.dimensions = [height, width];
+      for (const cvs of [this._replayBoard.mainCanvas, this._replayBoard.topCanvas, this._replayBoard.upperLayersCanvas]) {
+        if (cvs) { cvs.width = width; cvs.height = height; }
+      }
+      if (this._replayBoard.layerManager) {
+        this._replayBoard.layerManager.width = width;
+        this._replayBoard.layerManager.height = height;
+        for (const group of this._replayBoard.layerManager.layerGroups ?? []) {
+          for (const cvs of [group.baseCanvas, group.flatCanvas]) {
+            if (cvs) { cvs.width = width; cvs.height = height; }
+          }
+        }
+      }
+    }
+  }
+
+  /**
    * Provide a resolver for deduplicated replay image assets.
    * @param {(source:any) => string|null} resolver
    */
   setAssetResolver(resolver) {
     this._assetResolver = resolver;
+  }
+
+  /**
+   * Mark users whose strokes can be baked immediately during this replay (because
+   * the tape contains no UNDO/REDO for them). Saves up to MAX_STROKES_PER_USER
+   * worth of pending stroke canvases per layer per user from being re-composited
+   * every frame.
+   * @param {Set<number>|null} userIdSet
+   */
+  setEagerBakeUsers(userIdSet) {
+    const set = userIdSet && userIdSet.size > 0 ? userIdSet : null;
+    this._eagerBakeUsers = set;
+    if (this._replayBoard?.layerManager) {
+      this._replayBoard.layerManager.eagerBakeUsers = set;
+    }
   }
 
   /**
@@ -541,6 +663,10 @@ export class ReplayEngine {
       },
       hideRemoteCursor: () => {},
       showRemoteCursor: () => {},
+      // Pure activity-tracking signal in the live UI; replay doesn't need it
+      // but RemoteUserHandler calls it on every MD/MM, so a missing method
+      // throws and the entire stroke gets swallowed by the try/catch.
+      markRemoteCursorActivity: () => {},
       createRemoteUser: () => {},
       removeRemoteUser: (id) => {
         const user = this.botUsers.get(id);
@@ -601,6 +727,11 @@ export class ReplayEngine {
     // Disable the catchup loop — replay drives all drawing synchronously
     this._remoteHandler.startCatchupLoop = () => {};
     this._remoteHandler.tickCatchup = () => {};
+
+    // Restore eager-bake set across LayerManager rebuilds (reset, seek-back).
+    if (this._eagerBakeUsers && this._replayBoard?.layerManager) {
+      this._replayBoard.layerManager.eagerBakeUsers = this._eagerBakeUsers;
+    }
   }
 
   /**
@@ -636,6 +767,72 @@ export class ReplayEngine {
 
     // Reinitialize the replay system for a clean slate
     this._initReplaySystem();
+    if (this._replayBoard) {
+      this._replayBoard._fullComposite = true;
+      this._replayBoard._compositeDirtyRects.length = 0;
+    }
+  }
+
+  /**
+   * Snapshot the current visible state so it can be reloaded later as a base
+   * for incremental replay. Cheap — clones the composited mainCanvas as an
+   * ImageBitmap (GPU-resident) and shallow-copies relevant bot fields.
+   * Caller is responsible for closing the bitmap when evicting.
+   * @returns {Promise<{bitmap: ImageBitmap, botStates: Object}|null>}
+   */
+  async captureDynamicCheckpoint() {
+    const mainCanvas = this._replayBoard?.mainCanvas;
+    if (!mainCanvas) return null;
+    const bitmap = await createImageBitmap(mainCanvas);
+    const botStates = {};
+    for (const [id, u] of this.botUsers) {
+      botStates[id] = {
+        username: u.username,
+        role: u.role,
+        x: u.x, y: u.y,
+        size: u.size,
+        color: u.color ? [...u.color] : undefined,
+        opacity: u.opacity,
+        tool: u.tool,
+        text: u.text || '',
+        blendMode: u.blendMode,
+        activeLayer: u.activeLayer,
+        spacing: u.spacing,
+        smoothing: u.smoothing,
+        hardness: u.hardness,
+        thinning: u.thinning,
+        pressure: u.pressure,
+        simulatePressure: u.simulatePressure,
+        patternMode: u.patternMode,
+        patternScale: u.patternScale,
+        patternRotation: u.patternRotation,
+        patternSpacing: u.patternSpacing,
+        patternOffsetX: u.patternOffsetX,
+        patternOffsetY: u.patternOffsetY,
+        patternColorMode: u.patternColorMode,
+      };
+    }
+    return { bitmap, botStates };
+  }
+
+  /**
+   * Load a previously captured dynamic checkpoint as the base state for
+   * replay. Mirrors loadCheckpointImage but accepts an ImageBitmap and a
+   * snapshot of bot user state so we don't lose tool/color/size context
+   * acquired between the static checkpoint and this point in the tape.
+   * @param {{bitmap: ImageBitmap, botStates: Object}} cp
+   * @returns {Promise<void>}
+   */
+  async loadDynamicCheckpoint(cp) {
+    if (!cp?.bitmap) return;
+    this.reset();
+    this._snapshotHasLayerState = false;
+    this._snapshotCtx.clearRect(0, 0, this.width, this.height);
+    this._snapshotCtx.drawImage(cp.bitmap, 0, 0);
+    for (const [idStr, state] of Object.entries(cp.botStates || {})) {
+      const bot = this._createBotUser(Number(idStr), state);
+      this._storePatternState(bot);
+    }
   }
 
   /**
@@ -1627,6 +1824,12 @@ export class ReplayEngine {
    * @private
    */
   async _runActionBatch(actions, upToTimestamp, { rebaseSnapshot }) {
+    if (rebaseSnapshot) {
+      // Whole canvas changes — discard any in-flight dirty rects and force a
+      // full composite at the end of this batch.
+      this._replayBoard._fullComposite = true;
+      this._replayBoard._compositeDirtyRects.length = 0;
+    }
     if (rebaseSnapshot && this._snapshotCanvas && !this._snapshotHasLayerState) {
       const layer0 = this._replayBoard.layerManager.layerGroups[0];
       if (layer0) {

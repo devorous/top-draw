@@ -12,6 +12,27 @@ import { T } from '../../shared/MessageTypes.js';
 const SEEK_TELEMETRY_LOG_INTERVAL_MS = 1500;
 
 /**
+ * Return the set of user IDs that have no UNDO or REDO message in the
+ * recording. Their strokes can be baked into flatCanvas immediately during
+ * replay instead of sitting in strokeStack until the per-user threshold trips.
+ * @param {{ deltas: Array<{msg: { t?: number, u?: number }}> }} rec
+ * @returns {Set<number>}
+ */
+function _collectEagerBakeUsers(rec) {
+  const all = new Set();
+  const undoers = new Set();
+  for (const d of rec?.deltas ?? []) {
+    const u = d?.msg?.u;
+    if (u == null) continue;
+    all.add(u);
+    if (d.msg.t === T.UNDO || d.msg.t === T.REDO) undoers.add(u);
+  }
+  const eager = new Set();
+  for (const u of all) if (!undoers.has(u)) eager.add(u);
+  return eager;
+}
+
+/**
  * TimeMachine manages server-side replay of board history.
  */
 class TimeMachineState {
@@ -40,6 +61,8 @@ class TimeMachineState {
   get maxTime() { return this.sessionEnd; }
   /** kept so Timebar.svelte can reference it safely */
   get frozenMaxTime() { return null; }
+  /** true when the scrubber is showing a finite local Recorder tape */
+  get isLocalReplay() { return this._source === 'local'; }
   /** no longer relevant — always false */
   get needsResync() { return false; }
   /** no local buffer — always empty */
@@ -51,11 +74,16 @@ class TimeMachineState {
   _replayEngine = null;
   _replayCanvas = null;
   _replayCtx = null;
+  /** 'server' = server checkpoint+delta DB, 'local' = client-side Recorder bundle */
+  _source = 'server';
+  /** Active local recording (set by loadFromRecording). */
+  _localRecording = null;
   /** @type {Set<number>} negative IDs of bot cursors created in the UI */
   _botCursorIds = new Set();
   /** @type {Array<{element: HTMLElement|SVGElement, display: string}>} */
   _hiddenRealtimeCursorElements = [];
   _isSeeking = false;
+  _seekGeneration = 0;
   _pendingSeekTimestamp = null;
   _lastAppliedTimestamp = null;
   _lastSeekLogAt = 0;
@@ -67,6 +95,12 @@ class TimeMachineState {
   _playbackFrameId = null;
   _tickInterval = null;
   _telemetry = { seek: null };
+  /** @type {Array<{ts: number, bitmap: ImageBitmap, botStates: Object}>} sorted ascending */
+  _dynCheckpoints = [];
+  _dynCheckpointMinIntervalMs = 3000;
+  _dynCheckpointMaxCount = 8;
+  _dynCheckpointInFlight = false;
+  _lastDynCheckpointTs = null;
 
   // ── initialisation ─────────────────────────────────────────────────────────
 
@@ -121,6 +155,15 @@ class TimeMachineState {
     this._replayCtx.drawImage(this._replayEngine.outputCanvas, 0, 0);
   }
 
+  /**
+   * Replay engine's internal LayerManager. Exposed so the parity harness can
+   * diff replayed pixels against live ones without poking at private state.
+   * @returns {import('../canvas/LayerManager.js').LayerManager|null}
+   */
+  getReplayLayerManager() {
+    return this._replayEngine?._replayBoard?.layerManager ?? null;
+  }
+
   // ── public API ─────────────────────────────────────────────────────────────
 
   /**
@@ -164,15 +207,104 @@ class TimeMachineState {
   }
 
   /**
-   * No-op. Local action recording has been removed.
-   * The method is kept so callers in WebSocketClient don't need to change.
+   * Forward a tapped WebSocket message into the active local Recorder, if any.
+   * Called by WebSocketClient for both inbound and outbound messages.
+   *
+   * @param {Object} msg - decoded JSON message
+   * @param {'inbound'|'outbound'} direction
    */
-  recordAction() {}
+  recordAction(msg, direction) {
+    const rec = (typeof window !== 'undefined' ? window.app?.recorder : null);
+    if (!rec?.isRecording?.()) return;
+    if (direction === 'inbound') {
+      rec.recordIncoming(msg);
+    } else {
+      rec.recordOutgoing(msg);
+    }
+  }
+
+  /**
+   * Open the timebar against a local Recorder bundle (no server round trip).
+   * Wires the replay engine to the recording's asset pool and seeks to the
+   * end of the tape.
+   *
+   * @param {import('../replay/Recorder.js').ReplayRecording} rec
+   */
+  async loadFromRecording(rec) {
+    if (!rec) return;
+    if (this.isLoading) return;
+    // If a server source was loaded, tear it down first.
+    if (this._source === 'server' && this.isOpen) this.stop();
+
+    this._source = 'local';
+    this._localRecording = rec;
+    this._clearDynCheckpoints();
+
+    // Match the replay engine to the recording's board dimensions. The engine
+    // was sized to whatever the live board was at App boot, which is usually
+    // the default 1920x1080 — but rooms can have larger boards (e.g. 2560x1440)
+    // and the snapshot's canvasData is at the room's actual size.
+    const [rh, rw] = Array.isArray(rec.openingSnapshot?.boardDimensions)
+      ? rec.openingSnapshot.boardDimensions
+      : [this._board?.getHeight?.() ?? 0, this._board?.getWidth?.() ?? 0];
+    if (rw && rh) {
+      this._replayEngine.resize(rw, rh);
+      if (this._replayCanvas) {
+        this._replayCanvas.width = rw;
+        this._replayCanvas.height = rh;
+      }
+    }
+
+    // Build a checkpoint list out of the opening snapshot + intra-checkpoints.
+    const checkpoints = [
+      { id: 'opening', ts: rec.startedAt, kind: 'opening' },
+      ...rec.intraCheckpoints.map((cp, idx) => ({
+        id: `intra_${idx}`,
+        ts: cp.ts,
+        kind: 'intra',
+      })),
+    ];
+
+    this.checkpoints = checkpoints;
+    this.sessionStart = rec.startedAt;
+    this.sessionEnd = rec.endedAt ?? Date.now();
+    this.currentTime = this.sessionEnd;
+
+    // Asset resolver wires the recording's asset pool into the replay engine.
+    // ReplayEngine pipes EVERY image source through this resolver — including
+    // plain dataURL strings (the snapshot's canvasData). So we must pass
+    // strings through unchanged; only `{ assetRef }` objects get rewritten.
+    if (this._replayEngine?.setAssetResolver) {
+      this._replayEngine.setAssetResolver((source) => {
+        if (!source) return null;
+        if (typeof source === 'string') return source;
+        if (typeof source === 'object' && source.assetRef) {
+          return rec.assets?.[source.assetRef] ?? null;
+        }
+        return null;
+      });
+    }
+
+    this.isOpen = true;
+    this.isReviewing = false;
+    this.isPlaying = false;
+    this._lastAppliedTimestamp = null;
+
+    // Find users with no UNDO/REDO in the tape and tell the replay engine
+    // their strokes can bake immediately. Cuts per-frame composite work on
+    // long multi-user tapes where most strokes will never be undone.
+    this._replayEngine?.setEagerBakeUsers?.(_collectEagerBakeUsers(rec));
+
+    // Drop into review at the end of the tape immediately so the user sees
+    // the final frame the moment they stop recording.
+    await this.seek(this.sessionEnd);
+  }
 
   /**
    * Clear all state when leaving a room.
    */
   stop() {
+    this._seekGeneration += 1;
     this.isOpen = false;
     this.isReviewing = false;
     this.isPlaying = false;
@@ -185,6 +317,12 @@ class TimeMachineState {
     this._lastAppliedTimestamp = null;
     this._pendingSeekTimestamp = null;
     this._pendingPlaybackTimestamp = null;
+    this._source = 'server';
+    this._localRecording = null;
+    this._clearDynCheckpoints();
+    if (this._replayEngine?.setAssetResolver) {
+      this._replayEngine.setAssetResolver(null);
+    }
     this._showReplayCanvas(false);
     this._removeBotCursors();
 
@@ -213,8 +351,14 @@ class TimeMachineState {
     );
 
     const wasReviewing = this.isReviewing;
-    // "At live" = within 60s of sessionEnd (a checkpoint may be ~60s stale)
-    this.isReviewing = this.currentTime < (this.sessionEnd - 60_000);
+    if (this._source === 'local') {
+      // Local recordings have no live edge — the tape ended. Every position
+      // shows replay pixels, including the final frame at sessionEnd.
+      this.isReviewing = true;
+    } else {
+      // "At live" = within 60s of sessionEnd (a checkpoint may be ~60s stale)
+      this.isReviewing = this.currentTime < (this.sessionEnd - 60_000);
+    }
 
     if (this.isReviewing && !wasReviewing) {
       // Entered review mode
@@ -239,13 +383,15 @@ class TimeMachineState {
       }
 
       this._isSeeking = true;
+      const seekGeneration = ++this._seekGeneration;
       try {
         await this._applyStateAt(this.currentTime);
+        if (seekGeneration !== this._seekGeneration || !this.isReviewing) return;
         this._showReplayCanvas(true);
         this._updateBotCursors();
       } finally {
         this._isSeeking = false;
-        if (this._pendingSeekTimestamp !== null) {
+        if (seekGeneration === this._seekGeneration && this._pendingSeekTimestamp !== null) {
           const next = this._pendingSeekTimestamp;
           this._pendingSeekTimestamp = null;
           this.seek(next);
@@ -265,7 +411,27 @@ class TimeMachineState {
    */
   catchUp() {
     this.pause();
-    this.seek(this.sessionEnd);
+    this._seekGeneration += 1;
+    this._flushLiveMessageQueue();
+
+    if (this._source === 'local') {
+      // A local recording is a finite tape, not the server's live timeline.
+      // The live board has kept processing socket messages while the replay
+      // canvas was visible, so leaving the tape should reveal that board.
+      this.stop();
+      window.app?.updateRecordingButtonState?.();
+      return;
+    }
+
+    this.sessionEnd = Math.max(this.sessionEnd || 0, Date.now());
+    this.currentTime = this.sessionEnd;
+    this.isReviewing = false;
+    this._lastAppliedTimestamp = null;
+    this._pendingSeekTimestamp = null;
+    this._pendingPlaybackTimestamp = null;
+    this.previewData = null;
+    this._showReplayCanvas(false);
+    this._removeBotCursors();
   }
 
   play() {
@@ -292,6 +458,29 @@ class TimeMachineState {
   requestUndoTo(timestamp) {
     if (!this._wsClient) return;
     this._wsClient.send({ t: T.MOD_UNDO_TO_STATE, mod_undo_ts: timestamp });
+  }
+
+  /**
+   * Local-replay equivalent of requestUndoTo: paint the currently-displayed
+   * replay state onto the live board and drop back to live view. Only
+   * meaningful for client-side recordings (no server coordination). The
+   * server is unaware — collaborators would see this as a clear+redraw on
+   * any subsequent stroke, so this is really a single-user "rewind my own
+   * canvas" operation.
+   */
+  restoreLocalToCurrentState() {
+    if (this._source !== 'local' || !this.isReviewing) return;
+    const src = this._replayEngine?.outputCanvas;
+    const liveBoard = this._board;
+    if (!src || !liveBoard) return;
+    liveBoard.clear?.();
+    const layer0 = liveBoard.layerManager?.layerGroups?.[0];
+    if (layer0?.flatCtx) {
+      layer0.flatCtx.drawImage(src, 0, 0);
+    }
+    liveBoard.markCompositeFull?.();
+    liveBoard.compositeAllLayers?.();
+    this.catchUp();
   }
 
   // ── private helpers ────────────────────────────────────────────────────────
@@ -330,12 +519,181 @@ class TimeMachineState {
   }
 
   /**
-   * Apply state at the given timestamp by fetching from the server.
+   * Apply state at the given timestamp from whichever source is active.
    * @param {number} timestamp
    * @private
    */
   async _applyStateAt(timestamp) {
-    await this._fetchAndApplyServerReplay(timestamp);
+    if (this._source === 'local') {
+      await this._applyStateAtLocal(timestamp);
+    } else {
+      await this._fetchAndApplyServerReplay(timestamp);
+    }
+  }
+
+  /**
+   * Apply state at `timestamp` by replaying from the nearest local checkpoint.
+   *
+   * Strategy: find the latest checkpoint with `ts <= timestamp`, load its
+   * snapshot into the ReplayEngine, then `processActions()` every delta in
+   * `(checkpoint.ts, timestamp]`. ReplayEngine routes those through the real
+   * RemoteUserHandler so the output is byte-identical to a fresh live draw.
+   *
+   * @param {number} timestamp
+   * @private
+   */
+  async _applyStateAtLocal(timestamp) {
+    const rec = this._localRecording;
+    if (!rec || !this._replayEngine) return;
+    const seekStart = performance.now();
+
+    // Fast path: forward seek within the same session — the engine is already
+    // at _lastAppliedTimestamp, so we only need to push the new deltas through
+    // appendActions (no snapshot reload, no re-replay from the checkpoint).
+    // Anything else (first seek, backward scrub, source change) falls through
+    // to the full rebuild below.
+    const canIncrement =
+      this._lastAppliedTimestamp != null &&
+      timestamp >= this._lastAppliedTimestamp;
+
+    if (canIncrement) {
+      const lastTs = this._lastAppliedTimestamp;
+      const actions = [];
+      for (const d of rec.deltas) {
+        if (d.ts <= lastTs) continue;
+        if (d.ts > timestamp) break;
+        actions.push({ timestamp: d.ts, msg: d.msg });
+      }
+      await this._replayEngine.appendActions(actions, timestamp);
+
+      this._lastAppliedTimestamp = timestamp;
+      this._drawToReplayCanvas();
+      this.previewData = true;
+
+      const totalMs = (performance.now() - seekStart).toFixed(1);
+      this._telemetry.seek = {
+        timestamp,
+        totalMs: Number(totalMs),
+        actionsReplayed: actions.length,
+        incremental: true,
+      };
+      this._maybeLogSeekTelemetry();
+      this._maybeCaptureDynCheckpoint(timestamp);
+      return;
+    }
+
+    // Backward-scrub path. Prefer a dynamic in-engine checkpoint over the
+    // static intra-checkpoint when one exists later in the tape — that's the
+    // whole reason the cache exists. Falls back gracefully if none is closer.
+    const staticCp = this._findCheckpointBefore(timestamp);
+    const dynCp = this._findDynCheckpointBefore(timestamp);
+    const useDyn = dynCp && (!staticCp || dynCp.ts > staticCp.ts);
+
+    let cpTs;
+    let usedDyn = false;
+    if (useDyn) {
+      await this._replayEngine.loadDynamicCheckpoint(dynCp);
+      cpTs = dynCp.ts;
+      usedDyn = true;
+    } else {
+      cpTs = staticCp?.ts ?? rec.startedAt;
+      const snapshot = staticCp?.id === 'opening' || !staticCp
+        ? rec.openingSnapshot
+        : rec.intraCheckpoints[Number(staticCp.id.slice('intra_'.length))]?.snapshot
+          ?? rec.openingSnapshot;
+      await this._replayEngine.loadSnapshot(snapshot);
+    }
+
+    const actions = [];
+    for (const d of rec.deltas) {
+      if (d.ts < cpTs) continue;
+      if (d.ts > timestamp) break;
+      actions.push({ timestamp: d.ts, msg: d.msg });
+    }
+
+    // Always call processActions — even with no actions, the rebase-snapshot
+    // path inside _runActionBatch paints the loaded snapshot pixels into
+    // layer 0's flatCanvas and runs _compositeOutput. Skipping this when
+    // actions is empty (e.g. seeking to a position right at an intra
+    // checkpoint with nothing after it) leaves the replay engine's
+    // LayerManager blank.
+    await this._replayEngine.processActions(actions, timestamp);
+
+    this._lastAppliedTimestamp = timestamp;
+    this._drawToReplayCanvas();
+    this.previewData = true;
+
+    const totalMs = (performance.now() - seekStart).toFixed(1);
+    this._telemetry.seek = {
+      timestamp,
+      totalMs: Number(totalMs),
+      actionsReplayed: actions.length,
+      cpKind: usedDyn ? 'dyn' : 'static',
+    };
+    this._maybeLogSeekTelemetry();
+    this._maybeCaptureDynCheckpoint(timestamp);
+  }
+
+  /**
+   * Fire-and-forget: capture a dynamic checkpoint at the current state if
+   * enough tape time has elapsed since the last one and no bot is mid-stroke.
+   * Mid-stroke captures would be awkward to resume (active stroke canvases
+   * would have to be cloned too), so we just skip and try again on the next
+   * settled frame.
+   * @param {number} timestamp - The tape timestamp this state represents.
+   * @private
+   */
+  _maybeCaptureDynCheckpoint(timestamp) {
+    if (!this._replayEngine || this._dynCheckpointInFlight) return;
+    if (
+      this._lastDynCheckpointTs != null &&
+      Math.abs(timestamp - this._lastDynCheckpointTs) < this._dynCheckpointMinIntervalMs
+    ) return;
+
+    for (const u of this._replayEngine.botUsers?.values?.() ?? []) {
+      if (u?.mousedown) return;
+    }
+
+    this._dynCheckpointInFlight = true;
+    this._replayEngine.captureDynamicCheckpoint()
+      .then((cp) => {
+        if (!cp) return;
+        // Discard if a different recording was loaded while we were capturing.
+        if (!this._localRecording || !this.isOpen) {
+          cp.bitmap.close?.();
+          return;
+        }
+        // Insert sorted by ts; replace if same ts already exists.
+        const existingIdx = this._dynCheckpoints.findIndex((e) => e.ts === timestamp);
+        if (existingIdx >= 0) {
+          this._dynCheckpoints[existingIdx].bitmap?.close?.();
+          this._dynCheckpoints[existingIdx] = { ts: timestamp, ...cp };
+        } else {
+          this._dynCheckpoints.push({ ts: timestamp, ...cp });
+          this._dynCheckpoints.sort((a, b) => a.ts - b.ts);
+        }
+        while (this._dynCheckpoints.length > this._dynCheckpointMaxCount) {
+          const dropped = this._dynCheckpoints.shift();
+          dropped?.bitmap?.close?.();
+        }
+        this._lastDynCheckpointTs = timestamp;
+      })
+      .catch((err) => console.warn('[TimeMachine] dyn checkpoint capture failed:', err))
+      .finally(() => { this._dynCheckpointInFlight = false; });
+  }
+
+  _findDynCheckpointBefore(ts) {
+    let best = null;
+    for (const cp of this._dynCheckpoints) {
+      if (cp.ts <= ts && (!best || cp.ts > best.ts)) best = cp;
+    }
+    return best;
+  }
+
+  _clearDynCheckpoints() {
+    for (const cp of this._dynCheckpoints) cp?.bitmap?.close?.();
+    this._dynCheckpoints = [];
+    this._lastDynCheckpointTs = null;
   }
 
   /**
@@ -425,6 +783,24 @@ class TimeMachineState {
     console.log(`[TimeMachine] Seek ${s.totalMs}ms (${s.actionsReplayed} actions replayed)`);
   }
 
+  /**
+   * Drain any decoded/batched websocket work before revealing the live board.
+   * Replay mode does not pause live handling, but the WebSocket client may have
+   * a frame-budgeted queue. Draining it here gives "catch up" a crisp edge
+   * without doing a destructive full resync.
+   * @private
+   */
+  _flushLiveMessageQueue() {
+    const ws = this._wsClient;
+    if (!ws || typeof ws._processMessageQueue !== 'function') return;
+    if (!Array.isArray(ws._messageQueue) || ws._messageQueue.length === 0) return;
+    try {
+      ws._processMessageQueue(true);
+    } catch (err) {
+      console.warn('[TimeMachine] Failed to flush live message queue before catch-up:', err);
+    }
+  }
+
   async _playbackFrame(now) {
     if (!this.isPlaying) return;
 
@@ -506,14 +882,19 @@ class TimeMachineState {
     const remoteUserUI = ui.remoteUserUI;
     if (!remoteUserUI) return;
 
+    // Hide ALL user-list entries (bots too). The cursor visuals above are
+    // kept on the canvas overlay so the viewer still sees who's drawing; the
+    // sidebar/list itself is just chrome that distracts from playback.
     for (const [userId] of remoteCursors ?? []) {
-      if (this._botCursorIds.has(Number(userId))) continue;
       hideElement(document.querySelector(`.userEntry.u${userId}`));
     }
 
     for (const group of remoteUserUI.userGroups?.values?.() ?? []) {
       hideElement(group?.element);
     }
+
+    const userListEl = document.getElementById('userList') || document.querySelector('.userList');
+    hideElement(userListEl);
   }
 
   // ── bot cursors ────────────────────────────────────────────────────────────

@@ -34,6 +34,7 @@ import { BlendModeManager } from './canvas/BlendModeManager.js';
 // import { StrokeHistoryPanel } from './ui/StrokeHistoryPanel.js'; // Hidden - stroke history panel disabled
 import { PerformanceDebugPanel } from './ui/PerformanceDebugPanel.js';
 import { TimeMachine } from './timebar/TimeMachine.svelte.js';
+import { recorder } from './replay/Recorder.js';
 // PerformanceSettings is lazy-loaded by Moderation._showPerformanceSettings()
 import { highlight } from './ui/Highlight.js';
 import { SaveMode } from './ui/SaveMode.js';
@@ -565,6 +566,7 @@ export class DrawingApp {
     appState.appPreferences = this.appPreferences;
     TimeMachine.init(this.board, this.wsClient);
     this.TimeMachine = TimeMachine; // Expose for WebSocketClient recording
+    this.recorder = recorder;       // Local replay tape. TimeMachine.recordAction → here.
 
     updateStartupStatus('Preparing controls...');
     // Initialize Svelte UI components
@@ -1436,6 +1438,9 @@ export class DrawingApp {
     elements.disconnectBtn.addEventListener('click', () => this.disconnect());
     if (elements.recordBtn) {
       elements.recordBtn.addEventListener('click', () => this.handleStartRecording());
+    }
+    if (elements.tapeRecBtn) {
+      elements.tapeRecBtn.addEventListener('click', () => this.handleToggleTapeRecording());
     }
 
     // Disconnection banner buttons
@@ -4419,6 +4424,77 @@ export class DrawingApp {
     } else {
       btn.title = 'Open Timeline';
       btn.setAttribute('aria-label', 'Open timeline');
+    }
+  }
+
+  /**
+   * Toggle the local tape recorder. On stop, hands the bundle to
+   * TimeMachine.loadFromRecording so the user lands in the scrubber.
+   */
+  handleToggleTapeRecording() {
+    const rec = this.recorder;
+    if (!rec) return;
+
+    if (rec.isRecording()) {
+      const bundle = rec.stop();
+      this._stopTapeRecElapsedTick();
+      this._setTapeRecButtonRecording(false);
+      if (bundle && bundle.deltas.length > 0) {
+        this.ui?.showToast(`Recorded ${bundle.deltas.length} actions — opening scrubber…`, 2500);
+        TimeMachine.loadFromRecording(bundle);
+      } else {
+        this.ui?.showToast('Recording stopped (no actions captured)', 2000);
+      }
+      return;
+    }
+
+    if (!this.currentRoomId) {
+      this.ui?.showToast('Join a room before recording', 2000);
+      return;
+    }
+
+    try {
+      rec.start(this);
+      this._setTapeRecButtonRecording(true);
+      this._startTapeRecElapsedTick();
+      this.ui?.showToast('Recording…', 1500);
+    } catch (err) {
+      console.error('[App] tape recorder start failed:', err);
+      this.ui?.showToast('Could not start recording', 2500);
+    }
+  }
+
+  _setTapeRecButtonRecording(isOn) {
+    const btn = this.ui?.elements?.tapeRecBtn;
+    if (!btn) return;
+    btn.classList.toggle('is-recording', !!isOn);
+    btn.title = isOn ? 'Stop recording (opens scrubber)' : 'Record session — captures everything locally for scrubbing';
+    const elapsed = this.ui?.elements?.tapeRecElapsed;
+    if (elapsed) {
+      elapsed.style.display = isOn ? '' : 'none';
+      if (!isOn) elapsed.textContent = '0:00';
+    }
+  }
+
+  _startTapeRecElapsedTick() {
+    this._stopTapeRecElapsedTick();
+    const elapsedEl = this.ui?.elements?.tapeRecElapsed;
+    if (!elapsedEl) return;
+    const tick = () => {
+      if (!this.recorder?.isRecording()) return;
+      const s = Math.floor(this.recorder.elapsedMs() / 1000);
+      const mm = Math.floor(s / 60);
+      const ss = String(s % 60).padStart(2, '0');
+      elapsedEl.textContent = `${mm}:${ss}`;
+    };
+    tick();
+    this._tapeRecElapsedInterval = setInterval(tick, 1000);
+  }
+
+  _stopTapeRecElapsedTick() {
+    if (this._tapeRecElapsedInterval) {
+      clearInterval(this._tapeRecElapsedInterval);
+      this._tapeRecElapsedInterval = null;
     }
   }
 

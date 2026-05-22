@@ -473,6 +473,8 @@ menuBtn: document.getElementById('menuBtn'),
 
       chatBtn: document.getElementById('chatBtn'),
       recordBtn: document.getElementById('recordBtn'),
+      tapeRecBtn: document.getElementById('tapeRecBtn'),
+      tapeRecElapsed: document.getElementById('tapeRecElapsed'),
       adminTopBtn: document.getElementById('adminTopBtn'),
       inboxBtn: document.getElementById('inboxBtn'),
       saveBtn: document.getElementById('saveBtn'),

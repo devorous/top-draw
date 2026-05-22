@@ -34,6 +34,11 @@ export class LayerManager {
     this.localUserId = null; // Set by Board/App so we can distinguish local vs remote strokes
     this._pixelsWorker = new PixelsWorkerClient();
     this._lastCommittedStrokeTimestamp = 0;
+    // Users whose strokes are known to never be undone (replay-only optimisation).
+    // When set, _bakeOverflowStrokes skips the MAX_STROKES_PER_USER threshold for
+    // these users and bakes every bakeable stroke immediately, keeping the
+    // strokeStack short and the per-frame composite cheap.
+    this.eagerBakeUsers = null;
 
     this.initLayerGroups(3);
   }
@@ -892,10 +897,15 @@ export class LayerManager {
   _bakeOverflowStrokes(group) {
     const MAX = LayerManager.MAX_STROKES_PER_USER;
     const safeModes = ['source-over', 'destination-out', 'multiply', 'darken', 'lighten', 'screen'];
+    const eager = this.eagerBakeUsers;
 
     let i = 0;
-    while (i < group.strokeStack.length && this._anyUserOverMax(group, MAX)) {
+    while (
+      i < group.strokeStack.length &&
+      (this._anyUserOverMax(group, MAX) || this._anyEagerBakeable(group, eager))
+    ) {
       const stroke = group.strokeStack[i];
+      const isEager = eager && eager.has(stroke.userId);
 
       if (this._canBakeStroke(group, stroke, safeModes)) {
         this._bakeStrokeToBin(group, stroke);
@@ -903,6 +913,10 @@ export class LayerManager {
 
         const count = group.userStrokeCounts.get(stroke.userId) || 0;
         if (count > 0) group.userStrokeCounts.set(stroke.userId, count - 1);
+      } else if (isEager) {
+        // Eager-bake user but stroke is not directly bakeable — skip; will be
+        // handled by the compress-run path below the next time we hit it.
+        i++;
       } else {
         const runEnd = this._findBlendModeRunEnd(group.strokeStack, i);
         const runLength = runEnd - i + 1;
@@ -916,6 +930,14 @@ export class LayerManager {
         }
       }
     }
+  }
+
+  _anyEagerBakeable(group, eager) {
+    if (!eager || eager.size === 0 || group.strokeStack.length === 0) return false;
+    for (const s of group.strokeStack) {
+      if (eager.has(s.userId)) return true;
+    }
+    return false;
   }
 
   /**
