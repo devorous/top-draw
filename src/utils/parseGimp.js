@@ -164,8 +164,7 @@ const SELECTION_MODES = {
  * Hard limits to prevent runaway brushes from lagging the app.
  * GIMP itself caps dim at 4 (GIMP_PIXPIPE_MAXDIM).
  */
-const MAX_DIMENSIONS = 4;
-const MAX_RANKS_PER_DIM = 32;
+const MAX_GIH_EFFECT_DIMENSIONS = 4;
 const MAX_TOTAL_CELLS = 256;
 const MAX_FILE_BYTES = 1_500_000;
 
@@ -178,6 +177,7 @@ function parseGihInfo(info) {
   const parts = info.trim().split(/\s+/);
   const result = {
     ncells: parseInt(parts[0], 10) || 1,
+    declaredDimensionCount: 0,
     dimensions: []
   };
 
@@ -208,6 +208,9 @@ function parseGihInfo(info) {
     if (kv.placement !== undefined)  result.placement  = kv.placement;
 
     const declaredDim = kv.dim !== undefined ? parseInt(kv.dim, 10) : NaN;
+    if (!isNaN(declaredDim) && declaredDim > 0) {
+      result.declaredDimensionCount = declaredDim;
+    }
 
     // Form A — explicit rank0/sel0, rank1/sel1, ... (what GIMP actually writes)
     if (!isNaN(declaredDim) && declaredDim > 0 && kv.rank0 !== undefined) {
@@ -228,6 +231,7 @@ function parseGihInfo(info) {
       const rankList = String(kv.ranks).split(',').map((s) => parseInt(s, 10));
       const selList = (kv.selection !== undefined ? String(kv.selection) : '')
         .split(',').map((s) => s.trim());
+      result.declaredDimensionCount = Math.max(result.declaredDimensionCount, rankList.length);
       for (let i = 0; i < rankList.length; i++) {
         if (isNaN(rankList[i]) || rankList[i] <= 0) continue;
         result.dimensions.push({
@@ -241,6 +245,7 @@ function parseGihInfo(info) {
     else if (kv.ranks !== undefined) {
       const ranks = parseInt(kv.ranks, 10);
       if (!isNaN(ranks) && ranks > 0) {
+        result.declaredDimensionCount = Math.max(result.declaredDimensionCount, 1);
         result.dimensions.push({
           ranks,
           selection: normalizeSelectionMode(kv.selection || 'incremental'),
@@ -251,6 +256,7 @@ function parseGihInfo(info) {
 
     // Fallback — treat as single incremental dim spanning all cells
     if (result.dimensions.length === 0 && result.ncells > 1) {
+      result.declaredDimensionCount = Math.max(result.declaredDimensionCount, 1);
       result.dimensions.push({
         ranks: result.ncells,
         selection: normalizeSelectionMode(kv.selection || 'incremental'),
@@ -264,8 +270,8 @@ function parseGihInfo(info) {
 
     if (parts.length > 1 && !isNaN(parseInt(parts[1], 10))) {
       const possibleDimCount = parseInt(parts[1], 10);
-      if (possibleDimCount >= 1 && possibleDimCount <= MAX_DIMENSIONS &&
-          parts.length >= 2 + possibleDimCount * 2) {
+      if (possibleDimCount >= 1 && parts.length >= 2 + possibleDimCount * 2) {
+        result.declaredDimensionCount = possibleDimCount;
         numDimensions = possibleDimCount;
         idx = 2;
       }
@@ -285,6 +291,7 @@ function parseGihInfo(info) {
     }
 
     if (result.dimensions.length === 0 && result.ncells > 1) {
+      result.declaredDimensionCount = Math.max(result.declaredDimensionCount, 1);
       result.dimensions.push({
         ranks: result.ncells,
         selection: SELECTION_MODES.INCREMENTAL,
@@ -440,22 +447,16 @@ export function parseGih(arrayBuffer) {
   gihObject.name = name;
 
   // Enforce sanity limits BEFORE allocating per-cell buffers.
+  const declaredDimensionCount = gihObject.declaredDimensionCount || gihObject.dimensions.length;
   if (gihObject.ncells > MAX_TOTAL_CELLS) {
     console.error(`parseGih: brush "${name}" has ${gihObject.ncells} cells, ` +
                   `exceeds limit of ${MAX_TOTAL_CELLS}`);
     return null;
   }
-  if (gihObject.dimensions.length > MAX_DIMENSIONS) {
-    console.error(`parseGih: brush "${name}" declares ${gihObject.dimensions.length} ` +
-                  `dimensions, exceeds limit of ${MAX_DIMENSIONS}`);
+  if (declaredDimensionCount > MAX_GIH_EFFECT_DIMENSIONS) {
+    console.error(`parseGih: brush "${name}" declares ${declaredDimensionCount} ` +
+                  `effect dimensions, exceeds limit of ${MAX_GIH_EFFECT_DIMENSIONS}`);
     return null;
-  }
-  for (const dim of gihObject.dimensions) {
-    if (dim.ranks > MAX_RANKS_PER_DIM) {
-      console.error(`parseGih: brush "${name}" dimension has ${dim.ranks} ranks, ` +
-                    `exceeds limit of ${MAX_RANKS_PER_DIM}`);
-      return null;
-    }
   }
 
   const data = view.slice(chunks[0].length + chunks[1].length + 2);
