@@ -1,44 +1,45 @@
-/** @fileoverview K6 stress test - low volume, ALL bots use same tool simultaneously, cycling every 5s. */
+/**
+ * @fileoverview K6 stress test — low volume, ALL bots use the same tool
+ * simultaneously, cycling every 5s through the FULL tool set, including
+ * pattern + confetti + text + select + floodfill, with proper tool settings.
+ */
 
 import ws from 'k6/ws';
 import { check, sleep } from 'k6';
 import { Trend } from 'k6/metrics';
 import { buildMsg } from './_k6_proto.js';
+import {
+  T, Tool, TOOL_NAMES, ALL_TOOLS, TEXT_PHRASES, FONTS, BLEND_MODES,
+  pick, randInt, randColor,
+  configureTool, sendMove, sendDown, sendUp,
+  applyTextWithFont, applyFloodFill, performSelectionTransform,
+  parseInbound,
+} from './_k6_actions.js';
 
 const broadcastLatency = new Trend('broadcast_latency_low_ordered');
 
 export const options = {
   vus: 8,
-  duration: '2m', // 16 tools x 5s = 80s, plus buffer
+  duration: '2m30s', // 18 tools × 5s = 90s, plus buffer
 };
 
-const TOOL_DURATION_MS = 5000; // 5 seconds per tool
-const TEST_START_TIME = Date.now(); // All VUs sync to this
+const TOOL_DURATION_MS = 5000;
+const TEST_START_TIME = Date.now();
 
-const T = {
-  CONNECT: 0, MM: 10, MD: 11, MU: 12, CS: 14, CT: 15, CC: 16,
-  CSP: 17, CSM: 29, CHD: 45, CBR: 57, CL: 58, CBM: 59,
-  CTHN: 71, CSIM: 72, SHOW_CURSOR: 28
-};
-
-const Tool = {
-  BRUSH: 0, TEXT: 1, ERASE: 2, IMAGE_BRUSH: 3, SELECT: 4,
-  PEN: 5, LINE: 6, RECTANGLE: 7, CIRCLE: 8, INK: 9,
-  INKDROPPER: 10, BLUR: 11, CIRCLE_BLUR: 12, GLITCH_BLUR: 13,
-  PIXEL: 14, FLOODFILL: 15
-};
-
-const toolList = Object.values(Tool);
-const TOOL_COUNT = toolList.length;
-const toolNames = Object.keys(Tool);
+const TOOL_CYCLE = ALL_TOOLS;
 
 function getCurrentToolIndex() {
   const elapsed = Date.now() - TEST_START_TIME;
-  return Math.floor(elapsed / TOOL_DURATION_MS) % TOOL_COUNT;
+  return Math.floor(elapsed / TOOL_DURATION_MS) % TOOL_CYCLE.length;
+}
+
+function isStrokeTool(tool) {
+  return tool !== Tool.TEXT && tool !== Tool.SELECT &&
+         tool !== Tool.FLOODFILL && tool !== Tool.INKDROPPER;
 }
 
 export default function () {
-  sleep(Math.random() * 0.5); // Small stagger to avoid connection burst
+  sleep(Math.random() * 0.5);
 
   const room = __ENV.ROOM || 'test';
   const baseUrl = __ENV.TARGET_URL || 'ws://127.0.0.1:8030';
@@ -58,133 +59,98 @@ export default function () {
 
       let state = 0;
       let stateTicks = 0;
-      let cycleLength = 30 + Math.floor(Math.random() * 15); // Shorter strokes to fit more in 5s
+      let cycleLength = randInt(30, 45);
       let lastToolIndex = -1;
+      let nonStrokeCooldown = 0; // ticks until next non-stroke action
 
-      socket.setInterval(function() {
+      socket.setInterval(function () {
         if (sessionIndex === -1) return;
 
+        // Drift the cursor
         dx += (Math.random() - 0.5) * 4;
         dy += (Math.random() - 0.5) * 4;
         dx = Math.max(-15, Math.min(15, dx));
         dy = Math.max(-15, Math.min(15, dy));
         x += dx; y += dy;
-
         if (x < margin) { x = margin; dx *= -1; }
         if (x > 1920 - margin) { x = 1920 - margin; dx *= -1; }
         if (y < margin) { y = margin; dy *= -1; }
         if (y > 1080 - margin) { y = 1080 - margin; dy *= -1; }
 
-        // Get current tool based on elapsed time (all VUs sync)
         const toolIndex = getCurrentToolIndex();
-        const currentTool = toolList[toolIndex];
+        const currentTool = TOOL_CYCLE[toolIndex];
 
-        // Log tool change
         if (toolIndex !== lastToolIndex) {
-          console.log(`[VU ${__VU}] Switching to tool: ${toolNames[toolIndex]} (${toolIndex})`);
+          console.log(`[VU ${__VU}] Switching to tool: ${TOOL_NAMES[currentTool]} (${currentTool})`);
           lastToolIndex = toolIndex;
-          // Force end current stroke and start fresh with new tool
-          if (state === 2) {
-            socket.sendBinary(buildMsg({ t: T.MU, u: sessionIndex }));
-          }
+          if (state === 2) sendUp(socket, sessionIndex);
           state = 0;
           stateTicks = 0;
+          nonStrokeCooldown = 0;
+        }
+
+        // Non-stroke tools fire their action periodically and stay idle otherwise.
+        if (!isStrokeTool(currentTool)) {
+          if (state === 0) {
+            configureTool(socket, sessionIndex, currentTool, {
+              color: randColor(),
+              size: randInt(500, 3000),
+            });
+            sendMove(socket, sessionIndex, x, y);
+            state = 1;
+            nonStrokeCooldown = 0;
+            return;
+          }
+          if (nonStrokeCooldown > 0) { nonStrokeCooldown--; return; }
+          if (currentTool === Tool.TEXT) {
+            applyTextWithFont(socket, sessionIndex, x, y, pick(TEXT_PHRASES), pick(FONTS));
+            nonStrokeCooldown = 80; // ~1s
+          } else if (currentTool === Tool.SELECT) {
+            performSelectionTransform(socket, sessionIndex, {
+              rect: { x: x - 80, y: y - 80, width: 160, height: 160 },
+            });
+            nonStrokeCooldown = 120; // ~1.5s
+          } else if (currentTool === Tool.FLOODFILL) {
+            applyFloodFill(socket, sessionIndex, x, y, randColor());
+            nonStrokeCooldown = 80;
+          } else if (currentTool === Tool.INKDROPPER) {
+            sendMove(socket, sessionIndex, x, y);
+            nonStrokeCooldown = 30;
+          }
+          return;
         }
 
         if (state === 0) {
-          const r = Math.floor(Math.random() * 256);
-          const g = Math.floor(Math.random() * 256);
-          const b = Math.floor(Math.random() * 256);
-          const color = (r << 24) | (g << 16) | (b << 8) | 0xFF;
-
-          // Send tool change
-          socket.sendBinary(buildMsg({ t: T.CT, u: sessionIndex, l: currentTool }));
-          socket.sendBinary(buildMsg({ t: T.CC, u: sessionIndex, c: color }));
-          socket.sendBinary(buildMsg({ t: T.CS, u: sessionIndex, s: Math.floor(Math.random() * 3000) + 500 }));
-
-          // Send additional properties based on tool type
-          socket.sendBinary(buildMsg({ t: T.CHD, u: sessionIndex, hd: Math.floor(Math.random() * 100) }));
-          socket.sendBinary(buildMsg({ t: T.CSM, u: sessionIndex, sm: Math.floor(Math.random() * 10000) }));
-          socket.sendBinary(buildMsg({ t: T.CSP, u: sessionIndex, sp: Math.floor(Math.random() * 500) + 100 }));
-
-          // Blur tools get blur radius
-          if (currentTool === Tool.BLUR || currentTool === Tool.CIRCLE_BLUR || currentTool === Tool.GLITCH_BLUR) {
-            socket.sendBinary(buildMsg({ t: T.CBR, u: sessionIndex, br: Math.floor(Math.random() * 2000) + 100 }));
-          }
-
-          // Ink tool gets thinning and simulate pressure
-          if (currentTool === Tool.INK) {
-            socket.sendBinary(buildMsg({ t: T.CTHN, u: sessionIndex, th: Math.floor(Math.random() * 100) }));
-            socket.sendBinary(buildMsg({ t: T.CSIM, u: sessionIndex, sim: Math.random() > 0.5 ? 1 : 0 }));
-          }
-
-          socket.sendBinary(buildMsg({ t: T.SHOW_CURSOR, u: sessionIndex }));
-          socket.sendBinary(buildMsg({ t: T.MM, u: sessionIndex, ps: [x, y] }));
+          configureTool(socket, sessionIndex, currentTool, {
+            color: randColor(),
+            size: randInt(500, 3500),
+          });
+          sendMove(socket, sessionIndex, x, y);
           state = 1;
-        }
-        else if (state === 1) {
-          socket.sendBinary(buildMsg({ t: T.MD, u: sessionIndex, ps: [x, y] }));
+        } else if (state === 1) {
+          sendDown(socket, sessionIndex, x, y);
           state = 2;
-        }
-        else if (stateTicks < cycleLength) {
-          socket.sendBinary(buildMsg({ t: T.MM, u: sessionIndex, ps: [x, y], stroke_ts: Date.now() }));
-        }
-        else if (stateTicks === cycleLength) {
-          socket.sendBinary(buildMsg({ t: T.MU, u: sessionIndex }));
+          stateTicks = 0;
+        } else if (stateTicks < cycleLength) {
+          sendMove(socket, sessionIndex, x, y, true);
+          stateTicks++;
+        } else if (stateTicks === cycleLength) {
+          sendUp(socket, sessionIndex);
           state = 0;
           stateTicks = -1;
-          cycleLength = 30 + Math.floor(Math.random() * 15);
+          cycleLength = randInt(30, 45);
         }
-
-        stateTicks++;
       }, 12);
     });
 
     socket.on('binaryMessage', function (data) {
-      const view = new Uint8Array(data);
-      let t = 0; let u = -1; let ts = -1;
-      let offset = 0;
-      while(offset < view.length) {
-        let tag = 0; let shift = 0;
-        while(true) {
-          if (offset >= view.length) break;
-          let b = view[offset++];
-          tag += (b & 0x7F) * Math.pow(2, shift);
-          if (!(b & 0x80)) break;
-          shift += 7;
-        }
-        let fieldNum = tag >> 3;
-        let wireType = tag & 0x07;
-
-        if (fieldNum === 1) {
-          let val = 0; let s = 0;
-          while(true) { let b = view[offset++]; val += (b & 0x7F) * Math.pow(2, s); if (!(b & 0x80)) break; s += 7; }
-          t = val;
-        } else if (fieldNum === 2) {
-          let val = 0; let s = 0;
-          while(true) { let b = view[offset++]; val += (b & 0x7F) * Math.pow(2, s); if (!(b & 0x80)) break; s += 7; }
-          u = val;
-        } else if (fieldNum === 46) {
-          let val = 0; let s = 0;
-          while(true) { let b = view[offset++]; val += (b & 0x7F) * Math.pow(2, s); if (!(b & 0x80)) break; s += 7; }
-          ts = val;
-        } else {
-          if (wireType === 0) { while(view[offset++] & 0x80); }
-          else if (wireType === 1) { offset += 8; }
-          else if (wireType === 2) {
-            let len = 0; let s = 0;
-            while(true) { let b = view[offset++]; len += (b & 0x7F) * Math.pow(2, s); if (!(b & 0x80)) break; s += 7; }
-            offset += len;
-          }
-          else if (wireType === 5) { offset += 4; }
-        }
-      }
+      const { t, u, ts } = parseInbound(data);
       if (t === 0 && u !== -1 && sessionIndex === -1) sessionIndex = u;
       if (ts !== -1 && u !== sessionIndex) broadcastLatency.add(Date.now() - ts);
     });
 
     socket.on('error', (e) => console.log('WebSocket Error: ', e.error()));
-    socket.setTimeout(() => socket.close(), 115000);
+    socket.setTimeout(() => socket.close(), 145000);
   });
 
   check(res, { 'Connected': (r) => r && r.status === 101 });

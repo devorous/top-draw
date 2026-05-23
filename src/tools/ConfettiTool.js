@@ -34,8 +34,6 @@ export class ConfettiTool extends Tool {
     this.lastStampPos = new Map();
     this.stampBuffer = [];
     this.seedBuffer = [];
-    this.strokePoints = [];
-    this.dirtyBounds = null;
     this._activeUser = null;
     this._strokeSeed = 0;
     this._emissionIndex = 0;
@@ -56,8 +54,8 @@ export class ConfettiTool extends Tool {
     this._strokeSeed = Number(user._confettiStrokeSeed ?? this.createSeed()) & CONFETTI_SEED_MAX;
     this._emissionIndex = 0;
     this.board.beginStroke(user);
-    this.dirtyBounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
-    this.strokePoints = [{ x: pos.x, y: pos.y }];
+    user._confettiDirtyBounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+    user._confettiStrokePoints = [{ x: pos.x, y: pos.y }];
     this.emit(user, pos, 0, this._strokeSeed);
     this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
     delete user._confettiStrokeSeed;
@@ -94,7 +92,7 @@ export class ConfettiTool extends Tool {
       this.emit(user, interp, angle, seed);
       this.stampBuffer.push(interp.x, interp.y);
       this.seedBuffer.push(seed);
-      this.strokePoints.push(interp);
+      this._getStrokePoints(user).push(interp);
     }
 
     this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
@@ -104,17 +102,19 @@ export class ConfettiTool extends Tool {
   onPointerUp(user) {
     if (user.panning) return;
 
-    if (this.dirtyBounds && this.dirtyBounds.maxX !== -Infinity) {
+    const dirtyBounds = user._confettiDirtyBounds;
+    const strokePoints = this._getStrokePoints(user);
+    if (dirtyBounds && dirtyBounds.maxX !== -Infinity) {
       const margin = 4;
-      const x = Math.floor(this.dirtyBounds.minX - margin);
-      const y = Math.floor(this.dirtyBounds.minY - margin);
-      const width = Math.ceil(this.dirtyBounds.maxX - this.dirtyBounds.minX + margin * 2);
-      const height = Math.ceil(this.dirtyBounds.maxY - this.dirtyBounds.minY + margin * 2);
+      const x = Math.floor(dirtyBounds.minX - margin);
+      const y = Math.floor(dirtyBounds.minY - margin);
+      const width = Math.ceil(dirtyBounds.maxX - dirtyBounds.minX + margin * 2);
+      const height = Math.ceil(dirtyBounds.maxY - dirtyBounds.minY + margin * 2);
       this.board.expandDirtyRect(user, x, y, width, height);
 
       this.board.forEachMirrorRegion({ rect: { x, y, width, height } }, (region) => {
-        const p1 = this.board.mirrorPointToRegion({ x: this.dirtyBounds.minX, y: this.dirtyBounds.minY }, region);
-        const p2 = this.board.mirrorPointToRegion({ x: this.dirtyBounds.maxX, y: this.dirtyBounds.maxY }, region);
+        const p1 = this.board.mirrorPointToRegion({ x: dirtyBounds.minX, y: dirtyBounds.minY }, region);
+        const p2 = this.board.mirrorPointToRegion({ x: dirtyBounds.maxX, y: dirtyBounds.maxY }, region);
         const mx = Math.floor(Math.min(p1.x, p2.x) - margin);
         const my = Math.floor(Math.min(p1.y, p2.y) - margin);
         const mw = Math.ceil(Math.max(p1.x, p2.x) - Math.min(p1.x, p2.x) + margin * 2);
@@ -123,19 +123,19 @@ export class ConfettiTool extends Tool {
       });
     }
 
-    if (this.strokePoints.length > 0) {
+    if (strokePoints.length > 0) {
       const radius = user.size + this.getMaxParticleRadius(user);
-      this.board.markDirtyPath(user, this.strokePoints, radius);
-      this.board.forEachMirrorRegion({ points: this.strokePoints }, (region) => {
-        this.board.markDirtyPath(user, this.board.mirrorPointsToRegion(this.strokePoints, region), radius);
+      this.board.markDirtyPath(user, strokePoints, radius);
+      this.board.forEachMirrorRegion({ points: strokePoints }, (region) => {
+        this.board.markDirtyPath(user, this.board.mirrorPointsToRegion(strokePoints, region), radius);
       });
     }
 
-    this.strokePoints = [];
+    user._confettiStrokePoints = [];
     this.board.endStroke(user);
-    this.board.clearTop();
+    if (this._isLocalUser(user)) this.board.clearTop();
     this.lastStampPos.delete(user.id);
-    this.dirtyBounds = null;
+    user._confettiDirtyBounds = null;
   }
 
   drainStampBuffer() {
@@ -153,11 +153,13 @@ export class ConfettiTool extends Tool {
     if (!hasActiveStroke) this.board.beginStroke(user);
 
     const points = [];
+    const strokePoints = this._getStrokePoints(user);
     for (let i = 0; i < ps.length; i += 2) {
       const pos = { x: ps[i], y: ps[i + 1] };
       const seed = Number(seeds[i / 2] ?? this.createSeed()) & CONFETTI_SEED_MAX;
       this.emit(user, pos, 0, seed);
       points.push(pos);
+      strokePoints.push(pos);
     }
 
     if (points.length > 0) {
@@ -233,7 +235,7 @@ export class ConfettiTool extends Tool {
       this.board.withMirroredRegionTransform(ctx, region, () => draw(ctx, particle));
     });
 
-    this.expandDirtyBounds(rect);
+    this.expandDirtyBounds(user, rect);
     this.board.expandDirtyRect(user, Math.floor(rect.x), Math.floor(rect.y), Math.ceil(rect.width), Math.ceil(rect.height));
   }
 
@@ -509,15 +511,26 @@ export class ConfettiTool extends Tool {
     return ['random', 'fixed'].includes(mode) ? mode : 'random';
   }
 
-  expandDirtyBounds(rect) {
-    if (!this.dirtyBounds) return;
-    this.dirtyBounds.minX = Math.min(this.dirtyBounds.minX, rect.x);
-    this.dirtyBounds.minY = Math.min(this.dirtyBounds.minY, rect.y);
-    this.dirtyBounds.maxX = Math.max(this.dirtyBounds.maxX, rect.x + rect.width);
-    this.dirtyBounds.maxY = Math.max(this.dirtyBounds.maxY, rect.y + rect.height);
+  expandDirtyBounds(user, rect) {
+    const bounds = user?._confettiDirtyBounds;
+    if (!bounds) return;
+    bounds.minX = Math.min(bounds.minX, rect.x);
+    bounds.minY = Math.min(bounds.minY, rect.y);
+    bounds.maxX = Math.max(bounds.maxX, rect.x + rect.width);
+    bounds.maxY = Math.max(bounds.maxY, rect.y + rect.height);
   }
 
   clearUserState(userId) {
     this.lastStampPos.delete(userId);
+  }
+
+  _getStrokePoints(user) {
+    if (!user) return [];
+    if (!Array.isArray(user._confettiStrokePoints)) user._confettiStrokePoints = [];
+    return user._confettiStrokePoints;
+  }
+
+  _isLocalUser(user) {
+    return user === this.board.app?.self || user?.id === this.board.app?.sessionIndex;
   }
 }

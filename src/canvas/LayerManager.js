@@ -445,36 +445,45 @@ export class LayerManager {
       this.needsComposite = true;
       this._notifyStrokeHistoryPanel();
     }
-    if (group.activePreviewByUser?.delete(userId)) {
+    if (this._deleteUserPreviewFromGroup(group, userId)) {
       this.needsComposite = true;
     }
   }
 
   /**
    * Track a transient, non-committed preview canvas for a user on a layer.
-   * The canvas is owned by the caller (usually a remote user's DOM preview
-   * canvas), so cleanup only removes the reference.
+   * The source canvas is copied into layer-manager-owned storage so scheduled
+   * composites never sample a remote DOM preview while it is between clear and
+   * redraw operations.
    * @param {number} groupIdx - Layer index
    * @param {number} userId - User ID
-   * @param {HTMLCanvasElement} canvas - Full-size preview canvas
+   * @param {HTMLCanvasElement} sourceCanvas - Full-size preview canvas
    * @param {string} [blendMode='source-over'] - Blend mode for compositing
+   * @param {{x:number,y:number,width:number,height:number}|null} [dirtyRect=null] - Optional changed region
    */
-  setUserPreviewStroke(groupIdx, userId, canvas, blendMode = 'source-over') {
+  setUserPreviewStroke(groupIdx, userId, sourceCanvas, blendMode = 'source-over', dirtyRect = null) {
     const group = this.layerGroups[groupIdx];
-    if (!group || !canvas) return;
+    if (!group || !sourceCanvas) return;
 
     for (const otherGroup of this.layerGroups) {
       if (otherGroup !== group) {
-        otherGroup.activePreviewByUser?.delete(userId);
+        this._deleteUserPreviewFromGroup(otherGroup, userId);
       }
     }
 
-    group.activePreviewByUser.set(userId, {
-      canvas,
-      blendMode: blendMode || 'source-over',
-      userId,
-      isPreview: true
-    });
+    let preview = group.activePreviewByUser.get(userId);
+    if (!preview || !preview.canvas || preview.canvas.width !== this.width || preview.canvas.height !== this.height) {
+      if (preview) this._releaseCanvas(preview);
+      preview = {
+        ...this._acquireCanvas(),
+        userId,
+        isPreview: true
+      };
+      group.activePreviewByUser.set(userId, preview);
+    }
+
+    preview.blendMode = blendMode || 'source-over';
+    this._copyPreviewSource(preview.ctx, sourceCanvas, dirtyRect);
     this.needsComposite = true;
   }
 
@@ -486,13 +495,58 @@ export class LayerManager {
   clearUserPreviewStroke(userId, groupIdx = null) {
     let removed = false;
     if (Number.isFinite(groupIdx)) {
-      removed = this.layerGroups[groupIdx]?.activePreviewByUser?.delete(userId) || false;
+      removed = this._deleteUserPreviewFromGroup(this.layerGroups[groupIdx], userId);
     } else {
       for (const group of this.layerGroups) {
-        removed = group.activePreviewByUser?.delete(userId) || removed;
+        removed = this._deleteUserPreviewFromGroup(group, userId) || removed;
       }
     }
     if (removed) this.needsComposite = true;
+  }
+
+  _copyPreviewSource(targetCtx, sourceCanvas, dirtyRect = null) {
+    targetCtx.globalCompositeOperation = 'source-over';
+    targetCtx.globalAlpha = 1;
+
+    const rect = dirtyRect && Number.isFinite(dirtyRect.x) && Number.isFinite(dirtyRect.y) && dirtyRect.width > 0 && dirtyRect.height > 0
+      ? {
+          x: Math.max(0, Math.floor(dirtyRect.x)),
+          y: Math.max(0, Math.floor(dirtyRect.y)),
+          width: Math.ceil(dirtyRect.width),
+          height: Math.ceil(dirtyRect.height)
+        }
+      : null;
+
+    if (!rect) {
+      targetCtx.clearRect(0, 0, this.width, this.height);
+      targetCtx.drawImage(sourceCanvas, 0, 0);
+      return;
+    }
+
+    const right = Math.min(this.width, rect.x + rect.width, sourceCanvas.width);
+    const bottom = Math.min(this.height, rect.y + rect.height, sourceCanvas.height);
+    if (right <= rect.x || bottom <= rect.y) return;
+
+    const width = right - rect.x;
+    const height = bottom - rect.y;
+    targetCtx.clearRect(rect.x, rect.y, width, height);
+    targetCtx.drawImage(sourceCanvas, rect.x, rect.y, width, height, rect.x, rect.y, width, height);
+  }
+
+  _deleteUserPreviewFromGroup(group, userId) {
+    if (!group?.activePreviewByUser?.has(userId)) return false;
+    const preview = group.activePreviewByUser.get(userId);
+    group.activePreviewByUser.delete(userId);
+    this._releaseCanvas(preview);
+    return true;
+  }
+
+  _clearPreviewsFromGroup(group) {
+    if (!group?.activePreviewByUser) return;
+    for (const preview of group.activePreviewByUser.values()) {
+      this._releaseCanvas(preview);
+    }
+    group.activePreviewByUser.clear();
   }
 
   /**
@@ -861,7 +915,7 @@ export class LayerManager {
         removed = true;
       }
 
-      if (group.activePreviewByUser?.delete(targetUserId)) {
+      if (this._deleteUserPreviewFromGroup(group, targetUserId)) {
         removed = true;
       }
 
@@ -2470,7 +2524,7 @@ export class LayerManager {
       group.strokeStack = [];
       group.userStrokeCounts.clear();
       group.activeStrokeByUser.clear();
-      group.activePreviewByUser?.clear();
+      this._clearPreviewsFromGroup(group);
       if (group.flatCanvas) {
         group.flatCtx.clearRect(0, 0, this.width, this.height);
       }
@@ -2668,7 +2722,7 @@ export class LayerManager {
         group.activeStrokeByUser.delete(userId);
         this._releaseCanvas(active);
       }
-      group.activePreviewByUser?.delete(userId);
+      this._deleteUserPreviewFromGroup(group, userId);
     }
     this.needsComposite = true;
   }
@@ -2702,7 +2756,7 @@ export class LayerManager {
         group.activeStrokeByUser.delete(userId);
         this._disposeCanvasObject(active);
       }
-      group.activePreviewByUser?.delete(userId);
+      this._deleteUserPreviewFromGroup(group, userId);
 
       const retainedStrokes = [];
       for (const stroke of group.strokeStack) {
@@ -2766,7 +2820,7 @@ export class LayerManager {
         group.activeStrokeByUser.delete(userId);
         this._disposeCanvasObject(active);
       }
-      group.activePreviewByUser?.delete(userId);
+      this._deleteUserPreviewFromGroup(group, userId);
 
       const retainedStrokes = [];
       for (const stroke of group.strokeStack) {

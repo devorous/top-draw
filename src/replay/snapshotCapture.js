@@ -13,23 +13,6 @@
  */
 
 /**
- * Capture a single layer group as a PNG data URL.
- * @param {import('../canvas/LayerManager.js').LayerManager} lm
- * @param {number} groupIdx
- * @returns {string|null}
- */
-function captureLayerPng(lm, groupIdx) {
-  const group = lm.layerGroups?.[groupIdx];
-  if (!group) return null;
-  const canvas = document.createElement('canvas');
-  canvas.width = lm.width;
-  canvas.height = lm.height;
-  const ctx = canvas.getContext('2d');
-  lm.compositeLayerRange(ctx, groupIdx, groupIdx + 1, null);
-  return canvas.toDataURL('image/png');
-}
-
-/**
  * Snapshot the per-user transient/tool/selection state in the shape
  * ReplayEngine._restoreBotTransientState consumes.
  *
@@ -110,7 +93,6 @@ function captureUserTransientState(user) {
  *   backgroundColor: number[],
  *   canvasData: string | null,
  *   topCanvasData: string | null,
- *   layerData: Array<string|null>,
  *   appState: { userDrawingStates: Record<number, Object> },
  *   mirrorRegions: Object[],
  *   mirror: boolean,
@@ -130,13 +112,6 @@ export function captureOpeningSnapshot(app) {
   // uses `canvasData` as the base image when no `history` is present.
   const compositeCanvas = lm.getCompositedCanvas();
   const canvasData = compositeCanvas.toDataURL('image/png');
-
-  // Optional per-layer dump so the replay engine can rebuild layer-aware state
-  // later. Phase 1 doesn't consume this yet; included for Phase 3.
-  const layerData = [];
-  for (let i = 0; i < lm.layerGroups.length; i++) {
-    layerData.push(captureLayerPng(lm, i));
-  }
 
   // Top canvas (active previews drawn by other users at snapshot time)
   const topCanvasData = board.topCanvas?.toDataURL?.('image/png') ?? null;
@@ -160,7 +135,6 @@ export function captureOpeningSnapshot(app) {
       : [255, 255, 255, 1],
     canvasData,
     topCanvasData,
-    layerData,
     appState: { userDrawingStates },
     mirrorRegions: Array.isArray(board.mirrorRegions)
       ? board.mirrorRegions.map((r) => ({ ...r }))

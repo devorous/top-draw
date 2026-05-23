@@ -103,8 +103,11 @@ export function setupSnapshotHandlers(wsClient, app) {
     // Clear undo/redo stroke stacks since the board has been replaced
     for (const group of app.board.layerManager.layerGroups) {
       group.strokeStack = [];
+      for (const active of group.activeStrokeByUser.values()) {
+        app.board.layerManager._releaseCanvas(active);
+      }
       group.activeStrokeByUser.clear();
-      group.activePreviewByUser?.clear();
+      app.board.layerManager._clearPreviewsFromGroup(group);
     }
     app.updateUndoRedoHud();
 

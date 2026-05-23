@@ -35,6 +35,7 @@ import { BlendModeManager } from './canvas/BlendModeManager.js';
 import { PerformanceDebugPanel } from './ui/PerformanceDebugPanel.js';
 import { TimeMachine } from './timebar/TimeMachine.svelte.js';
 import { recorder } from './replay/Recorder.js';
+import { decodeDdraw, isDdrawFile } from './replay/ddrawCodec.js';
 // PerformanceSettings is lazy-loaded by Moderation._showPerformanceSettings()
 import { highlight } from './ui/Highlight.js';
 import { SaveMode } from './ui/SaveMode.js';
@@ -4431,7 +4432,7 @@ export class DrawingApp {
    * Toggle the local tape recorder. On stop, hands the bundle to
    * TimeMachine.loadFromRecording so the user lands in the scrubber.
    */
-  handleToggleTapeRecording() {
+  async handleToggleTapeRecording() {
     const rec = this.recorder;
     if (!rec) return;
 
@@ -4440,8 +4441,13 @@ export class DrawingApp {
       this._stopTapeRecElapsedTick();
       this._setTapeRecButtonRecording(false);
       if (bundle && bundle.deltas.length > 0) {
-        this.ui?.showToast(`Recorded ${bundle.deltas.length} actions — opening scrubber…`, 2500);
-        TimeMachine.loadFromRecording(bundle);
+        this.ui?.showToast(`Loading replay... ${bundle.deltas.length} actions`, 60_000);
+        try {
+          await TimeMachine.loadFromRecording(bundle);
+        } catch (err) {
+          console.error('[App] failed to open local replay:', err);
+          this.ui?.showToast('Could not load replay', 3000, 'error');
+        }
       } else {
         this.ui?.showToast('Recording stopped (no actions captured)', 2000);
       }
@@ -6898,6 +6904,26 @@ export class DrawingApp {
 
   handleBoardContainerPointerDown(e) {
     if (this.syncClient?.isCanvasInputBlocked()) return;
+
+    // Replay-mode pan: left-click anywhere over the canvas drags the view, no
+    // tool switch / Space hold required. Mirrors snapshot-history feel. Only
+    // act on targets that represent the canvas region — replay canvas, the
+    // #boards wrapper, or the bare container background.
+    if (TimeMachine?.isReviewing && e.button === 0) {
+      const t = e.target;
+      const isCanvasRegion = t === this.ui.elements.boardContainer
+        || t?.id === 'boards'
+        || t?.id === 'replayCanvas';
+      if (isCanvasRegion) {
+        e.preventDefault();
+        this._containerPanActive = true;
+        this._lastPanPointerX = e.clientX;
+        this._lastPanPointerY = e.clientY;
+        try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+        return;
+      }
+    }
+
     // Only handle events on the boardContainer background itself (not bubbled from canvas/children)
     if (e.target !== this.ui.elements.boardContainer) return;
 
@@ -7029,7 +7055,9 @@ export class DrawingApp {
   }
 
   handleBoardContainerWheel(e) {
-    if (e.target !== this.ui.elements.boardContainer) return;
+    // In replay mode the visible canvas is the replay overlay; treat wheel
+    // events anywhere over the board area as zoom requests.
+    if (e.target !== this.ui.elements.boardContainer && !TimeMachine?.isReviewing) return;
     this.handleWheel(e);
   }
 
@@ -7041,8 +7069,11 @@ export class DrawingApp {
 
     const scrollToZoom = !!this.appPreferences?.general?.scrollToZoom;
     const inPanMode = this.self.panning || this.self.tool === 'pan' || this.self.tool === 'zoom' || this.self.tool === 'rotate';
+    // Force zoom-on-scroll while reviewing — brush-size scroll has no meaning
+    // on a frozen historical board.
+    const inReplayReview = !!TimeMachine?.isReviewing;
 
-    if (inPanMode || scrollToZoom) {
+    if (inPanMode || scrollToZoom || inReplayReview) {
       const cursorPos = this.board.getBoardRelativePos(e.clientX, e.clientY);
       if (e.deltaY > 0) {
         this.board.zoomOut(0.1, cursorPos);
@@ -7388,9 +7419,25 @@ export class DrawingApp {
 
     const files = [...(dataTransfer.files || [])];
     if (files.some((file) => this.isImageFile(file))) return true;
+    if (files.some((file) => isDdrawFile(file))) return true;
 
     // Some desktop drags expose file items with empty MIME/type until drop.
     return items.some((item) => item.kind === 'file');
+  }
+
+  async handleDdrawFile(file) {
+    try {
+      this.ui?.showToast?.('Loading replay…', 60_000);
+      const recording = await decodeDdraw(file);
+      if (!recording?.openingSnapshot || !Array.isArray(recording?.deltas)) {
+        this.ui?.showToast?.('Replay file is malformed', 3000, 'error');
+        return;
+      }
+      await TimeMachine.loadFromRecording(recording);
+    } catch (err) {
+      console.error('[App] .ddraw load failed:', err);
+      this.ui?.showToast?.('Could not load replay file', 3000, 'error');
+    }
   }
 
   handleImageFile(file) {
@@ -7403,12 +7450,22 @@ export class DrawingApp {
   }
 
   handleImageDrop(e) {
-    if (this.syncClient?.isCanvasInputBlocked()) return;
     if (e.target?.closest?.('.chat-shell')) return;
     e.preventDefault();
     this.clearBoardImageDragState();
-    if (!this.canUseImageFeatures(true)) return;
     const files = [...(e.dataTransfer?.files || [])];
+
+    // .ddraw replay files first — they have their own (canvas-independent)
+    // path and don't need a room or image-features permission. Skips the
+    // canvas-input block too so users can review replays mid-sync.
+    const ddrawFile = files.find((file) => isDdrawFile(file));
+    if (ddrawFile) {
+      this.handleDdrawFile(ddrawFile);
+      return;
+    }
+
+    if (this.syncClient?.isCanvasInputBlocked()) return;
+    if (!this.canUseImageFeatures(true)) return;
     const imageFile = files.find((file) => this.isImageFile(file));
     if (imageFile) {
       this.handleImageFile(imageFile);

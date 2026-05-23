@@ -29,12 +29,20 @@ import { shouldRecord } from './messageAllowlist.js';
  * @property {Object}   openingSnapshot
  * @property {ReplayDelta[]} deltas
  * @property {Array<{ts: number, snapshot: Object}>} intraCheckpoints
+ * @property {Array<{ts: number, blob: Blob}>} visualCheckpoints - low-res scrub previews
  * @property {Record<string, string>} assets - SHA-1 → dataURL (Phase 3+)
  */
 
 const RECORDING_VERSION = 2;
 const INTRA_CHECKPOINT_INTERVAL_MS = 30_000;
 const HARD_MAX_DELTAS = 500_000;
+// Visual-checkpoint cadence. Each tick downscales the live board to a small WebP
+// so .ddraw files ship with a scrub-preview grid baked in — the load path can
+// show a blurred preview immediately instead of re-replaying the whole tape.
+const VISUAL_CHECKPOINT_INTERVAL_MS = 2000;
+const VISUAL_CHECKPOINT_SCALE = 1 / 6;
+const VISUAL_CHECKPOINT_QUALITY = 0.6;
+const VISUAL_CHECKPOINT_MAX_COUNT = 600;
 
 export class Recorder {
   constructor() {
@@ -44,6 +52,10 @@ export class Recorder {
     this.recording = null;
     /** @type {number | null} */
     this._intraCheckpointTimer = null;
+    /** @type {number | null} */
+    this._visualCheckpointTimer = null;
+    /** @type {boolean} */
+    this._visualCheckpointInFlight = false;
     /** @type {Object | null} */
     this._app = null;
     /** @type {((rec: ReplayRecording|null) => void) | null} */
@@ -84,11 +96,13 @@ export class Recorder {
       openingSnapshot,
       deltas: [],
       intraCheckpoints: [],
+      visualCheckpoints: [],
       assets: {},
     };
     this.state = 'recording';
 
     this._scheduleIntraCheckpoint();
+    this._scheduleVisualCheckpoint();
     this._notifyStateChange();
   }
 
@@ -106,6 +120,10 @@ export class Recorder {
       clearTimeout(this._intraCheckpointTimer);
       this._intraCheckpointTimer = null;
     }
+    if (this._visualCheckpointTimer != null) {
+      clearTimeout(this._visualCheckpointTimer);
+      this._visualCheckpointTimer = null;
+    }
 
     this.recording.endedAt = Date.now();
     const bundle = this.recording;
@@ -121,6 +139,10 @@ export class Recorder {
     if (this._intraCheckpointTimer != null) {
       clearTimeout(this._intraCheckpointTimer);
       this._intraCheckpointTimer = null;
+    }
+    if (this._visualCheckpointTimer != null) {
+      clearTimeout(this._visualCheckpointTimer);
+      this._visualCheckpointTimer = null;
     }
     this.state = 'idle';
     this.recording = null;
@@ -188,6 +210,58 @@ export class Recorder {
     } catch (err) {
       console.warn('[Recorder] intra-checkpoint capture failed:', err);
     }
+  }
+
+  /** @private */
+  _scheduleVisualCheckpoint() {
+    if (this._visualCheckpointTimer != null) clearTimeout(this._visualCheckpointTimer);
+    this._visualCheckpointTimer = setTimeout(() => {
+      this._captureVisualCheckpoint();
+      if (this.state === 'recording') this._scheduleVisualCheckpoint();
+    }, VISUAL_CHECKPOINT_INTERVAL_MS);
+  }
+
+  /**
+   * Snapshot the live composited board to a small WebP blob. The resulting
+   * grid is what `TimeMachine.loadFromRecording` paints as a blurred preview
+   * before the replay engine has caught up.
+   * @private
+   */
+  _captureVisualCheckpoint() {
+    if (this.state !== 'recording' || !this.recording || !this._app) return;
+    if (this._visualCheckpointInFlight) return;
+    if (this.recording.visualCheckpoints.length >= VISUAL_CHECKPOINT_MAX_COUNT) return;
+
+    const board = this._app.board;
+    const src = board?.mainCanvas;
+    if (!src || !src.width || !src.height) return;
+
+    // Make sure pending strokes are reflected before we read pixels. Cheap when
+    // nothing's dirty.
+    try { board.compositeAllLayers?.(); } catch {}
+
+    const w = Math.max(1, Math.round(src.width * VISUAL_CHECKPOINT_SCALE));
+    const h = Math.max(1, Math.round(src.height * VISUAL_CHECKPOINT_SCALE));
+    const tmp = document.createElement('canvas');
+    tmp.width = w;
+    tmp.height = h;
+    const tctx = tmp.getContext('2d');
+    tctx.imageSmoothingEnabled = true;
+    tctx.imageSmoothingQuality = 'high';
+    tctx.drawImage(src, 0, 0, w, h);
+
+    const ts = Date.now();
+    this._visualCheckpointInFlight = true;
+    tmp.toBlob(
+      (blob) => {
+        this._visualCheckpointInFlight = false;
+        if (!blob) return;
+        if (this.state !== 'recording' || !this.recording) return;
+        this.recording.visualCheckpoints.push({ ts, blob });
+      },
+      'image/webp',
+      VISUAL_CHECKPOINT_QUALITY,
+    );
   }
 
   /** @private */

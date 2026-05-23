@@ -1,10 +1,12 @@
 /**
  * Shared Protobuf encoding helpers for k6 stress tests.
- * Handles delta-encoded, quantized mouse movement packets (ps field).
+ * Handles delta-encoded, quantized mouse movement packets (ps field)
+ * and the full set of fields used by the all-inclusive stress suite
+ * (selection/homography, text+fonts, blend modes, image-tool payloads).
  */
 
 /**
- * Encodes a signed integer as a Protobuf varint.
+ * Encodes an unsigned integer as a Protobuf varint.
  * @param {number} value - The value to encode.
  * @returns {number[]} - The byte array representation.
  */
@@ -29,10 +31,31 @@ export function zigzagEncode(value) {
 }
 
 /**
+ * Encodes a Protobuf tag (field number + wire type) as a varint.
+ * @param {number} fieldNumber
+ * @param {number} wireType - 0=varint, 1=64-bit, 2=length-delim, 5=32-bit
+ * @returns {number[]}
+ */
+function encodeTag(fieldNumber, wireType) {
+  return encodeVarint((fieldNumber << 3) | wireType);
+}
+
+/**
+ * Encodes a 32-bit float as little-endian 4 bytes (proto fixed32 / float).
+ * @param {number} value
+ * @returns {Uint8Array}
+ */
+function encodeFloat32(value) {
+  const buf = new ArrayBuffer(4);
+  new DataView(buf).setFloat32(0, value, true);
+  return new Uint8Array(buf);
+}
+
+/**
  * Encodes the `ps` field: quantized (×10), delta-encoded points, ZigZag + varint.
  * First point is absolute; subsequent points are deltas from previous.
- * @param {Array<number>} points - Flat array: [x1, y1, x2, y2, ...]. Can be 1 or more points.
- * @returns {Uint8Array} - Encoded ps field body (without tag/length prefix).
+ * @param {Array<number>} points - Flat array: [x1, y1, x2, y2, ...].
+ * @returns {Uint8Array}
  */
 export function encodePs(points) {
   if (!points || points.length === 0) return new Uint8Array([]);
@@ -50,11 +73,9 @@ export function encodePs(points) {
 
     let dx, dy;
     if (i === 0) {
-      // First point: absolute
       dx = qx;
       dy = qy;
     } else {
-      // Subsequent points: delta from previous
       dx = qx - prevQx;
       dy = qy - prevQy;
     }
@@ -62,132 +83,190 @@ export function encodePs(points) {
     prevQx = qx;
     prevQy = qy;
 
-    // ZigZag encode and varint encode each delta
-    const encodedDx = encodeVarint(zigzagEncode(dx));
-    const encodedDy = encodeVarint(zigzagEncode(dy));
-
-    psBody.push(...encodedDx, ...encodedDy);
+    psBody.push(...encodeVarint(zigzagEncode(dx)));
+    psBody.push(...encodeVarint(zigzagEncode(dy)));
   }
 
   return new Uint8Array(psBody);
 }
 
 /**
+ * Encodes a packed `repeated float` field (e.g. selection corners `cr`).
+ * @param {Array<number>} values
+ * @returns {Uint8Array} - Body only (no tag/length prefix).
+ */
+function encodePackedFloats(values) {
+  if (!values || values.length === 0) return new Uint8Array(0);
+  const out = new Uint8Array(values.length * 4);
+  const dv = new DataView(out.buffer);
+  for (let i = 0; i < values.length; i++) {
+    dv.setFloat32(i * 4, values[i], true);
+  }
+  return out;
+}
+
+/**
+ * Encodes a UTF-8 string body (no tag/length prefix).
+ * @param {string} str
+ * @returns {Uint8Array}
+ */
+function encodeStringBody(str) {
+  // K6's runtime does not expose TextEncoder reliably; use char codes.
+  // Stress tests only emit ASCII/safe-Latin1 payloads (JSON, simple text).
+  const arr = new Uint8Array(str.length);
+  for (let i = 0; i < str.length; i++) arr[i] = str.charCodeAt(i) & 0xFF;
+  return arr;
+}
+
+/**
+ * Helper: pushes a length-delimited field (wire type 2).
+ * @param {number[]} parts
+ * @param {number} fieldNumber
+ * @param {Uint8Array} body
+ */
+function pushLenDelim(parts, fieldNumber, body) {
+  const tag = encodeTag(fieldNumber, 2);
+  const len = encodeVarint(body.length);
+  const out = new Uint8Array(tag.length + len.length + body.length);
+  out.set(tag, 0);
+  out.set(len, tag.length);
+  out.set(body, tag.length + len.length);
+  parts.push(out);
+}
+
+/** Push a varint-encoded uint field. */
+function pushVarint(parts, fieldNumber, value) {
+  const tag = encodeTag(fieldNumber, 0);
+  const v = encodeVarint(value >>> 0);
+  parts.push(new Uint8Array([...tag, ...v]));
+}
+
+/** Push a fixed32 little-endian integer (e.g. color). */
+function pushFixed32(parts, fieldNumber, value) {
+  const tag = encodeTag(fieldNumber, 5);
+  const buf = new ArrayBuffer(4);
+  new DataView(buf).setUint32(0, value, true);
+  parts.push(new Uint8Array([...tag, ...new Uint8Array(buf)]));
+}
+
+/** Push a 32-bit float (wire type 5). */
+function pushFloat(parts, fieldNumber, value) {
+  const tag = encodeTag(fieldNumber, 5);
+  parts.push(new Uint8Array([...tag, ...encodeFloat32(value)]));
+}
+
+/** Push a packed repeated float field. */
+function pushPackedFloats(parts, fieldNumber, values) {
+  pushLenDelim(parts, fieldNumber, encodePackedFloats(values));
+}
+
+/** Push a string field. */
+function pushString(parts, fieldNumber, str) {
+  pushLenDelim(parts, fieldNumber, encodeStringBody(str));
+}
+
+/**
  * Builds a binary Protobuf message with the application's schema.
+ * Recognized fields (see public/messages.proto):
+ *   t, u, ps, p, s, l, c, a, m, n, g
+ *   sx, sy, sw, sh, cr (selection / homography)
+ *   sp, sm, hd, br, ly, bm, bbm (tool settings)
+ *   stroke_ts, stroke_redo, stroke_redo_batch
+ *   th, sim (ink)
+ *   pb, pm (pattern)
+ *   fo, tm, to (text+font)
+ *   sdm (shape draw mode)
+ *   mk (selection mask)
+ *   cb, cbt (selection source crop)
+ *   image_tool_type, image_tool_data (IMAGE_TOOL payload)
+ *   text_id, text_lifetime_ms, text_fade_ms, text_pixel (text overlay)
+ *
  * @param {Object} fields - The message fields to include.
- * @returns {ArrayBuffer} - The serialized binary message.
+ * @returns {ArrayBuffer}
  */
 export function buildMsg(fields) {
-  let parts = [];
+  const parts = [];
 
-  // t (field 1, uint32, tag 0x08)
-  if (fields.t !== undefined) {
-    parts.push(new Uint8Array([0x08, ...encodeVarint(fields.t)]));
-  }
+  // === Core high-frequency fields ===
+  if (fields.t !== undefined)  pushVarint(parts, 1, fields.t);
+  if (fields.u !== undefined)  pushVarint(parts, 2, fields.u);
 
-  // u (field 2, uint32, tag 0x10)
-  if (fields.u !== undefined) {
-    parts.push(new Uint8Array([0x10, ...encodeVarint(fields.u)]));
-  }
-
-  // ps (field 3, repeated sint32, tag 0x1A, packed)
   if (fields.ps !== undefined) {
-    const psBody = encodePs(fields.ps);
-    if (psBody.length > 0) {
-      const psLength = encodeVarint(psBody.length);
-      parts.push(new Uint8Array([0x1A, ...psLength, ...psBody]));
-    }
+    const body = encodePs(fields.ps);
+    if (body.length > 0) pushLenDelim(parts, 3, body);
   }
 
-  // p (field 4, uint32, tag 0x20)
-  if (fields.p !== undefined) {
-    parts.push(new Uint8Array([0x20, ...encodeVarint(fields.p)]));
-  }
+  if (fields.p !== undefined)  pushVarint(parts, 4, fields.p);
+  if (fields.s !== undefined)  pushVarint(parts, 5, fields.s);
+  if (fields.l !== undefined)  pushVarint(parts, 6, fields.l);
+  if (fields.c !== undefined)  pushFixed32(parts, 7, fields.c);
+  if (fields.a !== undefined)  pushVarint(parts, 8, fields.a ? 1 : 0);
+  if (fields.m !== undefined)  pushVarint(parts, 9, fields.m ? 1 : 0);
+  if (fields.k !== undefined)  pushString(parts, 10, String(fields.k));
+  if (fields.n !== undefined)  pushString(parts, 11, String(fields.n));
+  if (fields.g !== undefined)  pushString(parts, 12, String(fields.g));
 
-  // s (field 5, int32, tag 0x28)
-  if (fields.s !== undefined) {
-    parts.push(new Uint8Array([0x28, ...encodeVarint(fields.s)]));
-  }
+  // === Lower-frequency fields ===
+  if (fields.sp !== undefined) pushVarint(parts, 16, fields.sp);
 
-  // l (field 6, enum Tool, tag 0x30)
-  if (fields.l !== undefined) {
-    parts.push(new Uint8Array([0x30, ...encodeVarint(fields.l)]));
-  }
+  // Selection rect (int32: 18-21)
+  if (fields.sx !== undefined) pushVarint(parts, 18, fields.sx);
+  if (fields.sy !== undefined) pushVarint(parts, 19, fields.sy);
+  if (fields.sw !== undefined) pushVarint(parts, 20, fields.sw);
+  if (fields.sh !== undefined) pushVarint(parts, 21, fields.sh);
 
-  // c (field 7, fixed32, tag 0x3D)
-  if (fields.c !== undefined) {
-    const b = new ArrayBuffer(4);
-    new DataView(b).setUint32(0, fields.c, true);
-    parts.push(new Uint8Array([0x3D, ...new Uint8Array(b)]));
-  }
+  // Selection control region / homography corners (packed repeated float)
+  if (fields.cr !== undefined) pushPackedFloats(parts, 22, fields.cr);
 
-  // n (field 11, string, tag 0x5A)
-  if (fields.n !== undefined) {
-    const nameBytes = new Uint8Array(Array.from(fields.n).map(c => c.charCodeAt(0)));
-    const nameLength = encodeVarint(nameBytes.length);
-    parts.push(new Uint8Array([0x5A, ...nameLength, ...nameBytes]));
-  }
+  if (fields.sm !== undefined) pushVarint(parts, 23, fields.sm);
+  if (fields.hd !== undefined) pushVarint(parts, 28, fields.hd);
+  if (fields.br !== undefined) pushVarint(parts, 43, fields.br);
+  if (fields.ly !== undefined) pushVarint(parts, 44, fields.ly);
+  if (fields.bm !== undefined) pushString(parts, 45, String(fields.bm));
+  if (fields.bbm !== undefined) pushString(parts, 74, String(fields.bbm));
 
-  // g (field 12, string, tag 0x62)
-  if (fields.g !== undefined) {
-    const gBytes = new Uint8Array(Array.from(fields.g).map(c => c.charCodeAt(0)));
-    const gLength = encodeVarint(gBytes.length);
-    parts.push(new Uint8Array([0x62, ...gLength, ...gBytes]));
-  }
+  if (fields.stroke_ts !== undefined) pushVarint(parts, 46, fields.stroke_ts);
 
-  // sp (field 16, uint32, tag 0x80, 0x01)
-  if (fields.sp !== undefined) {
-    parts.push(new Uint8Array([0x80, 0x01, ...encodeVarint(fields.sp)]));
-  }
+  // Ink thinning / simulate pressure
+  if (fields.th !== undefined)  pushVarint(parts, 59, fields.th);
+  if (fields.sim !== undefined) pushVarint(parts, 60, fields.sim);
 
-  // sm (field 23, uint32, tag 0xB8, 0x01)
-  if (fields.sm !== undefined) {
-    parts.push(new Uint8Array([0xB8, 0x01, ...encodeVarint(fields.sm)]));
-  }
+  // Pattern brush data and pattern mode
+  if (fields.pb !== undefined)  pushString(parts, 83, String(fields.pb));
+  if (fields.pm !== undefined)  pushVarint(parts, 84, fields.pm ? 1 : 0);
 
-  // hd (field 28, uint32, tag 0xE0, 0x01)
-  if (fields.hd !== undefined) {
-    parts.push(new Uint8Array([0xE0, 0x01, ...encodeVarint(fields.hd)]));
-  }
+  // Text font / baseline (CF message + USERS)
+  if (fields.fo !== undefined)  pushString(parts, 85, String(fields.fo));
+  if (fields.tm !== undefined)  pushFloat(parts, 86, fields.tm);
+  if (fields.to !== undefined)  pushFloat(parts, 87, fields.to);
 
-  // br (field 43, uint32, tag 0xD8, 0x02)
-  if (fields.br !== undefined) {
-    parts.push(new Uint8Array([0xD8, 0x02, ...encodeVarint(fields.br)]));
-  }
+  // Shape draw mode ('corner-to-corner' | 'center-scaling')
+  if (fields.sdm !== undefined) pushString(parts, 88, String(fields.sdm));
 
-  // ly (field 44, uint32, tag 0xE0, 0x02)
-  if (fields.ly !== undefined) {
-    parts.push(new Uint8Array([0xE0, 0x02, ...encodeVarint(fields.ly)]));
-  }
+  // Selection mask active flag
+  if (fields.mk !== undefined)  pushVarint(parts, 89, fields.mk ? 1 : 0);
 
-  // bm (field 45, string, tag 0xEA, 0x02)
-  if (fields.bm !== undefined) {
-    const bmBytes = new Uint8Array(Array.from(fields.bm).map(c => c.charCodeAt(0)));
-    const bmLength = encodeVarint(bmBytes.length);
-    parts.push(new Uint8Array([0xEA, 0x02, ...bmLength, ...bmBytes]));
-  }
+  // Selection source crop / cumulative source crop (packed repeated float)
+  if (fields.cb !== undefined)  pushPackedFloats(parts, 154, fields.cb);
+  if (fields.cbt !== undefined) pushPackedFloats(parts, 155, fields.cbt);
 
-  // th (field 59, uint32, tag 0xD8, 0x03)
-  if (fields.th !== undefined) {
-    parts.push(new Uint8Array([0xD8, 0x03, ...encodeVarint(fields.th)]));
-  }
+  // IMAGE_TOOL payload (confetti / pattern / image-brush JSON)
+  if (fields.image_tool_type !== undefined) pushString(parts, 159, String(fields.image_tool_type));
+  if (fields.image_tool_data !== undefined) pushString(parts, 160, String(fields.image_tool_data));
+  // Aliases matching app-side camelCase usage
+  if (fields.imageToolType !== undefined && fields.image_tool_type === undefined) pushString(parts, 159, String(fields.imageToolType));
+  if (fields.imageToolData !== undefined && fields.image_tool_data === undefined) pushString(parts, 160, String(fields.imageToolData));
 
-  // sim (field 60, uint32, tag 0xE0, 0x03)
-  if (fields.sim !== undefined) {
-    parts.push(new Uint8Array([0xE0, 0x03, ...encodeVarint(fields.sim)]));
-  }
+  // Text overlay fields
+  if (fields.text_id !== undefined)           pushString(parts, 164, String(fields.text_id));
+  if (fields.text_lifetime_ms !== undefined)  pushVarint(parts, 165, fields.text_lifetime_ms);
+  if (fields.text_fade_ms !== undefined)      pushVarint(parts, 166, fields.text_fade_ms);
+  if (fields.text_pixel !== undefined)        pushVarint(parts, 168, fields.text_pixel ? 1 : 0);
 
-  // stroke_ts (field 46, uint64, tag 0xF0, 0x02)
-  if (fields.stroke_ts !== undefined) {
-    parts.push(new Uint8Array([0xF0, 0x02, ...encodeVarint(fields.stroke_ts)]));
-  }
-
-  let totalLength = parts.reduce((acc, p) => acc + p.length, 0);
-  let result = new Uint8Array(totalLength);
+  let totalLength = 0;
+  for (const p of parts) totalLength += p.length;
+  const result = new Uint8Array(totalLength);
   let offset = 0;
-  for (let p of parts) {
-    result.set(p, offset);
-    offset += p.length;
-  }
+  for (const p of parts) { result.set(p, offset); offset += p.length; }
   return result.buffer;
 }

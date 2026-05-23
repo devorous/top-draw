@@ -17,7 +17,7 @@ export class CircleBlurTool extends Tool {
     super('circleBlur', board);
     this.lastStampPos = new Map(); // userId -> {x, y, radius}
     this.stampBuffer = []; // [x, y, radius, x, y, radius, ...] for broadcast
-    this.strokePoints = []; // Track points for tile ownership
+    this.strokePoints = new Map(); // userId -> [{x, y}, ...]
     this._snapshotCanvases = new Map(); // userId -> canvas with snapshot of mainCtx at stroke start
   }
 
@@ -72,6 +72,7 @@ export class CircleBlurTool extends Tool {
       this.onPointerUp(this._activeUser);
     }
     this.lastStampPos.clear();
+    this.strokePoints.clear();
     this._snapshotCanvases.clear();
     this._activeUser = null;
   }
@@ -87,7 +88,7 @@ export class CircleBlurTool extends Tool {
     const radius = user.pressure * user.size;
     const userId = user.id ?? this.board.app?.self?.id ?? 0;
 
-    this.strokePoints = [{ x: pos.x, y: pos.y }];
+    this.strokePoints.set(userId, [{ x: pos.x, y: pos.y }]);
 
     // Capture snapshot of mainCtx before drawing any circles
     this.beginSnapshot(userId);
@@ -194,7 +195,7 @@ export class CircleBlurTool extends Tool {
           for (const stamp of stamps) {
             this.stampBlurredCircleFromCache(stamp.x, stamp.y, stamp.r, user, cachedImageData, left, top);
             this.stampBuffer.push(stamp.x, stamp.y, stamp.r);
-            this.strokePoints.push({ x: stamp.x, y: stamp.y });
+            this._getStrokePoints(user).push({ x: stamp.x, y: stamp.y });
 
             this.board.forEachMirrorRegion({ point: stamp }, (region) => {
               const mirrored = this.board.mirrorPointToRegion(stamp, region);
@@ -216,16 +217,17 @@ export class CircleBlurTool extends Tool {
    */
   onPointerUp(user) {
     // Track tile ownership
-    if (this.strokePoints.length > 0) {
+    const strokePoints = this._getStrokePoints(user);
+    if (strokePoints.length > 0) {
       const radius = user.size;
-      this.board.markDirtyPath(user, this.strokePoints, radius);
-      this.board.forEachMirrorRegion({ points: this.strokePoints }, (region) => {
-        this.board.markDirtyPath(user, this.board.mirrorPointsToRegion(this.strokePoints, region), radius);
+      this.board.markDirtyPath(user, strokePoints, radius);
+      this.board.forEachMirrorRegion({ points: strokePoints }, (region) => {
+        this.board.markDirtyPath(user, this.board.mirrorPointsToRegion(strokePoints, region), radius);
       });
     }
-    this.strokePoints = [];
 
     const userId = user.id ?? this.board.app?.self?.id ?? 0;
+    this.strokePoints.delete(userId);
     this.board.endStroke(user);
     this.clearSnapshot(userId);
     this.lastStampPos.delete(user.id);
@@ -522,5 +524,12 @@ export class CircleBlurTool extends Tool {
   clearUserState(userId) {
     this.lastStampPos.delete(userId);
     this._snapshotCanvases.delete(userId);
+    this.strokePoints.delete(userId);
+  }
+
+  _getStrokePoints(user) {
+    const userId = user?.id ?? this.board.app?.self?.id ?? 0;
+    if (!this.strokePoints.has(userId)) this.strokePoints.set(userId, []);
+    return this.strokePoints.get(userId);
   }
 }

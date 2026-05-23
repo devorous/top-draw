@@ -60,6 +60,7 @@ export class RemoteUserHandler {
       'circle',
       'flowPen',
       'ink',
+      'pixel',
       'pattern'
     ].includes(user.tool);
   }
@@ -81,7 +82,7 @@ export class RemoteUserHandler {
     const blendMode = this.board.layerManager.getLayerAllowComplexBlendModes(layerIndex)
       ? (user.blendMode || 'source-over')
       : 'source-over';
-    this.board.layerManager.setUserPreviewStroke(layerIndex, user.id, user.context.canvas, blendMode);
+    this.board.layerManager.setUserPreviewStroke(layerIndex, user.id, user.context.canvas, blendMode, dirtyRect);
     user._layeredPreviewActive = true;
     if (user.board) user.board.style.opacity = '0';
 
@@ -178,6 +179,7 @@ export class RemoteUserHandler {
         } else {
           const tool = this.toolManager.getTool(user.tool);
           if (tool) tool.applyStamps(user, smoothedPoints, radii);
+          if (user.tool === 'pixel') this._syncLayeredRemotePreview(user);
         }
       } else if (user.tool === 'circleBlur') {
         const tool = this.toolManager.getTool(user.tool);
@@ -570,7 +572,7 @@ export class RemoteUserHandler {
         }
         {
           if (user.context?.canvas) {
-            user.context.canvas.style.opacity = '0';
+            user.context.canvas.style.opacity = '';
           }
           const eraserTool = this.toolManager.getTool('erase');
           if (eraserTool) {
@@ -608,6 +610,7 @@ export class RemoteUserHandler {
           if (circleBlurTool) {
             const radius = user.pressure * user.size;
             circleBlurTool.beginSnapshot(user.id);
+            circleBlurTool.strokePoints?.set?.(user.id, [{ x: pos.x, y: pos.y }]);
             circleBlurTool.lastStampPos.set(user.id, { x: pos.x, y: pos.y, radius });
             circleBlurTool.stampBlurredCircle(pos.x, pos.y, radius, user);
             this.board.forEachMirrorRegion({ point: pos }, (region) => {
@@ -634,6 +637,10 @@ export class RemoteUserHandler {
           }
           const imageBrushTool = this.toolManager.getTool('imageBrush');
           if (imageBrushTool) {
+            user._imageBrushLastPos = { x: pos.x, y: pos.y };
+            user._imageBrushLastTime = performance.now();
+            user._imageBrushDirtyBounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+            user._imageBrushStrokePoints = [{ x: pos.x, y: pos.y }];
             imageBrushTool.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
             imageBrushTool.drawStamp(user, pos);
           }
@@ -934,6 +941,7 @@ export class RemoteUserHandler {
     if (circleBlurTool) {
       circleBlurTool.lastStampPos.delete(user.id);
       circleBlurTool.clearSnapshot(user.id);
+      circleBlurTool.strokePoints?.delete?.(user.id);
     }
 
     const glitchBlurTool = this.toolManager.getTool('glitchBlur');
@@ -941,9 +949,28 @@ export class RemoteUserHandler {
 
     const imageBrushTool = this.toolManager.getTool('imageBrush');
     if (imageBrushTool) imageBrushTool.lastStampPos.delete(user.id);
+    delete user._imageBrushLastPos;
+    delete user._imageBrushLastTime;
+    delete user._imageBrushDirtyBounds;
+    delete user._imageBrushStrokePoints;
 
     const confettiTool = this.toolManager.getTool('confetti');
     if (confettiTool) confettiTool.lastStampPos.delete(user.id);
+    delete user._confettiDirtyBounds;
+    delete user._confettiStrokePoints;
+
+    const pixelTool = this.toolManager.getTool('pixel');
+    if (pixelTool) {
+      pixelTool.lastStampPos.delete(user.id);
+      const tempCanvas = pixelTool.tempCanvases.get(user.id);
+      this._disposeCanvasElement(tempCanvas);
+      pixelTool.tempCanvases.delete(user.id);
+    }
+    delete user._pixelStrokePoints;
+    delete user._pixelPreviewDirtyBounds;
+
+    const eraserTool = this.toolManager.getTool('erase');
+    eraserTool?.lastPos?.delete?.(user.id);
 
     const patternTool = this.toolManager.getTool('pattern');
     if (patternTool) patternTool.lastStampPos.delete(user.id);
@@ -1282,6 +1309,10 @@ export class RemoteUserHandler {
 
       for (const entry of pending) {
         if (entry.type === 'down') {
+          user._imageBrushLastPos = { x: entry.pos.x, y: entry.pos.y };
+          user._imageBrushLastTime = performance.now();
+          user._imageBrushDirtyBounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+          user._imageBrushStrokePoints = [{ x: entry.pos.x, y: entry.pos.y }];
           tool.lastStampPos.set(user.id, entry.pos);
           user.mousedown = true;
           tool.drawStamp(user, entry.pos);
@@ -1498,6 +1529,7 @@ export class RemoteUserHandler {
     const circleBlurTool = this.toolManager.getTool('circleBlur');
     if (circleBlurTool) {
       circleBlurTool.lastStampPos?.clear?.();
+      circleBlurTool.strokePoints?.clear?.();
       circleBlurTool._activeUser = null;
     }
 
@@ -1512,7 +1544,6 @@ export class RemoteUserHandler {
     if (imageBrushTool) {
       imageBrushTool.lastStampPos?.clear?.();
       imageBrushTool._activeUser = null;
-      imageBrushTool.strokePoints = [];
       imageBrushTool.stampBuffer = [];
     }
 
@@ -1520,7 +1551,6 @@ export class RemoteUserHandler {
     if (confettiTool) {
       confettiTool.lastStampPos?.clear?.();
       confettiTool._activeUser = null;
-      confettiTool.strokePoints = [];
       confettiTool.stampBuffer = [];
     }
 
@@ -1553,9 +1583,11 @@ export class RemoteUserHandler {
       }
       pixelTool.tempCanvases?.clear?.();
       pixelTool._activeUser = null;
-      pixelTool.strokePoints = [];
       pixelTool.stampBuffer = [];
     }
+
+    const eraserTool = this.toolManager.getTool('erase');
+    eraserTool?.lastPos?.clear?.();
 
     const fillTool = this.toolManager.getTool('fill');
     fillTool?._cancelInteractive?.();
@@ -1649,7 +1681,10 @@ export class RemoteUserHandler {
     }
 
     const circleBlurTool = this.toolManager.getTool('circleBlur');
-    if (circleBlurTool) circleBlurTool.lastStampPos.delete(user.id);
+    if (circleBlurTool) {
+      circleBlurTool.lastStampPos.delete(user.id);
+      circleBlurTool.strokePoints?.delete?.(user.id);
+    }
 
     const glitchBlurTool = this.toolManager.getTool('glitchBlur');
     if (glitchBlurTool) {
@@ -1659,6 +1694,15 @@ export class RemoteUserHandler {
 
     const imageBrushTool = this.toolManager.getTool('imageBrush');
     if (imageBrushTool) imageBrushTool.lastStampPos.delete(user.id);
+    delete user._imageBrushLastPos;
+    delete user._imageBrushLastTime;
+    delete user._imageBrushDirtyBounds;
+    delete user._imageBrushStrokePoints;
+
+    const confettiTool = this.toolManager.getTool('confetti');
+    if (confettiTool) confettiTool.lastStampPos.delete(user.id);
+    delete user._confettiDirtyBounds;
+    delete user._confettiStrokePoints;
 
     const patternTool = this.toolManager.getTool('pattern');
     if (patternTool) {
@@ -1678,6 +1722,11 @@ export class RemoteUserHandler {
       this._disposeCanvasElement(tempCanvas);
       pixelTool.tempCanvases.delete(user.id);
     }
+    delete user._pixelStrokePoints;
+    delete user._pixelPreviewDirtyBounds;
+
+    const eraserTool = this.toolManager.getTool('erase');
+    eraserTool?.lastPos?.delete?.(user.id);
 
     if (user.context) {
       user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());

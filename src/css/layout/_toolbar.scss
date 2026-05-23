@@ -178,7 +178,10 @@
 #tapeRecBtn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  justify-content: center;
+  width: 28px;
+  min-width: 28px;
+  padding: 0;
 }
 
 #tapeRecBtn .tapeRecGlyph {

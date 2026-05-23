@@ -42,6 +42,7 @@
   }
 
   let isScrubbing = false;
+  let lastScrubTime = null;
   let scrubberElement = $state(); // Will be assigned to the .custom-scrubber div
   let viewportElement = $state(); // The horizontally-scrollable wrapper
 
@@ -52,6 +53,7 @@
   // timebar zooms in/out. Auto-scroll keeps the playhead onscreen during
   // playback. pxPerSecond is derived from the viewport's current width so
   // things stay responsive when side panels open/close.
+  let overlayElement = $state(); // .replay-preview-overlay node (positioned over #boards)
   let viewportSeconds = $state(30);
   const VIEWPORT_SECONDS_MIN = 5;
   const VIEWPORT_SECONDS_MAX = 600;
@@ -116,8 +118,10 @@
 
   function handleScrubberMouseDown(event) {
     isScrubbing = true;
+    TimeMachine.beginScrub();
     if (scrubberElement) {
-      TimeMachine.seek(calculateScrubTime(event, scrubberElement));
+      lastScrubTime = calculateScrubTime(event, scrubberElement);
+      TimeMachine.scrubTo(lastScrubTime);
     }
     // Prevent default to avoid text selection or other native browser behaviors
     event.preventDefault(); 
@@ -125,30 +129,38 @@
 
   function handleGlobalMouseMove(event) { // Added global handler
     if (isScrubbing && scrubberElement) {
-      TimeMachine.seek(calculateScrubTime(event, scrubberElement));
+      lastScrubTime = calculateScrubTime(event, scrubberElement);
+      TimeMachine.scrubTo(lastScrubTime);
     }
   }
 
   function handleGlobalMouseUp() { // Added global handler
+    if (isScrubbing) TimeMachine.endScrub(lastScrubTime);
     isScrubbing = false;
+    lastScrubTime = null;
   }
 
   function handleScrubberTouchStart(event) {
     isScrubbing = true;
+    TimeMachine.beginScrub();
     if (scrubberElement) {
-      TimeMachine.seek(calculateScrubTime(event, scrubberElement));
+      lastScrubTime = calculateScrubTime(event, scrubberElement);
+      TimeMachine.scrubTo(lastScrubTime);
     }
     event.preventDefault(); // Prevent scrolling
   }
 
   function handleGlobalTouchMove(event) { // Added global handler
     if (isScrubbing && scrubberElement) {
-      TimeMachine.seek(calculateScrubTime(event, scrubberElement));
+      lastScrubTime = calculateScrubTime(event, scrubberElement);
+      TimeMachine.scrubTo(lastScrubTime);
     }
   }
 
   function handleGlobalTouchEnd() { // Added global handler
+    if (isScrubbing) TimeMachine.endScrub(lastScrubTime);
     isScrubbing = false;
+    lastScrubTime = null;
   }
 
   onMount(() => { // Added onMount
@@ -172,7 +184,8 @@
     document.removeEventListener('mouseup', handleGlobalMouseUp);
     document.removeEventListener('touchmove', handleGlobalTouchMove);
     document.removeEventListener('touchend', handleGlobalTouchEnd);
-    document.body.classList.remove('replay-playback-mode');
+    document.body.classList.remove('replay-reviewing-mode');
+    document.body.classList.remove('replay-preview-mode');
     viewportResizeObserver?.disconnect?.();
   });
 
@@ -193,12 +206,45 @@
     }
   });
 
+  // While showing a cached low-res frame, blur the replay canvas so the upscale
+  // artefacts read as intentional, and surface a "Loading..." overlay so the
+  // viewer knows the full-resolution render is on its way.
   $effect(() => {
     if (typeof document === 'undefined') return;
-    document.body.classList.toggle(
-      'replay-playback-mode',
-      TimeMachine.isPlaying && TimeMachine.isReviewing
-    );
+    document.body.classList.toggle('replay-preview-mode', !!TimeMachine.isPreviewMode);
+  });
+
+  // Hide chrome (sidebar, board menu, undo/redo HUD, view-add button) while
+  // any kind of replay review is active — not just during playback. Drawing
+  // tools are meaningless on a frozen historical board.
+  $effect(() => {
+    if (typeof document === 'undefined') return;
+    document.body.classList.toggle('replay-reviewing-mode', !!TimeMachine.isReviewing);
+  });
+
+  // Keep the loading overlay centered over the live canvas region rather than
+  // the whole viewport. The boards wrapper has a CSS transform applied to it,
+  // so getBoundingClientRect() reads its current on-screen rect after pan/zoom.
+  // We refresh on resize + every frame while the overlay is visible (cheap).
+  $effect(() => {
+    if (typeof window === 'undefined') return;
+    if (!TimeMachine.isPreviewMode || !overlayElement) return;
+    const boards = document.getElementById('boards');
+    if (!boards) return;
+
+    let rafId = 0;
+    const sync = () => {
+      const r = boards.getBoundingClientRect();
+      if (overlayElement) {
+        overlayElement.style.top = `${r.top}px`;
+        overlayElement.style.left = `${r.left}px`;
+        overlayElement.style.width = `${r.width}px`;
+        overlayElement.style.height = `${r.height}px`;
+      }
+      rafId = requestAnimationFrame(sync);
+    };
+    sync();
+    return () => cancelAnimationFrame(rafId);
   });
 
   // Calculate percentage for slider background
@@ -276,10 +322,13 @@
     <span class="pulse"></span>
     VIEWING HISTORY
   </div>
+{/if}
 
-  <button class="floating-catch-up-btn" onclick={() => TimeMachine.catchUp()}>
-    {TimeMachine.isLocalReplay ? 'Return To Live' : 'Jump To Present'}
-  </button>
+{#if TimeMachine.isPreviewMode}
+  <div class="replay-preview-overlay" bind:this={overlayElement}>
+    <div class="replay-preview-spinner"></div>
+    <div class="replay-preview-text">Loading…</div>
+  </div>
 {/if}
 
 {#if TimeMachine.isOpen || TimeMachine.isLoading}
@@ -371,6 +420,11 @@
 
       {#if TimeMachine.isReviewing}
         <div class="review-actions">
+          {#if TimeMachine.isLocalReplay}
+            <button class="save-replay-btn" onclick={() => TimeMachine.exportCurrentRecording()} title="Save this replay as a .ddraw file">
+              Save .ddraw
+            </button>
+          {/if}
           {#if TimeMachine.isLocalReplay || appState.isModerator}
             <button class="mod-undo-btn" onclick={handleUndoToState}>
               {TimeMachine.isLocalReplay ? 'Undo to here' : 'Restore to here'}
@@ -387,6 +441,67 @@
 {/if}
 
 <style lang="scss">
+  /* The replay canvas is a sibling of the live #mainCanvas inside #boards. While
+     the preview flag is set, blur it heavily — the cached frame is 1/6 source
+     size, so without this the upscaled pixels read as broken rather than as a
+     loading shimmer. */
+  :global(body.replay-preview-mode #replayCanvas) {
+    filter: blur(8px) saturate(1.05);
+    transition: filter 200ms ease;
+  }
+
+  .replay-preview-overlay {
+    /* top/left/width/height are set imperatively from the boards bounding rect
+       in the Timebar effect — keeps the overlay anchored to the canvas region
+       rather than spilling over the toolbar/timebar/sidebar areas. */
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 0;
+    height: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    pointer-events: none;
+    z-index: 10000;
+    color: white;
+    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
+    background: radial-gradient(
+      ellipse at center,
+      rgba(0, 0, 0, 0.0) 0%,
+      rgba(0, 0, 0, 0.15) 60%,
+      rgba(0, 0, 0, 0.35) 100%
+    );
+    animation: replay-preview-fade-in 220ms ease;
+  }
+
+  .replay-preview-spinner {
+    width: 44px;
+    height: 44px;
+    border: 3px solid rgba(255, 255, 255, 0.25);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: replay-preview-spin 0.9s linear infinite;
+  }
+
+  .replay-preview-text {
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    opacity: 0.95;
+  }
+
+  @keyframes replay-preview-spin {
+    to { transform: rotate(360deg); }
+  }
+
+  @keyframes replay-preview-fade-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+
   .history-badge {
     position: fixed;
     top: 80px;
@@ -415,45 +530,55 @@
     }
   }
 
-  /* Hide overlays / chat / popovers during playback, but keep the top board
-     toolbar (zoom in/out, rotate) and undo/redo HUD so the viewer can pan and
-     zoom around the replay. The userList is hidden separately via JS so bot
-     cursors stay visible without the sidebar entries. */
-  :global(body.replay-playback-mode #boardMenu),
-  :global(body.replay-playback-mode #chatMount),
-  :global(body.replay-playback-mode #chatToastContainer),
-  :global(body.replay-playback-mode #boardColorPickerPanelMount),
-  :global(body.replay-playback-mode #floatingPaletteMount),
-  :global(body.replay-playback-mode #selectionMenu),
-  :global(body.replay-playback-mode #userContextMenu),
-  :global(body.replay-playback-mode #selfContextMenu),
-  :global(body.replay-playback-mode .toast),
-  :global(body.replay-playback-mode .history-badge),
-  :global(body.replay-playback-mode .floating-catch-up-btn) {
+  /* Hide drawing chrome whenever a replay review is active. The top toolbar
+     (zoom +/-, rotation reset) stays so the viewer can navigate around the
+     canvas. The history badge stays visible to make it clear they're in
+     replay mode. */
+  :global(body.replay-reviewing-mode #boardMenu),
+  :global(body.replay-reviewing-mode #chatMount),
+  :global(body.replay-reviewing-mode #chatToastContainer),
+  :global(body.replay-reviewing-mode #boardColorPickerPanelMount),
+  :global(body.replay-reviewing-mode #floatingPaletteMount),
+  :global(body.replay-reviewing-mode #selectionMenu),
+  :global(body.replay-reviewing-mode #userContextMenu),
+  :global(body.replay-reviewing-mode #selfContextMenu),
+  :global(body.replay-reviewing-mode #viewHud),
+  :global(body.replay-reviewing-mode #bottomBar),
+  :global(body.replay-reviewing-mode .boardViewerLaunch),
+  :global(body.replay-reviewing-mode .toast) {
     opacity: 0 !important;
     pointer-events: none !important;
     transition: opacity 180ms ease;
   }
 
-  :global(body.replay-playback-mode #boards) {
+  /* Sidebar has to leave layout entirely so the canvas can grow into the
+     freed space — opacity alone keeps the flex column reserved. */
+  :global(body.replay-reviewing-mode #sideMenu) {
+    display: none !important;
+  }
+
+  :global(body.replay-reviewing-mode #boards) {
     box-shadow: none;
   }
 
-  .floating-catch-up-btn {
-    position: fixed;
-    right: 20px;
-    bottom: 96px;
-    z-index: 10002;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    background: rgba(15, 23, 42, 0.9);
-    color: white;
-    padding: 10px 14px;
-    border-radius: 10px;
-    font-weight: 700;
-    font-size: 13px;
-    letter-spacing: 0.02em;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
-    backdrop-filter: blur(10px);
+  /* Replay canvas captures pan/zoom drags directly. App.js routes those into
+     the existing board pan/zoom handlers when TimeMachine.isReviewing is true. */
+  :global(body.replay-reviewing-mode #replayCanvas) {
+    pointer-events: auto !important;
+    cursor: grab;
+  }
+  :global(body.replay-reviewing-mode #replayCanvas:active) {
+    cursor: grabbing;
+  }
+
+  /* Hide the local user's drawing cursor (brush circle, crosshair, pressure
+     ring, text caret, mirror line, etc.) while reviewing. Live pointer-move
+     handlers may keep restyling these SVG/DOM nodes, so CSS — not JS — has
+     to be the source of truth. Remote / bot cursors are deliberately not
+     scoped here so playback still shows who was drawing where. */
+  :global(body.replay-reviewing-mode .cursors .self),
+  :global(body.replay-reviewing-mode .cursors .mirrorLine) {
+    display: none !important;
   }
 
   @keyframes badge-pulse {
@@ -712,6 +837,25 @@
     @keyframes btn-pulse {
       0%, 100% { transform: scale(1); }
       50% { transform: scale(1.02); }
+    }
+
+    .save-replay-btn {
+      background: #2dd4bf;
+      color: #0f172a;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+
+      &:hover {
+        background: #14b8a6;
+        color: white;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(45, 212, 191, 0.4);
+      }
     }
 
     .mod-undo-btn {

@@ -21,11 +21,8 @@ export class ImageBrushTool extends Tool {
    */
   constructor(board) {
     super('imageBrush', board);
-    this.lastPos = null;
-    this.lastTime = null;
     this.lastStampPos = new Map(); // userId -> {x, y}
     this.stampBuffer = []; // [x, y, x, y, ...] for broadcast
-    this.strokePoints = []; // Track points for tile ownership
     this._tintCache = new Map();
   }
 
@@ -55,13 +52,13 @@ export class ImageBrushTool extends Tool {
     if (user.imageBrush) {
       this._activeUser = user;
       this.board.beginStroke(user);
-      this.lastPos = { x: pos.x, y: pos.y };
-      this.lastTime = performance.now();
+      user._imageBrushLastPos = { x: pos.x, y: pos.y };
+      user._imageBrushLastTime = performance.now();
       if (user.imageBrush.type === 'gih' && user.imageBrush.reset) {
         user.imageBrush.reset();
       }
-      this.dirtyBounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
-      this.strokePoints = [{ x: pos.x, y: pos.y }];
+      user._imageBrushDirtyBounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+      user._imageBrushStrokePoints = [{ x: pos.x, y: pos.y }];
       this.drawStamp(user, pos);
       this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
     }
@@ -107,7 +104,7 @@ export class ImageBrushTool extends Tool {
         const interpY = lastStamp.y + dy * t;
         this.drawStamp(user, { x: interpX, y: interpY });
         this.stampBuffer.push(interpX, interpY);
-        this.strokePoints.push({ x: interpX, y: interpY });
+        this._getStrokePoints(user).push({ x: interpX, y: interpY });
       }
 
       this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
@@ -124,21 +121,23 @@ export class ImageBrushTool extends Tool {
   onPointerUp(user, pos, e) {
     if (user.panning || !user.imageBrush) return;
 
-    if (this.dirtyBounds && this.dirtyBounds.maxX !== -Infinity) {
+    const dirtyBounds = user._imageBrushDirtyBounds;
+    const strokePoints = this._getStrokePoints(user);
+    if (dirtyBounds && dirtyBounds.maxX !== -Infinity) {
       const brushRadius = user.size;
       const safetyMargin = brushRadius * 0.25;
       const margin = safetyMargin + 2; 
 
-      const x = Math.floor(this.dirtyBounds.minX - margin);
-      const y = Math.floor(this.dirtyBounds.minY - margin);
-      const width = Math.ceil(this.dirtyBounds.maxX - this.dirtyBounds.minX + margin * 2);
-      const height = Math.ceil(this.dirtyBounds.maxY - this.dirtyBounds.minY + margin * 2);
+      const x = Math.floor(dirtyBounds.minX - margin);
+      const y = Math.floor(dirtyBounds.minY - margin);
+      const width = Math.ceil(dirtyBounds.maxX - dirtyBounds.minX + margin * 2);
+      const height = Math.ceil(dirtyBounds.maxY - dirtyBounds.minY + margin * 2);
 
       this.board.expandDirtyRect(user, x, y, width, height);
 
       this.board.forEachMirrorRegion({ rect: { x, y, width, height } }, (region) => {
-        const p1 = this.board.mirrorPointToRegion({ x: this.dirtyBounds.minX, y: this.dirtyBounds.minY }, region);
-        const p2 = this.board.mirrorPointToRegion({ x: this.dirtyBounds.maxX, y: this.dirtyBounds.maxY }, region);
+        const p1 = this.board.mirrorPointToRegion({ x: dirtyBounds.minX, y: dirtyBounds.minY }, region);
+        const p2 = this.board.mirrorPointToRegion({ x: dirtyBounds.maxX, y: dirtyBounds.maxY }, region);
         const mx = Math.floor(Math.min(p1.x, p2.x) - margin);
         const my = Math.floor(Math.min(p1.y, p2.y) - margin);
         const mw = Math.ceil(Math.max(p1.x, p2.x) - Math.min(p1.x, p2.x) + margin * 2);
@@ -148,19 +147,20 @@ export class ImageBrushTool extends Tool {
     }
 
     // Track tile ownership
-    if (this.strokePoints.length > 0) {
-      this.board.markDirtyPath(user, this.strokePoints, user.size);
-      this.board.forEachMirrorRegion({ points: this.strokePoints }, (region) => {
-        this.board.markDirtyPath(user, this.board.mirrorPointsToRegion(this.strokePoints, region), user.size);
+    if (strokePoints.length > 0) {
+      this.board.markDirtyPath(user, strokePoints, user.size);
+      this.board.forEachMirrorRegion({ points: strokePoints }, (region) => {
+        this.board.markDirtyPath(user, this.board.mirrorPointsToRegion(strokePoints, region), user.size);
       });
     }
-    this.strokePoints = [];
+    user._imageBrushStrokePoints = [];
 
     this.board.endStroke(user);
-    this.board.clearTop();
+    if (this._isLocalUser(user)) this.board.clearTop();
+    else user.context?.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
 
     this.lastStampPos.delete(user.id);
-    this.dirtyBounds = null;
+    user._imageBrushDirtyBounds = null;
   }
 
   drainStampBuffer() {
@@ -196,10 +196,12 @@ export class ImageBrushTool extends Tool {
     // After ensuring activeLayer is set, proceed with drawing.
     // The drawStamp method itself still checks if the context is valid.
     const points = [];
+    const strokePoints = this._getStrokePoints(user);
     for (let i = 0; i < ps.length; i += 2) {
       const pos = { x: ps[i], y: ps[i + 1] };
       this.drawStamp(user, pos);
       points.push(pos);
+      strokePoints.push(pos);
     }
 
     // Track tile ownership
@@ -226,7 +228,7 @@ export class ImageBrushTool extends Tool {
 
     previewCtx.globalAlpha = user.opacity !== undefined ? user.opacity : 1;
     this.board.withSelectionMaskClip(previewCtx, user.id, () => {
-      this.board.forEachMirrorRegion({ points: this.strokePoints }, (region) => {
+      this.board.forEachMirrorRegion({ points: this._getStrokePoints(user) }, (region) => {
         this.board.drawMirroredCanvas(previewCtx, strokeCtx.canvas, region, 0, 0);
       });
     });
@@ -370,8 +372,8 @@ export class ImageBrushTool extends Tool {
       image = this._getTintedImage(user, image);
     }
 
-    this.lastPos = { x: pos.x, y: pos.y };
-    this.lastTime = performance.now();
+    user._imageBrushLastPos = { x: pos.x, y: pos.y };
+    user._imageBrushLastTime = performance.now();
 
     let ratioX = width / height;
     let ratioY = height / width;
@@ -417,11 +419,11 @@ export class ImageBrushTool extends Tool {
     ctx.stroke(); // Apply the path (all draws since beginPath)
     ctx.globalAlpha = 1.0;
 
-    if (this.dirtyBounds) {
-      this.dirtyBounds.minX = Math.min(this.dirtyBounds.minX, stampX);
-      this.dirtyBounds.minY = Math.min(this.dirtyBounds.minY, stampY);
-      this.dirtyBounds.maxX = Math.max(this.dirtyBounds.maxX, stampX + stampW);
-      this.dirtyBounds.maxY = Math.max(this.dirtyBounds.maxY, stampY + stampH);
+    if (user._imageBrushDirtyBounds) {
+      user._imageBrushDirtyBounds.minX = Math.min(user._imageBrushDirtyBounds.minX, stampX);
+      user._imageBrushDirtyBounds.minY = Math.min(user._imageBrushDirtyBounds.minY, stampY);
+      user._imageBrushDirtyBounds.maxX = Math.max(user._imageBrushDirtyBounds.maxX, stampX + stampW);
+      user._imageBrushDirtyBounds.maxY = Math.max(user._imageBrushDirtyBounds.maxY, stampY + stampH);
     }
 
     this.board.expandDirtyRect(user, Math.floor(stampX), Math.floor(stampY),
@@ -453,17 +455,18 @@ export class ImageBrushTool extends Tool {
       tiltY: 0
     };
 
-    if (this.lastPos) {
-      const dx = pos.x - this.lastPos.x;
-      const dy = pos.y - this.lastPos.y;
+    const lastPos = user._imageBrushLastPos;
+    if (lastPos) {
+      const dx = pos.x - lastPos.x;
+      const dy = pos.y - lastPos.y;
 
       if (dx !== 0 || dy !== 0) {
         let angle = Math.atan2(dx, -dy) * (180 / Math.PI);
         context.angle = ((angle % 360) + 360) % 360;
       }
 
-      if (this.lastTime) {
-        const dt = performance.now() - this.lastTime;
+      if (user._imageBrushLastTime) {
+        const dt = performance.now() - user._imageBrushLastTime;
         if (dt > 0) {
           const distance = Math.sqrt(dx * dx + dy * dy);
           context.velocity = distance / dt * 16; 
@@ -550,5 +553,15 @@ export class ImageBrushTool extends Tool {
 
   clearUserState(userId) {
     this.lastStampPos.delete(userId);
+  }
+
+  _getStrokePoints(user) {
+    if (!user) return [];
+    if (!Array.isArray(user._imageBrushStrokePoints)) user._imageBrushStrokePoints = [];
+    return user._imageBrushStrokePoints;
+  }
+
+  _isLocalUser(user) {
+    return user === this.board.app?.self || user?.id === this.board.app?.sessionIndex;
   }
 }

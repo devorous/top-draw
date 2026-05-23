@@ -21,8 +21,6 @@ export class PixelBrushTool {
     this.lastStampPos = new Map(); // userId -> {x, y}
     this.tempCanvases = new Map(); // userId -> temp canvas for opacity handling
     this.stampBuffer = []; // [x, y, x, y, ...] accumulated stamp positions for broadcast
-    this.strokePoints = []; // Track points for tile ownership
-    this.previewDirtyBounds = null;
   }
 
   activate() {}
@@ -53,8 +51,8 @@ export class PixelBrushTool {
     tempCanvas.height = this.board.getHeight();
     this.tempCanvases.set(user.id, tempCanvas);
 
-    this.strokePoints = [{ x: pos.x, y: pos.y }];
-    this.previewDirtyBounds = null;
+    user._pixelStrokePoints = [{ x: pos.x, y: pos.y }];
+    user._pixelPreviewDirtyBounds = null;
     this.drawSquare(user, pos, true);
     this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
   }
@@ -93,7 +91,7 @@ export class PixelBrushTool {
       this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
       for (const point of linePoints) {
         this.stampBuffer.push(point.x, point.y);
-        this.strokePoints.push(point);
+        this._getStrokePoints(user).push(point);
       }
     } else {
       const dx = pos.x - lastStamp.x;
@@ -114,7 +112,7 @@ export class PixelBrushTool {
           const interpY = lastStamp.y + dy * t;
           this.drawSquare(user, { x: interpX, y: interpY }, true);
           this.stampBuffer.push(interpX, interpY);
-          this.strokePoints.push({ x: interpX, y: interpY });
+          this._getStrokePoints(user).push({ x: interpX, y: interpY });
         }
 
         this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
@@ -124,7 +122,7 @@ export class PixelBrushTool {
     if (shouldRender) {
       const rect = this.getPreviewDirtyRect(user);
       if (rect !== false) {
-        this.board.clearTop(rect);
+        this._clearPreview(user, rect);
         this.drawPreview(user, rect);
       }
     }
@@ -150,10 +148,12 @@ export class PixelBrushTool {
    */
   applyStamps(user, ps) {
     const points = [];
+    const strokePoints = this._getStrokePoints(user);
     for (let i = 0; i < ps.length; i += 2) {
       const pos = { x: ps[i], y: ps[i + 1] };
       this.drawSquare(user, pos, true);
       points.push(pos);
+      strokePoints.push(pos);
     }
     // Track tile ownership for remote user
     if (points.length > 0) {
@@ -165,7 +165,7 @@ export class PixelBrushTool {
     }
     const rect = this.getPreviewDirtyRect(user);
     if (rect !== false) {
-      this.board.clearTop(rect);
+      this._clearPreview(user, rect);
       this.drawPreview(user, rect);
     }
   }
@@ -221,14 +221,15 @@ export class PixelBrushTool {
     if (user) {
       this.tempCanvases.delete(user.id);
       this.lastStampPos.delete(user.id);
+      user._pixelStrokePoints = [];
+      user._pixelPreviewDirtyBounds = null;
+      this._clearPreview(user);
     } else {
       this.tempCanvases.clear();
       this.lastStampPos.clear();
+      this.board.clearTop();
     }
-    this.strokePoints = [];
     this.stampBuffer = [];
-    this.previewDirtyBounds = null;
-    this.board.clearTop();
   }
 
   /**
@@ -253,7 +254,7 @@ export class PixelBrushTool {
         ctx.globalAlpha = 1.0;
 
         // Mirror mode
-        this.board.forEachMirrorRegion({ points: this.strokePoints }, (region) => {
+        this.board.forEachMirrorRegion({ points: this._getStrokePoints(user) }, (region) => {
           ctx.save();
           ctx.globalAlpha = finalAlpha;
           this.board.drawMirroredCanvas(ctx, tempCanvas, region, 0, 0);
@@ -265,18 +266,19 @@ export class PixelBrushTool {
     }
 
     // Track tile ownership
-    if (this.strokePoints.length > 0) {
+    const strokePoints = this._getStrokePoints(user);
+    if (strokePoints.length > 0) {
       const size = Math.max(1, Math.round((user.size || 5) * 2));
-      this.board.markDirtyPath(user, this.strokePoints, size / 2);
-      this.board.forEachMirrorRegion({ points: this.strokePoints }, (region) => {
-        this.board.markDirtyPath(user, this.board.mirrorPointsToRegion(this.strokePoints, region), size / 2);
+      this.board.markDirtyPath(user, strokePoints, size / 2);
+      this.board.forEachMirrorRegion({ points: strokePoints }, (region) => {
+        this.board.markDirtyPath(user, this.board.mirrorPointsToRegion(strokePoints, region), size / 2);
       });
     }
-    this.strokePoints = [];
-    this.previewDirtyBounds = null;
+    user._pixelStrokePoints = [];
+    user._pixelPreviewDirtyBounds = null;
 
     this.board.endStroke(user);
-    this.board.clearTop();
+    this._clearPreview(user);
     this.lastStampPos.delete(user.id);
   }
 
@@ -291,7 +293,7 @@ export class PixelBrushTool {
     const opacitySlider = user.opacity !== undefined ? user.opacity : 1;
     const finalAlpha = opacitySlider;
 
-    const ctx = this.board.topCtx;
+    const ctx = this._getPreviewContext(user);
     if (!ctx) return;
 
     ctx.globalAlpha = finalAlpha;
@@ -316,7 +318,7 @@ export class PixelBrushTool {
       }
 
       // Mirror mode
-      this.board.forEachMirrorRegion({ points: this.strokePoints }, (region) => {
+      this.board.forEachMirrorRegion({ points: this._getStrokePoints(user) }, (region) => {
         ctx.save();
         ctx.globalAlpha = finalAlpha;
         this.board.drawMirroredCanvas(ctx, tempCanvas, region, 0, 0);
@@ -326,7 +328,7 @@ export class PixelBrushTool {
     });
     ctx.globalAlpha = 1.0;
 
-    this.previewDirtyBounds = null;
+    user._pixelPreviewDirtyBounds = null;
   }
 
   updatePreview(user) {
@@ -391,29 +393,60 @@ export class PixelBrushTool {
     ctx.fillRect(x, y, size, size);
 
     if (useTemp) {
-      this._expandPreviewDirtyBounds(x - 1, y - 1, x + size + 1, y + size + 1);
+      this._expandPreviewDirtyBounds(user, x - 1, y - 1, x + size + 1, y + size + 1);
     }
 
     // Expand dirty rect (don't expand for mirror - handled in preview/composite)
     this.board.expandDirtyRect(user, x - 1, y - 1, size + 2, size + 2);
   }
 
-  getPreviewDirtyRect() {
-    if (!this.previewDirtyBounds) return false;
+  getPreviewDirtyRect(user = this._activeUser) {
+    const bounds = user?._pixelPreviewDirtyBounds;
+    if (!bounds) return false;
     if (this.board.mirrorRegions?.length > 0) return null;
-    return this._boundsToRect(this.previewDirtyBounds) ?? false;
+    return this._boundsToRect(bounds) ?? false;
   }
 
-  _expandPreviewDirtyBounds(minX, minY, maxX, maxY) {
-    if (!this.previewDirtyBounds) {
-      this.previewDirtyBounds = { minX, minY, maxX, maxY };
+  _expandPreviewDirtyBounds(user, minX, minY, maxX, maxY) {
+    if (!user) return;
+    if (!user._pixelPreviewDirtyBounds) {
+      user._pixelPreviewDirtyBounds = { minX, minY, maxX, maxY };
       return;
     }
 
-    this.previewDirtyBounds.minX = Math.min(this.previewDirtyBounds.minX, minX);
-    this.previewDirtyBounds.minY = Math.min(this.previewDirtyBounds.minY, minY);
-    this.previewDirtyBounds.maxX = Math.max(this.previewDirtyBounds.maxX, maxX);
-    this.previewDirtyBounds.maxY = Math.max(this.previewDirtyBounds.maxY, maxY);
+    user._pixelPreviewDirtyBounds.minX = Math.min(user._pixelPreviewDirtyBounds.minX, minX);
+    user._pixelPreviewDirtyBounds.minY = Math.min(user._pixelPreviewDirtyBounds.minY, minY);
+    user._pixelPreviewDirtyBounds.maxX = Math.max(user._pixelPreviewDirtyBounds.maxX, maxX);
+    user._pixelPreviewDirtyBounds.maxY = Math.max(user._pixelPreviewDirtyBounds.maxY, maxY);
+  }
+
+  _getStrokePoints(user) {
+    if (!user) return [];
+    if (!Array.isArray(user._pixelStrokePoints)) user._pixelStrokePoints = [];
+    return user._pixelStrokePoints;
+  }
+
+  _isLocalUser(user) {
+    return user === this.board.app?.self || user?.id === this.board.app?.sessionIndex;
+  }
+
+  _getPreviewContext(user) {
+    return this._isLocalUser(user) ? this.board.topCtx : user?.context;
+  }
+
+  _clearPreview(user, rect = null) {
+    if (this._isLocalUser(user)) {
+      this.board.clearTop(rect);
+      return;
+    }
+
+    const ctx = user?.context;
+    if (!ctx) return;
+    if (rect && Number.isFinite(rect.x) && Number.isFinite(rect.y) && rect.width > 0 && rect.height > 0) {
+      ctx.clearRect(rect.x, rect.y, rect.width, rect.height);
+    } else {
+      ctx.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+    }
   }
 
   _boundsToRect(bounds) {

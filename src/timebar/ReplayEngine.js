@@ -1800,9 +1800,11 @@ export class ReplayEngine {
    * Process a batch of actions.
    * @param {Array<{timestamp: number, msg: Object}>} actions - Actions to replay (JSON messages)
    * @param {number} [upToTimestamp] - Only process actions up to this timestamp
+   * @param {{shouldCancel?: () => boolean}} [options]
+   * @returns {Promise<boolean>}
    */
-  async processActions(actions, upToTimestamp = Infinity) {
-    await this._runActionBatch(actions, upToTimestamp, { rebaseSnapshot: true });
+  async processActions(actions, upToTimestamp = Infinity, options = {}) {
+    return await this._runActionBatch(actions, upToTimestamp, { rebaseSnapshot: true, ...options });
   }
 
   /**
@@ -1810,20 +1812,22 @@ export class ReplayEngine {
    * Used for smoother forward playback once a replay state is already loaded.
    * @param {Array<{timestamp: number, msg: Object}>} actions
    * @param {number} [upToTimestamp]
-   * @returns {Promise<void>}
+   * @param {{shouldCancel?: () => boolean}} [options]
+   * @returns {Promise<boolean>}
    */
-  async appendActions(actions, upToTimestamp = Infinity) {
-    await this._runActionBatch(actions, upToTimestamp, { rebaseSnapshot: false });
+  async appendActions(actions, upToTimestamp = Infinity, options = {}) {
+    return await this._runActionBatch(actions, upToTimestamp, { rebaseSnapshot: false, ...options });
   }
 
   /**
    * Internal helper for replay action execution.
    * @param {Array<{timestamp: number, msg: Object}>} actions
    * @param {number} upToTimestamp
-   * @param {{rebaseSnapshot: boolean}} options
+   * @param {{rebaseSnapshot: boolean, shouldCancel?: () => boolean}} options
    * @private
    */
-  async _runActionBatch(actions, upToTimestamp, { rebaseSnapshot }) {
+  async _runActionBatch(actions, upToTimestamp, { rebaseSnapshot, shouldCancel }) {
+    if (shouldCancel?.()) return false;
     if (rebaseSnapshot) {
       // Whole canvas changes — discard any in-flight dirty rects and force a
       // full composite at the end of this batch.
@@ -1845,6 +1849,7 @@ export class ReplayEngine {
       this._replayBoard.mainCtx.clearRect(0, 0, this.width, this.height);
       this._replayBoard.mainCtx.drawImage(this._snapshotCanvas, 0, 0);
     }
+    if (shouldCancel?.()) return false;
 
     await Promise.all([
       this._preloadBrushImages(actions, upToTimestamp),
@@ -1852,8 +1857,14 @@ export class ReplayEngine {
       this._preloadGlitchResults(actions, upToTimestamp),
       this._preloadImagePastes(actions, upToTimestamp)
     ]);
+    if (shouldCancel?.()) return false;
 
-    for (const action of actions) {
+    for (let i = 0; i < actions.length; i++) {
+      if ((i & 63) === 0) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        if (shouldCancel?.()) return false;
+      }
+      const action = actions[i];
       if (action.timestamp > upToTimestamp) break;
 
       const msg = action.msg;
@@ -1866,8 +1877,10 @@ export class ReplayEngine {
 
       await this._processAction(action.msg);
     }
+    if (shouldCancel?.()) return false;
 
     this._compositeOutput();
+    return true;
   }
 
   /**
@@ -1916,16 +1929,21 @@ export class ReplayEngine {
     try {
       switch (msg.t) {
         case T.MD:
-          this._remoteHandler.handleMouseDown(user, { 
-            ps: this._ensureArray(msg.ps), 
-            rs: this._ensureArray(msg.rs) 
+          this._remoteHandler.handleMouseDown(user, {
+            ps: this._ensureArray(msg.ps),
+            rs: this._ensureArray(msg.rs),
+            confettiData: msg.g ?? null,
+            layerIndex: msg.ly,
+            blendMode: msg.bm,
+            blendBakeMode: msg.bbm === 'background' ? 'background' : (msg.bbm === 'existing' ? 'existing' : undefined),
           });
           break;
 
         case T.MM:
-          this._remoteHandler.handleMouseMove(user, { 
-            ps: this._ensureArray(msg.ps), 
-            rs: this._ensureArray(msg.rs) 
+          this._remoteHandler.handleMouseMove(user, {
+            ps: this._ensureArray(msg.ps),
+            rs: this._ensureArray(msg.rs),
+            confettiData: msg.g ?? null,
           });
           break;
 

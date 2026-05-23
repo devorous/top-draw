@@ -8,8 +8,23 @@
 
 import { ReplayEngine } from './ReplayEngine.js';
 import { T } from '../../shared/MessageTypes.js';
+import { encodeDdraw, suggestDdrawFilename } from '../replay/ddrawCodec.js';
 
 const SEEK_TELEMETRY_LOG_INTERVAL_MS = 1500;
+const LOCAL_REVERSE_SCRUB_FRAME_MS = 500;
+const LOCAL_REVERSE_SCRUB_INTERVAL_MS = 90;
+const VISUAL_CHECKPOINT_INTERVAL_MS = 2000;
+/** Hard cap on visual checkpoints (frame count, before stride). */
+const VISUAL_CHECKPOINT_MAX_COUNT = 600;
+/** Downscale source before compressing — keeps blobs tiny while staying readable when upscaled. */
+const VISUAL_CHECKPOINT_MAX_EDGE = 320;
+/** Lossy WebP quality. At 1/6 source size, 0.6 keeps frames around ~5–10 KB. */
+const VISUAL_CHECKPOINT_QUALITY = 0.6;
+/** Decoded ImageBitmap LRU size. Recent scrub frames stay hot; rest live as compressed blobs. */
+const VISUAL_CHECKPOINT_DECODED_CACHE = 12;
+const DYN_CHECKPOINT_DEFAULT_INTERVAL_MS = 3000;
+const DYN_CHECKPOINT_SCRUB_INTERVAL_MS = 500;
+const DYN_CHECKPOINT_MAX_COUNT = 24;
 
 /**
  * Return the set of user IDs that have no UNDO or REDO message in the
@@ -46,6 +61,8 @@ class TimeMachineState {
   currentTime = $state(0);
   isReviewing = $state(false);
   isPlaying = $state(false);
+  /** true while the user is dragging the replay thumb */
+  isScrubbing = $state(false);
   /** true while loading checkpoint list or a replay window */
   isLoading = $state(false);
   /** true once checkpoint list has been loaded for the current room */
@@ -53,6 +70,8 @@ class TimeMachineState {
   /** controls whether the timebar panel is visible */
   isVisible = $state(false);
   previewData = $state(null);
+  /** true when the visible replay canvas is showing a low-res cached frame rather than full replay output */
+  isPreviewMode = $state(false);
 
   // ── backward-compat getters ────────────────────────────────────────────────
   /** @deprecated use isOpen */
@@ -87,6 +106,10 @@ class TimeMachineState {
   _pendingSeekTimestamp = null;
   _lastAppliedTimestamp = null;
   _lastSeekLogAt = 0;
+  _scrubLastRequestedTimestamp = null;
+  _scrubLastSeekAt = 0;
+  _scrubQueuedTimestamp = null;
+  _scrubTimer = null;
   _isPlaybackAdvancing = false;
   _pendingPlaybackTimestamp = null;
   _playbackStartPerf = 0;
@@ -95,10 +118,17 @@ class TimeMachineState {
   _playbackFrameId = null;
   _tickInterval = null;
   _telemetry = { seek: null };
+  /** @type {Array<{ts: number, blob: Blob, botStates: Array<Object>}>} sorted ascending */
+  _visualCheckpoints = [];
+  _visualCheckpointBuildGeneration = 0;
+  /** ts -> ImageBitmap. LRU bounded by VISUAL_CHECKPOINT_DECODED_CACHE. */
+  _decodedCheckpointCache = new Map();
+  /** ts -> Promise<ImageBitmap>. Dedupes concurrent decodes when scrubbing fast. */
+  _pendingCheckpointDecode = new Map();
+  /** Most-recently requested cp ts (used so async decode skips drawing a stale frame). */
+  _activeCheckpointTs = null;
   /** @type {Array<{ts: number, bitmap: ImageBitmap, botStates: Object}>} sorted ascending */
   _dynCheckpoints = [];
-  _dynCheckpointMinIntervalMs = 3000;
-  _dynCheckpointMaxCount = 8;
   _dynCheckpointInFlight = false;
   _lastDynCheckpointTs = null;
 
@@ -152,7 +182,86 @@ class TimeMachineState {
     const bgColor = this._board?.backgroundColor || [255, 255, 255, 1];
     this._replayCtx.fillStyle = `rgba(${bgColor[0]}, ${bgColor[1]}, ${bgColor[2]}, ${bgColor[3]})`;
     this._replayCtx.fillRect(0, 0, this._replayCanvas.width, this._replayCanvas.height);
+    this._replayCtx.filter = 'none';
+    this._replayCtx.imageSmoothingEnabled = true;
     this._replayCtx.drawImage(this._replayEngine.outputCanvas, 0, 0);
+    // Painting from the replay engine output means we're crisp — drop the preview flag.
+    // Also clear the active checkpoint ts so any in-flight WebP decode skips its
+    // paint (the cached frame would otherwise slam back over this crisp output
+    // and resurrect preview mode).
+    this._activeCheckpointTs = null;
+    this.isPreviewMode = false;
+  }
+
+  _drawVisualCheckpoint(cp) {
+    if (!cp || !this._replayCtx || !this._replayCanvas) return false;
+    this._activeCheckpointTs = cp.ts;
+
+    const cached = this._decodedCheckpointCache.get(cp.ts);
+    if (cached) {
+      // LRU bump: re-insert so the most-recently-used moves to the end.
+      this._decodedCheckpointCache.delete(cp.ts);
+      this._decodedCheckpointCache.set(cp.ts, cached);
+      this._paintCheckpointBitmap(cached, cp.botStates);
+      return true;
+    }
+
+    if (!cp.blob) return false;
+    this._decodeCheckpointBlob(cp);
+    // Leave whatever frame is currently on the replay canvas in place until
+    // the decode resolves. Returning true keeps the caller from falling back
+    // to a full replay (which would be much slower than a 1–3ms WebP decode).
+    return true;
+  }
+
+  _paintCheckpointBitmap(bitmap, botStates) {
+    const bgColor = this._board?.backgroundColor || [255, 255, 255, 1];
+    this._replayCtx.filter = 'none';
+    this._replayCtx.imageSmoothingEnabled = true;
+    this._replayCtx.fillStyle = `rgba(${bgColor[0]}, ${bgColor[1]}, ${bgColor[2]}, ${bgColor[3]})`;
+    this._replayCtx.fillRect(0, 0, this._replayCanvas.width, this._replayCanvas.height);
+    // Bitmap may be downscaled (see VISUAL_CHECKPOINT_MAX_EDGE); upscale to fit.
+    this._replayCtx.drawImage(bitmap, 0, 0, this._replayCanvas.width, this._replayCanvas.height);
+    this.previewData = true;
+    // The blur + "Loading..." overlay in Timebar.svelte keys off this flag.
+    this.isPreviewMode = true;
+    this._showReplayCanvas(true);
+    this._syncBotCursorsFromStates(botStates || []);
+  }
+
+  _decodeCheckpointBlob(cp) {
+    if (this._pendingCheckpointDecode.has(cp.ts)) return;
+    const promise = createImageBitmap(cp.blob)
+      .then((bitmap) => {
+        this._pendingCheckpointDecode.delete(cp.ts);
+        // The recording may have been swapped out while we were decoding.
+        if (!this._localRecording || !this.isOpen) {
+          bitmap.close?.();
+          return;
+        }
+        this._decodedCheckpointCache.set(cp.ts, bitmap);
+        this._evictDecodedCheckpoints();
+        // Only paint if this is still the frame the user wants — fast scrubs
+        // can issue many decode requests before any of them resolve.
+        if (this._activeCheckpointTs === cp.ts) {
+          this._paintCheckpointBitmap(bitmap, cp.botStates);
+        }
+      })
+      .catch((err) => {
+        this._pendingCheckpointDecode.delete(cp.ts);
+        console.warn('[TimeMachine] visual checkpoint decode failed:', err);
+      });
+    this._pendingCheckpointDecode.set(cp.ts, promise);
+  }
+
+  _evictDecodedCheckpoints() {
+    while (this._decodedCheckpointCache.size > VISUAL_CHECKPOINT_DECODED_CACHE) {
+      // Map iteration order is insertion order, so the first entry is the LRU.
+      const oldest = this._decodedCheckpointCache.keys().next().value;
+      const bitmap = this._decodedCheckpointCache.get(oldest);
+      this._decodedCheckpointCache.delete(oldest);
+      bitmap?.close?.();
+    }
   }
 
   /**
@@ -236,9 +345,11 @@ class TimeMachineState {
     // If a server source was loaded, tear it down first.
     if (this._source === 'server' && this.isOpen) this.stop();
 
+    this.isLoading = true;
     this._source = 'local';
     this._localRecording = rec;
     this._clearDynCheckpoints();
+    this._clearVisualCheckpoints();
 
     // Match the replay engine to the recording's board dimensions. The engine
     // was sized to whatever the live board was at App boot, which is usually
@@ -285,9 +396,10 @@ class TimeMachineState {
       });
     }
 
-    this.isOpen = true;
+    this.isOpen = false;
     this.isReviewing = false;
     this.isPlaying = false;
+    this.isVisible = true;
     this._lastAppliedTimestamp = null;
 
     // Find users with no UNDO/REDO in the tape and tell the replay engine
@@ -295,9 +407,71 @@ class TimeMachineState {
     // long multi-user tapes where most strokes will never be undone.
     this._replayEngine?.setEagerBakeUsers?.(_collectEagerBakeUsers(rec));
 
-    // Drop into review at the end of the tape immediately so the user sees
-    // the final frame the moment they stop recording.
-    await this.seek(this.sessionEnd);
+    try {
+      // Fast path: the .ddraw file already carries a baked scrub grid. Hydrate
+      // `_visualCheckpoints` straight from it, paint the last frame as a
+      // blurred preview, then run the replay engine to catch up in the
+      // background so future seeks land on full-resolution output.
+      const persistedVc = Array.isArray(rec.visualCheckpoints) ? rec.visualCheckpoints : null;
+      if (persistedVc && persistedVc.length > 0 && persistedVc.some((cp) => cp?.blob)) {
+        this._visualCheckpoints = persistedVc
+          .filter((cp) => cp && cp.blob && Number.isFinite(cp.ts))
+          .map((cp) => ({ ts: cp.ts, blob: cp.blob, botStates: cp.botStates || [] }))
+          .sort((a, b) => a.ts - b.ts);
+
+        this.isOpen = true;
+        this.isReviewing = true;
+        this._lastAppliedTimestamp = null;
+        this.previewData = true;
+
+        // Paint the last cached frame immediately as the initial preview.
+        const lastCp = this._visualCheckpoints[this._visualCheckpoints.length - 1];
+        if (lastCp) this._drawVisualCheckpoint(lastCp);
+        this._showReplayCanvas(true);
+
+        // Kick off full-resolution catch-up to the end of the tape. When it
+        // resolves, `_drawToReplayCanvas` will clear isPreviewMode and the
+        // overlay disappears. Errors fall back to staying in preview mode.
+        this.seek(this.sessionEnd).catch((err) => {
+          console.warn('[TimeMachine] background catch-up failed:', err);
+        });
+
+        window.app?.ui?.showToast?.(`Replay loaded (${this._visualCheckpoints.length} preview frames)`, 1800);
+      } else {
+        await this._buildVisualCheckpoints(rec);
+        this.isOpen = true;
+        this.isReviewing = true;
+        this._lastAppliedTimestamp = this.sessionEnd;
+        this._drawToReplayCanvas();
+        this._showReplayCanvas(true);
+        this._updateBotCursors();
+        this.previewData = true;
+        window.app?.ui?.showToast?.(`Replay ready (${this._visualCheckpoints.length} frames cached)`, 1800);
+      }
+    } catch (err) {
+      console.warn('[TimeMachine] visual replay cache failed, falling back to live replay:', err);
+      this.isOpen = true;
+      await this.seek(this.sessionEnd);
+    } finally {
+      this.isLoading = false;
+      this._refitBoardToContainer();
+    }
+  }
+
+  /**
+   * Re-run the board's fit-and-center calculation after a layout change.
+   * The chrome-hiding effect in Timebar.svelte applies its body class after
+   * Svelte flushes, so we wait a frame before measuring the container.
+   * @private
+   */
+  _refitBoardToContainer() {
+    const board = this._board ?? window.app?.board;
+    if (!board?.resetView) return;
+    if (typeof requestAnimationFrame === 'undefined') {
+      board.resetView();
+      return;
+    }
+    requestAnimationFrame(() => requestAnimationFrame(() => board.resetView()));
   }
 
   /**
@@ -305,6 +479,7 @@ class TimeMachineState {
    */
   stop() {
     this._seekGeneration += 1;
+    this._clearScrubState();
     this.isOpen = false;
     this.isReviewing = false;
     this.isPlaying = false;
@@ -314,11 +489,13 @@ class TimeMachineState {
     this.sessionStart = 0;
     this.sessionEnd = 0;
     this.previewData = null;
+    this.isPreviewMode = false;
     this._lastAppliedTimestamp = null;
     this._pendingSeekTimestamp = null;
     this._pendingPlaybackTimestamp = null;
     this._source = 'server';
     this._localRecording = null;
+    this._clearVisualCheckpoints();
     this._clearDynCheckpoints();
     if (this._replayEngine?.setAssetResolver) {
       this._replayEngine.setAssetResolver(null);
@@ -334,6 +511,7 @@ class TimeMachineState {
       cancelAnimationFrame(this._playbackFrameId);
       this._playbackFrameId = null;
     }
+    this._refitBoardToContainer();
   }
 
   /**
@@ -345,10 +523,7 @@ class TimeMachineState {
     if (!this.isOpen) return;
     const { suppressPlaybackPause = false } = options;
 
-    this.currentTime = Math.max(
-      this.sessionStart || 0,
-      Math.min(timestamp, this.sessionEnd)
-    );
+    this.currentTime = this._clampTimestamp(timestamp);
 
     const wasReviewing = this.isReviewing;
     if (this._source === 'local') {
@@ -372,6 +547,7 @@ class TimeMachineState {
       }
 
       if (this._lastAppliedTimestamp === this.currentTime) {
+        this._drawToReplayCanvas();
         this._showReplayCanvas(true);
         this._updateBotCursors();
         return;
@@ -379,19 +555,20 @@ class TimeMachineState {
 
       if (this._isSeeking) {
         this._pendingSeekTimestamp = this.currentTime;
+        this._seekGeneration += 1;
         return;
       }
 
       this._isSeeking = true;
       const seekGeneration = ++this._seekGeneration;
       try {
-        await this._applyStateAt(this.currentTime);
-        if (seekGeneration !== this._seekGeneration || !this.isReviewing) return;
+        const applied = await this._applyStateAt(this.currentTime, seekGeneration);
+        if (!applied || seekGeneration !== this._seekGeneration || !this.isReviewing) return;
         this._showReplayCanvas(true);
         this._updateBotCursors();
       } finally {
         this._isSeeking = false;
-        if (seekGeneration === this._seekGeneration && this._pendingSeekTimestamp !== null) {
+        if (this.isOpen && this.isReviewing && this._pendingSeekTimestamp !== null) {
           const next = this._pendingSeekTimestamp;
           this._pendingSeekTimestamp = null;
           this.seek(next);
@@ -406,12 +583,104 @@ class TimeMachineState {
     }
   }
 
+  beginScrub() {
+    if (!this.isOpen) return;
+    this.isScrubbing = true;
+    this._seekGeneration += 1;
+    this._pendingSeekTimestamp = null;
+    this._scrubLastRequestedTimestamp = this.currentTime;
+    this._scrubLastSeekAt = 0;
+    this.pause();
+  }
+
+  scrubTo(timestamp) {
+    if (!this.isOpen) return;
+    if (!this.isScrubbing) this.beginScrub();
+
+    const clamped = this._clampTimestamp(timestamp);
+    const previous = this._scrubLastRequestedTimestamp ?? this.currentTime;
+    const isReverse = clamped < previous;
+    this._scrubLastRequestedTimestamp = clamped;
+
+    if (this._source === 'local' && this._visualCheckpoints.length > 0) {
+      this.currentTime = clamped;
+      const cp = this._findVisualCheckpointNear(clamped);
+      if (this._drawVisualCheckpoint(cp)) return;
+    }
+
+    let target = clamped;
+    if (this._source === 'local' && isReverse) {
+      target = this._quantizeScrubTimestamp(clamped);
+    }
+
+    this._scrubQueuedTimestamp = target;
+    const elapsed = performance.now() - this._scrubLastSeekAt;
+    if (elapsed >= LOCAL_REVERSE_SCRUB_INTERVAL_MS || !isReverse) {
+      this._flushScrubSeek();
+      return;
+    }
+
+    if (this._scrubTimer == null) {
+      this._scrubTimer = setTimeout(() => {
+        this._scrubTimer = null;
+        this._flushScrubSeek();
+      }, LOCAL_REVERSE_SCRUB_INTERVAL_MS - elapsed);
+    }
+  }
+
+  endScrub(timestamp = null) {
+    if (!this.isOpen) return;
+    this.isScrubbing = false;
+    if (this._scrubTimer != null) {
+      clearTimeout(this._scrubTimer);
+      this._scrubTimer = null;
+    }
+    const exact = timestamp == null
+      ? (this._scrubLastRequestedTimestamp ?? this.currentTime)
+      : this._clampTimestamp(timestamp);
+    this._scrubQueuedTimestamp = null;
+    this._scrubLastRequestedTimestamp = null;
+    this.seek(exact);
+  }
+
+  _flushScrubSeek() {
+    if (this._scrubQueuedTimestamp == null) return;
+    const target = this._scrubQueuedTimestamp;
+    this._scrubQueuedTimestamp = null;
+    this._scrubLastSeekAt = performance.now();
+    this.seek(target);
+  }
+
+  _clampTimestamp(timestamp) {
+    return Math.max(
+      this.sessionStart || 0,
+      Math.min(timestamp, this.sessionEnd)
+    );
+  }
+
+  _quantizeScrubTimestamp(timestamp) {
+    const start = this.sessionStart || 0;
+    const offset = Math.max(0, timestamp - start);
+    return this._clampTimestamp(start + Math.floor(offset / LOCAL_REVERSE_SCRUB_FRAME_MS) * LOCAL_REVERSE_SCRUB_FRAME_MS);
+  }
+
+  _clearScrubState() {
+    this.isScrubbing = false;
+    if (this._scrubTimer != null) {
+      clearTimeout(this._scrubTimer);
+      this._scrubTimer = null;
+    }
+    this._scrubQueuedTimestamp = null;
+    this._scrubLastRequestedTimestamp = null;
+  }
+
   /**
    * Return to the live board state.
    */
   catchUp() {
     this.pause();
     this._seekGeneration += 1;
+    this._clearScrubState();
     this._flushLiveMessageQueue();
 
     if (this._source === 'local') {
@@ -468,6 +737,37 @@ class TimeMachineState {
    * any subsequent stroke, so this is really a single-user "rewind my own
    * canvas" operation.
    */
+  /**
+   * Serialise the active local recording to a .ddraw Blob and trigger a
+   * browser download. No-op for server-source replays.
+   * @returns {Promise<boolean>} true if a download was triggered
+   */
+  async exportCurrentRecording() {
+    const rec = this._localRecording;
+    if (this._source !== 'local' || !rec) {
+      window.app?.ui?.showToast?.('No local replay to save', 2000);
+      return false;
+    }
+    try {
+      const blob = await encodeDdraw(rec);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = suggestDdrawFilename(rec);
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 30_000);
+      const sizeKb = Math.max(1, Math.round(blob.size / 1024));
+      window.app?.ui?.showToast?.(`Saved replay (${sizeKb} KB)`, 2500);
+      return true;
+    } catch (err) {
+      console.error('[TimeMachine] export failed:', err);
+      window.app?.ui?.showToast?.('Could not save replay', 3000, 'error');
+      return false;
+    }
+  }
+
   restoreLocalToCurrentState() {
     if (this._source !== 'local' || !this.isReviewing) return;
     const src = this._replayEngine?.outputCanvas;
@@ -523,12 +823,137 @@ class TimeMachineState {
    * @param {number} timestamp
    * @private
    */
-  async _applyStateAt(timestamp) {
+  async _applyStateAt(timestamp, seekGeneration = null) {
     if (this._source === 'local') {
-      await this._applyStateAtLocal(timestamp);
+      return await this._applyStateAtLocal(timestamp, seekGeneration);
     } else {
-      await this._fetchAndApplyServerReplay(timestamp);
+      return await this._fetchAndApplyServerReplay(timestamp, seekGeneration);
     }
+  }
+
+  async _buildVisualCheckpoints(rec) {
+    if (!rec || !this._replayEngine) return;
+    this._clearVisualCheckpoints();
+    const generation = ++this._visualCheckpointBuildGeneration;
+
+    const start = rec.startedAt;
+    const end = rec.endedAt ?? Date.now();
+    const duration = Math.max(1, end - start);
+    // Stride out the cache for long recordings so we cap total memory. Short
+    // recordings still get a frame per second; longer ones get whatever stride
+    // keeps us at or below MAX_COUNT.
+    const intervalMs = Math.max(
+      VISUAL_CHECKPOINT_INTERVAL_MS,
+      Math.ceil(duration / VISUAL_CHECKPOINT_MAX_COUNT),
+    );
+    const times = [];
+    for (let ts = start; ts < end; ts += intervalMs) {
+      times.push(ts);
+    }
+    if (times.length === 0 || times[times.length - 1] !== end) {
+      times.push(end);
+    }
+
+    const ui = window.app?.ui;
+    ui?.showToast?.(`Loading replay... 0/${times.length}`, 60_000);
+
+    await this._replayEngine.loadSnapshot(rec.openingSnapshot);
+    const initialized = await this._replayEngine.processActions([], start);
+    if (!initialized || generation !== this._visualCheckpointBuildGeneration) return;
+
+    const deltas = rec.deltas ?? [];
+    let deltaIdx = 0;
+    let lastTarget = start;
+
+    for (let i = 0; i < times.length; i++) {
+      const target = times[i];
+      const actions = [];
+      while (deltaIdx < deltas.length && deltas[deltaIdx].ts <= target) {
+        if (deltas[deltaIdx].ts > lastTarget || target === start) {
+          actions.push({ timestamp: deltas[deltaIdx].ts, msg: deltas[deltaIdx].msg });
+        }
+        deltaIdx++;
+      }
+
+      if (i > 0 || actions.length > 0) {
+        const applied = await this._replayEngine.appendActions(actions, target);
+        if (!applied || generation !== this._visualCheckpointBuildGeneration) return;
+      }
+
+      await this._captureVisualCheckpoint(target);
+      lastTarget = target;
+
+      if (i === 0 || i === times.length - 1 || (i + 1) % 5 === 0) {
+        ui?.showToast?.(`Loading replay... ${i + 1}/${times.length}`, 60_000);
+      }
+
+      // Yield so the loading toast can paint during long recordings.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    this._lastAppliedTimestamp = end;
+  }
+
+  async _captureVisualCheckpoint(timestamp) {
+    const src = this._replayEngine?.outputCanvas;
+    if (!src) return;
+    // Downscale to a temp canvas, then encode as a lossy WebP Blob. WebP keeps
+    // alpha so transparent regions of the board stay transparent — the bg fill
+    // happens at paint time, not in the cached frame.
+    const maxEdge = Math.max(src.width, src.height);
+    const scale = maxEdge > VISUAL_CHECKPOINT_MAX_EDGE
+      ? VISUAL_CHECKPOINT_MAX_EDGE / maxEdge
+      : 1;
+    const w = Math.max(1, Math.round(src.width * scale));
+    const h = Math.max(1, Math.round(src.height * scale));
+    const tmp = document.createElement('canvas');
+    tmp.width = w;
+    tmp.height = h;
+    const tctx = tmp.getContext('2d');
+    tctx.imageSmoothingEnabled = true;
+    tctx.imageSmoothingQuality = 'high';
+    tctx.drawImage(src, 0, 0, w, h);
+    const blob = await new Promise((resolve) => {
+      // toBlob falls back to PNG if WebP is unsupported — still smaller than
+      // a resident decoded bitmap, just less compressed.
+      tmp.toBlob(resolve, 'image/webp', VISUAL_CHECKPOINT_QUALITY);
+    });
+    if (!blob) return;
+
+    const botStates = this._captureBotCursorStates();
+    const existingIdx = this._visualCheckpoints.findIndex((cp) => cp.ts === timestamp);
+    if (existingIdx >= 0) {
+      // Invalidate any cached decode for the displaced frame.
+      const stale = this._decodedCheckpointCache.get(timestamp);
+      if (stale) {
+        stale.close?.();
+        this._decodedCheckpointCache.delete(timestamp);
+      }
+      this._visualCheckpoints[existingIdx] = { ts: timestamp, blob, botStates };
+      return;
+    }
+    this._visualCheckpoints.push({ ts: timestamp, blob, botStates });
+  }
+
+  _captureBotCursorStates() {
+    const states = [];
+    for (const [id, user] of this._replayEngine?.botUsers ?? []) {
+      const x = Number(user?.x);
+      const y = Number(user?.y);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+      states.push({
+        id,
+        username: user.username || `User ${id}`,
+        role: user.role ?? 0,
+        color: Array.isArray(user.color) ? [...user.color] : [100, 100, 100, 1],
+        size: user.size || 10,
+        tool: user.tool || 'brush',
+        x,
+        y,
+        text: user.text || '',
+      });
+    }
+    return states;
   }
 
   /**
@@ -542,10 +967,13 @@ class TimeMachineState {
    * @param {number} timestamp
    * @private
    */
-  async _applyStateAtLocal(timestamp) {
+  async _applyStateAtLocal(timestamp, seekGeneration = null) {
     const rec = this._localRecording;
-    if (!rec || !this._replayEngine) return;
+    if (!rec || !this._replayEngine) return false;
     const seekStart = performance.now();
+    const isStale = () =>
+      seekGeneration != null &&
+      (seekGeneration !== this._seekGeneration || !this.isOpen || !this.isReviewing);
 
     // Fast path: forward seek within the same session — the engine is already
     // at _lastAppliedTimestamp, so we only need to push the new deltas through
@@ -564,7 +992,8 @@ class TimeMachineState {
         if (d.ts > timestamp) break;
         actions.push({ timestamp: d.ts, msg: d.msg });
       }
-      await this._replayEngine.appendActions(actions, timestamp);
+      const applied = await this._replayEngine.appendActions(actions, timestamp, { shouldCancel: isStale });
+      if (!applied || isStale()) return false;
 
       this._lastAppliedTimestamp = timestamp;
       this._drawToReplayCanvas();
@@ -579,7 +1008,7 @@ class TimeMachineState {
       };
       this._maybeLogSeekTelemetry();
       this._maybeCaptureDynCheckpoint(timestamp);
-      return;
+      return true;
     }
 
     // Backward-scrub path. Prefer a dynamic in-engine checkpoint over the
@@ -603,6 +1032,7 @@ class TimeMachineState {
           ?? rec.openingSnapshot;
       await this._replayEngine.loadSnapshot(snapshot);
     }
+    if (isStale()) return false;
 
     const actions = [];
     for (const d of rec.deltas) {
@@ -617,7 +1047,8 @@ class TimeMachineState {
     // actions is empty (e.g. seeking to a position right at an intra
     // checkpoint with nothing after it) leaves the replay engine's
     // LayerManager blank.
-    await this._replayEngine.processActions(actions, timestamp);
+    const applied = await this._replayEngine.processActions(actions, timestamp, { shouldCancel: isStale });
+    if (!applied || isStale()) return false;
 
     this._lastAppliedTimestamp = timestamp;
     this._drawToReplayCanvas();
@@ -632,6 +1063,7 @@ class TimeMachineState {
     };
     this._maybeLogSeekTelemetry();
     this._maybeCaptureDynCheckpoint(timestamp);
+    return true;
   }
 
   /**
@@ -645,9 +1077,12 @@ class TimeMachineState {
    */
   _maybeCaptureDynCheckpoint(timestamp) {
     if (!this._replayEngine || this._dynCheckpointInFlight) return;
+    const minInterval = this.isScrubbing
+      ? DYN_CHECKPOINT_SCRUB_INTERVAL_MS
+      : DYN_CHECKPOINT_DEFAULT_INTERVAL_MS;
     if (
       this._lastDynCheckpointTs != null &&
-      Math.abs(timestamp - this._lastDynCheckpointTs) < this._dynCheckpointMinIntervalMs
+      Math.abs(timestamp - this._lastDynCheckpointTs) < minInterval
     ) return;
 
     for (const u of this._replayEngine.botUsers?.values?.() ?? []) {
@@ -672,14 +1107,27 @@ class TimeMachineState {
           this._dynCheckpoints.push({ ts: timestamp, ...cp });
           this._dynCheckpoints.sort((a, b) => a.ts - b.ts);
         }
-        while (this._dynCheckpoints.length > this._dynCheckpointMaxCount) {
-          const dropped = this._dynCheckpoints.shift();
-          dropped?.bitmap?.close?.();
-        }
+        this._evictDynCheckpointsAround(timestamp);
         this._lastDynCheckpointTs = timestamp;
       })
       .catch((err) => console.warn('[TimeMachine] dyn checkpoint capture failed:', err))
       .finally(() => { this._dynCheckpointInFlight = false; });
+  }
+
+  _evictDynCheckpointsAround(anchorTs) {
+    while (this._dynCheckpoints.length > DYN_CHECKPOINT_MAX_COUNT) {
+      let dropIdx = 0;
+      let farthest = -1;
+      for (let i = 0; i < this._dynCheckpoints.length; i++) {
+        const distance = Math.abs(this._dynCheckpoints[i].ts - anchorTs);
+        if (distance > farthest) {
+          farthest = distance;
+          dropIdx = i;
+        }
+      }
+      const [dropped] = this._dynCheckpoints.splice(dropIdx, 1);
+      dropped?.bitmap?.close?.();
+    }
   }
 
   _findDynCheckpointBefore(ts) {
@@ -688,6 +1136,28 @@ class TimeMachineState {
       if (cp.ts <= ts && (!best || cp.ts > best.ts)) best = cp;
     }
     return best;
+  }
+
+  _findVisualCheckpointNear(ts) {
+    let best = null;
+    let bestDistance = Infinity;
+    for (const cp of this._visualCheckpoints) {
+      const distance = Math.abs(cp.ts - ts);
+      if (distance < bestDistance) {
+        best = cp;
+        bestDistance = distance;
+      }
+    }
+    return best;
+  }
+
+  _clearVisualCheckpoints() {
+    this._visualCheckpointBuildGeneration += 1;
+    this._visualCheckpoints = [];
+    for (const bitmap of this._decodedCheckpointCache.values()) bitmap?.close?.();
+    this._decodedCheckpointCache.clear();
+    this._pendingCheckpointDecode.clear();
+    this._activeCheckpointTs = null;
   }
 
   _clearDynCheckpoints() {
@@ -702,10 +1172,13 @@ class TimeMachineState {
    * @param {number} timestamp - Target replay timestamp
    * @private
    */
-  async _fetchAndApplyServerReplay(timestamp) {
-    if (this._pendingServerReplay) return;
+  async _fetchAndApplyServerReplay(timestamp, seekGeneration = null) {
+    if (this._pendingServerReplay) return false;
     this._pendingServerReplay = true;
     const seekStart = performance.now();
+    const isStale = () =>
+      seekGeneration != null &&
+      (seekGeneration !== this._seekGeneration || !this.isOpen || !this.isReviewing);
 
     try {
       const data = await new Promise((resolve, reject) => {
@@ -725,18 +1198,21 @@ class TimeMachineState {
         const startTs = cp ? cp.ts : timestamp - 5 * 60_000;
         this._wsClient.requestReplay(startTs, timestamp);
       });
+      if (isStale()) return false;
 
       if (!data.checkpointImg || data.checkpointImg.length === 0) {
         console.warn('[TimeMachine] Server returned no checkpoint image');
-        return;
+        return false;
       }
 
       await this._replayEngine.loadCheckpointImage(data.checkpointImg);
+      if (isStale()) return false;
 
-      if (data.deltas && data.deltas.length > 0) {
-        const actions = data.deltas.map(d => ({ timestamp: d._ts, msg: d }));
-        await this._replayEngine.processActions(actions, timestamp);
-      }
+      const actions = data.deltas?.length
+        ? data.deltas.map(d => ({ timestamp: d._ts, msg: d }))
+        : [];
+      const applied = await this._replayEngine.processActions(actions, timestamp, { shouldCancel: isStale });
+      if (!applied || isStale()) return false;
 
       this._lastAppliedTimestamp = timestamp;
 
@@ -752,8 +1228,10 @@ class TimeMachineState {
       this.previewData = true;
 
       console.log(`[TimeMachine] Seek to ${new Date(timestamp).toLocaleTimeString()}: checkpoint + ${data.deltas?.length || 0} deltas in ${totalMs}ms`);
+      return true;
     } catch (err) {
       console.error('[TimeMachine] Server replay failed:', err);
+      return false;
     } finally {
       this._pendingServerReplay = false;
     }
@@ -903,36 +1381,57 @@ class TimeMachineState {
     const ui = window.app?.ui;
     if (!ui || !this._replayEngine) return;
 
-    for (const [id, user] of this._replayEngine.botUsers) {
+    this._syncBotCursorsFromStates(this._captureBotCursorStates());
+  }
+
+  _syncBotCursorsFromStates(states) {
+    const ui = window.app?.ui;
+    if (!ui) return;
+
+    const desired = new Set();
+    for (const state of states || []) {
+      const id = Number(state.id);
+      const x = Number(state.x);
+      const y = Number(state.y);
+      if (!Number.isFinite(id) || !Number.isFinite(x) || !Number.isFinite(y)) continue;
+
+      const size = Number(state.size) || 10;
+      const tool = state.tool || 'brush';
+      const color = state.color || [100, 100, 100, 1];
       const botId = -1000 - id;
+      desired.add(botId);
 
       if (!this._botCursorIds.has(botId)) {
         ui.createRemoteUser(botId, {
-          username: user.username || `User ${id}`,
-          role: user.role ?? 0,
-          color: user.color || [100, 100, 100, 1],
-          size: user.size || 10,
-          tool: user.tool || 'brush',
-          x: user.x ?? 0,
-          y: user.y ?? 0
+          username: state.username || `User ${id}`,
+          role: state.role ?? 0,
+          color,
+          size,
+          tool,
+          x,
+          y
         });
         this._botCursorIds.add(botId);
       }
 
-      if (user.x !== undefined && user.y !== undefined) {
-        ui.updateRemoteCursor(botId, user.x, user.y, user.size || 10);
-      }
-      ui.updateRemoteSize(botId, user.size || 10);
-      ui.updateRemoteToolDisplay(botId, user.tool || 'brush');
-      if (user.color) ui.updateRemoteColor(botId, user.color);
+      ui.updateRemoteCursor(botId, x, y, size);
+      ui.updateRemoteSize(botId, size);
+      ui.updateRemoteToolDisplay(botId, tool);
+      ui.updateRemoteColor(botId, color);
 
-      if (user.tool === 'text') {
-        ui.updateRemoteText(botId, user.text || '');
+      if (tool === 'text') {
+        ui.updateRemoteText(botId, state.text || '');
         ui.setRemoteTextDomVisible(botId, false);
       } else {
         ui.updateRemoteText(botId, '');
         ui.setRemoteTextDomVisible(botId, false);
       }
+    }
+
+    for (const botId of [...this._botCursorIds]) {
+      if (desired.has(botId)) continue;
+      ui.removeRemoteUser(botId);
+      this._botCursorIds.delete(botId);
     }
   }
 

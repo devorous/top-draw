@@ -579,6 +579,9 @@
               </a>
             </div>
             <button type="button" class="btn zoomPercent" id="zoomResetBtn" title="Reset view">100%</button>
+            <a class="btn" id="tapeRecBtn" title="Record session" aria-label="Record session">
+              <span class="tapeRecGlyph" aria-hidden="true"></span>
+            </a>
           </div>
 
           <div class="right">
@@ -617,11 +620,6 @@
                   <span class="btnIcon" style="display: none;"><img src="/images/download-icon.svg" alt="Save"></span>
                 </a>
 
-                <a class="btn" id="tapeRecBtn" title="Record session — captures everything locally for scrubbing">
-                  <span class="btnText">Rec</span>
-                  <span class="tapeRecGlyph" aria-hidden="true"></span>
-                  <span class="tapeRecElapsed" id="tapeRecElapsed" style="display: none;">0:00</span>
-                </a>
               </div>
               <a class="btn accent" id="registerRoomBtn" style="display: none;">Register Room</a>
               <a class="btn" id="roomSettingsBtn" style="display: none;">

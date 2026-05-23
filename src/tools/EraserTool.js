@@ -15,7 +15,7 @@ export class EraserTool extends Tool {
   constructor(board) {
     super('erase', board);
     this.userSize = 10;
-    this.lastPos = null;
+    this.lastPos = new Map();
   }
 
   /**
@@ -54,16 +54,16 @@ export class EraserTool extends Tool {
    */
   onPointerDown(user, pos) {
     this._activeUser = user;
-    this._setPreviewMaskVisible(false);
-    this.lastPos = { x: pos.x, y: pos.y };
+    if (this._isLocalUser(user)) this._setPreviewMaskVisible(false);
+    this.lastPos.set(this._getUserId(user), { x: pos.x, y: pos.y });
     user.clearLine();
     user._strokeLayer = user.activeLayer ?? 0;
     this._beginStroke(user);
     this._resetStrokeState(user);
     const rect = this.getPreviewDirtyRect(user);
     if (rect !== false) {
-      this.board.clearTop(rect);
-      this.drawPreview(user, rect);
+      this._clearPreview(user, rect);
+      this.drawPreview(user, rect, this._getPreviewContext(user));
     }
   }
 
@@ -79,17 +79,17 @@ export class EraserTool extends Tool {
     this.appendBufferedPoint(user, pos);
     const rect = this.getPreviewDirtyRect(user);
     if (rect !== false) {
-      this.board.clearTop(rect);
-      this.drawPreview(user, rect);
+      this._clearPreview(user, rect);
+      this.drawPreview(user, rect, this._getPreviewContext(user));
     }
-    this.lastPos = { x: pos.x, y: pos.y };
+    this.lastPos.set(this._getUserId(user), { x: pos.x, y: pos.y });
   }
 
   onPointerMoveNoRender(user, pos, lastPos) {
     if (!user.mousedown || user.panning) return;
 
     this.appendBufferedPoint(user, pos);
-    this.lastPos = { x: pos.x, y: pos.y };
+    this.lastPos.set(this._getUserId(user), { x: pos.x, y: pos.y });
   }
 
   /**
@@ -97,8 +97,10 @@ export class EraserTool extends Tool {
    * @param {Object} user - The user performing the action.
    */
   onPointerUp(user) {
-    if (user?.currentLine?.length === 0 && this.lastPos) {
-      this.appendBufferedPoint(user, this.lastPos, user.pressure, user.size, user.opacity);
+    const userId = this._getUserId(user);
+    const lastPos = this.lastPos.get(userId);
+    if (user?.currentLine?.length === 0 && lastPos) {
+      this.appendBufferedPoint(user, lastPos, user.pressure, user.size, user.opacity);
     }
     this.commitCurrentLine(user, user.pressure, user.size, user.opacity, false);
 
@@ -115,12 +117,12 @@ export class EraserTool extends Tool {
       this.board.checkErasedTilesByIndices(erasedTiles);
     }
 
-    this.lastPos = null;
+    this.lastPos.delete(userId);
     user.clearLine();
     this._clearStrokeState(user);
 
-    this.board.clearTop();
-    this._setPreviewMaskVisible(true);
+    this._clearPreview(user);
+    if (this._isLocalUser(user)) this._setPreviewMaskVisible(true);
   }
 
   appendBufferedPoint(user, pos, pressure = user.pressure, size = user.size, opacity = user.opacity) {
@@ -322,6 +324,33 @@ export class EraserTool extends Tool {
   _setPreviewMaskVisible(visible) {
     if (!this.board?.topCanvas) return;
     this.board.topCanvas.style.opacity = visible ? '' : '0';
+  }
+
+  _getUserId(user) {
+    return user?.id ?? this.board.app?.self?.id ?? 0;
+  }
+
+  _isLocalUser(user) {
+    return user === this.board.app?.self || user?.id === this.board.app?.sessionIndex;
+  }
+
+  _getPreviewContext(user) {
+    return this._isLocalUser(user) ? this.board.topCtx : user?.context;
+  }
+
+  _clearPreview(user, rect = null) {
+    if (this._isLocalUser(user)) {
+      this.board.clearTop(rect);
+      return;
+    }
+
+    const ctx = user?.context;
+    if (!ctx) return;
+    if (rect && Number.isFinite(rect.x) && Number.isFinite(rect.y) && rect.width > 0 && rect.height > 0) {
+      ctx.clearRect(rect.x, rect.y, rect.width, rect.height);
+    } else {
+      ctx.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+    }
   }
 
   /**
