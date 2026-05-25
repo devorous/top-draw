@@ -38,6 +38,7 @@
     "release:premajor": "node scripts/release/versioning.mjs premajor",
     "release:beta": "node scripts/release/versioning.mjs beta",
     "release:promote": "node scripts/release/versioning.mjs promote",
+    "update:set": "node scripts/release/update-set.mjs",
     "discord:update": "node scripts/post-discord-update.mjs"
   },
   "devDependencies": {

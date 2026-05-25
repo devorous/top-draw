@@ -591,20 +591,13 @@ export class LayerManager {
    * @returns {boolean}
    */
   hasUndoableStroke(userId) {
+    // Only live strokeStack entries are undoable. Once a stroke overflows the
+    // MAX_STROKES_PER_USER window it gets baked into flatCanvas / bakedSequences,
+    // which flattens it irreversibly into shared, interleaved pixels — there's no
+    // faithful way to peel it back out, so baked strokes are permanent.
     for (const group of this.layerGroups) {
       if (group.strokeStack.some(stroke => stroke.userId === userId)) {
         return true;
-      }
-
-      if ((group.flatStrokeRecords || []).some(stroke => stroke.userId === userId)) {
-        return true;
-      }
-
-      for (const seq of group.bakedSequences) {
-        if (!Array.isArray(seq?.strokes)) continue;
-        if (seq.strokes.some(stroke => stroke.userId === userId)) {
-          return true;
-        }
       }
     }
 
@@ -732,6 +725,8 @@ export class LayerManager {
       return t > lt; // Same seq (likely both 0), compare timestamp
     };
 
+    // Only consider live strokeStack entries. Baked strokes (flatCanvas /
+    // bakedSequences) are flattened irreversibly and must not be undoable.
     for (const group of this.layerGroups) {
       for (const stroke of group.strokeStack) {
         if (stroke.userId === userId) {
@@ -740,29 +735,6 @@ export class LayerManager {
           if (latestSeq === -1 || isLater(s, t, latestSeq, latestTimestamp)) {
             latestSeq = s;
             latestTimestamp = t;
-          }
-        }
-      }
-      for (const stroke of group.flatStrokeRecords || []) {
-        if (stroke.userId === userId) {
-          const s = stroke.seq || 0;
-          const t = stroke.timestamp || 0;
-          if (latestSeq === -1 || isLater(s, t, latestSeq, latestTimestamp)) {
-            latestSeq = s;
-            latestTimestamp = t;
-          }
-        }
-      }
-      for (const seq of group.bakedSequences) {
-        if (!Array.isArray(seq?.strokes)) continue;
-        for (const stroke of seq.strokes) {
-          if (stroke.userId === userId) {
-            const s = stroke.seq || 0;
-            const t = stroke.timestamp || 0;
-            if (latestSeq === -1 || isLater(s, t, latestSeq, latestTimestamp)) {
-              latestSeq = s;
-              latestTimestamp = t;
-            }
           }
         }
       }
@@ -775,21 +747,6 @@ export class LayerManager {
         if (s.userId === userId && (s.seq || 0) === latestSeq && (s.timestamp || 0) === latestTimestamp) {
           isEraseAll = s.eraseAll === true;
           break outer;
-        }
-      }
-      for (const s of group.flatStrokeRecords || []) {
-        if (s.userId === userId && (s.seq || 0) === latestSeq && (s.timestamp || 0) === latestTimestamp) {
-          isEraseAll = s.eraseAll === true;
-          break outer;
-        }
-      }
-      for (const seq of group.bakedSequences) {
-        if (!Array.isArray(seq?.strokes)) continue;
-        for (const s of seq.strokes) {
-          if (s.userId === userId && (s.seq || 0) === latestSeq && (s.timestamp || 0) === latestTimestamp) {
-            isEraseAll = s.eraseAll === true;
-            break outer;
-          }
         }
       }
     }
@@ -829,26 +786,8 @@ export class LayerManager {
     for (let gi = 0; gi < this.layerGroups.length; gi++) {
       const group = this.layerGroups[gi];
 
+      // Only the live stack is undoable; baked strokes stay put.
       removeFromCollection(group.strokeStack, gi, group);
-
-      if (removeFromCollection(group.flatStrokeRecords, gi, group)) {
-        this._rebuildFlatCanvas(group);
-      }
-
-      for (let si = group.bakedSequences.length - 1; si >= 0; si--) {
-        const seq = group.bakedSequences[si];
-        if (!Array.isArray(seq?.strokes)) continue;
-
-        const beforeLength = seq.strokes.length;
-        removeFromCollection(seq.strokes, gi, group);
-        if (seq.strokes.length === beforeLength) continue;
-
-        if (seq.strokes.length === 0) {
-          group.bakedSequences.splice(si, 1);
-        } else if (seq.type !== 'group') {
-          this._rebuildSequenceCanvas(seq);
-        }
-      }
     }
 
     if (undoneStrokes.length === 0) return null;

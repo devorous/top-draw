@@ -3569,18 +3569,19 @@ export class DrawingApp {
     // there's still drift after catchUp drains the queue.
     if (TimeMachine.isReviewing) return;
 
-    const info = {
-      percent: diff.percent,
-      missing: diff.missing?.length || 0,
-      extra: diff.extra?.length || 0,
-      mismatched: diff.mismatched?.length || 0,
-    };
-
-    if (this.ui?.showParityFixToast) {
-      this.ui.showParityFixToast(info, () => this._fixParityMismatch(diff));
-    } else {
-      this.ui?.showToast?.(`Out of sync (${info.percent.toFixed(1)}%)`, 5000, 'warning');
-    }
+    // Don't surface a toast to the user — just log what's diverging so it can
+    // be inspected from the console. Full diff also lives on app._lastParityMismatch.
+    console.warn(
+      `[parity] Out of sync (${Number(diff.percent || 0).toFixed(1)}%) —`,
+      `missing: ${diff.missing?.length || 0},`,
+      `extra: ${diff.extra?.length || 0},`,
+      `mismatched: ${diff.mismatched?.length || 0}`,
+      {
+        missing: (diff.missing || []).map((e) => e.seq),
+        extra: (diff.extra || []).map((e) => e.seq),
+        mismatched: (diff.mismatched || []).map((m) => m.seq),
+      }
+    );
   }
 
   /**

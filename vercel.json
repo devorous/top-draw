@@ -18,7 +18,17 @@
     { "source": "/download", "destination": "/api/download" },
     { "source": "/go", "destination": "/go/index.html" },
     { "source": "/go/(.*)", "destination": "/go/index.html" },
-    { "source": "/gallery/:id([a-f0-9]{24})", "destination": "/api/gallery-preview?id=:id" },
+    {
+      "source": "/gallery/:id([a-f0-9]{24})",
+      "has": [
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": ".*([Bb]ot|[Cc]rawler|[Ss]pider|facebookexternalhit|[Ww]hats[Aa]pp|[Pp]interest|[Ee]mbedly|iframely|vkShare|[Ss]lack|[Dd]iscord|[Tt]elegram|[Ss]kype|[Ff]lipboard|[Pp]review|[Qq]uora|[Mm]astodon).*"
+        }
+      ],
+      "destination": "/api/gallery-preview?id=:id"
+    },
     { "source": "/gallery/grid", "destination": "/gallery/grid/index.html" },
     { "source": "/gallery/grid/(.*)", "destination": "/gallery/grid/index.html" },
     { "source": "/gallery", "destination": "/gallery/index.html" },
