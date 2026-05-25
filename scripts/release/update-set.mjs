@@ -12,24 +12,25 @@ function usage() {
   console.log('If your npm version does not forward arguments, use: npm run update:set -- <version>');
 }
 
-function getNpmCommand() {
-  return process.platform === 'win32' ? 'npm.cmd' : 'npm';
-}
-
 function runNpmScript(name, args = []) {
   return new Promise((resolve, reject) => {
-    const command = getNpmCommand();
     const commandArgs = ['run', name];
     if (args.length > 0) {
       commandArgs.push('--', ...args);
     }
 
     console.log(`\n[Update] npm run ${name}${args.length ? ` -- ${args.join(' ')}` : ''}`);
-    const child = spawn(command, commandArgs, {
-      cwd: repoRoot,
-      stdio: 'inherit',
-      shell: false
-    });
+    const child = process.platform === 'win32'
+      ? spawn('cmd.exe', ['/d', '/s', '/c', 'npm.cmd', ...commandArgs], {
+          cwd: repoRoot,
+          stdio: 'inherit',
+          shell: false
+        })
+      : spawn('npm', commandArgs, {
+          cwd: repoRoot,
+          stdio: 'inherit',
+          shell: false
+        });
 
     child.on('exit', (code) => {
       if (code === 0) {
