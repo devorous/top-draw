@@ -236,6 +236,10 @@ function getChatOpacity() {
     return appPreferences?.general?.localBoardBackgroundColor ?? '';
   }
 
+  function isLocalBoardBackgroundEnabled() {
+    return appPreferences?.general?.localBoardBackgroundEnabled !== false;
+  }
+
   function updateLocalBoardBackgroundColor(value) {
     const nextPreferences = {
       ...appPreferences,
@@ -246,6 +250,18 @@ function getChatOpacity() {
     };
 
     updatePreferences(nextPreferences, value ? 'Local board background updated' : 'Room background restored');
+  }
+
+  function updateLocalBoardBackgroundEnabled(enabled) {
+    const nextPreferences = {
+      ...appPreferences,
+      general: {
+        ...(appPreferences?.general ?? {}),
+        localBoardBackgroundEnabled: !!enabled
+      }
+    };
+
+    updatePreferences(nextPreferences, enabled ? 'Custom board background enabled' : 'Showing real room background');
   }
 
   function updateSidebarSide(enabled) {
@@ -352,7 +368,8 @@ function getChatOpacity() {
       general: {
         ...(appPreferences?.general ?? {}),
         themeColors: {},
-        localBoardBackgroundColor: null
+        localBoardBackgroundColor: null,
+        localBoardBackgroundEnabled: true
       }
     };
 
@@ -706,10 +723,19 @@ function getChatOpacity() {
                         type="color"
                         class="theme-color-picker"
                         value={getLocalBoardBackgroundColor() || '#ffffff'}
+                        disabled={!isLocalBoardBackgroundEnabled()}
                         oninput={(event) => updateLocalBoardBackgroundColor(event.currentTarget.value)}
                         onchange={(event) => updateLocalBoardBackgroundColor(event.currentTarget.value)}
                       />
                       <code>{getLocalBoardBackgroundColor() || '#ffffff'}</code>
+                      <label class="settings-toggle-compact" title="Turn off to see the real room background">
+                        <input
+                          type="checkbox"
+                          checked={isLocalBoardBackgroundEnabled()}
+                          onchange={(event) => updateLocalBoardBackgroundEnabled(event.currentTarget.checked)}
+                        />
+                        <span>On</span>
+                      </label>
                     {:else}
                       <input
                         type="color"

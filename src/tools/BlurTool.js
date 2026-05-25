@@ -179,7 +179,7 @@ export class BlurTool extends Tool {
    * @param {Object} user - The user performing the action.
    * @param {Object} pos - The current pointer position.
    */
-  onPointerUp(user, pos) {
+  onPointerUp(user, pos, extraProps = {}) {
     const userId = user.id ?? this.board.app?.self?.id ?? 0;
 
     // Track tile ownership
@@ -192,7 +192,7 @@ export class BlurTool extends Tool {
     }
     this.strokePoints.delete(userId);
 
-    this.board.endStroke(user);
+    this.board.endStroke(user, extraProps);
     this.lastStampPos.delete(userId);
     this.clearSnapshot(userId);
     delete user.blurBounds;

@@ -90,6 +90,11 @@ export class TouchHandler {
     const target = e.target instanceof Element ? e.target : null;
     if (!target) return false;
 
+    // Floating palettes live inside #boards but manage their own pointer-based
+    // drag/resize. Calling preventDefault() on their touches would cancel the
+    // pointer-event stream those interactions rely on, so leave them alone.
+    if (target.closest('#floatingPaletteMount')) return false;
+
     if (target === this.element) return true;
 
     const boards = this.app.ui?.elements?.boards;

@@ -832,7 +832,7 @@ export class RemoteUserHandler {
         if (!user.panning) {
           const blurTool = this.toolManager.getTool('blur');
           if (blurTool) {
-            blurTool.onPointerUp(user, pos);
+            blurTool.onPointerUp(user, pos, { seq });
           }
         }
         break;

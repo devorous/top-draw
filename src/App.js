@@ -176,8 +176,8 @@ function applyChatOpacity(opacity) {
   document.documentElement.style.setProperty('--chat-opacity', clamped);
 }
 
-function applyLocalBoardBackgroundOverride(board, hexColor = null) {
-  board?.setDisplayBackgroundColorOverride?.(hexColor);
+function applyLocalBoardBackgroundOverride(board, hexColor = null, enabled = true) {
+  board?.setDisplayBackgroundColorOverride?.(enabled ? hexColor : null);
 }
 
 /**
@@ -515,7 +515,11 @@ export class DrawingApp {
     this.board = new Board({
       dimensions: [1080, 1920]
     });
-    applyLocalBoardBackgroundOverride(this.board, this.appPreferences?.general?.localBoardBackgroundColor);
+    applyLocalBoardBackgroundOverride(
+      this.board,
+      this.appPreferences?.general?.localBoardBackgroundColor,
+      this.appPreferences?.general?.localBoardBackgroundEnabled !== false
+    );
 
     this.toolManager = new ToolManager(this.board);
     this.ui = new UI();
@@ -4302,7 +4306,11 @@ export class DrawingApp {
     applyThemeColors(this.appPreferences?.general?.themeColors);
     applySidebarSide(this.appPreferences?.general?.sidebarSide);
     applyChatOpacity(this.appPreferences?.general?.chatOpacity);
-    applyLocalBoardBackgroundOverride(this.board, this.appPreferences?.general?.localBoardBackgroundColor);
+    applyLocalBoardBackgroundOverride(
+      this.board,
+      this.appPreferences?.general?.localBoardBackgroundColor,
+      this.appPreferences?.general?.localBoardBackgroundEnabled !== false
+    );
     this.ui.setHideOwnLabelZoom(this.appPreferences?.general?.hideOwnLabelAbove150);
     this.board?.setShowRawPixelsAtHighZoom?.(this.appPreferences?.general?.showRawPixelsAtHighZoom);
     const desyncChangeNeedsRefresh = this.board?.setUseDesynchronizedBoardContexts?.(this.appPreferences?.general?.useDesynchronizedBoardContexts);

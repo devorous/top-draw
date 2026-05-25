@@ -2,7 +2,7 @@ import { getDefaultKeybindings, KEYBIND_ACTIONS_BY_ID } from '../input/keybinds/
 import { normalizeBinding } from '../input/keybinds/KeybindMatcher.js';
 
 export const APP_PREFERENCES_STORAGE_KEY = 'topDrawAppPreferences';
-const APP_PREFERENCES_VERSION = 10;
+const APP_PREFERENCES_VERSION = 11;
 const SIDEBAR_SIDES = new Set(['left', 'right']);
 // The 3 base colors from which all theme CSS variables are derived.
 // Empty string means "use the CSS default".
@@ -27,6 +27,7 @@ export function createDefaultAppPreferences() {
       toolsWidth: 48,
       themeColors: {},
       localBoardBackgroundColor: null,
+      localBoardBackgroundEnabled: true,
       hideOwnLabelAbove150: false,
       showRawPixelsAtHighZoom: true,
       useDesynchronizedBoardContexts: false,
@@ -197,6 +198,9 @@ function sanitizePreferences(rawPreferences) {
       toolsWidth: sanitizeToolsWidth(parsed.general?.toolsWidth),
       themeColors: sanitizeThemeColors(parsed.general?.themeColors),
       localBoardBackgroundColor: sanitizeOptionalHexColor(parsed.general?.localBoardBackgroundColor),
+      localBoardBackgroundEnabled: parsed.general?.localBoardBackgroundEnabled !== undefined
+        ? !!parsed.general.localBoardBackgroundEnabled
+        : true,
       hideOwnLabelAbove150: !!parsed.general?.hideOwnLabelAbove150,
       showRawPixelsAtHighZoom: migratedShowRawPixelsAtHighZoom,
       useDesynchronizedBoardContexts: migratedUseDesynchronizedBoardContexts,
