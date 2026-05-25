@@ -11,7 +11,7 @@ import { Trend } from 'k6/metrics';
 import { buildMsg } from './_k6_proto.js';
 import {
   T, Tool, ALL_TOOLS, TEXT_PHRASES, FONTS, BLEND_MODES,
-  pick, randInt, randColor,
+  pick, randInt, randColor, isFillTargetTool,
   configureTool, sendMove, sendDown, sendUp,
   applyTextWithFont, applyFloodFill, setBlendMode,
   performSelectionTransform, sendUndo, parseInbound,
@@ -167,7 +167,7 @@ export default function () {
             y = Math.max(margin, Math.min(BOARD_HEIGHT - margin, y));
 
             sendMove(socket, sessionIndex, x, y, true);
-            recordDrawn(x, y);
+            if (isFillTargetTool(currentTool)) recordDrawn(x, y);
           } else {
             sendUp(socket, sessionIndex);
             strokesRemaining--;

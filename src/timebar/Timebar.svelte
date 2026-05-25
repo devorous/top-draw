@@ -2,6 +2,9 @@
   import { TimeMachine } from './TimeMachine.svelte.js';
   import { appState } from '../state.svelte.js';
   import { onMount, onDestroy } from 'svelte'; // Added import
+  import TimeLapseDialog from './TimeLapseDialog.svelte';
+
+  let timeLapseDialogOpen = $state(false);
 
   // Format timestamp relative to the current live time
   function formatRelativeTime(timestamp) {
@@ -331,6 +334,8 @@
   </div>
 {/if}
 
+<TimeLapseDialog bind:open={timeLapseDialogOpen} onClose={() => (timeLapseDialogOpen = false)} />
+
 {#if TimeMachine.isOpen || TimeMachine.isLoading}
 <button
   class="toggle-btn"
@@ -424,6 +429,9 @@
             <button class="save-replay-btn" onclick={() => TimeMachine.exportCurrentRecording()} title="Save this replay as a .ddraw file">
               Save .ddraw
             </button>
+            <button class="save-replay-btn" onclick={() => (timeLapseDialogOpen = true)} title="Render as a time-lapse video">
+              Export video
+            </button>
           {/if}
           {#if TimeMachine.isLocalReplay || appState.isModerator}
             <button class="mod-undo-btn" onclick={handleUndoToState}>
@@ -446,7 +454,7 @@
      size, so without this the upscaled pixels read as broken rather than as a
      loading shimmer. */
   :global(body.replay-preview-mode #replayCanvas) {
-    filter: blur(8px) saturate(1.05);
+    filter: blur(8px);
     transition: filter 200ms ease;
   }
 
@@ -554,6 +562,20 @@
   /* Sidebar has to leave layout entirely so the canvas can grow into the
      freed space — opacity alone keeps the flex column reserved. */
   :global(body.replay-reviewing-mode #sideMenu) {
+    display: none !important;
+  }
+
+  /* Floating palettes and the floating-art carousel use position:fixed/absolute
+     with their own stacking context, so opacity:0 on the mount alone leaves
+     visible (but inert) panels and art cards floating over the canvas during
+     review. Force display:none on every mount + their detached panels. */
+  :global(body.replay-reviewing-mode #floatingPaletteMount),
+  :global(body.replay-reviewing-mode #floatingPalette),
+  :global(body.replay-reviewing-mode .floating-palette),
+  :global(body.replay-reviewing-mode #floatingArtMount),
+  :global(body.replay-reviewing-mode .floating-art-container),
+  :global(body.replay-reviewing-mode .floating-art-cards),
+  :global(body.replay-reviewing-mode .floating-art) {
     display: none !important;
   }
 

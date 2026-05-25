@@ -2344,6 +2344,61 @@ menuBtn: document.getElementById('menuBtn'),
     this._snapshotJoinToastTimeout = setTimeout(dismiss, 3000);
   }
 
+  /**
+   * Actionable toast for stroke-log parity mismatches. Mirrors the snapshot
+   * join toast style so the existing .snapshotJoinToast CSS handles layout.
+   * @param {{percent: number, missing: number, extra: number, mismatched: number}} info
+   * @param {Function} onFix - Click handler for the "Fix" button
+   */
+  showParityFixToast(info, onFix) {
+    this._dismissParityFixToast();
+
+    const el = document.createElement('div');
+    el.className = 'snapshotJoinToast';
+
+    const detail = [];
+    if (info.missing) detail.push(`${info.missing} missing`);
+    if (info.extra) detail.push(`${info.extra} extra`);
+    if (info.mismatched) detail.push(`${info.mismatched} mismatched`);
+    const detailLine = detail.length ? detail.join(' · ') : 'log drift detected';
+
+    el.innerHTML = `
+      <div class="snapshotJoinToast__body">
+        <div class="snapshotJoinToast__title">Out of sync (${info.percent.toFixed(1)}%)</div>
+        <div class="snapshotJoinToast__meta">${detailLine}</div>
+        <div class="snapshotJoinToast__actions">
+          <button class="snapshotJoinToast__load btn primary small">Fix</button>
+          <button class="snapshotJoinToast__dismiss btn secondary small">Dismiss</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(el);
+    this._parityFixToastEl = el;
+
+    const dismiss = () => this._dismissParityFixToast();
+    el.querySelector('.snapshotJoinToast__load').addEventListener('click', () => {
+      dismiss();
+      try { onFix?.(); } catch (e) { console.error('[ParityFix] onFix threw', e); }
+    });
+    el.querySelector('.snapshotJoinToast__dismiss').addEventListener('click', dismiss);
+
+    clearTimeout(this._parityFixToastTimeout);
+    this._parityFixToastTimeout = setTimeout(dismiss, 8000);
+
+    requestAnimationFrame(() => el.classList.add('show'));
+  }
+
+  _dismissParityFixToast() {
+    clearTimeout(this._parityFixToastTimeout);
+    const el = this._parityFixToastEl;
+    if (!el) return;
+    el.classList.remove('show');
+    el.addEventListener('transitionend', () => el.remove(), { once: true });
+    setTimeout(() => el.remove(), 400);
+    this._parityFixToastEl = null;
+  }
+
   _dismissSnapshotJoinToast() {
     clearTimeout(this._snapshotJoinToastTimeout);
     const el = this._snapshotJoinToastEl;

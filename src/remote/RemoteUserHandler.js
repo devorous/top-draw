@@ -383,6 +383,10 @@ export class RemoteUserHandler {
 
       case 'imageBrush':
         if (user.imageBrush) {
+          if (user.imageBrush._pendingStrokes) {
+            user.imageBrush._pendingStrokes.push({ type: 'stamps', pts: [pos.x, pos.y] });
+            break;
+          }
           const imageBrushTool = this.toolManager.getTool('imageBrush');
           if (imageBrushTool) {
             imageBrushTool.onPointerMove(user, pos);

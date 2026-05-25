@@ -27,6 +27,10 @@ export class RemoteSelectionHandler {
     user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
   }
 
+  _isReplayMode() {
+    return this.board?.isReplay === true;
+  }
+
   _drawDashedRect(ctx, rect, offset) {
     ctx.lineWidth = 1;
     ctx.setLineDash([4, 4]);
@@ -175,6 +179,73 @@ export class RemoteSelectionHandler {
     };
   }
 
+  _removeSelectionEraseStroke(restoreData, fallbackUserId) {
+    const lm = this.board.layerManager;
+    const timestamp = restoreData?.eraseTimestamp;
+    if (!lm || timestamp === undefined || timestamp === null) return false;
+
+    const userId = restoreData.eraseUserId ?? fallbackUserId;
+    let removedAny = false;
+    const groupIndices = new Set(
+      (restoreData.snapshots || []).map((snap) => snap?.groupIdx ?? 0)
+    );
+
+    const matchesErase = (stroke) =>
+      stroke &&
+      stroke.userId === userId &&
+      stroke.timestamp === timestamp &&
+      stroke.isSelectionErase === true;
+
+    const removeFromCollection = (collection, group) => {
+      if (!Array.isArray(collection)) return false;
+      let removed = false;
+      for (let i = collection.length - 1; i >= 0; i--) {
+        if (!matchesErase(collection[i])) continue;
+        collection.splice(i, 1);
+        const count = group.userStrokeCounts?.get(userId) || 0;
+        if (count > 0) group.userStrokeCounts.set(userId, count - 1);
+        removed = true;
+      }
+      return removed;
+    };
+
+    for (const groupIdx of groupIndices) {
+      const group = lm.layerGroups?.[groupIdx];
+      if (!group) continue;
+
+      if (removeFromCollection(group.strokeStack, group)) {
+        removedAny = true;
+      }
+
+      if (removeFromCollection(group.flatStrokeRecords, group)) {
+        removedAny = true;
+        lm._rebuildFlatCanvas?.(group);
+      }
+
+      for (let i = group.bakedSequences.length - 1; i >= 0; i--) {
+        const seq = group.bakedSequences[i];
+        if (!Array.isArray(seq?.strokes)) continue;
+        const beforeLength = seq.strokes.length;
+        if (!removeFromCollection(seq.strokes, group)) continue;
+
+        removedAny = true;
+        if (seq.strokes.length === 0) {
+          group.bakedSequences.splice(i, 1);
+        } else if (seq.canvas && seq.ctx) {
+          lm._rebuildSequenceCanvas?.(seq);
+        } else if (seq.type !== 'group' && seq.strokes.length !== beforeLength) {
+          lm._rebuildSequenceCanvas?.(seq);
+        }
+      }
+    }
+
+    if (removedAny) {
+      lm.needsComposite = true;
+      lm._notifyHistoryPanel?.(true);
+    }
+    return removedAny;
+  }
+
   _cropFloatingCanvasToSourceBounds(user, sourceCrop) {
     if (!user?.floatingCanvas || !sourceCrop) return false;
 
@@ -293,6 +364,7 @@ export class RemoteSelectionHandler {
    * Start the animation loop for remote user selections
    */
   startRemoteSelectionAnimation() {
+    if (this._isReplayMode()) return;
     if (this.remoteSelectionAnimationId) return;
 
     const animate = () => {
@@ -538,6 +610,12 @@ export class RemoteSelectionHandler {
 
   _scheduleRemoteSelectionMovePreview(user, force = false) {
     if (!user?.floatingCanvas || !user.selection) return;
+
+    if (this._isReplayMode()) {
+      this._cancelRemoteSelectionMovePreview(user);
+      this._drawRemoteSelectionMovePreview(user);
+      return;
+    }
 
     if (force) {
       this._cancelRemoteSelectionMovePreview(user);
@@ -1251,13 +1329,23 @@ export class RemoteSelectionHandler {
     const lm = this.board.layerManager;
     const layerIdx = user.activeLayer ?? 0;
 
-    // If we have accurate restore data (layer snapshots), use that.
-    // Otherwise fall back to drawing the floating canvas back.
-    if (user._selectionRestoreData) {
+    // If the lift created a temporary erase stroke, remove that stroke from
+    // history so cancel restores the exact pre-lift layer state.
+    if (user._selectionRestoreData && this._removeSelectionEraseStroke(user._selectionRestoreData, user.id)) {
+      // Restored by removing the erase stroke from layer history.
+    } else if (user._selectionRestoreData) {
       for (const { groupIdx, canvas, x, y } of user._selectionRestoreData.snapshots) {
         const group = lm.layerGroups[groupIdx];
-        if (group) {
-          group.baseCtx.drawImage(canvas, x, y);
+        const targetCtx = group?.flatCtx;
+        if (targetCtx) {
+          targetCtx.drawImage(canvas, x, y);
+        } else {
+          lm.beginUserStroke(groupIdx, user.id, 'source-over');
+          const active = lm.layerGroups[groupIdx]?.activeStrokeByUser.get(user.id);
+          if (active) {
+            active.ctx.drawImage(canvas, x, y);
+            lm.commitUserStroke(groupIdx, user.id);
+          }
         }
       }
     } else {

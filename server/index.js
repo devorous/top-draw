@@ -26,6 +26,7 @@ import { getUserFromToken } from './authUser.js';
 import { issueModAction, revokeModAction, revokeMatchingModActions, updateModActionReason, getModEntries, obfuscateIp, checkBan, checkMute, checkShadowBan } from './moderation.js';
 import { ENABLE_SERVER_REPLAY_DB } from './replayConfig.js';
 import { T, Tool, ToolNames, ToolToEnum } from '../shared/MessageTypes.js';
+import { isCommitType } from '../shared/StrokeFingerprint.js';
 import { packColor, unpackColor } from '../shared/ColorUtils.js';
 import { BOARD_SIZE_PRESETS } from '../shared/boardSizes.js';
 import { SessionManager, Role, RoleNames } from './SessionManager.js';
@@ -2420,9 +2421,25 @@ function broadcastToRoom(room, payload, excludeIndex = null) {
   const buffer = Msg.encode(POOLED_MSG).finish();
   const shouldBatch = BATCHABLE_TYPES.has(payload.t);
 
+  // Phase 1: append commit-class messages to the room's stroke fingerprint log.
+  // This is diagnostic-only for now — the actual parity protocol arrives in Phase 2.
+  if (room?.strokeLog && isCommitType(payload.t)) {
+    room.strokeLog.record({
+      seq: POOLED_MSG.seq,
+      t: payload.t,
+      userId: payload.u | 0,
+      bytes: buffer,
+    });
+  }
+
+  // Commit-class messages echo back to the sender so their strokeLog stays
+  // in lockstep with the server's. The client recognizes self-echoes by
+  // sessionIndex and skips the draw handlers (it already drew locally).
+  const echoCommitsToSender = isCommitType(payload.t);
+
   room.clients.forEach((client) => {
     if (client.readyState === WebSocket.OPEN) {
-      if (excludeIndex != null && client.sessionIndex == excludeIndex) {
+      if (excludeIndex != null && client.sessionIndex == excludeIndex && !echoCommitsToSender) {
         return;
       }
       if (shouldBatch) {
@@ -3065,6 +3082,22 @@ wss.on('connection', async (ws, req) => {
 
         case T.SYNC_STROKES_DONE:
           room.syncCoordinator.handleSyncStrokesDone(ws, data);
+          break;
+
+        case T.SYNC_PARITY_CHECK:
+          room.parityCoordinator.handleCheck(ws, data);
+          break;
+
+        case T.SYNC_PARITY_CHUNK_REQUEST:
+          room.parityCoordinator.handleChunkRequest(ws, data);
+          break;
+
+        case T.SYNC_PARITY_RESYNC_REQUEST:
+          room.parityCoordinator.handleResyncRequest(ws, data);
+          break;
+
+        case T.SYNC_PARITY_MISMATCH_REPORT:
+          room.parityCoordinator.handleReport(ws, data);
           break;
 
         case T.SYNC_TILE_OWNERSHIP:

@@ -104,6 +104,12 @@ export async function connectDB() {
     await safeCreateIndex('password_reset_tokens', { userId: 1, createdAt: -1 });
     await safeCreateIndex('password_reset_tokens', { expiresAt: 1 }, { expireAfterSeconds: 0 });
 
+    // Sync parity debug events — 30-day TTL, indexed for mod-panel filtering
+    await safeCreateIndex('debug.parity_events', { ts: 1 }, { expireAfterSeconds: 60 * 60 * 24 * 30 });
+    await safeCreateIndex('debug.parity_events', { roomId: 1, ts: -1 });
+    await safeCreateIndex('debug.parity_events', { roomId: 1, sessionIndex: 1, resolved: 1 });
+    await safeCreateIndex('debug.parity_events', { username: 1, ts: -1 }, { sparse: true });
+
     console.log(`[DB] Connected to MongoDB: ${uri} (${DB_NAME})`);
     return db;
   } catch (error) {
@@ -128,6 +134,14 @@ export function getDB() {
 export function getMongoDatabase(name) {
   if (!client || !name) return null;
   return client.db(name);
+}
+
+/**
+ * Sync parity event collection — mongo-optional like the rest of the DB layer.
+ * @returns {import('mongodb').Collection|null}
+ */
+export function getParityEventsCollection() {
+  return db ? db.collection('debug.parity_events') : null;
 }
 
 /**

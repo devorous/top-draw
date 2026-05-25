@@ -557,6 +557,11 @@ export class FloodFillTool {
       const my = Math.round(mirrored.y);
       if (mx < 0 || mx >= width || my < 0 || my >= height) continue;
       const mirrorResult = await this._fillWorker.computeFill(imageData, width, height, mx, my, 10, expansion, null);
+      const fillLimit = this._isFillTooLarge(mirrorResult, width, height);
+      if (fillLimit) {
+        this._warnFillTooLarge(fillLimit, false);
+        continue;
+      }
       if (mirrorResult) results.push({ region, result: mirrorResult });
     }
     return results;

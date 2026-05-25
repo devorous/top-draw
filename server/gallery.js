@@ -1090,12 +1090,33 @@ export async function handleGalleryTagsUpdate(req, res, id) {
       return json(res, 403, { error: 'Not authorized to edit tags for this item' });
     }
 
+    const previousTags = Array.isArray(item.tags) ? item.tags : [];
+    const shouldPostToDiscord = tags.includes('discord') && !previousTags.includes('discord');
+
     await db.collection('gallery').updateOne(
       { _id: new ObjectId(id) },
       { $set: { tags } }
     );
 
     json(res, 200, { tags });
+
+    if (shouldPostToDiscord && galleryDiscordPoster) {
+      galleryDiscordPoster({
+        id,
+        url: item.url,
+        thumbUrl: item.thumbUrl || item.url,
+        author: item.tagUsername !== false ? item.author : 'Anonymous',
+        tagUsername: item.tagUsername !== false,
+        title: item.title || '',
+        description: item.description || '',
+        tags,
+        likesCount: item.likesCount || 0,
+        views: item.views || 0,
+        createdAt: item.createdAt,
+      }).catch(err => {
+        console.error('[Gallery] Discord post error:', err);
+      });
+    }
   } catch (err) {
     console.error('[Gallery] Tags update error:', err);
     json(res, 500, { error: 'Failed to update tags' });

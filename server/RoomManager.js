@@ -2,7 +2,9 @@
 
 import { SessionManager } from './SessionManager.js';
 import { SyncCoordinator } from './SyncCoordinator.js';
+import { ParityCoordinator } from './ParityCoordinator.js';
 import { T } from '../shared/MessageTypes.js';
+import { StrokeFingerprintLog } from '../shared/StrokeFingerprint.js';
 import { WebSocket } from 'ws';
 import { getDB } from './db.js';
 import { scoreProvider } from './providerScoring.js';
@@ -95,6 +97,17 @@ export class Room {
 
     /** @type {number} Global message sequence number for this room */
     this.messageSequence = 0;
+
+    /**
+     * Per-room commit fingerprint log for sync parity. Server-side instance
+     * retains the original wire bytes so it can replay missing strokes to
+     * out-of-sync clients (targeted resync, Phase 3).
+     * @type {StrokeFingerprintLog}
+     */
+    this.strokeLog = new StrokeFingerprintLog({ storeBytes: true });
+
+    /** @type {ParityCoordinator} Handles SYNC_PARITY_* messages for this room. */
+    this.parityCoordinator = new ParityCoordinator(this, this.sendTo);
 
     /** @type {Array<Object>} Rolling buffer of board snapshots (max 24, every 10s for 4 min) */
     this.snapshots = [];

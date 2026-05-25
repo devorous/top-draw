@@ -21,6 +21,7 @@ class ReplayBoard {
   constructor(width, height) {
     this.dimensions = [height, width];
     this.mirror = false;
+    this.isReplay = true;
     this.backgroundColor = [255, 255, 255, 1];
 
     // Real offscreen canvases
@@ -367,6 +368,31 @@ class ReplayBoard {
 
   checkErasedTilesByIndices() {}
   addOccupancyForVisibleTilesInRect() {}
+
+  markCompositeFull() {
+    this._fullComposite = true;
+    this._compositeDirtyRects.length = 0;
+    if (this.tileGrid?.markAllDirty) this.tileGrid.markAllDirty();
+  }
+
+  maskPreviewForExistingMode(ctx, user, rect = null) {
+    if (!ctx || !user) return;
+    if (user.blendBakeMode !== 'existing') return;
+    if (!user.blendMode || user.blendMode === 'source-over' || user.blendMode === 'destination-out') return;
+
+    const existingContent = this.layerManager?.getLayerExistingContent?.(user.activeLayer ?? 0);
+    if (!existingContent) return;
+
+    ctx.save();
+    if (rect) {
+      ctx.beginPath();
+      ctx.rect(rect.x, rect.y, rect.width, rect.height);
+      ctx.clip();
+    }
+    ctx.globalCompositeOperation = 'destination-in';
+    ctx.drawImage(existingContent, 0, 0);
+    ctx.restore();
+  }
 
   // Compositing — no-op during action processing.
   // The real composite is driven by _compositeOutput() after all actions finish,
@@ -1107,6 +1133,36 @@ export class ReplayEngine {
   }
 
   /**
+   * Decode the optional source-crop box sent with SEL_MOVE messages.
+   * @param {Object} msg
+   * @returns {{x:number,y:number,width:number,height:number,total?:{x:number,y:number,width:number,height:number}}|null}
+   * @private
+   */
+  _decodeSelectionSourceCrop(msg) {
+    const cb = this._ensureArray(msg?.cb);
+    if (!cb || cb.length < 4) return null;
+
+    const sourceCrop = {
+      x: Number(cb[0]),
+      y: Number(cb[1]),
+      width: Number(cb[2]),
+      height: Number(cb[3])
+    };
+
+    const cbt = this._ensureArray(msg?.cbt);
+    if (cbt && cbt.length >= 4) {
+      sourceCrop.total = {
+        x: Number(cbt[0]),
+        y: Number(cbt[1]),
+        width: Number(cbt[2]),
+        height: Number(cbt[3])
+      };
+    }
+
+    return sourceCrop;
+  }
+
+  /**
    * Apply an IMG_PASTE payload synchronously using a preloaded image.
    * @param {User} user
    * @param {Object} msg
@@ -1222,27 +1278,9 @@ export class ReplayEngine {
     );
     if (!result) return;
 
-    if (fillTool._isFillTooLarge(result, width, height)) {
-      const tileRects = fillTool._getOccupiedTileRects(x, y);
-      if (tileRects) {
-        const constrainedResult = await fillTool._fillWorker.computeFill(
-          board.mainCtx.getImageData(0, 0, width, height).data,
-          width,
-          height,
-          x,
-          y,
-          10,
-          expansion,
-          tileRects
-        );
-        if (constrainedResult) {
-          result = constrainedResult;
-        } else {
-          return;
-        }
-      } else {
-        return;
-      }
+    const fillLimit = fillTool._isFillTooLarge(result, width, height);
+    if (fillLimit) {
+      return;
     }
 
     const blendMode = user.blendMode || 'source-over';
@@ -1269,7 +1307,6 @@ export class ReplayEngine {
     const bw = Math.min(width, result.maxX + pad + 1) - bx;
     const bh = Math.min(height, result.maxY + pad + 1) - by;
     board.expandDirtyRect(user, bx, by, bw, bh);
-    fillTool._markFilledTiles(result, width, userId, layerIndex);
 
     if (board.mirror) {
       const mx = width - 1 - x;
@@ -1285,20 +1322,9 @@ export class ReplayEngine {
           null
         );
 
-        if (mirrorResult && fillTool._isFillTooLarge(mirrorResult, width, height)) {
-          const mirrorTileRects = fillTool._getOccupiedTileRects(mx, y);
-          if (mirrorTileRects) {
-            mirrorResult = await fillTool._fillWorker.computeFill(
-              board.mainCtx.getImageData(0, 0, width, height).data,
-              width,
-              height,
-              mx,
-              y,
-              10,
-              expansion,
-              mirrorTileRects
-            );
-          } else {
+        if (mirrorResult) {
+          const mirrorFillLimit = fillTool._isFillTooLarge(mirrorResult, width, height);
+          if (mirrorFillLimit) {
             mirrorResult = null;
           }
         }
@@ -1321,7 +1347,6 @@ export class ReplayEngine {
           const mbw = Math.min(width, mirrorResult.maxX + pad + 1) - mbx;
           const mbh = Math.min(height, mirrorResult.maxY + pad + 1) - mby;
           board.expandDirtyRect(user, mbx, mby, mbw, mbh);
-          fillTool._markFilledTiles(mirrorResult, width, userId, layerIndex);
         }
       }
     }
@@ -1709,10 +1734,13 @@ export class ReplayEngine {
         eraseLassoPath: Array.isArray(state.selectionRestoreData.eraseLassoPath)
           ? state.selectionRestoreData.eraseLassoPath.map((pt) => ({ ...pt }))
           : null,
+        eraseTimestamp: state.selectionRestoreData.eraseTimestamp,
+        eraseUserId: state.selectionRestoreData.eraseUserId,
         snapshots: []
       };
 
       for (const snap of state.selectionRestoreData.snapshots || []) {
+        if (!snap.canvasData) continue;
         const canvas = document.createElement('canvas');
         canvas.width = snap.width || this.width;
         canvas.height = snap.height || this.height;
@@ -1729,10 +1757,44 @@ export class ReplayEngine {
 
     if (bot.floatingCanvas && bot.selection) {
       this._replayBoard.activeSelectionLayer = bot.activeLayer ?? 0;
+      bot.context?.clearRect(0, 0, this.width, this.height);
       this._remoteHandler.selectionHandler.drawFloatingSelection(bot);
+      bot._replaySelectionPreviewActive = true;
     } else if (bot.pendingSelection) {
+      bot.context?.clearRect(0, 0, this.width, this.height);
       this._remoteHandler.selectionHandler.drawPendingSelection(bot);
+      bot._replaySelectionPreviewActive = true;
+    } else if (bot.tool === 'select' && bot.context) {
+      bot.context.clearRect(0, 0, this.width, this.height);
+      bot._replaySelectionPreviewActive = false;
     }
+  }
+
+  _renderReplaySelections() {
+    const selectionHandler = this._remoteHandler?.selectionHandler;
+    if (!selectionHandler) return;
+
+    let activeSelectionLayer = -1;
+    for (const user of this.botUsers.values()) {
+      const hasFloatingSelection = !!(user.floatingCanvas && user.selection && !user.pendingImageLoad);
+      const hasPendingSelection = !!user.pendingSelection;
+
+      if (hasFloatingSelection || hasPendingSelection) {
+        user.context?.clearRect(0, 0, this.width, this.height);
+        if (hasFloatingSelection) {
+          activeSelectionLayer = user.activeLayer ?? activeSelectionLayer;
+          selectionHandler.drawFloatingSelection(user);
+        } else {
+          selectionHandler.drawPendingSelection(user);
+        }
+        user._replaySelectionPreviewActive = true;
+      } else if (user._replaySelectionPreviewActive && user.context) {
+        user.context.clearRect(0, 0, this.width, this.height);
+        user._replaySelectionPreviewActive = false;
+      }
+    }
+
+    this._replayBoard.activeSelectionLayer = activeSelectionLayer;
   }
 
   /**
@@ -2163,11 +2225,17 @@ export class ReplayEngine {
           break;
 
         case T.SEL_LIFT:
-          this._remoteHandler.selectionHandler.handleSelectionLift(
-            user,
-            this._decodeSelectionRect(msg),
-            this._decodePointPath(msg.cr)
-          );
+          {
+            this._remoteHandler.selectionHandler.handleSelectionLift(
+              user,
+              this._decodeSelectionRect(msg),
+              this._decodePointPath(msg.cr),
+              msg.g || null
+            );
+            if (user.pendingImageLoad) {
+              await user.pendingImageLoad;
+            }
+          }
           break;
         case T.SEL_PENDING:
           this._remoteHandler.selectionHandler.handleSelectionPending(
@@ -2180,7 +2248,11 @@ export class ReplayEngine {
           {
             const corners = this._decodeSelectionCorners(msg);
             if (corners) {
-              this._remoteHandler.selectionHandler.handleSelectionMove(user, corners);
+              this._remoteHandler.selectionHandler.handleSelectionMove(
+                user,
+                corners,
+                this._decodeSelectionSourceCrop(msg)
+              );
             }
           }
           break;
@@ -2279,6 +2351,8 @@ export class ReplayEngine {
     ctx.clearRect(0, 0, this.width, this.height);
     ctx.drawImage(this._replayBoard.mainCanvas, 0, 0);
 
+    this._renderReplaySelections();
+
     //  Draw the replay board's topCanvas (pixel brush preview, etc.)
     if (this._replayBoard.topCanvas) {
       ctx.drawImage(this._replayBoard.topCanvas, 0, 0);
@@ -2291,23 +2365,35 @@ export class ReplayEngine {
       }
 
       if (user.board) {
-        const blendMode = user.blendMode || 'source-over';
-        ctx.save();
-        
-        // Glitch blur still uses a dedicated preview canvas in replay.
-        if (user.tool === 'glitchBlur') {
-          const radius = user.blurRadius || 5;
-          ctx.filter = `blur(${radius * 0.5}px)`;
-        }
+        // _syncLayeredRemotePreview registers the in-progress stroke into the
+        // LayerManager (so it composites with the correct blendMode at the
+        // right z-order) and hides user.board via style.opacity=0 in the live
+        // UI. The replay canvas is offscreen, so drawImage ignores that CSS
+        // opacity and would paint the same preview a second time on top of
+        // mainCanvas — doubling its opacity. Skip when the layered preview is
+        // active; mainCanvas already has it.
+        const layeredActive = !!user._layeredPreviewActive
+          || (user.board.style?.opacity === '0' || user.board.style?.opacity === 0);
 
-        if (user.board.style?.mixBlendMode && user.board.style.mixBlendMode !== 'normal') {
-          ctx.globalCompositeOperation = user.board.style.mixBlendMode;
-        } else {
-          ctx.globalCompositeOperation = blendMode === 'source-over' ? 'source-over' : blendMode;
+        if (!layeredActive) {
+          const blendMode = user.blendMode || 'source-over';
+          ctx.save();
+
+          // Glitch blur still uses a dedicated preview canvas in replay.
+          if (user.tool === 'glitchBlur') {
+            const radius = user.blurRadius || 5;
+            ctx.filter = `blur(${radius * 0.5}px)`;
+          }
+
+          if (user.board.style?.mixBlendMode && user.board.style.mixBlendMode !== 'normal') {
+            ctx.globalCompositeOperation = user.board.style.mixBlendMode;
+          } else {
+            ctx.globalCompositeOperation = blendMode === 'source-over' ? 'source-over' : blendMode;
+          }
+
+          ctx.drawImage(user.board, 0, 0);
+          ctx.restore();
         }
-        
-        ctx.drawImage(user.board, 0, 0);
-        ctx.restore();
       }
 
       if (user.tool === 'text' && user.text && (!user.blendMode || user.blendMode === 'source-over')) {

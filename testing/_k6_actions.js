@@ -46,6 +46,15 @@ export const TOOL_NAMES = Object.fromEntries(
 /** Every drawable tool in id order. */
 export const ALL_TOOLS = Object.values(Tool);
 
+export function isFillTargetTool(tool) {
+  return tool === Tool.BRUSH ||
+         tool === Tool.PEN ||
+         tool === Tool.INK ||
+         tool === Tool.PIXEL ||
+         tool === Tool.IMAGE_BRUSH ||
+         tool === Tool.PATTERN;
+}
+
 // ─── Common content / settings ──────────────────────────────────────────────
 
 export const TEXT_PHRASES = [
@@ -90,12 +99,18 @@ export const COMMON_COLORS = [
   0xFFC0CBFF, 0x90EE90FF,
 ];
 
-// Tiny 1x1 transparent PNG as a proper data URI. The server only checks
-// truthiness of `g` for SEL_LIFT; the receiver tries to load it as an image
-// (onerror is harmless — _populateLiftedSelectionFromLayer fallback captures
-// from the user's layer canvas) but a real data URI loads cleanly.
+// Tiny 1x1 fully-transparent PNG. NOT sent by default for SEL_LIFT — the
+// previous version of this helper attached this as `g` on every selection
+// lift, which forced receivers' handleSelectionLift to stretch a 1x1 image
+// over the entire selection rect (baking a solid rectangle on commit). Bots
+// have no canvas, so the correct path is to omit `g` entirely: the server
+// falls through to default broadcast (server/index.js SEL_LIFT case), and
+// the receiver's _populateLiftedSelectionFromLayer captures the real pixels
+// from its own copy of the user's active layer. Only kept exported because
+// a handful of tests pass it explicitly via opts.imageData to exercise the
+// image-load codepath specifically.
 export const TINY_PNG_B64 =
-  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII=';
 
 // Available GIMP brushes shipped with the app.
 export const GIMP_BRUSHES = ['pepper.gbr', 'pixel.gbr', 'galaxy_small.gbr'];
@@ -319,13 +334,16 @@ export function performSelectionTransform(socket, u, opts = {}) {
     bl: { x: bl.x + dx,                 y: bl.y + dy },
   };
 
+  // No `g` (image payload): receivers populate the floating canvas from their
+  // own layer pixels via _populateLiftedSelectionFromLayer, which is what a
+  // real lift would produce here. Sending a placeholder image causes the
+  // receiver to stretch it over the whole selection on commit.
   socket.sendBinary(buildMsg({
     t: T.SEL_LIFT, u,
     sx: Math.round(rect.x),
     sy: Math.round(rect.y),
     sw: Math.round(rect.width),
     sh: Math.round(rect.height),
-    g: TINY_PNG_B64,
   }));
 
   socket.sendBinary(buildMsg({
@@ -355,8 +373,13 @@ export function sendSelLift(socket, u, rect, opts = {}) {
     sy: Math.round(rect.y),
     sw: Math.round(rect.width),
     sh: Math.round(rect.height),
-    g: opts.imageData ?? TINY_PNG_B64,
   };
+  // Only attach image data when a caller explicitly opts in; otherwise the
+  // receiver lifts pixels from its own copy of the active layer (matching
+  // what a real local lift would do without round-tripping a PNG).
+  if (opts.imageData) {
+    msg.g = opts.imageData;
+  }
   // Lasso lift: cr is a flat [x0,y0,x1,y1,...] polygon path (≥3 points → ≥6 floats).
   if (opts.lassoPath && opts.lassoPath.length >= 6) {
     msg.cr = opts.lassoPath;

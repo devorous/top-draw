@@ -838,6 +838,38 @@ export async function sanitizeMessage(data) {
       // Cap replay window to 1 hour
       if (sanitized.replayEndTs - sanitized.replayStartTs > 3_600_000) return null;
       return sanitized;
+
+    case T.SYNC_PARITY_CHECK:
+      sanitized.seq = Number(data.seq || 0);
+      sanitized.parityCount = clampInt(data.parityCount, 0, 1_000_000, 0);
+      sanitized.parityRollingHash = (Number(data.parityRollingHash) >>> 0);
+      return sanitized;
+
+    case T.SYNC_PARITY_CHUNK_REQUEST:
+      sanitized.parityChunkIndex = clampInt(data.parityChunkIndex, 0, 100_000, 0);
+      return sanitized;
+
+    case T.SYNC_PARITY_RESYNC_REQUEST: {
+      const seqs = Array.isArray(data.parityResyncSeqs) ? data.parityResyncSeqs : [];
+      // Cap to 500 seqs per request (matches server-side MAX_RESYNC_SEQS_PER_REQUEST)
+      const trimmed = seqs.slice(0, 500).map((s) => Number(typeof s === 'object' && s !== null ? s.toString() : s)).filter(Number.isFinite);
+      if (trimmed.length === 0) return null;
+      sanitized.parityResyncSeqs = trimmed;
+      return sanitized;
+    }
+
+    case T.SYNC_PARITY_MISMATCH_REPORT: {
+      const id = sanitizeString(data.parityEventId, 64);
+      if (!id) return null;
+      sanitized.parityEventId = id;
+      // Trust the proto-level shape of the entry arrays — we only cap length.
+      const capArr = (arr) => Array.isArray(arr) ? arr.slice(0, 1000) : [];
+      sanitized.parityMissing = capArr(data.parityMissing);
+      sanitized.parityExtra = capArr(data.parityExtra);
+      sanitized.parityMismatchedSeqs = capArr(data.parityMismatchedSeqs);
+      sanitized.parityReportTruncated = !!data.parityReportTruncated;
+      return sanitized;
+    }
   }
 
   if (IMAGE_MESSAGE_TYPES.has(type)) {
@@ -850,6 +882,18 @@ export async function sanitizeMessage(data) {
         requireEvenLength: true,
         maxLength: MAX_SELECTION_POINTS
       });
+    }
+
+    // SEL_LIFT may legitimately omit `g`: the receiver's
+    // RemoteSelectionHandler.handleSelectionLift falls back to
+    // _populateLiftedSelectionFromLayer (its own copy of the active layer) when
+    // no image payload accompanies the message. The post-sanitize handler in
+    // index.js already gates on `if (data.g)`. IMG_PASTE and GLITCH_RESULT
+    // genuinely cannot reconstruct content without `g`, so they stay strict.
+    // Note: proto3 string fields default to "" when unset, so we check falsy
+    // rather than `=== undefined`.
+    if (type === T.SEL_LIFT && !data.g) {
+      return sanitized;
     }
 
     const imageValidation = await validateDataUrlImage(data.g, {

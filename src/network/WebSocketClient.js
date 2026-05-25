@@ -8,6 +8,7 @@ import { packColor, unpackColor } from '../../shared/ColorUtils.js';
 import { BOARD_SIZE_PRESETS } from '../../shared/boardSizes.js';
 import { normalizeTextFont } from '../config/textFonts.js';
 import { ClientIdentity } from './ClientIdentity.js';
+import { StrokeFingerprintLog, isCommitType } from '../../shared/StrokeFingerprint.js';
 
 function hasOwnField(message, key) {
   return !!message && Object.prototype.hasOwnProperty.call(message, key);
@@ -94,6 +95,14 @@ export class WebSocketClient {
     this.socket = null;
     /** @type {number|null} */
     this.sessionIndex = null;
+    /**
+     * Per-session log of commit-class messages keyed by server-assigned seq.
+     * Mirrors `room.strokeLog` on the server; the two must stay in lockstep
+     * for parity checks to mean anything (Phase 1: populated only, no
+     * outbound parity protocol yet).
+     * @type {StrokeFingerprintLog}
+     */
+    this.strokeLog = new StrokeFingerprintLog();
     /** @type {string} */
     this.instanceId = '';
     /** @type {boolean} */
@@ -435,6 +444,16 @@ export class WebSocketClient {
             window.app.TimeMachine.recordAction(data, 'inbound');
           }
 
+          // Stroke fingerprint log — hash the exact wire bytes the server hashed.
+          if (isCommitType(data.t)) {
+            this.strokeLog.record({
+              seq: data.seq,
+              t: data.t,
+              userId: data.u,
+              bytes: raw,
+            });
+          }
+
           this.handleMessage(data);
         }
       } catch (err) {
@@ -631,6 +650,10 @@ export class WebSocketClient {
    */
   _processMessageQueue(forceDrain = false) {
     this._processingScheduled = false;
+    // Replay review mode pauses message *processing* — bytes/decoded items
+    // continue to land in _messageQueue so nothing is dropped. TimeMachine
+    // clears _reviewPaused and calls this with forceDrain=true on catchUp().
+    if (this._reviewPaused && !forceDrain) return;
     const BUDGET_MS = forceDrain ? Number.POSITIVE_INFINITY : 8;
     const start = performance.now();
     let processed = 0;
@@ -647,6 +670,17 @@ export class WebSocketClient {
           }
           if (window.app?.TimeMachine) {
             window.app.TimeMachine.recordAction(data, 'inbound');
+          }
+          // Stroke fingerprint log — uses the per-message slice from
+          // _decodeBatchedFrame, which is the exact wire bytes the server
+          // produced for this single message.
+          if (isCommitType(data.t)) {
+            this.strokeLog.record({
+              seq: data.seq,
+              t: data.t,
+              userId: data.u,
+              bytes: item,
+            });
           }
         } catch (err) {
           console.error('Failed to decode batched message:', err);
@@ -682,6 +716,24 @@ export class WebSocketClient {
    * @returns {void}
    */
   _processMessage(data) {
+    // Parity messages route to ParityClient outside the main switch — they
+    // don't need any of the live-app side effects (cursor updates etc.).
+    if (this.parityClient && this.parityClient.receive(data)) return;
+
+    // Commit-class self-echo: the server re-broadcasts our own commit
+    // messages back to us so the strokeLog can keep parity with the server.
+    // The strokeLog was already populated in the byte-decode step; the
+    // draw handlers run on the local optimistic path, so applying them
+    // again here would double-draw. Skip routing.
+    if (
+      data.u !== undefined &&
+      this.sessionIndex !== null &&
+      data.u === this.sessionIndex &&
+      isCommitType(data.t)
+    ) {
+      return;
+    }
+
     switch (data.t) {
       case T.CONNECT:
         this.sessionIndex = data.u;
@@ -689,6 +741,9 @@ export class WebSocketClient {
         this.role = data.authRole !== undefined ? data.authRole : 0;
         this.globalRole = data.authGlobalRole || 0;
         this.roomRole = data.authRoomRole || 0;
+        // Fresh session = new room's seq counter starts at 0; the server-side
+        // strokeLog is also fresh. Wipe ours to stay aligned.
+        this.strokeLog.clear();
         if (this.onConnect) {
           const connectData = {
             ...data,

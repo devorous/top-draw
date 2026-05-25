@@ -129,6 +129,14 @@ message Msg {
     IMAGE_TOOL = 134;              // Image data for image-based tools (image/pattern/confetti)
     CONNECT_RESUMED = 135;         // Server→client: same-session reattach after a brief disconnect
     SEL_MERGE = 136;               // Merge selection contents between layers (up/down/all)
+    SYNC_PARITY_CHECK = 137;       // Client→server: heartbeat (seq, count, rollingHash)
+    SYNC_PARITY_OK = 138;          // Server→client: client matches server log
+    SYNC_PARITY_MISMATCH = 139;    // Server→client: counts/hashes diverged
+    SYNC_PARITY_MANIFEST = 140;    // Server→client: chunked Merkle-style summary
+    SYNC_PARITY_CHUNK_REQUEST = 141; // Client→server: request entries for a chunk index
+    SYNC_PARITY_CHUNK = 142;       // Server→client: full fingerprint entries for a chunk
+    SYNC_PARITY_RESYNC_REQUEST = 143; // Client→server: replay these missing seqs
+    SYNC_PARITY_MISMATCH_REPORT = 144; // Client→server: post-diff detail for persistence
   }
 
   // Tool enum
@@ -477,6 +485,34 @@ message Msg {
   uint32 room_text_overlay_lifetime_ms = 169; // ROOM_UPDATE/SETTINGS: per-room ephemeral text lifetime (ms)
   string resume_key = 170;           // CONNECT/CONNECT_RESUMED: opaque per-tab key for reclaiming a sessionIndex after a brief drop
   uint64 seq = 171;                  // Global message sequence number (assigned by server)
+
+  // === Sync Parity Fields (173+) ===
+  // For SYNC_PARITY_CHECK from client: `seq` carries the client's latestSeq.
+  // For SYNC_PARITY_MISMATCH from server: `seq` carries the server's latestSeq.
+  uint32  parity_count        = 173;  // Client's stroke fingerprint count (CHECK)
+  fixed32 parity_rolling_hash = 174;  // Client's rolling hash (CHECK)
+  uint32  parity_server_count = 175;  // Server's stroke count (MISMATCH)
+  uint32  parity_percent_x100 = 176;  // Prefix-match percent * 100 (MISMATCH)
+  uint32  parity_chunk_size   = 177;  // Chunk granularity (MANIFEST)
+  repeated fixed32 parity_chunk_hashes = 178 [packed = true]; // Per-chunk hash (MANIFEST)
+  uint64  parity_base_seq     = 179;  // First seq covered by manifest (MANIFEST)
+  uint32  parity_chunk_index  = 180;  // Chunk index (CHUNK_REQUEST + CHUNK)
+  repeated FingerprintEntry parity_entries = 181; // Full chunk contents (CHUNK)
+  repeated uint64 parity_resync_seqs = 182 [packed = true]; // Seqs to replay (RESYNC_REQUEST)
+  string parity_event_id = 183; // Server-issued mismatch event id for follow-up (MISMATCH→REPORT)
+  repeated FingerprintEntry parity_missing = 184; // MISMATCH_REPORT: server has, client didn't
+  repeated FingerprintEntry parity_extra = 185;   // MISMATCH_REPORT: client has, server doesn't
+  repeated uint64 parity_mismatched_seqs = 186 [packed = true]; // MISMATCH_REPORT: same seq, diff fp
+  bool parity_report_truncated = 187; // MISMATCH_REPORT: client truncated its diff before sending
+
+  message FingerprintEntry {
+    uint64  seq         = 1;
+    uint32  t           = 2;          // Message type from T enum
+    uint32  user_id     = 3;
+    uint64  timestamp   = 4;
+    fixed32 fingerprint = 5;
+    string  kind        = 6;          // e.g. 'stroke.mu', 'history.undo'
+  }
 }
 
 // New message for storing snapshot layers and thumbnail bundled in R2

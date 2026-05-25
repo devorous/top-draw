@@ -21,7 +21,7 @@ import { assetLibrary } from './ui/AssetLibrary.js';
 import { RemoteUserHandler } from './remote/RemoteUserHandler.js';
 import { TouchHandler } from './input/TouchHandler.js';
 import { setupWebSocketHandlers } from './network/WebSocketHandlers.js';
-import { DebugOverlay, SyncClient } from './sync/index.js';
+import { DebugOverlay, SyncClient, createDebugSync, ParityClient, ParityPanel } from './sync/index.js';
 import { douglasPeucker, distanceBasedCulling } from './utils/drawing.js';
 import { bindPressAction } from './utils/buttonBinding.js';
 import { Moderation } from './auth/Moderation.js';
@@ -508,6 +508,7 @@ export class DrawingApp {
    */
   async init() {
     window.app = this; // Set global reference early
+    this.debugSync = createDebugSync(this); // window.app.debugSync.dumpParity()
 
     // Initialize heavy subsystems (deferred from constructor)
     updateStartupStatus('Preparing drawing engine...');
@@ -551,6 +552,18 @@ export class DrawingApp {
     this.wsClient.onConnectResumed = (sessionIndex) => this.handleWSConnectResumed(sessionIndex);
     this.wsClient.onDisconnect = (code, reason) => this.handleWSDisconnect(code, reason);
     this.wsClient.onConnectionInterrupted = (code, reason) => this.handleWSInterrupted(code, reason);
+
+    // Parity client — heartbeats every 30s comparing our stroke fingerprint
+    // log to the server's. Pauses while AFK/disconnected. Mismatches surface
+    // as a toast (Phase 2: no auto-resync — observe rate first).
+    this.parityClient = new ParityClient({
+      wsClient: this.wsClient,
+      shouldPause: () => !this.wsClient?.connected || !!this.self?.afk || document.hidden,
+      onMismatch: (diff) => this._handleParityMismatch(diff),
+      onOk: () => { this._lastParityOkAt = Date.now(); },
+    });
+    this.wsClient.parityClient = this.parityClient;
+    this.parityPanel = new ParityPanel(this);
     updateStartupStatus('Preparing board...');
     this.board.setUseDesynchronizedBoardContexts(this.appPreferences?.general?.useDesynchronizedBoardContexts);
     this.board.init('#boardContainer');
@@ -1961,6 +1974,8 @@ export class DrawingApp {
         elements.spacingSlider.value = spacing;
         this.ui.updateSpacingValue(spacing);
         this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastSpacingChange(spacing));
+        this.updateCurrentToolPresetSettings();
+        this.updateActiveToolPreview();
       }
     });
 
@@ -3257,6 +3272,8 @@ export class DrawingApp {
     if (this.isOfflineMode) return;
     this.cancelMemoryCompaction();
 
+    this.parityClient?.start();
+
     this.sessionIndex = sessionIndex;
     appState.sessionIndex = sessionIndex;
     this.self.id = sessionIndex;
@@ -3527,10 +3544,65 @@ export class DrawingApp {
    * @param {number} code - Disconnection code.
    * @param {string} reason - Disconnection reason.
    */
+  /**
+   * Surfaces parity mismatches via an actionable toast. The "Fix" button
+   * triggers a targeted resync — the server replays the original bytes for
+   * any missing seqs and the strokes apply through the normal pipeline.
+   * Phase 3 is opt-in (button); a future phase may auto-fix on low-severity
+   * mismatches once we've observed false-positive rates in the wild.
+   * The full diff lives on app.debugSync.lastMismatch for post-hoc inspection.
+   * @private
+   */
+  _handleParityMismatch(diff) {
+    if (!diff) return;
+    this._lastParityMismatch = diff;
+    if (this.debugSync) this.debugSync.lastMismatch = diff;
+    this.parityPanel?.refresh();
+
+    // While the user is reviewing a replay, the live board is paused and
+    // queued (see syncClient + RoomManager.replayQueue) so parity will be
+    // perpetually behind. Silence the toast — it'll re-emit naturally if
+    // there's still drift after catchUp drains the queue.
+    if (TimeMachine.isReviewing) return;
+
+    const info = {
+      percent: diff.percent,
+      missing: diff.missing?.length || 0,
+      extra: diff.extra?.length || 0,
+      mismatched: diff.mismatched?.length || 0,
+    };
+
+    if (this.ui?.showParityFixToast) {
+      this.ui.showParityFixToast(info, () => this._fixParityMismatch(diff));
+    } else {
+      this.ui?.showToast?.(`Out of sync (${info.percent.toFixed(1)}%)`, 5000, 'warning');
+    }
+  }
+
+  /**
+   * Request the server replay missing seqs from the most recent mismatch.
+   * @private
+   */
+  _fixParityMismatch(diff) {
+    if (!this.parityClient || !diff) return;
+    const seqs = [
+      ...(diff.missing || []).map(e => e.seq),
+      ...(diff.mismatched || []).map(m => m.seq),
+    ];
+    if (seqs.length === 0) {
+      this.ui?.showToast?.('Nothing to replay — try reconnecting if drift persists.', 3000);
+      return;
+    }
+    this.parityClient.requestResync(seqs);
+    this.ui?.showToast?.(`Requested replay of ${seqs.length} stroke${seqs.length === 1 ? '' : 's'}`, 2500);
+  }
+
   handleWSDisconnect(code, reason) {
     this.connected = false;
     appState.connected = false;
     this.ui.setRemoteUsersConnected(false);
+
+    this.parityClient?.stop();
 
     this.stopPreviewInterval();
     this.stopCheckpointInterval();

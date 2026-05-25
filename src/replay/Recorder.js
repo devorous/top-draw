@@ -12,6 +12,7 @@
  */
 import { captureOpeningSnapshot } from './snapshotCapture.js';
 import { shouldRecord } from './messageAllowlist.js';
+import { isCommitType } from '../../shared/StrokeFingerprint.js';
 
 /**
  * @typedef {Object} ReplayDelta
@@ -168,6 +169,20 @@ export class Recorder {
   _append(msg, dir) {
     if (this.state !== 'recording' || !this.recording) return;
     if (!shouldRecord(msg)) return;
+
+    // The server echoes commit-class messages (MU, FILL, SEL_COMMIT, UNDO, …)
+    // back to the sender so its strokeLog stays in sync. We see the same
+    // payload twice — once as 'out' from our own send and once as 'in' from
+    // the server echo — and ReplayEngine has no idea they're duplicates, so
+    // each commit would re-apply, stacking opacity. Drop the inbound echo
+    // when its `u` matches our session index.
+    if (dir === 'in' && msg?.t != null && isCommitType(msg.t)) {
+      const selfIdx = this._app?.wsClient?.sessionIndex
+                   ?? this._app?.sessionIndex
+                   ?? null;
+      if (selfIdx != null && msg.u === selfIdx) return;
+    }
+
     if (this.recording.deltas.length >= HARD_MAX_DELTAS) {
       // Soft auto-stop on hard cap. The tape stays usable up to this point.
       console.warn('[Recorder] HARD_MAX_DELTAS hit, auto-stopping recording');

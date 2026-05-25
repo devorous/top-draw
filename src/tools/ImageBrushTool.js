@@ -12,6 +12,41 @@ import {
 } from '../ui/StrokePreviewRenderer.js';
 import { Tool } from './BaseTool.js';
 
+function getPreviewStampSpacing(user, previewSize = 25) {
+  const spacing = Math.max(0, Math.min(50, Number(user?.spacing ?? 0)));
+  const spacingPercent = spacing === 0 ? 0.1 : spacing * 0.05;
+  return Math.max(1, previewSize * spacingPercent);
+}
+
+function filterPreviewPointsBySpacing(points, minSpacing) {
+  if (!points?.length) return [];
+
+  const filtered = [points[0]];
+  let lastPoint = points[0];
+  let distanceTraveled = 0;
+
+  for (let i = 1; i < points.length; i++) {
+    const point = points[i];
+    distanceTraveled += Math.hypot(point.x - lastPoint.x, point.y - lastPoint.y);
+    if (distanceTraveled >= minSpacing) {
+      filtered.push(point);
+      distanceTraveled = 0;
+    }
+    lastPoint = point;
+  }
+
+  return filtered;
+}
+
+function isDrawableImageSource(image) {
+  if (!image) return false;
+  if (typeof HTMLImageElement !== 'undefined' && image instanceof HTMLImageElement) {
+    return image.complete && image.naturalWidth > 0;
+  }
+  return Number.isFinite(image.width) && image.width > 0 &&
+    Number.isFinite(image.height) && image.height > 0;
+}
+
 /**
  * Image brush tool - supports GIMP brushes (.gbr/.gih) and standard images.
  */
@@ -249,11 +284,12 @@ export class ImageBrushTool extends Tool {
 
     const brush = user.imageBrush;
     const originalIndex = brush.index;
+    const stampPoints = filterPreviewPointsBySpacing(points, getPreviewStampSpacing(user));
 
-    points.forEach((point, index) => {
+    stampPoints.forEach((point, index) => {
       const imageData = this._getPreviewImage(brush, index);
       if (!imageData?.image) return;
-      this._drawPreviewStamp(ctx, user, brush, imageData, point, getPreviewPointAngle(points, index));
+      this._drawPreviewStamp(ctx, user, brush, imageData, point, getPreviewPointAngle(stampPoints, index));
     });
 
     if (originalIndex !== undefined) brush.index = originalIndex;
@@ -367,6 +403,8 @@ export class ImageBrushTool extends Tool {
       width = brush.width;
       image = brush.image;
     }
+
+    if (!width || !height || !isDrawableImageSource(image)) return;
 
     if (brush.type !== 'gih' && (user.imageBrushColorMode || 'original') === 'tinted' && image) {
       image = this._getTintedImage(user, image);

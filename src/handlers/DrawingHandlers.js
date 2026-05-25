@@ -20,7 +20,6 @@ export function setupDrawingHandlers(wrapHandler, app) {
     } else if (data.imageType === 'confetti') {
       const confettiTool = app.toolManager.getTool('confetti');
       confettiTool?.applyNetworkSettings?.(user, data.imageData);
-      confettiTool?.updatePreview?.(user);
     }
   };
   const queuePendingImageTool = (data) => {
@@ -456,6 +455,12 @@ export function setupDrawingHandlers(wrapHandler, app) {
     );
     if (!result) return;
 
+    const fillLimit = fillTool._isFillTooLarge?.(result, width, height);
+    if (fillLimit) {
+      fillTool._warnFillTooLarge?.(fillLimit, false);
+      return;
+    }
+
     const blendMode = user.blendMode || 'source-over';
     board.layerManager.beginUserStroke(layerIndex, userId, blendMode, user.blendBakeMode);
     board.applySelectionMaskClipForStroke(layerIndex, userId);
@@ -482,6 +487,11 @@ export function setupDrawingHandlers(wrapHandler, app) {
         mirrorData, width, height, mx, my, 10, expansion, null
       );
       if (mResult) {
+        const mirrorFillLimit = fillTool._isFillTooLarge?.(mResult, width, height);
+        if (mirrorFillLimit) {
+          fillTool._warnFillTooLarge?.(mirrorFillLimit, false);
+          continue;
+        }
         board.withMirrorRegionClip(strokeCtx, region, () => {
           fillTool._renderMaskComposite(strokeCtx, mResult, fillR, fillG, fillB, userOpacity, blurRadius, width, height, user);
         });

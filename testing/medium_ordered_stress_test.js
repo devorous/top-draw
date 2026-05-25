@@ -10,7 +10,7 @@ import { Trend } from 'k6/metrics';
 import { buildMsg } from './_k6_proto.js';
 import {
   T, Tool, TOOL_NAMES, ALL_TOOLS, TEXT_PHRASES, FONTS, BLEND_MODES,
-  pick, randInt, randColor,
+  pick, randInt, randColor, isFillTargetTool,
   configureTool, sendMove, sendDown, sendUp,
   applyTextWithFont, applyFloodFill, performSelectionTransform,
   parseInbound,
@@ -62,6 +62,14 @@ export default function () {
       let cycleLength = randInt(30, 45);
       let lastToolIndex = -1;
       let nonStrokeCooldown = 0;
+      const drawnPoints = [];
+      function recordDrawn(px, py) {
+        drawnPoints.push({ x: px, y: py });
+        if (drawnPoints.length > 64) drawnPoints.shift();
+      }
+      function pickDrawnPoint() {
+        return drawnPoints.length ? drawnPoints[Math.floor(Math.random() * drawnPoints.length)] : null;
+      }
 
       socket.setInterval(function () {
         if (sessionIndex === -1) return;
@@ -109,7 +117,8 @@ export default function () {
             });
             nonStrokeCooldown = 110;
           } else if (currentTool === Tool.FLOODFILL) {
-            applyFloodFill(socket, sessionIndex, x, y, randColor());
+            const target = pickDrawnPoint();
+            if (target) applyFloodFill(socket, sessionIndex, target.x, target.y, randColor());
             nonStrokeCooldown = 60;
           } else if (currentTool === Tool.INKDROPPER) {
             sendMove(socket, sessionIndex, x, y);
@@ -131,6 +140,7 @@ export default function () {
           stateTicks = 0;
         } else if (stateTicks < cycleLength) {
           sendMove(socket, sessionIndex, x, y, true);
+          if (isFillTargetTool(currentTool)) recordDrawn(x, y);
           stateTicks++;
         } else if (stateTicks === cycleLength) {
           sendUp(socket, sessionIndex);

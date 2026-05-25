@@ -72,11 +72,70 @@ function captureUserTransientState(user) {
 
   const previewCanvasData = user.board ? user.board.toDataURL('image/png') : null;
 
+  const selection = {};
+  if (user.selection) selection.selection = { ...user.selection };
+  if (user.pendingSelection) selection.pendingSelection = { ...user.pendingSelection };
+  if (Array.isArray(user.pendingLassoPath)) {
+    selection.pendingLassoPath = user.pendingLassoPath.map((p) => ({ ...p }));
+  }
+  if (Array.isArray(user.lassoPath)) {
+    selection.lassoPath = user.lassoPath.map((p) => ({ ...p }));
+  }
+  if (user.selectionCorners) {
+    selection.selectionCorners = {
+      tl: { ...user.selectionCorners.tl },
+      tr: { ...user.selectionCorners.tr },
+      br: { ...user.selectionCorners.br },
+      bl: { ...user.selectionCorners.bl },
+    };
+  }
+  if (user.originalCorners) {
+    selection.originalCorners = {
+      tl: { ...user.originalCorners.tl },
+      tr: { ...user.originalCorners.tr },
+      br: { ...user.originalCorners.br },
+      bl: { ...user.originalCorners.bl },
+    };
+  }
+  if (user.originalSelectionPos) {
+    selection.originalSelectionPos = { ...user.originalSelectionPos };
+  }
+  if (user.floatingCanvas) {
+    selection.floatingCanvasData = user.floatingCanvas.toDataURL('image/png');
+    selection.floatingCanvasWidth = user.floatingCanvas.width;
+    selection.floatingCanvasHeight = user.floatingCanvas.height;
+  }
+  if (user._cachedPreviewCanvas) {
+    selection.cachedSelectionPreviewData = user._cachedPreviewCanvas.toDataURL('image/png');
+    selection.cachedSelectionPreviewBounds = user._cachedPreviewBounds
+      ? { ...user._cachedPreviewBounds }
+      : null;
+  }
+  if (user._selectionRestoreData) {
+    selection.selectionRestoreData = {
+      eraseS: user._selectionRestoreData.eraseS ? { ...user._selectionRestoreData.eraseS } : null,
+      eraseLassoPath: Array.isArray(user._selectionRestoreData.eraseLassoPath)
+        ? user._selectionRestoreData.eraseLassoPath.map((p) => ({ ...p }))
+        : null,
+      eraseTimestamp: user._selectionRestoreData.eraseTimestamp,
+      eraseUserId: user._selectionRestoreData.eraseUserId,
+      snapshots: (user._selectionRestoreData.snapshots || []).map((snap) => ({
+        groupIdx: snap.groupIdx,
+        x: snap.x,
+        y: snap.y,
+        width: snap.canvas?.width ?? 0,
+        height: snap.canvas?.height ?? 0,
+        canvasData: snap.canvas?.toDataURL?.('image/png') ?? null,
+      })),
+    };
+  }
+
   return {
     ...base,
     ...transient,
     ...pen,
     ...ink,
+    ...selection,
     previewCanvasData,
   };
 }

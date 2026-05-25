@@ -9,6 +9,7 @@
 import { ReplayEngine } from './ReplayEngine.js';
 import { T } from '../../shared/MessageTypes.js';
 import { encodeDdraw, suggestDdrawFilename } from '../replay/ddrawCodec.js';
+import { TimeLapseExporter, suggestVideoFilename } from '../replay/TimeLapseExporter.js';
 
 const SEEK_TELEMETRY_LOG_INTERVAL_MS = 1500;
 const LOCAL_REVERSE_SCRUB_FRAME_MS = 500;
@@ -72,6 +73,10 @@ class TimeMachineState {
   previewData = $state(null);
   /** true when the visible replay canvas is showing a low-res cached frame rather than full replay output */
   isPreviewMode = $state(false);
+  /** true while a time-lapse video export is in progress */
+  isExportingVideo = $state(false);
+  /** 0..1 export progress */
+  videoExportProgress = $state(0);
 
   // ── backward-compat getters ────────────────────────────────────────────────
   /** @deprecated use isOpen */
@@ -131,6 +136,8 @@ class TimeMachineState {
   _dynCheckpoints = [];
   _dynCheckpointInFlight = false;
   _lastDynCheckpointTs = null;
+  /** @type {TimeLapseExporter|null} */
+  _activeVideoExporter = null;
 
   // ── initialisation ─────────────────────────────────────────────────────────
 
@@ -503,6 +510,12 @@ class TimeMachineState {
     this._showReplayCanvas(false);
     this._removeBotCursors();
 
+    // Make sure we don't leave the live WS drain paused after teardown.
+    if (this._wsClient) {
+      this._wsClient._reviewPaused = false;
+      this._flushLiveMessageQueue();
+    }
+
     if (this._tickInterval) {
       clearInterval(this._tickInterval);
       this._tickInterval = null;
@@ -536,9 +549,16 @@ class TimeMachineState {
     }
 
     if (this.isReviewing && !wasReviewing) {
-      // Entered review mode
+      // Entered review mode — pause live draw-message processing so the live
+      // board doesn't keep churning under the replay canvas. Bytes still
+      // queue in WebSocketClient; catchUp() drains them.
+      if (this._wsClient) this._wsClient._reviewPaused = true;
     } else if (!this.isReviewing && wasReviewing) {
-      // Exited review mode
+      // Exited review mode — resume + drain.
+      if (this._wsClient) {
+        this._wsClient._reviewPaused = false;
+        this._flushLiveMessageQueue();
+      }
     }
 
     if (this.isReviewing) {
@@ -602,7 +622,22 @@ class TimeMachineState {
     const isReverse = clamped < previous;
     this._scrubLastRequestedTimestamp = clamped;
 
-    if (this._source === 'local' && this._visualCheckpoints.length > 0) {
+    // Forward scrubs from the engine's current applied state take the
+    // incremental appendActions path (no snapshot reload, no re-replay from a
+    // checkpoint) — crisp and usually fast enough to keep up with the drag.
+    // Skip the blurred cached preview so the user sees real frames as they
+    // move forward instead of a "Loading…" overlay.
+    const canIncrementForward =
+      this._source === 'local' &&
+      !isReverse &&
+      this._lastAppliedTimestamp != null &&
+      clamped >= this._lastAppliedTimestamp;
+
+    if (
+      this._source === 'local' &&
+      this._visualCheckpoints.length > 0 &&
+      !canIncrementForward
+    ) {
       this.currentTime = clamped;
       const cp = this._findVisualCheckpointNear(clamped);
       if (this._drawVisualCheckpoint(cp)) return;
@@ -681,6 +716,8 @@ class TimeMachineState {
     this.pause();
     this._seekGeneration += 1;
     this._clearScrubState();
+    // Resume processing before draining — otherwise the drain bails out.
+    if (this._wsClient) this._wsClient._reviewPaused = false;
     this._flushLiveMessageQueue();
 
     if (this._source === 'local') {
@@ -766,6 +803,71 @@ class TimeMachineState {
       window.app?.ui?.showToast?.('Could not save replay', 3000, 'error');
       return false;
     }
+  }
+
+  /**
+   * Render the active local recording into a video file and trigger a browser
+   * download. Uses a dedicated ReplayEngine instance so the user's current
+   * scrub position is unaffected.
+   *
+   * @param {{ speed?: number, fps?: number, region?: {x:number,y:number,width:number,height:number}|null }} [opts]
+   * @returns {Promise<boolean>}
+   */
+  async exportTimeLapseVideo(opts = {}) {
+    const rec = this._localRecording;
+    if (this._source !== 'local' || !rec) {
+      window.app?.ui?.showToast?.('No local replay to export', 2000);
+      return false;
+    }
+    if (this.isExportingVideo) return false;
+
+    const speed = Math.max(1, Math.min(240, Number(opts.speed) || 30));
+    const fps = Math.max(10, Math.min(60, Math.round(Number(opts.fps) || 30)));
+    const region = opts.region ?? null;
+
+    this.isExportingVideo = true;
+    this.videoExportProgress = 0;
+    this._activeVideoExporter = new TimeLapseExporter({
+      recording: rec,
+      wsClient: this._wsClient,
+      speed,
+      fps,
+      region,
+      backgroundColor: this._board?.backgroundColor,
+      onProgress: (p) => { this.videoExportProgress = p; },
+    });
+
+    try {
+      const result = await this._activeVideoExporter.export();
+      if (!result) {
+        window.app?.ui?.showToast?.('Video export cancelled', 2000);
+        return false;
+      }
+      const ext = result.mimeType.includes('webm') ? 'webm' : 'mp4';
+      const url = URL.createObjectURL(result.blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = suggestVideoFilename(rec, ext);
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      const sizeMb = (result.blob.size / (1024 * 1024)).toFixed(1);
+      window.app?.ui?.showToast?.(`Saved time-lapse (${sizeMb} MB)`, 2500);
+      return true;
+    } catch (err) {
+      console.error('[TimeMachine] video export failed:', err);
+      window.app?.ui?.showToast?.(`Could not export video: ${err.message || err}`, 4000, 'error');
+      return false;
+    } finally {
+      this.isExportingVideo = false;
+      this.videoExportProgress = 0;
+      this._activeVideoExporter = null;
+    }
+  }
+
+  cancelVideoExport() {
+    if (this._activeVideoExporter) this._activeVideoExporter.cancel();
   }
 
   restoreLocalToCurrentState() {

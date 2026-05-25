@@ -75,7 +75,6 @@ function applyPendingImageToolChanges(app, sessionIndex, user) {
   if (pending.confetti) {
     const confettiTool = app.toolManager?.getTool?.('confetti');
     confettiTool?.applyNetworkSettings?.(user, pending.confetti);
-    confettiTool?.updatePreview?.(user);
   }
 
   app._pendingRemoteImageToolChanges.delete(sessionIndex);
