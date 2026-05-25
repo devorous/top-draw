@@ -1,7 +1,7 @@
 {
-  "latest": "1.9.0-beta",
-  "minRequired": "1.9.0-beta",
-  "releaseDate": "2026-05-18T22:49:15.087Z",
+  "latest": "1.9.1-beta",
+  "minRequired": "1.9.1-beta",
+  "releaseDate": "2026-05-25T06:24:45.977Z",
   "notes": "Implemented Discord login logic, Improved user profiles, Added new interactive tutorials, Added confetti brush, Implemented new WIP replay system for recording timelapses",
   "downloadUrl": "https://www.ddraw.ca/download"
 }
