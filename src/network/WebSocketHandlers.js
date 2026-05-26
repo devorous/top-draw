@@ -27,9 +27,12 @@ export function setupWebSocketHandlers(app) {
     handlerMap.set(eventName, handler);
     wsClient.on(eventName, (data) => {
       // Ignore messages from self to prevent double-processing/echo issues.
-      // EXCEPTION: 'mu' and 'undo' are allowed through to facilitate server-side 
-      // sequence number reconciliation and global ordering.
-      const allowSelf = eventName === 'mu' || eventName === 'undo';
+      // EXCEPTION: 'mu', 'undo', and 'fill' are allowed through to facilitate
+      // server-side sequence number reconciliation and global ordering. The
+      // 'fill' self branch is reconcile-only (it assigns the authoritative FILL
+      // seq to the already-committed local fill stroke; it does NOT recompute or
+      // re-draw the fill) — see the 'fill' handler in DrawingHandlers.js.
+      const allowSelf = eventName === 'mu' || eventName === 'undo' || eventName === 'fill' || eventName === 'glitch_result';
       if (data && data.sessionIndex === app.sessionIndex && !allowSelf) {
         return;
       }

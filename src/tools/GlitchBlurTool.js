@@ -36,9 +36,17 @@ export class GlitchBlurTool extends Tool {
 
   _endTargetLayerStrokes(user, userId) {
     const timestamp = Date.now();
+    // When we're the local connected drawer, each committed glitch stroke is
+    // optimistic (seq=0) and will be reconciled by its layer's GLITCH_RESULT
+    // self-echo — NOT by the MU echo (which would grab the wrong/earlier seq and
+    // diverge from observers, who commit each glitch layer at its GLITCH_RESULT
+    // seq). Tag so the MU reconciler skips it; the glitch_result self branch
+    // assigns the authoritative per-layer seq. See DrawingHandlers 'glitch_result'.
+    const tagGlitch = user === this.board.app?.self && !!this.board.app?.connected;
     for (const layerIdx of this._getTargetLayers()) {
       this.board.releaseSelectionMaskClipForStroke?.(layerIdx, userId);
-      this.board.layerManager?.commitUserStroke(layerIdx, userId, { timestamp });
+      const extra = tagGlitch ? { timestamp, pendingCommitEcho: 'glitch' } : { timestamp };
+      this.board.layerManager?.commitUserStroke(layerIdx, userId, extra);
     }
     this.board._compositeCommittedStrokeNow?.();
   }

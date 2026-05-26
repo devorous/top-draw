@@ -725,11 +725,30 @@ export class WebSocketClient {
     // The strokeLog was already populated in the byte-decode step; the
     // draw handlers run on the local optimistic path, so applying them
     // again here would double-draw. Skip routing.
+    //
+    // EXCEPTION: T.MU and T.FILL. Our stroke was committed optimistically with
+    // seq=0, which sorts it ABOVE every confirmed remote stroke. The self-echo
+    // carries the authoritative global seq we need to reconcile that ordering —
+    // drop it and our own strokes never reconcile, diverging from how other
+    // clients (who received the stroke with a real seq) order and bake it.
+    //
+    // FILL needs its OWN echo (not just MU): the fill tool commits a stroke
+    // locally, then App broadcasts MU afterward. Because the fill broadcast
+    // happens from an un-awaited async onPointerUp, the server assigns the MU a
+    // LOWER seq than the FILL. If the MU echo reconciled the fill stroke it'd
+    // get the MU's seq, while every observer commits that same fill with the
+    // FILL's seq → a per-record seq mismatch (off-by-one) that reorders the fill
+    // against any stroke landing between the two seqs. So the fill stroke is
+    // tagged pendingCommitEcho='fill', the MU reconciler skips it, and the FILL
+    // self echo (reconcile-only, see the 'fill' handler) assigns the FILL seq.
     if (
       data.u !== undefined &&
       this.sessionIndex !== null &&
       data.u === this.sessionIndex &&
-      isCommitType(data.t)
+      isCommitType(data.t) &&
+      data.t !== T.MU &&
+      data.t !== T.FILL &&
+      data.t !== T.GLITCH_RESULT
     ) {
       return;
     }
@@ -1305,7 +1324,12 @@ export class WebSocketClient {
           width: data.sw,
           height: data.sh,
           layerIndex: data.ly,
-          imageData: data.g
+          imageData: data.g,
+          // Authoritative global seq for this glitch layer's stroke. Without it,
+          // observers commit the glitch at seq=0 (sorts above later strokes →
+          // z-order/bake divergence). The drawer reconciles its matching local
+          // glitch stroke to this same seq via the self-echo branch.
+          seq: data.seq
         });
         break;
 
@@ -2426,6 +2450,11 @@ export class WebSocketClient {
       blendMode: s.blendMode,
       blendBakeMode: s.blendBakeMode || 'existing',
       timestamp: s.timestamp,
+      // Carry the authoritative global seq. Without it, synced strokes land at
+      // seq=0, which _sortStrokeStack parks ABOVE every later live stroke — so a
+      // joiner bakes/orders subsequent strokes beneath the synced ones, inverting
+      // z-order (erases and blend modes then diverge from the rest of the room).
+      seq: s.seq || 0,
       isRedo: s.isRedo || false,
       activeStroke: s.activeStroke || false,
       redoBatch: s.redoBatch || 0,

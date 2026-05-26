@@ -2,7 +2,12 @@
 
 const ACTIVE_WINDOW_MS = 60_000;
 const HIDDEN_TAB_PENALTY = 300;
-const AFK_PENALTY = 90;
+// NOTE: AFK is disqualifying, not a soft penalty — see the early return in
+// scoreProvider. The server filters ALL canvas-mutating messages (MD/MU/FILL/
+// CLR/UNDO/SEL_*/GLITCH_RESULT/TILE_*) away from AFK recipients (see
+// INACTIVE_FILTERED_TYPES), so an AFK client's canvas is frozen at the moment
+// they went idle. Using one as a sync/snapshot provider hands the joiner — or
+// the persisted snapshot — a STALE canvas.
 const MISSING_PING_PENALTY = 20;
 const RECENT_ACTIVITY_BONUS = 160;
 const ACTIVELY_DRAWING_BONUS = 500; // Prefer users with active strokes
@@ -26,6 +31,10 @@ export function scoreProvider(ws, user, options = {}) {
 
   if (!ws) return -Infinity;
   if (ws.lowPowerMode) return -Infinity;
+  // AFK clients have a stale canvas (see AFK_PENALTY note) — never a valid data
+  // source unless the caller explicitly opts in (the SyncCoordinator AFK
+  // fallback, which re-validates afk again before actually asking them).
+  if (!allowAfk && user?.afk) return -Infinity;
 
   let score = 0;
   const now = Date.now();
@@ -39,10 +48,6 @@ export function scoreProvider(ws, user, options = {}) {
   // Prefer users with active strokes—they have the most recent canvas state
   if (user?.mousedown && recentlyActive && !user?.afk) {
     score += ACTIVELY_DRAWING_BONUS;
-  }
-
-  if (!allowAfk && user?.afk) {
-    score -= AFK_PENALTY;
   }
 
   if (ws.tabHidden) {

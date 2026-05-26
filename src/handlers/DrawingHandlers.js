@@ -352,8 +352,17 @@ export function setupDrawingHandlers(wrapHandler, app) {
     const user = users.get(data.sessionIndex);
     if (!user || !data.imageData) return;
 
+    // Self echo: we already committed this glitch layer's stroke locally (tagged
+    // pendingCommitEcho='glitch'). Reconcile THAT layer's stroke to this echo's
+    // authoritative seq so our ordering matches observers (who commit each glitch
+    // layer at this same per-layer seq). Reconcile only — no recompute/redraw.
+    if (data.sessionIndex === app.sessionIndex) {
+      board.layerManager.reconcileLocalCommitStroke(user.id, data.seq || 0, 'glitch', data.layerIndex);
+      return;
+    }
+
     const bounds = { x: data.x, y: data.y, width: data.width, height: data.height };
-    const pendingGlitch = remoteUserHandler.queueRemoteGlitchImage(user, bounds, data.layerIndex);
+    const pendingGlitch = remoteUserHandler.queueRemoteGlitchImage(user, bounds, data.layerIndex, data.seq || 0);
     if (!pendingGlitch) return;
 
     const img = new Image();
@@ -413,6 +422,17 @@ export function setupDrawingHandlers(wrapHandler, app) {
   wrapHandler('fill', async (data) => {
     const user = users.get(data.sessionIndex);
     if (!user) return;
+
+    // Self echo: we already computed and committed this fill optimistically on
+    // the local path (the committed stroke is tagged pendingCommitEcho='fill').
+    // Recomputing it here would double-fill. Instead, reconcile that pending
+    // stroke with the authoritative FILL seq so our global ordering matches
+    // every observer (who commit the fill carrying this same seq). Reconcile
+    // only — no canvas work.
+    if (data.sessionIndex === app.sessionIndex) {
+      board.layerManager.reconcileLocalCommitStroke(user.id, data.seq || 0, 'fill');
+      return;
+    }
 
     remoteUserHandler._invalidateFillPreview?.(user);
 

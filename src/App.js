@@ -7833,6 +7833,19 @@ export class DrawingApp {
       return;
     }
 
+    // While AFK our canvas is frozen — the server filters all draws to us — so
+    // uploading a preview/checkpoint would persist a STALE snapshot that every
+    // future joiner restores. The server election already won't pick an AFK
+    // uploader, but there's a window where an elected uploader goes AFK before
+    // the next election; bail out here so we never upload stale state. Also stop
+    // local capture so we don't seed recovery from a frozen canvas.
+    if (this.self?.afk) {
+      this.stopPreviewInterval();
+      this.stopCheckpointInterval();
+      this.snapshotManager?.stopLocalCapture();
+      return;
+    }
+
     if (activeUploader) {
       if (myName && myName === activeUploader) {
         this.stopPreviewInterval();

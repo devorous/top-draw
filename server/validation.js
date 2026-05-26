@@ -176,7 +176,14 @@ function sanitizeStrokeRecord(record) {
     redoBatch: clampInt(record.redoBatch, 0, 10000, 0),
     layerIdx: clampInt(record.layerIdx, 0, MAX_LAYER_INDEX, 0),
     affectedTiles: sanitizeUintArray(record.affectedTiles, { max: 1_000_000, maxLength: MAX_TILE_LIST }),
-    eraseAll: sanitizeBoolean(record.eraseAll)
+    eraseAll: sanitizeBoolean(record.eraseAll),
+    // seq is the authoritative global ordering key. Dropping it here makes every
+    // synced stroke arrive at seq=0 on the joiner, which sorts ABOVE later live
+    // strokes and inverts z-order — erases/blends then diverge until a full
+    // re-sync. activeStroke must survive too so in-progress strokes import into
+    // activeStrokeByUser rather than as committed strokes.
+    seq: Number.isFinite(Number(record.seq)) ? Number(record.seq) : 0,
+    activeStroke: sanitizeBoolean(record.activeStroke)
   };
 }
 

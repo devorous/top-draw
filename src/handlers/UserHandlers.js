@@ -578,6 +578,10 @@ export function setupUserHandlers(wsClient, app) {
       }
       app.ui.setSelfUserAfk?.(!!data.afk);
       applySelfInactiveState(data.afk);
+      // Going AFK must stop our snapshot/preview uploads immediately (our canvas
+      // is about to freeze); returning re-evaluates eligibility. Without this the
+      // change only takes effect on the next visibility/settings event.
+      app._updatePreviewUploadEligibility?.();
       return;
     }
     const user = users.get(data.sessionIndex);

@@ -1,11 +1,11 @@
 {
-  "version": "1.9.1-beta",
-  "notes": "Implemented Discord login logic, Improved user profiles, Added new interactive tutorials, Added confetti brush, Implemented new WIP replay system for recording timelapses",
-  "pub_date": "2026-05-25T06:24:45.977Z",
+  "version": "1.9.2-beta",
+  "notes": "Sync bug fixing WIP",
+  "pub_date": "2026-05-26T05:52:29.611Z",
   "platforms": {
     "windows-x86_64": {
-      "url": "https://www.ddraw.ca/desktop-updates/windows-x86_64/Ddraw_1.9.1-beta_x64-setup.exe",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQ01XR1piUDlNemdBOHBRSS8zbExxaVZOT0VJdllFdUE5TXpja290WVQ2dVdoWUJaekk5dGZDRHNwbmJtZjZ5YjNXbWFlcDU1UTJLOS9kQ1hJNWJuanRiSFloTFZZRWdjPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc5NjkwNDAwCWZpbGU6RGRyYXdfMS45LjEtYmV0YV94NjQtc2V0dXAuZXhlCjhJaHRiRnR3WVpLdDlRSHo2TWhPQk55SjNVLzBLT0c3RkV6VS9ESDU2YkRWSDN2MEdvQUZZMVhVWGhGWGs2dnkxem1YZGg2a3hKNVFMcDBtbUF0bUNBPT0K"
+      "url": "https://www.ddraw.ca/desktop-updates/windows-x86_64/Ddraw_1.9.2-beta_x64-setup.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQ01XR1piUDlNem1LWWV6NHJnSmk0N2FrbDZLblpDQkZHRE9FZVhpbXhmVjR4WFZ6Z010WmpkUTRudTN1S0lPQVVFT092ZVRhMk80Z3Z2ZGFia0RyUzJSM0FHaFFCVkFJPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc5Nzc0ODg4CWZpbGU6RGRyYXdfMS45LjItYmV0YV94NjQtc2V0dXAuZXhlCi9DVWpzd3NsL3BTMVE0VGk5N3doVnh0Vzhud3NXNlFPdGYrU2NaSmhOb2JSMW9aVHdueDdVWXh4Ni9jaVlPNkxjU2hWNGg1V1ZNLytYeS9ydjBtZUJBPT0K"
     }
   }
 }

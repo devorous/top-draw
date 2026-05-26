@@ -277,7 +277,8 @@ export class PixelBrushTool {
     user._pixelStrokePoints = [];
     user._pixelPreviewDirtyBounds = null;
 
-    this.board.endStroke(user);
+    const extraProps = Number.isFinite(Number(e?.seq)) ? { seq: Number(e.seq) } : {};
+    this.board.endStroke(user, extraProps);
     this._clearPreview(user);
     this.lastStampPos.delete(user.id);
   }

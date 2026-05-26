@@ -653,37 +653,132 @@ export class LayerManager {
 
     this._sortStrokeStack(group);
     this.needsComposite = true;
-    }
-    /**
-    * Update an optimistic local stroke with its authoritative server-assigned sequence number.
-    * @param {number} groupIdx - Layer index
-    * @param {number} userId - User ID
-    * @param {number} seq - Authoritative sequence number
-    */
-    reconcileLocalStroke(groupIdx, userId, seq) {
-    const group = this.layerGroups[groupIdx];
-    if (!group) return;
+  }
 
-    // Find the latest stroke from this user that doesn't have a real sequence number yet.
-    for (let i = group.strokeStack.length - 1; i >= 0; i--) {
-      const s = group.strokeStack[i];
-      if (s.userId === userId && (!s.seq || s.seq === 0)) {
+  /**
+   * Update an optimistic local stroke with its authoritative server-assigned sequence number.
+   * @param {number} groupIdx - Layer index
+   * @param {number} userId - User ID
+   * @param {number} seq - Authoritative sequence number
+   * @returns {boolean} True if a stroke was reconciled
+   */
+  reconcileLocalStroke(groupIdx, userId, seq) {
+    const group = this.layerGroups[groupIdx];
+    if (!group) return false;
+
+    // Echoes arrive in the order we sent the strokes (the server assigns seqs in
+    // receipt order and a single WebSocket preserves order), so the incoming seq
+    // belongs to our oldest still-unconfirmed stroke. Targeting the newest one
+    // instead would reverse the z-order of same-user strokes drawn faster than
+    // one round-trip, diverging from how remotes (who got real seqs up front)
+    // render them. Match FIFO: assign to the unconfirmed stroke with the
+    // smallest local timestamp.
+    let target = null;
+    for (const s of group.strokeStack) {
+      // Skip strokes awaiting a dedicated commit-class echo (e.g. fill): those
+      // carry their own authoritative seq via that echo, NOT this MU's seq.
+      if (s.userId !== userId || s.seq > 0 || s.pendingCommitEcho) continue;
+      if (!target || (s.timestamp || 0) < (target.timestamp || 0)) target = s;
+    }
+    if (target) {
+      target.seq = seq;
+      this._sortStrokeStack(group);
+      this._bakeOverflowStrokes(group);
+      this.needsComposite = true;
+    }
+    return !!target;
+  }
+
+  /**
+   * Reconcile the local user's oldest still-optimistic stroke or stroke batch
+   * with its authoritative server seq, searching every layer group. Used by the
+   * MU self-echo path, where the stroke may live on a layer other than the one
+   * currently active, or may span multiple layers for erase-all.
+   * @param {number} userId - Local user ID
+   * @param {number} seq - Authoritative sequence number
+   * @returns {boolean} True if a stroke was reconciled
+   */
+  reconcileOldestLocalStroke(userId, seq) {
+    let bestTs = Infinity;
+    for (const group of this.layerGroups) {
+      for (const s of group.strokeStack) {
+        // Skip strokes awaiting a dedicated commit-class echo (e.g. fill).
+        if (s.userId !== userId || s.seq > 0 || s.pendingCommitEcho) continue;
+        const ts = s.timestamp || 0;
+        if (ts < bestTs) bestTs = ts;
+      }
+    }
+    if (!Number.isFinite(bestTs)) return false;
+
+    let reconciled = false;
+    for (const group of this.layerGroups) {
+      let touched = false;
+      for (const s of group.strokeStack) {
+        if (s.userId !== userId || s.seq > 0 || s.pendingCommitEcho || (s.timestamp || 0) !== bestTs) continue;
         s.seq = seq;
+        touched = true;
+        reconciled = true;
+      }
+      if (touched) {
         this._sortStrokeStack(group);
         this._bakeOverflowStrokes(group);
         this.needsComposite = true;
-        break;
       }
     }
-    }
+    return reconciled;
+  }
 
-    /**
-    * Sort the unbaked stroke stack based on global sequence number,
-    * falling back to local timestamp for optimistic strokes (seq=0).
-    * @param {Object} group - Layer group
-    * @private
-    */
-    _sortStrokeStack(group) {
+  /**
+   * Reconcile the local user's oldest stroke that is awaiting a specific
+   * commit-class echo (e.g. fill) with its authoritative server seq. Searches
+   * every layer group and matches FIFO by local timestamp so that, with several
+   * commits of the same type in flight, each echo lands on the stroke it
+   * actually produced — the same order observers commit them in.
+   *
+   * Unlike the MU path, the fill stroke's seq is NOT the MU's seq: the fill
+   * broadcast races its own MU (see WebSocketClient self-echo notes), so only
+   * the FILL echo carries the seq observers used. Clears the pendingCommitEcho
+   * tag so the stroke can bake/undo normally afterward.
+   * @param {number} userId - Local user ID
+   * @param {number} seq - Authoritative sequence number from the commit echo
+   * @param {string} commitType - Tag to match (e.g. 'fill', 'glitch')
+   * @param {number|null} groupIdx - If given, only search that layer group. Used
+   *   by glitch, which commits one stroke PER layer and sends one echo per layer
+   *   (each with its own seq), so each layer's stroke must reconcile to its own
+   *   layer's echo. Fill passes null (one stroke, search everywhere).
+   * @returns {boolean} True if a stroke was reconciled
+   */
+  reconcileLocalCommitStroke(userId, seq, commitType, groupIdx = null) {
+    const groups = groupIdx == null
+      ? this.layerGroups
+      : (this.layerGroups[groupIdx] ? [this.layerGroups[groupIdx]] : []);
+    let bestTs = Infinity;
+    let bestGroup = null;
+    let bestStroke = null;
+    for (const group of groups) {
+      for (const s of group.strokeStack) {
+        if (s.userId !== userId || s.pendingCommitEcho !== commitType) continue;
+        const ts = s.timestamp || 0;
+        if (ts < bestTs) { bestTs = ts; bestGroup = group; bestStroke = s; }
+      }
+    }
+    if (!bestStroke) return false;
+
+    bestStroke.seq = seq;
+    delete bestStroke.pendingCommitEcho;
+    this._sortStrokeStack(bestGroup);
+    this._bakeOverflowStrokes(bestGroup);
+    this.needsComposite = true;
+    return true;
+  }
+
+  /**
+   * Sort the unbaked stroke stack based on global sequence number,
+   * falling back to local timestamp for optimistic strokes (seq=0).
+   * @param {Object} group - Layer group
+   * @private
+   */
+  _sortStrokeStack(group) {
     group.strokeStack.sort((a, b) => {
       // seq=0 or undefined means optimistic local stroke (not yet confirmed by server)
       const sa = a.seq || Number.MAX_SAFE_INTEGER;
@@ -691,7 +786,7 @@ export class LayerManager {
       if (sa !== sb) return sa - sb;
       return a.timestamp - b.timestamp;
     });
-    }
+  }
 
   /**
    * Insert a stroke record into a specific redo batch for a user
@@ -892,6 +987,20 @@ export class LayerManager {
     const safeModes = ['source-over', 'destination-out', 'multiply', 'darken', 'lighten', 'screen'];
     const eager = this.eagerBakeUsers;
 
+    // Baking is irreversible: it flattens the bottom of the (seq-ordered) stack
+    // into flatCanvas/bakedSequences, resolving each stroke's blend mode against
+    // whatever is beneath it AT BAKE TIME. For that result to match across
+    // clients, every client must flatten the SAME prefix in the SAME global
+    // order. Our own freshly-committed strokes are optimistic (seq=0) until the
+    // server echoes their authoritative seq, and _sortStrokeStack parks them at
+    // the TOP of the stack until then. If we bake now, those pending strokes are
+    // skipped from the baked prefix — so we'd flatten a different backdrop than
+    // remote clients (who already received the same strokes carrying a real seq).
+    // For source-over that's invisible (it's associative), but for non-commutative
+    // blend modes like `overlay` it diverges permanently. Defer until every local
+    // stroke is reconciled; reconcileLocalStroke re-invokes us once seq lands.
+    if (this._hasUnconfirmedLocalStroke(group)) return;
+
     let i = 0;
     while (
       i < group.strokeStack.length &&
@@ -923,6 +1032,28 @@ export class LayerManager {
         }
       }
     }
+  }
+
+  /**
+   * Whether the local user has a committed-but-not-yet-reconciled stroke in this
+   * group. Such strokes carry no authoritative server seq, so the stack's global
+   * order isn't final and baking must wait (see _bakeOverflowStrokes).
+   *
+   * Only relevant in a connected multiplayer session: offline/single-player and
+   * replay never assign a seq, so there's nothing to wait for — bake normally.
+   * @param {Object} group - Layer group
+   * @returns {boolean}
+   * @private
+   */
+  _hasUnconfirmedLocalStroke(group) {
+    if (!this.board?.app?.connected) return false;
+    if (this.eagerBakeUsers && this.eagerBakeUsers.size) return false;
+    const localId = this.localUserId;
+    if (localId == null) return false;
+    for (const s of group.strokeStack) {
+      if (s.userId === localId && !(s.seq > 0)) return true;
+    }
+    return false;
   }
 
   _anyEagerBakeable(group, eager) {

@@ -616,7 +616,9 @@ export class FloodFillTool {
 
       this._commitFillResult(user, result, params, width, height, mirrorResults, 0, 0);
       this._broadcastFill(user, x, y, params.activeLayer, 0, 0);
-      this.board.endStroke(user);
+      // Tag so the MU self-echo reconciler skips this stroke; the FILL self-echo
+      // assigns its authoritative seq (see DrawingHandlers 'fill' self branch).
+      this.board.endStroke(user, { pendingCommitEcho: 'fill' });
       this._committed = true;
       return;
     }
@@ -795,7 +797,9 @@ export class FloodFillTool {
 
       this._commitFillResult(user, result, params, width, height, mirrorResults);
       this._broadcastFill(user, x, y, activeLayer, this._expansion, this._blurRadius);
-      this.board.endStroke(user);
+      // Tag so the MU self-echo reconciler skips this stroke; the FILL self-echo
+      // assigns its authoritative seq (see DrawingHandlers 'fill' self branch).
+      this.board.endStroke(user, { pendingCommitEcho: 'fill' });
     }
 
     this._active = false;

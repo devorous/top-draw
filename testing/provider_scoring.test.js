@@ -75,6 +75,50 @@ test('stale mousedown does not count as an active stroke provider', () => {
   assert.equal(score, scoreProvider(makeClient(2, { uploadBps: 100_000, pingRtt: 20 }), makeUser('inactive')));
 });
 
+test('AFK clients are disqualified as providers no matter how fast their upload', () => {
+  // An AFK client's canvas is frozen (server filters their draws), so even a
+  // 50 MB/s AFK uploader must never beat a slow active client — otherwise it
+  // would win the snapshot-uploader election and persist a stale snapshot.
+  const fastAfk = scoreProvider(
+    makeClient(1, { uploadBps: 50_000_000, pingRtt: 5 }),
+    makeUser('fast afk', { afk: true })
+  );
+  assert.equal(fastAfk, -Infinity);
+
+  const slowActive = scoreProvider(
+    makeClient(2, { uploadBps: 70_000, pingRtt: 80 }),
+    makeUser('slow active', { lastActivity: Date.now() })
+  );
+  assert.ok(slowActive > fastAfk);
+});
+
+test('allowAfk lets AFK clients score (SyncCoordinator fallback path)', () => {
+  const afkScore = scoreProvider(
+    makeClient(1, { uploadBps: 1_000_000, pingRtt: 20 }),
+    makeUser('afk', { afk: true }),
+    { allowAfk: true }
+  );
+  assert.notEqual(afkScore, -Infinity);
+});
+
+test('ranked sync candidates exclude AFK by default, include them with includeAfk', () => {
+  const now = Date.now();
+  const requester = makeClient(99);
+  const clients = new Set([
+    requester,
+    makeClient(1, { uploadBps: 50_000_000 }),
+    makeClient(2, { uploadBps: 100_000 })
+  ]);
+  const users = new Map([
+    [1, makeUser('fast afk', { afk: true, lastActivity: now })],
+    [2, makeUser('slow active', { lastActivity: now })]
+  ]);
+  const coordinator = new SyncCoordinator({ users }, { clients }, () => {});
+
+  assert.deepEqual(coordinator._getRankedCandidates(requester), [2]);
+  assert.deepEqual(coordinator._getRankedCandidates(requester, { includeAfk: true }).sort(), [1, 2]);
+});
+
 test('activity carries meaningful score weight for shared provider scoring', () => {
   const now = Date.now();
   const inactiveFast = scoreProvider(

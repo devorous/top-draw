@@ -703,9 +703,13 @@ export class RemoteUserHandler {
     // optimistically committed. Update the record in LayerManager so global
     // ordering is consistent across all clients.
     if (user.id === this.app.sessionIndex) {
-      const strokeLayer = this.getStrokeLayer(user);
-      this.board.layerManager.reconcileLocalStroke(strokeLayer, user.id, seq);
-      user.mousedown = false;
+      // Self-echo of our own MU: assign the authoritative global seq to our
+      // oldest still-optimistic stroke (search all layers — we may have switched
+      // layers before the echo returned). Reconcile-only; we already drew it.
+      // Do NOT touch user.mousedown here: the echo is async and may land after
+      // we've already begun a *new* local stroke, and clobbering it would break
+      // that stroke. The local pointer handlers own mousedown.
+      this.board.layerManager.reconcileOldestLocalStroke(user.id, seq);
       return;
     }
 
@@ -845,7 +849,7 @@ export class RemoteUserHandler {
         if (!user.panning) {
           const pixelTool = this.toolManager.getTool('pixel');
           if (pixelTool) {
-            pixelTool.onPointerUp(user, pos);
+            pixelTool.onPointerUp(user, pos, { seq });
           }
         }
         break;
@@ -902,7 +906,7 @@ export class RemoteUserHandler {
     }
 
     if (user.tool === 'erase' && user.eraseAllLayers) {
-      this.board.endStrokeAllLayers(user, 'destination-out', { seq });
+      this.board.endStrokeAllLayers(user, { seq });
     } else if (user.tool !== 'fill' && user.tool !== 'text' && user.tool !== 'glitchBlur') {
       // Fill tool commits its own stroke via the dedicated FILL message handler
       this.board.releaseSelectionMaskClipForStroke(strokeLayer, user.id);
@@ -988,9 +992,9 @@ export class RemoteUserHandler {
     }
   }
 
-  queueRemoteGlitchImage(user, bounds, layerIndex = null) {
+  queueRemoteGlitchImage(user, bounds, layerIndex = null, seq = 0) {
     if (!user || !bounds || bounds.width <= 0 || bounds.height <= 0) return null;
-    const token = { user, bounds, layerIndex, resultCanvas: null, canceled: false };
+    const token = { user, bounds, layerIndex, seq, resultCanvas: null, canceled: false };
     const queue = this.pendingGlitchImagesByUser.get(user.id) || [];
     queue.push(token);
     this.pendingGlitchImagesByUser.set(user.id, queue);
@@ -1034,7 +1038,7 @@ export class RemoteUserHandler {
       }
       if (!token.resultCanvas) break;
       queue.shift();
-      this.commitRemoteGlitchImage(token.user, token.resultCanvas, token.bounds, token.layerIndex);
+      this.commitRemoteGlitchImage(token.user, token.resultCanvas, token.bounds, token.layerIndex, token.seq);
     }
 
     if (queue.length === 0) {
@@ -1042,7 +1046,7 @@ export class RemoteUserHandler {
     }
   }
 
-  commitRemoteGlitchImage(user, resultCanvas, bounds, layerIndex = null) {
+  commitRemoteGlitchImage(user, resultCanvas, bounds, layerIndex = null, seq = 0) {
     if (!user || !resultCanvas || !bounds || bounds.width <= 0 || bounds.height <= 0) return;
     const pendingUndoCount = this.pendingGlitchUndoByUser.get(user.id) || 0;
     if (pendingUndoCount > 0) {
@@ -1076,7 +1080,11 @@ export class RemoteUserHandler {
 
     this.board.releaseSelectionMaskClipForStroke(targetLayer, user.id);
     this.board.layerManager.commitUserStroke(targetLayer, user.id, {
-      isRemoteGlitchImage: true
+      isRemoteGlitchImage: true,
+      // Authoritative per-layer seq from GLITCH_RESULT — keeps this glitch
+      // stroke ordered identically to the drawer (who reconciles its matching
+      // local glitch stroke to this same seq). seq=0 would sort it to the top.
+      seq: seq || 0
     });
     if (this.board._compositeCommittedStrokeNow) {
       this.board._compositeCommittedStrokeNow();
