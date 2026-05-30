@@ -3,20 +3,14 @@
 import { isIPv4, isIPv6 } from 'net';
 import crypto from 'crypto';
 import { Role } from './SessionManager.js';
+import { getIpSalt as getConfiguredIpSalt } from './config.js';
 
 export const IP_SCOPE_EXACT = 'exact';
 export const IP_SCOPE_SUBNET = 'subnet';
 export const IP_SCOPE_WIDE = 'wide';
 
-const _ipSaltFallback = crypto.randomBytes(32).toString('hex');
-let _warnedNoSalt = false;
 function getIpSalt() {
-  if (process.env.IP_SALT) return process.env.IP_SALT;
-  if (!_warnedNoSalt) {
-    console.warn('[SECURITY] IP_SALT not set — ban fingerprints will not persist across server restarts');
-    _warnedNoSalt = true;
-  }
-  return _ipSaltFallback;
+  return getConfiguredIpSalt();
 }
 
 function hmacRangeKey(rangeKey) {

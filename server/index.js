@@ -9,6 +9,7 @@ import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
 import { connectDB, getDB, getMongoDatabase, updateUserMetrics, updateConsecutiveDays } from './db.js';
+import { getIpSalt, validateProductionConfig } from './config.js';
 import { metricsTracker } from './MetricsTracker.js';
 import { handleGalleryList, handleGalleryUpload, handleGalleryItem, handleGalleryLike, handleGalleryFavorite, handleGalleryFavorites, handleGalleryLiked, handleGalleryFavoriteCheck, handleGalleryCommentsList, handleGalleryCommentCreate, handleGalleryCommentUpdate, handleGalleryCommentDelete, handleGalleryDelete, handleGallerySidebar, handleGalleryTagsUpdate, handleFloatingArtList, setFloatingArtBroadcaster, setGalleryDiscordPoster } from './gallery.js';
 import { initDiscordBot, postGalleryItemToDiscord, setDiscordRoomManager } from './discordBot.js';
@@ -85,6 +86,9 @@ const PORT = process.env.PORT || 8000;
 const HOST = process.env.HOST || '0.0.0.0';
 const DISABLE_RATE_LIMITS = process.env.DISABLE_RATE_LIMITS === 'true';
 const MAX_WS_PAYLOAD_BYTES = 16 * 1024 * 1024;
+const MAX_WS_BUFFERED_BYTES = parsePositiveIntEnv('MAX_WS_BUFFERED_BYTES', 16 * 1024 * 1024);
+const MAX_OUTBOX_BYTES = parsePositiveIntEnv('MAX_OUTBOX_BYTES', 4 * 1024 * 1024);
+const MAX_OUTBOX_MESSAGES = parsePositiveIntEnv('MAX_OUTBOX_MESSAGES', 512);
 const MESSENGER_QUERY_LIMIT = { max: 30, windowMs: 60 * 1000, blockMs: 5 * 60 * 1000 };
 const LEGACY_MESSENGER_DB_NAME = process.env.MONGODB_MESSENGER_DB_NAME || 'ddraw_messenger';
 const WS_CONNECTION_LIMIT = { max: 60, windowMs: 60 * 1000, blockMs: 10 * 60 * 1000 };
@@ -102,6 +106,12 @@ const DEFAULT_ROOM_ID = 'lobby';
 const ROOM_JOIN_POLICIES = new Set(['open', 'registered', 'trusted']);
 const VALID_ROOM_BOARD_SIZES = new Set(Object.keys(BOARD_SIZE_PRESETS));
 const ROOM_OVERLAY_SESSION_INDEX = 0xffffffff;
+
+function parsePositiveIntEnv(name, fallback) {
+  const parsed = Number.parseInt(process.env[name] || '', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 const ADMIN_COLLECTIONS = new Set([
   'users',
   'rooms',
@@ -622,11 +632,6 @@ function getLastWeekAchievementStats(users) {
   };
 }
 
-const _fallbackIpSalt = crypto.randomBytes(16).toString('hex');
-if (!process.env.IP_SALT) {
-  console.warn('[SECURITY] IP_SALT not set — using random salt (IP hashes will change across restarts)');
-}
-
 const server = createServer(async (req, res) => {
   const path = req.url.split('?')[0];
 
@@ -642,7 +647,7 @@ const server = createServer(async (req, res) => {
   }
 
   // Rate limit helper
-  const clientIp = req.socket.remoteAddress || '';
+  const clientIp = getClientIp(req);
   function rateLimited(limiter) {
     if (DISABLE_RATE_LIMITS) return false;
     if (!limiter.check(clientIp)) {
@@ -1062,7 +1067,10 @@ const server = createServer(async (req, res) => {
       };
     }));
 
-    json(res, 200, { rooms });
+    json(res, 200, {
+      rooms,
+      backpressure: getBackpressureSnapshot()
+    });
     return;
   }
 
@@ -1110,22 +1118,6 @@ const server = createServer(async (req, res) => {
       sortDir: sortDir === 1 ? 'asc' : 'desc',
       documents: documents.map(sanitizeAdminDoc)
     });
-    return;
-  }
-
-  // Version endpoint: returns current server version and minimum supported client version
-  if (path === '/api/version' && req.method === 'GET') {
-    try {
-      const versionJsonPath = pathModule.join(__dirname, '..', 'public', 'version.json');
-      const fs = await import('fs/promises');
-      const versionData = JSON.parse(await fs.readFile(versionJsonPath, 'utf8'));
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-      res.end(JSON.stringify(versionData));
-    } catch (err) {
-      console.error('[API] Version read error:', err);
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Failed to read version' }));
-    }
     return;
   }
 
@@ -1213,8 +1205,7 @@ const messengerClients = new Map();
  * @returns {string} - The obfuscated hash.
  */
 function getIpHash(ip) {
-  // We use a salt (you might want to make this persistent/env var)
-  const salt = process.env.IP_SALT || _fallbackIpSalt;
+  const salt = getIpSalt();
   return crypto.createHash('sha256').update(ip + salt).digest('hex').substring(0, 12);
 }
 
@@ -1571,6 +1562,8 @@ async function applyMuteStateToClient(client, room, options = {}) {
  * @returns {Promise<void>}
  */
 async function init() {
+  validateProductionConfig();
+
   const protoPath = pathModule.join(__dirname, '..', 'public', 'messages.proto');
   const root = await protobuf.load(protoPath);
   Msg = root.lookupType('Msg');
@@ -1638,7 +1631,7 @@ function broadcast(payload, excludeIndex = null) {
       if (excludeIndex != null && client.sessionIndex == excludeIndex) {
         return;
       }
-      client.send(buffer);
+      sendEncodedBuffer(client, buffer, `broadcast:${payload?.t ?? 'unknown'}`);
     }
   });
 }
@@ -1653,7 +1646,7 @@ function broadcastToAll(payload) {
 
   wss.clients.forEach((client) => {
     if (client.readyState === WebSocket.OPEN) {
-      client.send(buffer);
+      sendEncodedBuffer(client, buffer, `broadcastAll:${payload?.t ?? 'unknown'}`);
     }
   });
 }
@@ -1692,7 +1685,7 @@ function createRoomBroadcaster(room) {
 
     room.clients.forEach((client) => {
       if (client.readyState === WebSocket.OPEN) {
-        client.send(buffer);
+        sendEncodedBuffer(client, buffer, `roomBroadcast:${payload?.t ?? 'unknown'}`);
       }
     });
   };
@@ -1717,17 +1710,20 @@ function broadcastUsersForRoom(room) {
  */
 function sendTo(ws, payload) {
   if (ws.readyState === WebSocket.OPEN) {
+    if (payload instanceof Uint8Array || Buffer.isBuffer(payload)) {
+      return sendEncodedBuffer(ws, payload, 'sendTo:encoded');
+    }
     const message = Msg.create(payload);
-    ws.send(Msg.encode(message).finish());
+    return sendEncodedBuffer(ws, Msg.encode(message).finish(), `sendTo:${payload?.t ?? 'unknown'}`);
   }
+  return false;
 }
 
 function sendToSession(room, sessionIndex, payload) {
   if (!room || sessionIndex === undefined || sessionIndex === null) return false;
   for (const client of room.clients) {
     if (client.sessionIndex === sessionIndex && client.readyState === WebSocket.OPEN) {
-      sendTo(client, payload);
-      return true;
+      return sendTo(client, payload);
     }
   }
   return false;
@@ -2353,7 +2349,144 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
 
 const BATCH_INTERVAL_MS = 16;
 const clientOutbox = new Map();
+let currentOutboxQueuedBytes = 0;
 let batchTimerRunning = false;
+const wsBackpressureStats = {
+  slowConsumerCloses: 0,
+  directSendRejected: 0,
+  outboxRejected: 0,
+  flushSendRejected: 0,
+  sendErrors: 0,
+  peakQueuedBytes: 0,
+  lastSlowConsumerAt: null
+};
+
+function getBufferedAmount(ws) {
+  return Math.max(0, Number(ws?.bufferedAmount || 0));
+}
+
+function getOutbox(ws, create = false) {
+  let outbox = clientOutbox.get(ws);
+  if (!outbox && create) {
+    outbox = { buffers: [], bytes: 0 };
+    clientOutbox.set(ws, outbox);
+  }
+  return outbox || null;
+}
+
+function noteQueuedBytes(byteLength) {
+  currentOutboxQueuedBytes += byteLength;
+  if (currentOutboxQueuedBytes > wsBackpressureStats.peakQueuedBytes) {
+    wsBackpressureStats.peakQueuedBytes = currentOutboxQueuedBytes;
+  }
+}
+
+function discardClientOutbox(ws) {
+  const outbox = clientOutbox.get(ws);
+  if (outbox?.bytes) {
+    currentOutboxQueuedBytes = Math.max(0, currentOutboxQueuedBytes - outbox.bytes);
+  }
+  clientOutbox.delete(ws);
+}
+
+function closeSlowConsumer(ws, source) {
+  if (!ws || ws.readyState === WebSocket.CLOSING || ws.readyState === WebSocket.CLOSED) {
+    discardClientOutbox(ws);
+    return false;
+  }
+
+  wsBackpressureStats.slowConsumerCloses++;
+  wsBackpressureStats.lastSlowConsumerAt = Date.now();
+  discardClientOutbox(ws);
+
+  const label = ws.sessionIndex !== undefined ? `session ${ws.sessionIndex}` : 'unassigned session';
+  console.warn(`[WS] Closing slow consumer (${label}, source=${source}, buffered=${getBufferedAmount(ws)})`);
+  try {
+    ws.close(1013, 'slow-consumer');
+  } catch {
+    try { ws.terminate(); } catch (_) {}
+  }
+  return false;
+}
+
+function sendEncodedBuffer(ws, buffer, source = 'direct') {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+
+  const byteLength = buffer?.byteLength ?? buffer?.length ?? 0;
+  if (getBufferedAmount(ws) + byteLength > MAX_WS_BUFFERED_BYTES) {
+    if (source === 'flush') wsBackpressureStats.flushSendRejected++;
+    else wsBackpressureStats.directSendRejected++;
+    return closeSlowConsumer(ws, source);
+  }
+
+  try {
+    ws.send(buffer);
+    return true;
+  } catch (error) {
+    wsBackpressureStats.sendErrors++;
+    console.warn(`[WS] Send failed (${source}):`, error?.message || error);
+    return closeSlowConsumer(ws, `${source}-error`);
+  }
+}
+
+function enqueueClientOutbox(ws, buffer) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+
+  const byteLength = buffer?.byteLength ?? buffer?.length ?? 0;
+  const outbox = getOutbox(ws, true);
+  const nextBytes = outbox.bytes + byteLength;
+  const nextMessages = outbox.buffers.length + 1;
+
+  if (
+    nextBytes > MAX_OUTBOX_BYTES ||
+    nextMessages > MAX_OUTBOX_MESSAGES ||
+    getBufferedAmount(ws) + nextBytes > MAX_WS_BUFFERED_BYTES
+  ) {
+    wsBackpressureStats.outboxRejected++;
+    return closeSlowConsumer(ws, 'outbox');
+  }
+
+  outbox.buffers.push(buffer.slice());
+  outbox.bytes = nextBytes;
+  noteQueuedBytes(byteLength);
+  return true;
+}
+
+function getCurrentQueuedBytes() {
+  return currentOutboxQueuedBytes;
+}
+
+function getBackpressureSnapshot() {
+  let queuedMessages = 0;
+  let queuedBytes = 0;
+  let maxBufferedAmount = 0;
+  let openSockets = 0;
+
+  for (const client of wss.clients) {
+    if (client.readyState === WebSocket.OPEN) openSockets++;
+    maxBufferedAmount = Math.max(maxBufferedAmount, getBufferedAmount(client));
+  }
+
+  for (const outbox of clientOutbox.values()) {
+    queuedMessages += outbox.buffers?.length || 0;
+    queuedBytes += outbox.bytes || 0;
+  }
+
+  return {
+    activeSockets: wss.clients.size,
+    openSockets,
+    clientsWithOutbox: clientOutbox.size,
+    queuedBytes,
+    queuedMessages,
+    maxBufferedAmount,
+    limits: {
+      maxWsBufferedBytes: MAX_WS_BUFFERED_BYTES,
+      maxOutboxBytes: MAX_OUTBOX_BYTES,
+      maxOutboxMessages: MAX_OUTBOX_MESSAGES
+    },
+    ...wsBackpressureStats
+  };
+}
 
 /**
  * Starts the timer for flushing batched messages to clients.
@@ -2372,16 +2505,18 @@ function startBatchTimer() {
  * @param {WebSocket} ws
  */
 function flushClientOutbox(ws) {
-  const buffers = clientOutbox.get(ws);
+  const outbox = clientOutbox.get(ws);
+  const buffers = outbox?.buffers;
   if (!buffers || buffers.length === 0) return;
 
   if (ws.readyState !== WebSocket.OPEN) {
-    buffers.length = 0;
+    discardClientOutbox(ws);
     return;
   }
 
+  let sent = false;
   if (buffers.length === 1) {
-    ws.send(buffers[0]);
+    sent = sendEncodedBuffer(ws, buffers[0], 'flush');
   } else {
     let totalLen = 0;
     for (let i = 0; i < buffers.length; i++) totalLen += 4 + buffers[i].length;
@@ -2394,10 +2529,12 @@ function flushClientOutbox(ws) {
       frame.set(buffers[i], offset + 4);
       offset += 4 + buffers[i].length;
     }
-    ws.send(frame);
+    sent = sendEncodedBuffer(ws, frame, 'flush');
   }
 
-  buffers.length = 0;
+  if (sent) {
+    discardClientOutbox(ws);
+  }
 }
 
 /**
@@ -2458,17 +2595,12 @@ function broadcastToRoom(room, payload, excludeIndex = null) {
         if (shouldSkipInactiveRecipient(room, client, payload.t)) {
           return;
         }
-        let outbox = clientOutbox.get(client);
-        if (!outbox) {
-          outbox = [];
-          clientOutbox.set(client, outbox);
-        }
-        outbox.push(buffer.slice());
+        enqueueClientOutbox(client, buffer);
       } else {
         if (shouldSkipInactiveRecipient(room, client, payload.t)) {
           return;
         }
-        client.send(buffer);
+        sendEncodedBuffer(client, buffer, `roomBroadcast:${payload?.t ?? 'unknown'}`);
       }
     }
   });
@@ -2518,7 +2650,7 @@ function broadcastSequencedRestore(room, payload) {
     // the restore in this client's receive order — same per-client ordering
     // the live stream already relies on.
     flushClientOutbox(client);
-    client.send(buffer);
+    sendEncodedBuffer(client, buffer, `sequencedRestore:${payload?.t ?? 'unknown'}`);
   });
 }
 
@@ -2637,11 +2769,11 @@ wss.on('connection', async (ws, req) => {
           if (participants.length !== 2 || !participants.includes(ws.username)) return;
 
           const history = await getMessengerHistory(roomId, 50);
-          ws.send(JSON.stringify({ type: 'history', payload: history }));
+          sendEncodedBuffer(ws, JSON.stringify({ type: 'history', payload: history }), 'messenger:history');
 
         } else if (type === 'get_inbox') {
           const inbox = await getMessengerInbox(ws.username);
-          ws.send(JSON.stringify({ type: 'inbox', payload: inbox }));
+          sendEncodedBuffer(ws, JSON.stringify({ type: 'inbox', payload: inbox }), 'messenger:inbox');
 
         } else if (type === 'send_message') {
           const receiverId = String(payload.receiver_id || '').trim();
@@ -2664,9 +2796,9 @@ wss.on('connection', async (ws, req) => {
           await db.collection('messages').insertOne(msgDoc);
 
           if (messengerClients.has(receiverId)) {
-            messengerClients.get(receiverId).send(JSON.stringify({ type: 'new_message', payload: msgDoc }));
+            sendEncodedBuffer(messengerClients.get(receiverId), JSON.stringify({ type: 'new_message', payload: msgDoc }), 'messenger:new_message');
           }
-          ws.send(JSON.stringify({ type: 'new_message', payload: msgDoc }));
+          sendEncodedBuffer(ws, JSON.stringify({ type: 'new_message', payload: msgDoc }), 'messenger:new_message');
         }
       } catch (err) {
         console.error('[Messenger] Message error:', err);
@@ -2679,7 +2811,7 @@ wss.on('connection', async (ws, req) => {
     });
 
     if (ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'ready' }));
+      sendEncodedBuffer(ws, JSON.stringify({ type: 'ready' }), 'messenger:ready');
     }
 
     return;
@@ -4832,12 +4964,12 @@ wss.on('connection', async (ws, req) => {
               if (cpDoc) cpImg = cpDoc.img;
             }
           }
-          ws.send(room.Msg.encode(room.Msg.create({
+          sendTo(ws, {
             t: T.REPLAY_RESPONSE,
             checkpointId: replayCpId || '',
             checkpointImg: cpImg || new Uint8Array(0),
             replayDeltasJson: JSON.stringify(deltas)
-          })).finish());
+          });
           break;
         }
 
@@ -4854,7 +4986,7 @@ wss.on('connection', async (ws, req) => {
   });
 
   ws.on('close', (code, reason) => {
-    clientOutbox.delete(ws);
+    discardClientOutbox(ws);
     cancelProbesForSocket(ws);
 
     // Flush metrics for disconnecting user

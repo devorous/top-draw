@@ -314,10 +314,10 @@ export async function handleSnapshotList(ws, data, room) {
   const uniqueList = Array.from(new Map(list.map(s => [s.id, s])).values())
     .sort((a, b) => b.ts - a.ts);
 
-  ws.send(room.Msg.encode(room.Msg.create({
+  room.sendTo(ws, {
     t: T.BOARD_SNAPSHOT_LIST_RESPONSE,
     snapshotList: uniqueList
-  })).finish());
+  });
 }
 
 /**
@@ -455,14 +455,14 @@ export async function handleSnapshotGet(ws, data, room) {
     return;
   }
 
-  ws.send(room.Msg.encode(room.Msg.create({
+  room.sendTo(ws, {
     t: T.BOARD_SNAPSHOT_SAVE,
     snapshotId: snapshotData.id,
     snapshotTs: snapshotData.ts,
     snapshotIssuer: snapshotData.issuer,
     snapshotLayers: snapshotData.layers,
     snapshotThumb: snapshotData.thumb
-  })).finish());
+  });
 }
 
 /**
@@ -581,13 +581,13 @@ export async function handleSnapshotJoinNotify(ws, room) {
   for (let i = room.snapshots.length - 1; i >= 0; i--) {
     const s = room.snapshots[i];
     if (s.thumb && s.layers && s.layers.length > 0) {
-      ws.send(room.Msg.encode(room.Msg.create({
+      room.sendTo(ws, {
         t: T.BOARD_SNAPSHOT_JOIN_NOTIFY,
         snapshotId: s.id,
         snapshotTs: s.ts,
         snapshotIssuer: s.issuer || 'Unknown',
         snapshotThumb: s.thumb
-      })).finish());
+      });
       return;
     }
   }
@@ -604,13 +604,13 @@ export async function handleSnapshotJoinNotify(ws, room) {
 
     if (!doc) return;
 
-    ws.send(room.Msg.encode(room.Msg.create({
+    room.sendTo(ws, {
       t: T.BOARD_SNAPSHOT_JOIN_NOTIFY,
       snapshotId: doc.snapshotId,
       snapshotTs: doc.timestamp,
       snapshotIssuer: doc.issuer || 'Unknown',
       snapshotThumb: doc.thumbnail?.buffer || doc.thumbnail
-    })).finish());
+    });
   } catch (err) {
     console.error(`[Snapshot] Failed to fetch latest snapshot for join notify in room "${room.id}":`, err);
   }

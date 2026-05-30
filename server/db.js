@@ -2,8 +2,8 @@
 
 import 'dotenv/config';
 import { MongoClient, ServerApiVersion } from 'mongodb';
+import { getMongoUri } from './config.js';
 
-const DEFAULT_LOCAL_URI = 'mongodb://127.0.0.1:27017';
 const DB_NAME = process.env.MONGODB_DB_NAME || 'Draw';
 
 let db = null;
@@ -17,7 +17,7 @@ let client = null;
 export async function connectDB() {
   if (db) return db;
 
-  const uri = process.env.MONGODB_URI || DEFAULT_LOCAL_URI;
+  const uri = getMongoUri();
   const isSrvUri = uri.startsWith('mongodb+srv://');
   const clientOptions = isSrvUri ? {
     serverApi: {
@@ -103,6 +103,11 @@ export async function connectDB() {
     await safeCreateIndex('password_reset_tokens', { tokenHash: 1 }, { unique: true });
     await safeCreateIndex('password_reset_tokens', { userId: 1, createdAt: -1 });
     await safeCreateIndex('password_reset_tokens', { expiresAt: 1 }, { expireAfterSeconds: 0 });
+    await safeCreateIndex('email_verification_tokens', { expiresAt: 1 }, { expireAfterSeconds: 0 });
+    await safeCreateIndex('email_verification_tokens', { userId: 1, expiresAt: -1 });
+    await safeCreateIndex('email_verification_tokens', { userId: 1, tokenHash: 1, usedAt: 1 });
+    await safeCreateIndex('replay_deltas', { roomId: 1, endTs: 1, startTs: 1 });
+    await safeCreateIndex('replay_deltas', { roomId: 1, checkpointId: 1, startTs: 1 });
 
     // Sync parity debug events — 30-day TTL, indexed for mod-panel filtering
     await safeCreateIndex('debug.parity_events', { ts: 1 }, { expireAfterSeconds: 60 * 60 * 24 * 30 });

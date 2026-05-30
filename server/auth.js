@@ -2,13 +2,9 @@
 
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
-import crypto from 'crypto';
+import { getJwtSecret } from './config.js';
 
 const SALT_ROUNDS = 10;
-const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(32).toString('hex');
-if (!process.env.JWT_SECRET) {
-  console.warn('[SECURITY] JWT_SECRET not set — using random secret (sessions will not persist across restarts)');
-}
 
 /**
  * Hashes a plaintext password using bcrypt.
@@ -35,7 +31,7 @@ export async function verifyPassword(password, hash) {
  * @returns {string} - The generated JWT token.
  */
 export function generateToken(payload) {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: '30d' });
+  return jwt.sign(payload, getJwtSecret(), { expiresIn: '30d' });
 }
 
 /**
@@ -45,7 +41,7 @@ export function generateToken(payload) {
  */
 export function verifyToken(token) {
   try {
-    return jwt.verify(token, JWT_SECRET);
+    return jwt.verify(token, getJwtSecret());
   } catch {
     return null;
   }

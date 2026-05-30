@@ -216,8 +216,11 @@ export class ParityCoordinator {
       const bytes = log.getBytes(seq);
       if (!bytes) { result.missed++; continue; }
       try {
-        ws.send(bytes);
-        result.served++;
+        if (this.sendTo(ws, bytes) !== false) {
+          result.served++;
+        } else {
+          result.missed++;
+        }
       } catch (err) {
         console.warn(`[ParityCoordinator] resync send failed for seq ${seq}:`, err.message);
         result.missed++;

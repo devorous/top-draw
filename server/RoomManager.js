@@ -499,12 +499,9 @@ export class Room {
    * @param {Object} payload - The message payload to broadcast.
    */
   broadcastToAll(payload) {
-    const message = this.Msg.create(payload);
-    const buffer = this.Msg.encode(message).finish();
-
     this.clients.forEach((client) => {
       if (client.readyState === WebSocket.OPEN) {
-        client.send(buffer);
+        this.sendTo(client, payload);
       }
     });
   }
