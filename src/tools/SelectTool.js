@@ -2694,6 +2694,17 @@ export class SelectTool extends Tool {
     return this.board.app?.self?.blendBakeMode || 'background';
   }
 
+  _broadcastSelectionCommit(layerIndex) {
+    const app = this.board.app;
+    if (!app?.wsClient) return;
+
+    app.inputBufferManager.queueBroadcast(() => app.wsClient.broadcastSelectionCommit(layerIndex));
+    // Applying a pasted image transitions it from "active floating image" to
+    // committed pixels. Flush that state change immediately so late joiners do
+    // not receive a stale IMG_PASTE before the next input tick.
+    app.inputBufferManager.flushPendingNetwork?.();
+  }
+
   commitSelection() {
     if (!this.floatingCanvas || !this.selection) return;
 
@@ -2791,7 +2802,7 @@ export class SelectTool extends Tool {
         if (commitTileIndices.length > 0) {
           this.board.app.wsClient.broadcastTileUpdate(commitTileIndices);
         }
-        this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionCommit(this.board.app?.self?.activeLayer ?? 0));
+        this._broadcastSelectionCommit(this.board.app?.self?.activeLayer ?? 0);
       }
 
       this.floatingCanvas = null;
@@ -2824,7 +2835,7 @@ export class SelectTool extends Tool {
       this.board.clearTop();
       // Still broadcast commit to sync with other users even if stroke creation failed
       if (this.board.app?.wsClient) {
-        this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionCommit(activeLayer));
+        this._broadcastSelectionCommit(activeLayer);
       }
       return;
     }
@@ -2905,7 +2916,7 @@ export class SelectTool extends Tool {
       if (tilesToBroadcast.length > 0) {
         this.board.app.wsClient.broadcastTileUpdate(tilesToBroadcast);
       }
-      this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionCommit(activeLayer));
+      this._broadcastSelectionCommit(activeLayer);
     }
 
     this.floatingCanvas = null;

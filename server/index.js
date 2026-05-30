@@ -1452,6 +1452,13 @@ function sendActiveOverlaysToClient(ws, room) {
   }
 }
 
+function clearActiveFloatingSelection(user) {
+  if (!user) return;
+  user.activeImage = null;
+  user.activeSelectionCorners = null;
+  user.activeSelectionSourceCrop = null;
+}
+
 function isVpnAutoMuteExempt(role) {
   return (role || 0) >= Role.MOD;
 }
@@ -2288,15 +2295,18 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
     }
 
     case T.SEL_COMMIT:
+      // Applying a pasted/uploaded image bakes the floating selection into the
+      // canvas. Do not replay the old IMG_PASTE to future joiners.
+      clearActiveFloatingSelection(user);
+      break;
+
     case T.SEL_CANCEL:
     case T.SEL_STAMP:
     case T.SEL_DELETE:
     case T.SEL_FILL:
     case T.SEL_MERGE:
     case T.SEL_TO_BRUSH:
-      user.activeImage = null;
-      user.activeSelectionCorners = null;
-      user.activeSelectionSourceCrop = null;
+      clearActiveFloatingSelection(user);
       break;
 
     case T.CTHN:
