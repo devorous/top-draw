@@ -4,7 +4,8 @@ import { WebSocket } from 'ws';
 import { T } from '../shared/MessageTypes.js';
 import { getProviderActivityTier, isRecentlyActive, scoreProvider } from './providerScoring.js';
 
-const SYNC_PROVIDER_TIMEOUT_MS = 2000;
+const VISIBLE_SYNC_PROVIDER_TIMEOUT_MS = 3500;
+const HIDDEN_SYNC_PROVIDER_TIMEOUT_MS = 15000;
 const MAX_SYNC_CANDIDATES = 3;
 const ROOM_OVERLAY_SESSION_INDEX = 0xffffffff;
 
@@ -37,16 +38,17 @@ export class SyncCoordinator {
     const requesterSessionIndex = Number(ws.sessionIndex);
     console.log(`[Sync] User ${requesterSessionIndex} requested sync`);
 
-    // Honor an explicit provider request (even AFK users), only reject self or unknown
+    // Honor an explicit provider request, but never use AFK users as providers
+    // because their canvases are intentionally frozen while inactive.
     let candidates = null;
     if (data.tu !== undefined && data.tu !== null) {
       const requestedProvider = Number(data.tu);
       const providerData = this.sessionManager.users.get(requestedProvider);
-      if (providerData && providerData.name && requestedProvider !== requesterSessionIndex) {
+      if (providerData && providerData.name && !providerData.afk && requestedProvider !== requesterSessionIndex) {
         candidates = [requestedProvider];
-        console.log(`[Sync] Using requested provider ${requestedProvider} (${providerData.name})${providerData.afk ? ' [AFK]' : ''}`);
+        console.log(`[Sync] Using requested provider ${requestedProvider} (${providerData.name})`);
       } else {
-        console.log(`[Sync] Requested provider ${requestedProvider} is invalid or self — using auto-select`);
+        console.log(`[Sync] Requested provider ${requestedProvider} is invalid, AFK, or self — using auto-select`);
       }
     }
 
@@ -55,17 +57,9 @@ export class SyncCoordinator {
     }
 
     if (candidates.length === 0) {
-      // Prefer an AFK provider over snapshot fallback so joiners still receive
-      // the latest live canvas state (e.g. history region restores).
-      const afkCandidates = this._getRankedCandidates(ws, { includeAfk: true });
-      if (afkCandidates.length > 0) {
-        console.log(`[Sync] No active providers; using AFK fallback provider list for user ${requesterSessionIndex}`);
-        candidates = afkCandidates;
-      } else {
-        console.log(`[Sync] No providers available for user ${requesterSessionIndex}`);
-        this._fallbackToSnapshotOrComplete(ws, requesterSessionIndex);
-        return;
-      }
+      console.log(`[Sync] No active providers available for user ${requesterSessionIndex}`);
+      this._fallbackToSnapshotOrComplete(ws, requesterSessionIndex);
+      return;
     }
 
     this._tryNextCandidate(ws, requesterSessionIndex, candidates, 0);
@@ -73,7 +67,7 @@ export class SyncCoordinator {
 
   /**
    * Attempts to sync from the candidate at the given index.
-   * If the candidate doesn't respond within SYNC_PROVIDER_TIMEOUT_MS, tries the next one.
+   * If the candidate doesn't respond within its response timeout, tries the next one.
    * @param {WebSocket} ws - The requester's WebSocket.
    * @param {number} requesterSessionIndex
    * @param {number[]} candidates - Ranked list of provider session indices.
@@ -108,12 +102,13 @@ export class SyncCoordinator {
     };
     this.pendingSyncRequests.set(requesterSessionIndex, state);
 
+    const responseTimeoutMs = this._getProviderResponseTimeoutMs(providerClient);
     state.timeoutHandle = setTimeout(() => {
       const currentState = this.pendingSyncRequests.get(requesterSessionIndex);
       if (!currentState || currentState.responded || currentState.providerIdx !== providerIdx) return;
-      console.log(`[Sync] Provider ${providerIdx} timed out for user ${requesterSessionIndex}, trying next candidate`);
+      console.log(`[Sync] Provider ${providerIdx} timed out after ${responseTimeoutMs}ms for user ${requesterSessionIndex}, trying next candidate`);
       this._tryNextCandidate(ws, requesterSessionIndex, candidates, idx + 1);
-    }, SYNC_PROVIDER_TIMEOUT_MS);
+    }, responseTimeoutMs);
 
     const providerData = this.sessionManager.users.get(providerIdx);
 
@@ -221,20 +216,19 @@ export class SyncCoordinator {
    * @returns {number[]} Session indices, best first.
    * @private
    */
-  _getRankedCandidates(requesterWs, options = {}) {
-    const includeAfk = options.includeAfk === true;
+  _getRankedCandidates(requesterWs) {
     const candidates = [];
     const excludeIdx = Number(requesterWs.sessionIndex);
 
     for (const [sessionIndex, userData] of this.sessionManager.users) {
       const idx = Number(sessionIndex);
       if (idx === excludeIdx || !userData.name) continue;
-      if (!includeAfk && userData.afk) continue;
+      if (userData.afk) continue;
       const client = this._findClient(idx);
       if (client && client !== requesterWs) {
         candidates.push({
           sessionIndex: idx,
-          score: scoreProvider(client, userData, { allowAfk: includeAfk }),
+          score: scoreProvider(client, userData),
           activityTier: getProviderActivityTier(userData),
           active: isRecentlyActive(userData),
           hidden: !!client.tabHidden,
@@ -251,6 +245,20 @@ export class SyncCoordinator {
     });
 
     return candidates.slice(0, MAX_SYNC_CANDIDATES).map(c => c.sessionIndex);
+  }
+
+  /**
+   * Hidden tabs can take multiple seconds to receive the request and export
+   * canvases. Keep visible providers snappy, but do not fall through to stale
+   * snapshots just because the only valid provider is backgrounded.
+   * @param {WebSocket} providerClient
+   * @returns {number}
+   * @private
+   */
+  _getProviderResponseTimeoutMs(providerClient) {
+    return providerClient?.tabHidden
+      ? HIDDEN_SYNC_PROVIDER_TIMEOUT_MS
+      : VISIBLE_SYNC_PROVIDER_TIMEOUT_MS;
   }
 
   /**

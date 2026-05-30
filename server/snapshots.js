@@ -163,17 +163,35 @@ export async function handleSnapshotSave(ws, data, room) {
   const thumbBytes = data.snapshotThumb || null; // JPEG bytes
   const isAuto = !!data.a;
 
+  // Applied-seq the capture represents (seq-stamp for the checkpoint timeline).
+  const checkpointSeq = Math.max(0, Math.round(Number(data.snapshotSeq) || 0));
+
   const snapshotInMemory = {
     id: snapshotId,
     ts: snapshotTs,
     issuer: issuer,
     layers: isAuto ? layers : [],
     thumb: thumbBytes,
-    auto: isAuto
+    auto: isAuto,
+    seq: checkpointSeq
   };
 
   // Add to in-memory rolling buffer for quick access/restore before DB/R2 operation
   room.addSnapshot(snapshotInMemory);
+
+  // Auto-snapshots are the room's checkpoints: advance the shared baseSeq
+  // watermark. The server truncates its fingerprint log before the checkpoint
+  // seq, and every client does the same on SYNC_CHECKPOINT_MINTED, so the
+  // compared parity window collapses to the post-checkpoint tail (bounds the log
+  // and heals sub-checkpoint joiner gaps — both subsumed by the checkpoint image).
+  if (isAuto && checkpointSeq > 0) {
+    room.strokeLog?.truncateBefore?.(checkpointSeq + 1);
+    room.broadcastToAll({
+      t: T.SYNC_CHECKPOINT_MINTED,
+      snapshotId: snapshotId,
+      snapshotSeq: checkpointSeq
+    });
+  }
 
   if (db && shouldPersist) {
     try {
@@ -239,7 +257,11 @@ export async function handleSnapshotSave(ws, data, room) {
   // local snapshot to share with the room), broadcast the restore now using
   // the layers we just received. This mirrors handleSnapshotRestore's broadcast.
   if (data.snapshotRestoreAfterSave && layers && layers.length > 0 && canRestoreWholeBoard(ws)) {
-    room.broadcastToAll({
+    // Sequenced broadcast (Bug A) — see handleSnapshotRestore.
+    const broadcastRestore = room.broadcastSequencedRestore
+      ? room.broadcastSequencedRestore.bind(room)
+      : room.broadcastToAll.bind(room);
+    broadcastRestore({
       t: T.BOARD_SNAPSHOT_RESTORE,
       snapshotLayers: layers,
       snapshotId: snapshotId,
@@ -354,7 +376,14 @@ export async function handleSnapshotRestore(ws, data, room) {
     return;
   }
 
-  room.broadcastToAll({
+  // Sequenced broadcast: the restore is assigned a server seq and ordered
+  // against the MU stream so every client applies it at the same z-point
+  // (Bug A). Fall back to the legacy immediate broadcast if the sequenced
+  // broadcaster hasn't been wired (e.g. very early in a room's life).
+  const broadcastRestore = room.broadcastSequencedRestore
+    ? room.broadcastSequencedRestore.bind(room)
+    : room.broadcastToAll.bind(room);
+  broadcastRestore({
     t: T.BOARD_SNAPSHOT_RESTORE,
     snapshotLayers: snapshotData.layers,
     snapshotId: snapshotData.id,

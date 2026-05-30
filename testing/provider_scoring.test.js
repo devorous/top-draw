@@ -92,16 +92,7 @@ test('AFK clients are disqualified as providers no matter how fast their upload'
   assert.ok(slowActive > fastAfk);
 });
 
-test('allowAfk lets AFK clients score (SyncCoordinator fallback path)', () => {
-  const afkScore = scoreProvider(
-    makeClient(1, { uploadBps: 1_000_000, pingRtt: 20 }),
-    makeUser('afk', { afk: true }),
-    { allowAfk: true }
-  );
-  assert.notEqual(afkScore, -Infinity);
-});
-
-test('ranked sync candidates exclude AFK by default, include them with includeAfk', () => {
+test('ranked sync candidates always exclude AFK clients', () => {
   const now = Date.now();
   const requester = makeClient(99);
   const clients = new Set([
@@ -116,7 +107,13 @@ test('ranked sync candidates exclude AFK by default, include them with includeAf
   const coordinator = new SyncCoordinator({ users }, { clients }, () => {});
 
   assert.deepEqual(coordinator._getRankedCandidates(requester), [2]);
-  assert.deepEqual(coordinator._getRankedCandidates(requester, { includeAfk: true }).sort(), [1, 2]);
+});
+
+test('hidden sync providers get a longer response timeout before snapshot fallback', () => {
+  const coordinator = new SyncCoordinator({ users: new Map() }, { clients: new Set() }, () => {});
+
+  assert.equal(coordinator._getProviderResponseTimeoutMs(makeClient(1)), 3500);
+  assert.equal(coordinator._getProviderResponseTimeoutMs(makeClient(2, { tabHidden: true })), 15000);
 });
 
 test('activity carries meaningful score weight for shared provider scoring', () => {

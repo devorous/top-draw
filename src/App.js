@@ -562,7 +562,11 @@ export class DrawingApp {
     // as a toast (Phase 2: no auto-resync — observe rate first).
     this.parityClient = new ParityClient({
       wsClient: this.wsClient,
-      shouldPause: () => !this.wsClient?.connected || !!this.self?.afk || document.hidden,
+      // Pause in _discovery: that connection is a room-browse/bandwidth probe
+      // and holds no board, so its stroke log is empty and every heartbeat
+      // reports a false desync. (banner/lobby are real drawing rooms — kept on.)
+      shouldPause: () => !this.wsClient?.connected || !!this.self?.afk || document.hidden
+        || this.currentRoomId === '_discovery',
       onMismatch: (diff) => this._handleParityMismatch(diff),
       onOk: () => { this._lastParityOkAt = Date.now(); },
     });
@@ -3582,6 +3586,48 @@ export class DrawingApp {
         mismatched: (diff.mismatched || []).map((m) => m.seq),
       }
     );
+
+    // Auto-heal: missing/mismatched seqs are recoverable by replaying the
+    // server's authoritative bytes — the resync inserts them at their correct
+    // seq position (seq-canonical strokeLog), which restores both the canvas
+    // and the parity hash. "Extra" entries are not replayable, so we skip
+    // them. Debounced so a persistent mismatch doesn't spam resync requests.
+    const recoverable = (diff.missing?.length || 0) + (diff.mismatched?.length || 0);
+    if (recoverable > 0) {
+      const now = Date.now();
+      if (now - (this._lastAutoResyncAt || 0) > 10_000) {
+        this._lastAutoResyncAt = now;
+        console.warn(`[parity] Auto-resyncing ${recoverable} missing/mismatched seq(s)`);
+        this._fixParityMismatch(diff);
+      }
+      return;
+    }
+
+    // Full-sync fallback (Bug B/C): the client is materially behind but the
+    // gap is too large/contiguous to enumerate (chunk diff truncated → no
+    // recoverable seqs), so targeted byte-replay can't help. Pull a whole
+    // fresh canvas from a provider instead. This recovers the *pixels*; the
+    // image sync does not reconcile the fingerprint log, so we must avoid
+    // re-firing on the resulting static history gap — only re-trigger when the
+    // deficit GROWS (a new burst was dropped), not for the constant shortfall.
+    const deficit = (diff.serverCount || 0) - (diff.clientCount || 0);
+    const FULL_SYNC_MIN_DEFICIT = 50;   // ignore small gaps — not worth a full sync
+    const FULL_SYNC_GROWTH = 50;        // only re-sync if we fell further behind
+    const FULL_SYNC_COOLDOWN_MS = 30_000;
+    if (deficit >= FULL_SYNC_MIN_DEFICIT) {
+      const now = Date.now();
+      const grewSinceLast = deficit >= (this._lastFullSyncDeficit || 0) + FULL_SYNC_GROWTH;
+      const cooledDown = now - (this._lastFullSyncAt || 0) > FULL_SYNC_COOLDOWN_MS;
+      const neverSynced = this._lastFullSyncAt === undefined;
+      if ((neverSynced || grewSinceLast) && cooledDown && this.syncClient) {
+        this._lastFullSyncAt = now;
+        this._lastFullSyncDeficit = deficit;
+        console.warn(`[parity] Far behind (${deficit} commits, unenumerable) — falling back to full canvas sync`);
+        this.ui?.showToast?.('Re-syncing canvas — you had fallen behind', 3000);
+        // force:true bypasses the "already completed initial sync" guard.
+        this.syncClient.requestSync(null, { force: true });
+      }
+    }
   }
 
   /**

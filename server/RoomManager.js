@@ -306,7 +306,13 @@ export class Room {
       return;
     }
 
-    this.broadcastToAll({
+    // Sequenced broadcast (Bug A) so the AFK auto-restore lands at a fixed
+    // seq for everyone. broadcastSequencedRestore is wired by index.js on join;
+    // fall back to the immediate broadcast if it isn't present.
+    const broadcastRestore = this.broadcastSequencedRestore
+      ? this.broadcastSequencedRestore
+      : this.broadcastToAll.bind(this);
+    broadcastRestore({
       t: T.BOARD_SNAPSHOT_RESTORE,
       snapshotLayers: snapshot.layers,
       snapshotId: snapshot.id,

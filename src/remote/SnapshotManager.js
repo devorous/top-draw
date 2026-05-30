@@ -78,6 +78,9 @@ export class SnapshotManager {
     if (!this.app.wsClient || !this.app.connected) return;
 
     const layers = this.app.board.getSnapshot();
+    // Applied-seq the capture represents. getSnapshot() is synchronous, so the
+    // canvas can't change between it and this read — the stamp is exact.
+    const snapshotSeq = this.app.wsClient?.lastProcessedSeq || 0;
     if (!layers || layers.length === 0) return;
 
     // Skip if board hasn't changed
@@ -90,6 +93,7 @@ export class SnapshotManager {
     const msg = {
       t: T.BOARD_SNAPSHOT_SAVE,
       snapshotLayers: layers,
+      snapshotSeq,
       a: true
     };
     if (thumbBytes) msg.snapshotThumb = thumbBytes;
@@ -103,6 +107,7 @@ export class SnapshotManager {
    */
   async saveSnapshot(name) {
     const layers = this.app.board.getSnapshot();
+    const snapshotSeq = this.app.wsClient?.lastProcessedSeq || 0;
     if (!layers || layers.length === 0) return;
 
     const thumbBytes = await this._generateThumbnail();
@@ -110,6 +115,7 @@ export class SnapshotManager {
     const msg = {
       t: T.BOARD_SNAPSHOT_SAVE,
       snapshotLayers: layers,
+      snapshotSeq,
       n: name,
       a: false
     };

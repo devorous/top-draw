@@ -759,6 +759,8 @@ export async function sanitizeMessage(data) {
       }
       sanitized.a = sanitizeBoolean(data.a);
       sanitized.n = sanitizeString(data.n || '', MAX_NAME_LENGTH);
+      // Applied-seq the capture represents (checkpoint timeline seq-stamp).
+      sanitized.snapshotSeq = Math.max(0, Math.round(Number(data.snapshotSeq) || 0));
       // Optional flag used by local snapshot uploads to trigger an immediate
       // room-wide restore broadcast after persisting.
       sanitized.snapshotRestoreAfterSave = sanitizeBoolean(

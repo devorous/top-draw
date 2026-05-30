@@ -2365,35 +2365,47 @@ function startBatchTimer() {
 }
 
 /**
+ * Flushes a single client's batched outbox, sending a concatenated binary
+ * frame (or a lone buffer). Used both by the periodic flush and before an
+ * out-of-band ordered send (e.g. a sequenced snapshot restore) so the queued
+ * batchable messages reach the client *before* the ordered message.
+ * @param {WebSocket} ws
+ */
+function flushClientOutbox(ws) {
+  const buffers = clientOutbox.get(ws);
+  if (!buffers || buffers.length === 0) return;
+
+  if (ws.readyState !== WebSocket.OPEN) {
+    buffers.length = 0;
+    return;
+  }
+
+  if (buffers.length === 1) {
+    ws.send(buffers[0]);
+  } else {
+    let totalLen = 0;
+    for (let i = 0; i < buffers.length; i++) totalLen += 4 + buffers[i].length;
+
+    const frame = new Uint8Array(totalLen);
+    const view = new DataView(frame.buffer);
+    let offset = 0;
+    for (let i = 0; i < buffers.length; i++) {
+      view.setUint32(offset, buffers[i].length);
+      frame.set(buffers[i], offset + 4);
+      offset += 4 + buffers[i].length;
+    }
+    ws.send(frame);
+  }
+
+  buffers.length = 0;
+}
+
+/**
  * Flushes all client outboxes, sending concatenated binary frames.
  */
 function flushAllOutboxes() {
-  for (const [ws, buffers] of clientOutbox) {
-    if (buffers.length === 0) continue;
-
-    if (ws.readyState !== WebSocket.OPEN) {
-      buffers.length = 0;
-      continue;
-    }
-
-    if (buffers.length === 1) {
-      ws.send(buffers[0]);
-    } else {
-      let totalLen = 0;
-      for (let i = 0; i < buffers.length; i++) totalLen += 4 + buffers[i].length;
-
-      const frame = new Uint8Array(totalLen);
-      const view = new DataView(frame.buffer);
-      let offset = 0;
-      for (let i = 0; i < buffers.length; i++) {
-        view.setUint32(offset, buffers[i].length);
-        frame.set(buffers[i], offset + 4);
-        offset += 4 + buffers[i].length;
-      }
-      ws.send(frame);
-    }
-
-    buffers.length = 0;
+  for (const ws of clientOutbox.keys()) {
+    flushClientOutbox(ws);
   }
 }
 
@@ -2459,6 +2471,54 @@ function broadcastToRoom(room, payload, excludeIndex = null) {
         client.send(buffer);
       }
     }
+  });
+}
+
+/**
+ * Broadcasts a board-snapshot restore to every client in a room as a
+ * *sequenced* commit, so it lands at a fixed point in the stroke stream and
+ * every client applies it at the same z-position (fixes Bug A — silent pixel
+ * divergence from the restore racing the batched MU stream; see
+ * docs/000Sync_Parity_Findings.md).
+ *
+ * Unlike the old room.broadcastToAll (immediate, unsequenced, off the outbox),
+ * this:
+ *   1. assigns the next room seq so the restore is ordered against MU commits,
+ *   2. records it in the room's strokeLog (parity now covers the restore), and
+ *   3. flushes each client's batched outbox *before* sending the restore, so
+ *      all strokes the server sequenced earlier reach the client first.
+ *
+ * @param {Object} room - The room (RoomManager Room instance).
+ * @param {Object} payload - The BOARD_SNAPSHOT_RESTORE payload.
+ */
+function broadcastSequencedRestore(room, payload) {
+  if (!room) return;
+
+  for (let key in POOLED_MSG) { if (POOLED_MSG.hasOwnProperty(key)) delete POOLED_MSG[key]; }
+  Object.assign(POOLED_MSG, payload);
+
+  if (room.messageSequence !== undefined) {
+    POOLED_MSG.seq = ++room.messageSequence;
+  }
+
+  const buffer = Msg.encode(POOLED_MSG).finish();
+
+  if (room.strokeLog && isCommitType(payload.t)) {
+    room.strokeLog.record({
+      seq: POOLED_MSG.seq,
+      t: payload.t,
+      userId: payload.u | 0,
+      bytes: buffer,
+    });
+  }
+
+  room.clients.forEach((client) => {
+    if (client.readyState !== WebSocket.OPEN) return;
+    // Drain any queued batchable messages (MM/MU/...) first so they precede
+    // the restore in this client's receive order — same per-client ordering
+    // the live stream already relies on.
+    flushClientOutbox(client);
+    client.send(buffer);
   });
 }
 
@@ -2696,6 +2756,12 @@ wss.on('connection', async (ws, req) => {
     }
 
     const room = roomManager.getOrCreateRoom(roomId);
+    // Wire the sequenced-restore broadcaster onto the room. Lives in index.js
+    // because it needs the module-level outbox/seq machinery; the room (in
+    // RoomManager) and snapshot handlers call it via room.broadcastSequencedRestore.
+    if (!room.broadcastSequencedRestore) {
+      room.broadcastSequencedRestore = (payload) => broadcastSequencedRestore(room, payload);
+    }
     console.log(`[Room.Connection] About to add client to room: ${roomId}, current client count: ${room.getClientCount()}`);
     room.addClient(ws);
 

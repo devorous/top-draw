@@ -43,6 +43,12 @@ export class ParityCoordinator {
     const log = this.room?.strokeLog;
     if (!log) return; // No log on this room — silently ignore
 
+    // _discovery is a room-browse/bandwidth-probe connection with no board, so
+    // its log is empty and every check would record a false mismatch. Ignore it
+    // server-side too, so older clients that still send checks can't pollute the
+    // debug.parity_events store. See docs/000Sync_Parity_Findings.md.
+    if (this.room?.id === '_discovery') return;
+
     const clientSeq = Number(data.seq || 0);
     const clientCount = Number(data.parityCount || 0);
     const clientHash = (data.parityRollingHash >>> 0);

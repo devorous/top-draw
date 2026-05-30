@@ -137,6 +137,7 @@ message Msg {
     SYNC_PARITY_CHUNK = 142;       // Server→client: full fingerprint entries for a chunk
     SYNC_PARITY_RESYNC_REQUEST = 143; // Client→server: replay these missing seqs
     SYNC_PARITY_MISMATCH_REPORT = 144; // Client→server: post-diff detail for persistence
+    SYNC_CHECKPOINT_MINTED = 145;  // Server→client: a checkpoint was minted at snapshot_seq; truncate the fingerprint log before it (shared baseSeq watermark)
   }
 
   // Tool enum
@@ -408,6 +409,7 @@ message Msg {
   bytes snapshot_thumb = 105; // JPEG thumbnail (1/3 scale)
   repeated bytes snapshot_layers = 106; // Per-layer QOI encoded data
   bool snapshot_restore_after_save = 107; // SAVE: server should broadcast restore after persisting
+  uint64 snapshot_seq = 108; // SAVE: client's applied-seq the capture represents; SYNC_CHECKPOINT_MINTED: the checkpoint's seq watermark
 
   message SnapshotMeta {
     string id = 1;

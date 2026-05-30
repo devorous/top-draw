@@ -215,29 +215,24 @@ stale/incomplete state.
 Fix:
 
 - `server/providerScoring.js`: `scoreProvider` now returns `-Infinity` for an AFK
-  user unless `allowAfk` is set (the SyncCoordinator AFK-fallback path, which
-  re-validates `afk` again before actually asking). Disqualifying, not a penalty —
-  an AFK canvas is *guaranteed* stale. This makes the uploader election consistent
-  with the live sync election.
+  user. Disqualifying, not a penalty — an AFK canvas is *guaranteed* stale. This
+  makes the uploader election consistent with the live sync election.
 - `src/App.js` `_updatePreviewUploadEligibility`: also bail when `self.afk` (not
   just when hidden), closing the ≤30s window where an already-elected uploader
   goes AFK before the next election re-runs.
 - `src/handlers/UserHandlers.js`: re-run `_updatePreviewUploadEligibility` on the
   self-AFK transition so uploads stop the instant we go AFK / resume on return.
-- Tests in `testing/provider_scoring.test.js` lock in AFK disqualification + the
-  `allowAfk` fallback + ranked-candidate exclusion.
+- Tests in `testing/provider_scoring.test.js` lock in AFK disqualification,
+  ranked-candidate exclusion, and the longer hidden-tab provider timeout.
 
 Nuance: users immune to inactivity (`role >= 5`, or MOD with `modInactiveImmune`)
 keep receiving draws while AFK, so their canvas is NOT stale — but the live
 election already excludes all AFK users including immune ones, so disqualifying
 them in the uploader election too is consistent (not a regression).
 
-Still open (returning-from-AFK view, NOT a snapshot bug): coming back from AFK
-does not auto-resync — `setInactive(false)` only hides the "please resync"
-prompt. The intended recovery is the manual resync button in the inactive
-overlay (which `requestSync`s and unblocks input); a user who returns via chat
-instead of the button can keep a stale local view. Worth a follow-up: auto-
-resync on the `afk → false` self transition.
+Follow-up fix (2026-05-29): coming back from AFK now auto-resyncs on the
+`afk → false` self transition. A user who returns via chat instead of pressing
+the inactive overlay button no longer keeps the stale local view.
 
 ## Test Coverage Gaps
 

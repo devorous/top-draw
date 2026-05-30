@@ -252,11 +252,15 @@ export class SyncClient {
    * @returns {void}
    */
   setInactive(inactive) {
+    const wasInactive = this.inactive;
     this.inactive = !!inactive;
     if (this.inactive) {
       this.showInactiveUi();
     } else {
       this.hideInactiveUi();
+      if (wasInactive && this.hasCompletedSync && !this.syncing && this.wsClient?.connected) {
+        this.requestSync(null, { force: true });
+      }
     }
   }
 
@@ -273,9 +277,10 @@ export class SyncClient {
    * Clears local state and prepares to buffer incoming remote events.
    *
    * @param {number|null} [targetUserId=null] - Optional specific user ID to sync from
+   * @param {{force?: boolean}} [options={}] - Whether to bypass duplicate auto-sync guards
    * @returns {void}
    */
-  requestSync(targetUserId = null) {
+  requestSync(targetUserId = null, options = {}) {
     console.log('[SyncClient] requestSync called, current syncing state:', this.syncing);
     console.trace('[SyncClient] requestSync call stack');
 
@@ -287,6 +292,7 @@ export class SyncClient {
     const normalizedTarget = targetUserId !== null && targetUserId !== undefined
       ? Number(targetUserId)
       : null;
+    const force = options?.force === true;
 
     if (this.syncing) {
       if (normalizedTarget === null) {
@@ -296,7 +302,7 @@ export class SyncClient {
       console.log(`[SyncClient] Switching sync provider from ${this.currentSyncTargetId ?? 'auto'} to ${normalizedTarget}`);
     }
 
-    if (this.hasCompletedSync && normalizedTarget === null && !this.inactive) {
+    if (this.hasCompletedSync && normalizedTarget === null && !this.inactive && !force) {
       console.log('[SyncClient] Already completed initial sync, ignoring duplicate auto-sync request');
       return;
     }

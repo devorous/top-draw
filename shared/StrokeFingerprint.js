@@ -22,8 +22,20 @@ import { T } from './MessageTypes.js';
  *   text:      TEXT_APPLY, TEXT_REMOVE          → text overlay commits
  *   history:   UNDO, REDO                       → modifies existing log
  *   admin:     CLR, MOD_WIPE,
- *              MOD_UNDO_TO_STATE,
- *              COMPRESS_USER_STROKES            → wholesale log mutations
+ *              MOD_UNDO_TO_STATE                → wholesale log mutations
+ *   board:     BOARD_SNAPSHOT_RESTORE           → base-image replacement at a seq
+ *
+ * BOARD_SNAPSHOT_RESTORE is a commit ONLY when the server broadcasts it through
+ * the sequenced path (broadcastSequencedRestore): it then carries a real server
+ * seq and appends to the log on both sides at that seq, fixing a fixed z-point
+ * for the restore so every client applies it identically (see Bug A in
+ * docs/000Sync_Parity_Findings.md). The private join-sync restore (SyncCoordinator
+ * sendTo, no seq) is NOT logged — clients gate recording on seq presence.
+ *
+ * NOTE: COMPRESS_USER_STROKES is intentionally NOT a commit type. It rewrites
+ * existing history rather than appending, but record() only ever appends — so
+ * fingerprinting it produced a systematic, unrecoverable desync (client logged
+ * it at seq:0; server's window never matched). See docs/000Sync_Parity_Findings.md.
  */
 export const COMMIT_KIND = {
   [T.MU]:                     'stroke.mu',
@@ -42,7 +54,7 @@ export const COMMIT_KIND = {
   [T.CLR]:                    'admin.clear',
   [T.MOD_WIPE]:               'admin.wipe',
   [T.MOD_UNDO_TO_STATE]:      'admin.undoToState',
-  [T.COMPRESS_USER_STROKES]:  'admin.compress',
+  [T.BOARD_SNAPSHOT_RESTORE]: 'board.restore',
 };
 
 /**
@@ -136,9 +148,10 @@ export class StrokeFingerprintLog {
     if (!isCommitType(t)) return null;
     if (!bytes || bytes.length === 0) return null;
 
+    const s = seq >>> 0;
     const fingerprint = fnv1a32(bytes);
     const entry = {
-      seq: seq >>> 0,
+      seq: s,
       t,
       kind: COMMIT_KIND[t],
       userId: userId | 0,
@@ -146,13 +159,46 @@ export class StrokeFingerprintLog {
       timestamp: timestamp ?? Date.now(),
     };
 
-    this.entries.push(entry);
-    this.rollingHash = rollHash(this.rollingHash, fingerprint);
+    // Entries are kept sorted ascending by seq — NOT arrival order. The canvas
+    // renders in seq order (LayerManager sorts by seq), so a seq-canonical log
+    // is what actually corresponds to the rendered state. This means:
+    //   - a late/out-of-order delivery (e.g. a parity resync replaying a
+    //     missed seq) lands in its correct position and heals the hash,
+    //     instead of being appended at the tail and diverging forever;
+    //   - the rolling/chunk hashes stop flagging benign arrival-order
+    //     differences and only differ when the actual seq set differs.
+    const n = this.entries.length;
+    let appendedAtEnd = false;
+    if (n === 0 || s > this.entries[n - 1].seq) {
+      this.entries.push(entry);
+      appendedAtEnd = true;
+    } else {
+      // Binary search for the first index with seq >= s.
+      let lo = 0, hi = n;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (this.entries[mid].seq < s) lo = mid + 1; else hi = mid;
+      }
+      if (lo < n && this.entries[lo].seq === s) {
+        // Duplicate seq (idempotent resync of something we already have) — ignore.
+        return null;
+      }
+      this.entries.splice(lo, 0, entry);
+    }
 
     if (this._bytesBySeq) {
       // Copy out of the encoder's pooled buffer so subsequent encodes don't
       // clobber it. Slice() returns a fresh underlying ArrayBuffer.
-      this._bytesBySeq.set(entry.seq, bytes.slice());
+      this._bytesBySeq.set(s, bytes.slice());
+    }
+
+    // rollingHash is defined over the CURRENT seq-sorted entries. The common
+    // in-order append folds incrementally (O(1)); a mid-insert recomputes
+    // (O(n), rare — only on out-of-order/resync delivery).
+    if (appendedAtEnd) {
+      this.rollingHash = rollHash(this.rollingHash, fingerprint);
+    } else {
+      this._recomputeRollingHash();
     }
 
     if (this.entries.length > this.cap) {
@@ -162,11 +208,22 @@ export class StrokeFingerprintLog {
       if (this._bytesBySeq) {
         for (const r of removed) this._bytesBySeq.delete(r.seq);
       }
-      // Note: rollingHash intentionally NOT recomputed on eviction. It still
-      // represents the hash over the full historical sequence. Both sides
-      // evict on the same cap so the running hash stays comparable.
+      // Evicting the lowest seqs changes the hashed set, so recompute over what
+      // remains. Both sides evict on the same cap, so they stay comparable.
+      this._recomputeRollingHash();
     }
     return entry;
+  }
+
+  /**
+   * Recompute the rolling hash from scratch over the current (seq-sorted)
+   * entries. Used after an out-of-order insert or an eviction.
+   * @private
+   */
+  _recomputeRollingHash() {
+    let h = 0;
+    for (const e of this.entries) h = rollHash(h, e.fingerprint);
+    this.rollingHash = h;
   }
 
   /**

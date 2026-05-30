@@ -170,6 +170,11 @@ export class WebSocketClient {
     this._activeStrokeReplay = [];
     this._trackingActiveStroke = false;
     this._latestStrokeStateMessages = new Map();
+
+    this._boundSendClientStatus = () => this._sendClientStatus();
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', this._boundSendClientStatus);
+    }
   }
 
   _cloneReplayMessage(data) {
@@ -445,13 +450,20 @@ export class WebSocketClient {
           }
 
           // Stroke fingerprint log — hash the exact wire bytes the server hashed.
-          if (isCommitType(data.t)) {
+          // Gate on seq presence: only sequenced broadcasts (seq ≥ 1) belong in
+          // the log. Commit-type messages delivered out-of-band without a seq
+          // (e.g. the private join-sync BOARD_SNAPSHOT_RESTORE) must NOT be
+          // logged, or they'd appear as a phantom seq:0 "extra" and desync
+          // parity permanently (the old COMPRESS_USER_STROKES failure mode).
+          if (isCommitType(data.t) && data.seq) {
             this.strokeLog.record({
               seq: data.seq,
               t: data.t,
               userId: data.u,
               bytes: raw,
             });
+            const _sq = Number(data.seq);
+            if (_sq > this.lastProcessedSeq) this.lastProcessedSeq = _sq;
           }
 
           this.handleMessage(data);
@@ -673,14 +685,17 @@ export class WebSocketClient {
           }
           // Stroke fingerprint log — uses the per-message slice from
           // _decodeBatchedFrame, which is the exact wire bytes the server
-          // produced for this single message.
-          if (isCommitType(data.t)) {
+          // produced for this single message. Gate on seq presence (see the
+          // direct-decode path above) so unsequenced commits never pollute it.
+          if (isCommitType(data.t) && data.seq) {
             this.strokeLog.record({
               seq: data.seq,
               t: data.t,
               userId: data.u,
               bytes: item,
             });
+            const _sq = Number(data.seq);
+            if (_sq > this.lastProcessedSeq) this.lastProcessedSeq = _sq;
           }
         } catch (err) {
           console.error('Failed to decode batched message:', err);
@@ -720,6 +735,16 @@ export class WebSocketClient {
     // don't need any of the live-app side effects (cursor updates etc.).
     if (this.parityClient && this.parityClient.receive(data)) return;
 
+    // Checkpoint watermark: a checkpoint was minted at snapshot_seq. Truncate
+    // our fingerprint log before it so the compared window is the post-checkpoint
+    // tail — the same shared baseSeq the server and every other client adopt.
+    // Idempotent and order-insensitive (only drops entries below the cutoff).
+    if (data.t === T.SYNC_CHECKPOINT_MINTED) {
+      const cutoff = Number(data.snapshotSeq) || 0;
+      if (cutoff > 0) this.strokeLog.truncateBefore(cutoff + 1);
+      return;
+    }
+
     // Commit-class self-echo: the server re-broadcasts our own commit
     // messages back to us so the strokeLog can keep parity with the server.
     // The strokeLog was already populated in the byte-decode step; the
@@ -741,6 +766,12 @@ export class WebSocketClient {
     // against any stroke landing between the two seqs. So the fill stroke is
     // tagged pendingCommitEcho='fill', the MU reconciler skips it, and the FILL
     // self echo (reconcile-only, see the 'fill' handler) assigns the FILL seq.
+    // BOARD_SNAPSHOT_RESTORE is exempt: it's a commit type (sequenced for parity)
+    // but the requester never applies it optimistically — it only sends a request
+    // and waits for the broadcast — so it MUST be applied on receipt like everyone
+    // else. It also carries no `u`, which proto3 defaults to 0, so without this
+    // exemption the session-0 client would self-skip and never revert (Bug A
+    // regression caught in live testing).
     if (
       data.u !== undefined &&
       this.sessionIndex !== null &&
@@ -748,7 +779,8 @@ export class WebSocketClient {
       isCommitType(data.t) &&
       data.t !== T.MU &&
       data.t !== T.FILL &&
-      data.t !== T.GLITCH_RESULT
+      data.t !== T.GLITCH_RESULT &&
+      data.t !== T.BOARD_SNAPSHOT_RESTORE
     ) {
       return;
     }
@@ -763,6 +795,7 @@ export class WebSocketClient {
         // Fresh session = new room's seq counter starts at 0; the server-side
         // strokeLog is also fresh. Wipe ours to stay aligned.
         this.strokeLog.clear();
+        this.lastProcessedSeq = 0;
         if (this.onConnect) {
           const connectData = {
             ...data,
@@ -785,11 +818,7 @@ export class WebSocketClient {
         break;
 
       case T.PING:
-        this.send({
-          t: T.PONG,
-          lowPowerMode: this.getLowPowerMode ? !!this.getLowPowerMode() : false,
-          tabHidden: typeof document !== 'undefined' ? document.visibilityState === 'hidden' : false
-        });
+        this._sendClientStatus();
         break;
 
       case T.BW_PROBE_START:
@@ -1647,6 +1676,21 @@ export class WebSocketClient {
         window.app.TimeMachine.recordAction({ ...data, u: this.sessionIndex }, 'outbound');
       }
     }
+  }
+
+  /**
+   * Sends lightweight client scheduling status to the server. The server uses
+   * this to avoid applying visible-tab sync timeouts to backgrounded providers.
+   * @returns {void}
+   * @private
+   */
+  _sendClientStatus() {
+    if (!this.connected) return;
+    this.send({
+      t: T.PONG,
+      lowPowerMode: this.getLowPowerMode ? !!this.getLowPowerMode() : false,
+      tabHidden: typeof document !== 'undefined' ? document.visibilityState === 'hidden' : false
+    });
   }
 
   /**

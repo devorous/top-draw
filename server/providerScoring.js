@@ -23,18 +23,14 @@ const MISSING_UPLOAD_BPS_PENALTY = 60; // Haven't measured throughput yet — pr
  *
  * @param {WebSocket} ws
  * @param {Object|null|undefined} user
- * @param {{allowAfk?: boolean}} [options]
  * @returns {number}
  */
-export function scoreProvider(ws, user, options = {}) {
-  const { allowAfk = false } = options;
-
+export function scoreProvider(ws, user) {
   if (!ws) return -Infinity;
   if (ws.lowPowerMode) return -Infinity;
   // AFK clients have a stale canvas (see AFK_PENALTY note) — never a valid data
-  // source unless the caller explicitly opts in (the SyncCoordinator AFK
-  // fallback, which re-validates afk again before actually asking them).
-  if (!allowAfk && user?.afk) return -Infinity;
+  // source.
+  if (user?.afk) return -Infinity;
 
   let score = 0;
   const now = Date.now();
