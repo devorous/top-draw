@@ -7,6 +7,7 @@ import { BOARD_SIZE_PRESETS, applyRoomBoardSize } from '../config/BoardSizes.js'
 const ROLE_NAMES = ['Guest', 'User', 'Trusted', 'Helper', 'Mod', 'Admin', 'Owner', 'Noble', 'Holy', 'Deity'];
 const ROOM_ROLE_NAMES = ['Guest', 'User', 'Trusted', 'Helper', 'Moderator', 'Admin', 'Owner'];
 const JOIN_ANNOUNCE_DELAY_MS = 700;
+const JOIN_RANK_GRACE_MS = 3000;
 
 const JOIN_ANNOUNCE_RETRY_MS = 500;
 const JOIN_ANNOUNCE_TIMEOUT_MS = 15000;
@@ -51,6 +52,14 @@ function formatRoomPresenceMessage(user, verb) {
 
 function formatJoinPresenceMessage(user) {
   return formatRoomPresenceMessage(user, 'has joined');
+}
+
+function hasResolvedPresenceRank(user) {
+  if (!user) return false;
+  return getEffectivePayloadRole(user) > 0
+    || Number(user.globalRole || 0) > 0
+    || Number(user.roomRole || 0) > 0
+    || !!String(user.registeredName || '').trim();
 }
 
 function clearRemoteTextDraft(app, user) {
@@ -108,6 +117,7 @@ export function setupUserHandlers(wsClient, app) {
   const pendingJoinAnnouncements = new Map();
   const announcedJoinSessionIds = new Set();
   const vacatedSlots = new Map();
+  const recentlyRemovedUsers = new Map();
 
   const cancelPendingJoinAnnouncement = (sessionIndex) => {
     const pending = pendingJoinAnnouncements.get(sessionIndex);
@@ -131,11 +141,30 @@ export function setupUserHandlers(wsClient, app) {
     app.syncClient?.setInactive(!!afk && !isSelfImmuneToInactiveResync(role));
   };
 
-  const announceJoinIfReady = (sessionIndex) => {
+  const rememberRemovedUser = (sessionIndex, user) => {
+    if (!user) return;
+    recentlyRemovedUsers.set(sessionIndex, {
+      username: user.username || '',
+      registeredName: user.registeredName || '',
+      role: user.role || 0,
+      globalRole: user.globalRole || 0,
+      roomRole: user.roomRole || 0,
+      instanceId: user.instanceId || ''
+    });
+  };
+
+  const forgetRemovedUser = (sessionIndex) => {
+    recentlyRemovedUsers.delete(sessionIndex);
+  };
+
+  const announceJoinIfReady = (sessionIndex, queuedAt = 0) => {
     if (announcedJoinSessionIds.has(sessionIndex)) return true;
 
     const user = users.get(sessionIndex);
     if (!user?.username || !app.svelteComponents?.chat) return false;
+    if (!hasResolvedPresenceRank(user) && queuedAt && Date.now() - queuedAt < JOIN_RANK_GRACE_MS) {
+      return false;
+    }
 
     cancelPendingJoinAnnouncement(sessionIndex);
     announcedJoinSessionIds.add(sessionIndex);
@@ -145,17 +174,17 @@ export function setupUserHandlers(wsClient, app) {
 
   const scheduleJoinAnnouncement = (sessionIndex, delayMs = JOIN_ANNOUNCE_DELAY_MS) => {
     if (announcedJoinSessionIds.has(sessionIndex)) return;
-    if (announceJoinIfReady(sessionIndex)) return;
 
     const existing = pendingJoinAnnouncements.get(sessionIndex);
+    const queuedAt = existing?.queuedAt ?? Date.now();
+    if (announceJoinIfReady(sessionIndex, queuedAt)) return;
     if (existing?.timerId) return;
 
-    const queuedAt = existing?.queuedAt ?? Date.now();
     const timerId = setTimeout(() => {
       const pending = pendingJoinAnnouncements.get(sessionIndex);
       if (pending) pending.timerId = null;
 
-      if (announceJoinIfReady(sessionIndex)) return;
+      if (announceJoinIfReady(sessionIndex, queuedAt)) return;
 
       const shouldRetry = users.has(sessionIndex) && Date.now() - queuedAt < JOIN_ANNOUNCE_TIMEOUT_MS;
       if (shouldRetry) {
@@ -196,6 +225,7 @@ export function setupUserHandlers(wsClient, app) {
     users.forEach((user, sessionIndex) => {
       if (sessionIndex !== app.sessionIndex && !remoteIndices.has(sessionIndex)) {
         console.log(`[USERS] Removing ghost user ${user.username}(${sessionIndex})`);
+        rememberRemovedUser(sessionIndex, user);
         clearJoinTracking(sessionIndex);
         app.cleanupRemoteUserState(sessionIndex, { preserveVisuals: true });
       }
@@ -203,6 +233,7 @@ export function setupUserHandlers(wsClient, app) {
 
     // Authoritative Update/Create
     data.users.forEach(userData => {
+      forgetRemovedUser(userData.sessionIndex);
 
       const username = userData.name || userData.username || '';
       const effectiveRole = getEffectivePayloadRole(userData);
@@ -408,7 +439,8 @@ export function setupUserHandlers(wsClient, app) {
       ui.setRemoteUserAfk(userData.sessionIndex, isAfk);
       ui.setRemoteUserMuted?.(userData.sessionIndex, !!userData.isMuted);
       if (pendingJoinAnnouncements.has(userData.sessionIndex)) {
-        announceJoinIfReady(userData.sessionIndex);
+        const pending = pendingJoinAnnouncements.get(userData.sessionIndex);
+        announceJoinIfReady(userData.sessionIndex, pending?.queuedAt ?? 0);
       }
     });
 
@@ -542,7 +574,7 @@ export function setupUserHandlers(wsClient, app) {
   });
 
   wsClient.on('left', (data) => {
-    const user = users.get(data.sessionIndex);
+    const user = users.get(data.sessionIndex) || recentlyRemovedUsers.get(data.sessionIndex);
     if (user) {
       clearJoinTracking(data.sessionIndex);
       if (app.svelteComponents?.chat) {
@@ -555,7 +587,10 @@ export function setupUserHandlers(wsClient, app) {
       }
 
       // Bake out all user strokes (preserves visuals, frees memory)
-      app.cleanupRemoteUserState(data.sessionIndex, { preserveVisuals: true });
+      if (users.has(data.sessionIndex)) {
+        app.cleanupRemoteUserState(data.sessionIndex, { preserveVisuals: true });
+      }
+      forgetRemovedUser(data.sessionIndex);
 
       // Immediately composite to render baked strokes
       app.board?.compositeAllLayers?.();
@@ -693,7 +728,8 @@ export function setupUserHandlers(wsClient, app) {
       scheduleJoinAnnouncement(data.sessionIndex);
     }
     if (pendingJoinAnnouncements.has(data.sessionIndex)) {
-      announceJoinIfReady(data.sessionIndex);
+      const pending = pendingJoinAnnouncements.get(data.sessionIndex);
+      announceJoinIfReady(data.sessionIndex, pending?.queuedAt ?? 0);
     }
     app.updateChatUserList();
 

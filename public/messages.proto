@@ -229,6 +229,8 @@ message Msg {
     string bbm = 32;    // Blend bake mode: 'existing' or 'background'
     bool ea = 33;       // Eraser applies to all layers
     bool hdsc = 34;     // Whether this account is linked to Discord
+    uint32 globalRole = 35; // Account/global role, including Noble/Holy/Deity
+    uint32 roomRole = 36;   // Room-specific role for this room
   }
   repeated U us = 17;   // Users array
 
