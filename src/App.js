@@ -4502,11 +4502,12 @@ export class DrawingApp {
     const isLoggedIn = this.selfRole >= 1;
     const isDeity = Math.max((appState.selfGlobalRole || 0), this.selfRole || 0) >= 8;
 
-    // If we don't have room data yet, show register button for logged-in users
-    // (assumes room is likely unregistered if data hasn't loaded)
+    // Wait for SETTINGS or room-list data before exposing ownership actions.
+    // Registered rooms include owner data in SETTINGS, so this avoids a stale
+    // "Register Room" flash while the client is still learning room metadata.
     if (!this.currentRoomData) {
-      if (settingsBtn) settingsBtn.style.display = isDeity ? 'inline-flex' : 'none';
-      if (registerBtn) registerBtn.style.display = isLoggedIn ? 'inline-block' : 'none';
+      if (settingsBtn) settingsBtn.style.display = 'none';
+      if (registerBtn) registerBtn.style.display = 'none';
       appState.roomCreatedByThisBrowser = this.wasCurrentRoomCreatedByThisBrowser();
       this.scheduleTopbarCollapseUpdate();
       return;

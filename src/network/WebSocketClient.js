@@ -937,6 +937,8 @@ export class WebSocketClient {
             ? data.roomFloatingGalleryExcludeIds
             : [],
           floatingGalleryVoronoi: this._parseFloatingGalleryVoronoi(data.roomFloatingGalleryVoronoiJson),
+          ownerId: data.ownerId || null,
+          ownerUsername: data.ownerUsername || null,
           boardSize: normalizeRoomBoardSize(data.roomBoardSize)
         });
         break;

@@ -438,6 +438,7 @@ message Msg {
   repeated string room_floating_gallery_exclude_ids = 149; // ROOM_UPDATE/SETTINGS: explicitly excluded gallery ids
   string room_board_size = 150; // ROOM_UPDATE/SETTINGS: board size preset (720p|1080p|1440p|big)
   string room_floating_gallery_voronoi_json = 151; // SETTINGS: precomputed floating gallery Voronoi geometry
+  string room_creator_device_id = 152; // ROOM_UPDATE: local creator device id for unowned room setup
 
   message CheckpointMeta {
     string id = 1;

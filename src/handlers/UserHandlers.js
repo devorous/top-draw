@@ -553,6 +553,12 @@ export function setupUserHandlers(wsClient, app) {
     if (data.floatingGalleryVoronoi !== undefined) {
       roomDataUpdates.floatingGalleryVoronoi = data.floatingGalleryVoronoi || null;
     }
+    if (data.ownerId !== undefined) {
+      roomDataUpdates.ownerId = data.ownerId || null;
+    }
+    if (data.ownerUsername !== undefined) {
+      roomDataUpdates.ownerUsername = data.ownerUsername || null;
+    }
     if (data.boardSize && BOARD_SIZE_PRESETS[data.boardSize]) {
       roomDataUpdates.boardSize = data.boardSize;
       applyRoomBoardSize(app, data.boardSize, { showToast: !!app.connected });

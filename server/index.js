@@ -1813,6 +1813,8 @@ function buildSettingsPayload(room) {
     roomFloatingGalleryVoronoiJson: getFloatingGalleryVoronoiJson(
       room.settings.floatingGalleryVoronoi || generateFloatingGalleryVoronoi(room.settings.floatingGallerySeed)
     ),
+    ownerId: room.ownerId || '',
+    ownerUsername: room.ownerUsername || '',
     electedUploader: room._electedUploader || '',
     roomBoardSize: room.settings.boardSize
   };
@@ -3153,6 +3155,9 @@ wss.on('connection', async (ws, req) => {
           ws.deviceId = identity.deviceId || ws.deviceId;
           ws.fingerprintId = identity.fingerprintId || ws.fingerprintId;
           ws.identitySummary = identity.identitySummary || ws.identitySummary;
+          if (!room.ownerId && !room.creatorDeviceId && ws.deviceId && room.getClientCount() === 1) {
+            room.creatorDeviceId = ws.deviceId;
+          }
           const requestedUsername = normalizeUsername(data.n || '');
           const username = getUniqueVisibleName(room, requestedUsername || 'Guest');
           console.log(`[CONNECT] Session ${sessionIndex} joining room ${room.id} as "${username}"`);

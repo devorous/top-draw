@@ -586,6 +586,9 @@ export async function sanitizeMessage(data) {
       if (data.roomBoardSize !== undefined) {
         sanitized.roomBoardSize = sanitizeString(data.roomBoardSize, 10);
       }
+      if (data.roomCreatorDeviceId !== undefined) {
+        sanitized.roomCreatorDeviceId = sanitizeString(data.roomCreatorDeviceId, MAX_AUTH_STRING_LENGTH);
+      }
       if (data.roomFloatingGallerySeed !== undefined) {
         sanitized.roomFloatingGallerySeed = Number(data.roomFloatingGallerySeed);
       }
