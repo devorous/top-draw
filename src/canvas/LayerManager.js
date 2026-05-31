@@ -1168,9 +1168,11 @@ export class LayerManager {
   }
 
   /**
-   * Returns whether a stroke can be safely baked into a group's persistent base.
-   * Flat-canvas groups can bake complex blends by resolving them into pixels;
-   * other layers keep the conservative safe-mode list.
+   * Returns whether a stroke can be baked into a group's persistent base.
+   * Flat-canvas groups are the authoritative raster base for layer 0, so they
+   * may resolve every blend mode into pixels. Other layers keep the conservative
+   * safe-mode list because their bakedSequences retain blend operations rather
+   * than a single flat pixel base.
    * @param {Object} group
    * @param {Object} stroke
    * @param {string[]} safeModes
@@ -1178,10 +1180,8 @@ export class LayerManager {
    * @private
    */
   _canBakeStroke(group, stroke, safeModes) {
-    if (!group?.flatCanvas) {
-      return safeModes.includes(stroke.blendMode);
-    }
-    return true;
+    if (group?.flatCanvas) return true;
+    return safeModes.includes(stroke.blendMode);
   }
 
   /** @deprecated Use _bakeStrokeToBin */

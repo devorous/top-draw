@@ -122,6 +122,15 @@ export class Room {
 
     /** @type {Array<Object>} Rolling buffer of board snapshots (max 24, every 10s for 4 min) */
     this.snapshots = [];
+    /**
+     * True after a lone joiner intentionally starts from a blank/current command
+     * tail instead of auto-applying the persisted checkpoint. While this is set,
+     * join-sync must not serve the old persisted base to later joiners, or that
+     * stale base will be combined with the live session's new deltas.
+     * Cleared by the next auto-checkpoint captured from the current live board.
+     * @type {boolean}
+     */
+    this.joinCheckpointInvalidated = false;
 
     /** @type {NodeJS.Timeout|null} Server-driven snapshot request interval */
     this._snapshotTimer = null;
@@ -141,6 +150,46 @@ export class Room {
     if (this.snapshots.length > 24) {
       this.snapshots.shift();
     }
+    if (snapshot?.auto && (Number(snapshot.seq) || 0) > 0 && Array.isArray(snapshot.layers) && snapshot.layers.length > 0) {
+      this.joinCheckpointInvalidated = false;
+    }
+  }
+
+  /**
+   * Mark the persisted checkpoint as unusable for the current live join base.
+   * This happens when the first user in a room skips the persisted checkpoint and
+   * begins from blank/current command replay. Later joiners must then replay from
+   * seq 0 until a fresh auto-checkpoint is minted for this live state.
+   */
+  invalidateJoinCheckpoint() {
+    this.joinCheckpointInvalidated = true;
+  }
+
+  /**
+   * Mark that the current live room session began without adopting the persisted
+   * checkpoint. This is set as soon as the first client connects, before the
+   * client's later SYNC_REQUEST, so a fast second joiner cannot race in and use
+   * the stale persisted base.
+   */
+  beginBlankJoinSession() {
+    if (this.joinCheckpointInvalidated) return;
+    this.invalidateJoinCheckpoint();
+    this.strokeLog?.clear?.();
+    this.strokeTape?.clear?.();
+    this.clearAllTiles?.();
+  }
+
+  /**
+   * Drop automatic join-sync state when the room becomes logically empty. The
+   * next live session should not inherit an old checkpoint image or old command
+   * tail; a lone user can still explicitly load saved snapshots from history.
+   */
+  resetJoinSyncState() {
+    this.invalidateJoinCheckpoint();
+    this.strokeLog?.clear?.();
+    this.strokeTape?.clear?.();
+    this.clearAllTiles?.();
+    this.snapshots = this.snapshots.filter(s => !s?.auto);
   }
 
   /**
@@ -305,9 +354,14 @@ export class Room {
    * seq S): the in-memory auto-snapshots carry it; the DB fallback has none
    * persisted, so it returns 0 (the joiner then replays the full retained tail,
    * which is empty after a fresh server restart anyway).
+   * @param {{forJoin?: boolean}} [options]
    * @returns {Promise<{id: string, ts: number, issuer: string, layers: Array, seq: number}|null>}
    */
-  async getLatestSnapshotData() {
+  async getLatestSnapshotData(options = {}) {
+    if (options.forJoin && this.joinCheckpointInvalidated) {
+      return null;
+    }
+
     // Check in-memory rolling buffer first (most recent auto-saves)
     for (let i = this.snapshots.length - 1; i >= 0; i--) {
       const s = this.snapshots[i];
@@ -345,7 +399,7 @@ export class Room {
     if (!this.canPersistSnapshots()) return;
     console.log(`[Room] All users AFK in "${this.id}", restoring last snapshot`);
 
-    const snapshot = await this.getLatestSnapshotData();
+    const snapshot = await this.getLatestSnapshotData({ forJoin: true });
     if (!snapshot) {
       console.log(`[Room] No snapshot available for "${this.id}", skipping restore`);
       return;
@@ -564,6 +618,7 @@ export class RoomManager {
     this.wss = wss;
     this.sendTo = sendTo;
     this.rooms = new Map();
+    this.invalidatedJoinCheckpointRooms = new Set();
     this.Msg = null;
     this.createRoomBroadcaster = null;
   }
@@ -589,9 +644,16 @@ export class RoomManager {
     }
 
     const room = new Room(roomId, this.Msg, this.sendTo);
+    if (this.invalidatedJoinCheckpointRooms.has(roomId)) {
+      room.joinCheckpointInvalidated = true;
+    }
     this.rooms.set(roomId, room);
     console.log(`[RoomManager] Created room: ${roomId}`);
     return room;
+  }
+
+  markJoinCheckpointInvalidated(roomId) {
+    if (roomId) this.invalidatedJoinCheckpointRooms.add(roomId);
   }
 
   /**

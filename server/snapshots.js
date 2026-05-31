@@ -593,6 +593,7 @@ export async function handleSnapshotJoinNotify(ws, room) {
     console.log(`[Snapshot] Skipping join notify: room.getClientCount() = ${clientCount}`);
     return;
   }
+  room.beginBlankJoinSession?.();
   console.log(`[Snapshot] Sending join notify: clientCount = ${clientCount}`);
 
   // Prefer in-memory snapshots that have both a thumb AND layers (auto-saves).

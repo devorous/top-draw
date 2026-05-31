@@ -3085,6 +3085,9 @@ wss.on('connection', async (ws, req) => {
             ws.resumeKey = incomingResumeKey;
           }
 
+          const startsBlankLiveSession = room.canPersistSnapshots?.() &&
+            (room.sessionManager?.getUserCount?.() ?? 0) === 0;
+
           if (getDB()) {
             try {
               logVpnAutoMuteContext(ws, room, 'Guest connect');
@@ -3161,6 +3164,9 @@ wss.on('connection', async (ws, req) => {
             packColor([0, 0, 0, 1]),
             getIpHash(ws.clientIp)
           );
+          if (startsBlankLiveSession) {
+            room.beginBlankJoinSession?.();
+          }
           const createdUser = room.sessionManager.getUser(sessionIndex);
           await applyShadowBanStateToClient(ws, room);
           if (createdUser) {
@@ -5027,6 +5033,11 @@ wss.on('connection', async (ws, req) => {
 
     room.removeClient(ws);
     room.updateSnapshotTimer();
+
+    if (room.getClientCount() === 0) {
+      room.resetJoinSyncState?.();
+      roomManager.markJoinCheckpointInvalidated?.(room.id);
+    }
 
     // Going from many witnesses to one: ask the last user to upload a fresh
     // snapshot now, so if they drop next the post-empty restore matches what

@@ -71,11 +71,24 @@ export class SyncCoordinator {
     const tape = this.room?.strokeTape;
     let snapshot = null;
 
+    // A lone joiner has no peers to stay in sync with, so we do NOT auto-apply
+    // the persisted checkpoint as their base. The opt-in BOARD_SNAPSHOT_JOIN_NOTIFY
+    // toast (handleSnapshotJoinNotify, also gated on clientCount === 1) lets them
+    // choose to load it. They start from the live command tail only — empty for a
+    // cold room, i.e. a blank canvas. With peers present the checkpoint base IS
+    // required: it's the permanent content (<= watermark) the replayed tail builds
+    // on, so the joiner matches what everyone else renders.
+    const clientCount = this.room?.getClientCount?.() ?? 1;
+    const aloneJoiner = clientCount <= 1;
+
     // 1. Latest checkpoint image as the base (carries the applied-seq watermark
-    //    S). Absent (fresh room / no persistence) → baseSeq 0, replay full tail.
+    //    S). Absent (fresh room / no persistence / lone joiner) → baseSeq 0,
+    //    replay full tail.
     let baseSeq = 0;
-    if (this.room?.canPersistSnapshots?.()) {
-      snapshot = await this.room.getLatestSnapshotData?.();
+    if (aloneJoiner && this.room?.canPersistSnapshots?.()) {
+      this.room.invalidateJoinCheckpoint?.();
+    } else if (this.room?.canPersistSnapshots?.()) {
+      snapshot = await this.room.getLatestSnapshotData?.({ forJoin: true });
       if (ws.readyState !== WebSocket.OPEN) return;
       if (snapshot && Array.isArray(snapshot.layers) && snapshot.layers.length > 0) {
         baseSeq = Number(snapshot.seq) || 0;
