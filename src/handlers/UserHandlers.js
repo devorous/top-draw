@@ -349,7 +349,7 @@ export function setupUserHandlers(wsClient, app) {
         const boardData = ui.createUserBoard(userData.sessionIndex);
         user.board = boardData.board;
         user.context = boardData.context;
-        user.board.style.mixBlendMode = app.blendModeManager.toCSSBlendMode(user.blendMode);
+        app.remoteUserHandler?.updateRemotePreviewPresentation?.(user);
 
         if (username) {
           ui.createRemoteUser(userData.sessionIndex, userOptions);
@@ -682,7 +682,7 @@ export function setupUserHandlers(wsClient, app) {
       const boardData = ui.createUserBoard(data.sessionIndex);
       user.board = boardData.board;
       user.context = boardData.context;
-      user.board.style.mixBlendMode = app.blendModeManager.toCSSBlendMode(user.blendMode);
+      app.remoteUserHandler?.updateRemotePreviewPresentation?.(user);
       ui.createRemoteUser(data.sessionIndex, user);
     } else {
       user.setUsername(data.name);
@@ -705,6 +705,7 @@ export function setupUserHandlers(wsClient, app) {
       if (data.activeLayer !== undefined) user.setActiveLayer(data.activeLayer);
       if (data.blendMode !== undefined) user.setBlendMode(data.blendMode);
       if (data.blendBakeMode !== undefined) user.setBlendBakeMode(data.blendBakeMode);
+      app.remoteUserHandler?.updateRemotePreviewPresentation?.(user);
       if (data.font !== undefined) user.setFont(data.font);
       if (data.textPositionMultiplier !== undefined) user.setTextPositionMultiplier(data.textPositionMultiplier);
       if (data.textPositionOffset !== undefined) user.setTextPositionOffset(data.textPositionOffset);

@@ -103,6 +103,18 @@ export class RemoteUserHandler {
     user._layeredPreviewActive = false;
   }
 
+  updateRemotePreviewPresentation(user) {
+    if (!user?.board) return;
+
+    const isActiveEraser = user.tool === 'erase' && user.mousedown && !user.panning;
+    if (!user._layeredPreviewActive) {
+      user.board.style.opacity = isActiveEraser ? '0' : '';
+    }
+
+    const blendMode = user.tool === 'erase' ? 'source-over' : (user.blendMode || 'source-over');
+    user.board.style.mixBlendMode = this.app.blendModeManager.toCSSBlendMode(blendMode);
+  }
+
   /**
    * Processes remote mouse movement and updates drawing state.
    *
@@ -575,9 +587,7 @@ export class RemoteUserHandler {
           break;
         }
         {
-          if (user.context?.canvas) {
-            user.context.canvas.style.opacity = '';
-          }
+          this.updateRemotePreviewPresentation(user);
           const eraserTool = this.toolManager.getTool('erase');
           if (eraserTool) {
             eraserTool.onPointerDown(user, pos);
@@ -944,6 +954,7 @@ export class RemoteUserHandler {
     user._strokeLayer = null;
     user.startPos = null;
     user.lassoPoints = null;
+    this.updateRemotePreviewPresentation(user);
 
     const circleBlurTool = this.toolManager.getTool('circleBlur');
     if (circleBlurTool) {

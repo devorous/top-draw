@@ -3171,7 +3171,7 @@ export class DrawingApp {
     const boardData = this.ui.createUserBoard(idx);
     user.board = boardData.board;
     user.context = boardData.context;
-    user.board.style.mixBlendMode = this.blendModeManager.toCSSBlendMode(user.blendMode);
+    this.remoteUserHandler?.updateRemotePreviewPresentation?.(user);
     return user;
   }
 

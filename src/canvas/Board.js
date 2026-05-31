@@ -2402,7 +2402,8 @@ export class Board {
     const { canvas: tempCanvas, ctx: tempCtx } = this._getEraserPreviewBuffer();
 
     this._clearCompositeContext(tempCtx, dirtyRects);
-    this.layerManager.compositeLayerWithoutActiveStroke(tempCtx, splitLayer, userId, null, dirtyRects);
+    const layerBackground = splitLayer === 0 ? this.getCompositeBackgroundColor() : null;
+    this.layerManager.compositeLayerWithoutActiveStroke(tempCtx, splitLayer, userId, layerBackground, dirtyRects);
 
     if (splitLayer === 0) {
       this._clearCompositeContext(this.mainCtx, dirtyRects);

@@ -1729,18 +1729,23 @@ menuBtn: document.getElementById('menuBtn'),
       section.style.display = 'block';
       this.refreshToolOptionsLayout(tool);
       return false;
-    } else {
-      section.style.display = 'none';
-      this.refreshToolOptionsLayout(tool);
-      const select = this.elements.blendModeSelect;
-      if (select && select.value !== 'source-over') {
-        this._updatingBlendMode = true;
-        select.value = 'source-over';
-        this._updatingBlendMode = false;
-        return true;
-      }
+    }
+
+    section.style.display = 'none';
+    this.refreshToolOptionsLayout(tool);
+
+    if (allowComplex) {
       return false;
     }
+
+    const select = this.elements.blendModeSelect;
+    if (select && select.value !== 'source-over') {
+      this._updatingBlendMode = true;
+      select.value = 'source-over';
+      this._updatingBlendMode = false;
+      return true;
+    }
+    return false;
   }
 
   /**

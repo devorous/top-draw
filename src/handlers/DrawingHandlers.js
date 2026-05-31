@@ -123,6 +123,7 @@ export function setupDrawingHandlers(wrapHandler, app) {
       if (data.tool === 'erase') {
         user.eraseAllLayers = data.eraseAll || false;
       }
+      remoteUserHandler.updateRemotePreviewPresentation(user);
       ui.updateRemoteToolDisplay(data.sessionIndex, data.tool);
       app.updateChatUserList?.();
     }
@@ -228,10 +229,7 @@ export function setupDrawingHandlers(wrapHandler, app) {
       }
       user.setBlendMode(blendMode);
       user.setBlendBakeMode(data.blendBakeMode);
-      // Always update CSS blend mode on the remote user's preview canvas
-      if (user.board) {
-        user.board.style.mixBlendMode = app.blendModeManager.toCSSBlendMode(blendMode);
-      }
+      remoteUserHandler.updateRemotePreviewPresentation(user);
       // If user is on text tool, switch preview mode (DOM vs canvas)
       if (user.tool === 'text') {
         const hasBlend = blendMode && blendMode !== 'source-over';
