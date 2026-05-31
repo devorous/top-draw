@@ -3174,6 +3174,40 @@ export class Board {
   }
 
   /**
+   * Captures the PERMANENT (baked) board state for a checkpoint/join snapshot:
+   * each layer's baked content + confirmed strokes up to the baked watermark seq,
+   * excluding the still-undoable live tail. The returned `snapshotSeq` is that
+   * watermark, so the server replays everything after it as commands to a joiner
+   * (preserving per-stroke blend mode + undo/redo) instead of baking it away.
+   * Returns null if nothing has been baked yet (caller should skip the snapshot
+   * and let joiners replay the full command tail).
+   * @returns {{ width: number, height: number, layers: Uint8Array[], backgroundColor: *, snapshotSeq: number }|null}
+   */
+  getCheckpointSnapshotPixels() {
+    if (!this.layerManager) return null;
+    const watermark = this.layerManager.getBakedWatermarkSeq?.() || 0;
+    if (watermark <= 0) return null;
+
+    const [height, width] = this.dimensions;
+    const layers = [];
+    for (let i = 0; i < this.layerManager.layerGroups.length; i++) {
+      const { ctx } = this.layerManager._createCanvas();
+      ctx.clearRect(0, 0, width, height);
+      this.layerManager.compositeBakedThroughSeq(ctx, i, watermark);
+      const imageData = ctx.getImageData(0, 0, width, height);
+      layers.push(new Uint8Array(imageData.data.buffer));
+    }
+
+    return {
+      width,
+      height,
+      layers,
+      backgroundColor: this.backgroundColor,
+      snapshotSeq: watermark,
+    };
+  }
+
+  /**
    * Restores per-layer QOI snapshot data onto the board.
    * @param {Uint8Array[]} layerDatas - Array of QOI blobs, one per layer
    */

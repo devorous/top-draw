@@ -34,6 +34,14 @@ export class LayerManager {
     this.localUserId = null; // Set by Board/App so we can distinguish local vs remote strokes
     this._pixelsWorker = new PixelsWorkerClient();
     this._lastCommittedStrokeTimestamp = 0;
+    // Highest authoritative seq that has been baked into flatCanvas/bakedSequences
+    // on THIS client. Baking flattens a global seq-ordered prefix (see
+    // _bakeOverflowStrokes), so every stroke with seq <= this is permanent here and
+    // every still-undoable (live strokeStack) stroke has a higher seq. The join /
+    // checkpoint snapshot is stamped at this seq and captured as baked + strokes
+    // <= seq, so the server can replay the undoable tail (> seq) as commands to a
+    // joiner instead of baking it away. See getBakedWatermarkSeq.
+    this._bakedWatermarkSeq = 0;
     // Users whose strokes are known to never be undone (replay-only optimisation).
     // When set, _bakeOverflowStrokes skips the MAX_STROKES_PER_USER threshold for
     // these users and bakes every bakeable stroke immediately, keeping the
@@ -1012,6 +1020,7 @@ export class LayerManager {
       if (this._canBakeStroke(group, stroke, safeModes)) {
         this._bakeStrokeToBin(group, stroke);
         group.strokeStack.splice(i, 1);
+        this._advanceBakedWatermark(stroke.seq);
 
         const count = group.userStrokeCounts.get(stroke.userId) || 0;
         if (count > 0) group.userStrokeCounts.set(stroke.userId, count - 1);
@@ -1104,7 +1113,33 @@ export class LayerManager {
     for (const stroke of strokes) {
       const count = group.userStrokeCounts.get(stroke.userId) || 0;
       if (count > 0) group.userStrokeCounts.set(stroke.userId, count - 1);
+      this._advanceBakedWatermark(stroke.seq);
     }
+  }
+
+  /**
+   * Advance the baked-seq watermark. Only confirmed (seq > 0) strokes move it;
+   * baking already defers until local strokes are reconciled, so a baked stroke
+   * normally carries an authoritative seq. Optimistic/replay strokes (seq 0/
+   * undefined) leave the watermark untouched so it never claims to cover an
+   * unconfirmed stroke.
+   * @param {number} seq
+   * @private
+   */
+  _advanceBakedWatermark(seq) {
+    const s = Number(seq) || 0;
+    if (s > this._bakedWatermarkSeq) this._bakedWatermarkSeq = s;
+  }
+
+  /**
+   * Highest baked seq on this client. Everything <= this is permanent here;
+   * live (undoable) strokeStack entries are above it. Used to stamp the
+   * checkpoint/join snapshot so the undoable tail is replayed as commands
+   * rather than baked away. See getCheckpointSnapshotPixels (Board).
+   * @returns {number}
+   */
+  getBakedWatermarkSeq() {
+    return this._bakedWatermarkSeq;
   }
 
   /**
@@ -2385,6 +2420,41 @@ export class LayerManager {
   }
 
   /**
+   * Composite a single layer's PERMANENT content for a checkpoint/join snapshot:
+   * baked content (flatCanvas + bakedSequences) plus any confirmed live strokes
+   * with seq <= maxSeq, but NOT active in-progress strokes and NOT optimistic
+   * (seq 0) strokes. Everything with seq > maxSeq is left out so the server can
+   * replay it as the undoable command tail to a joiner.
+   *
+   * Including confirmed live strokes <= maxSeq covers the rare non-prefix bake
+   * (an unsafe-blend stroke skipped by _bakeOverflowStrokes can sit below the
+   * watermark while higher-seq strokes baked) — those land in the base instead
+   * of being dropped.
+   * @param {CanvasRenderingContext2D} targetCtx
+   * @param {number} groupIdx
+   * @param {number} maxSeq - Baked watermark seq.
+   */
+  compositeBakedThroughSeq(targetCtx, groupIdx, maxSeq) {
+    const group = this.layerGroups[groupIdx];
+    if (!group) return;
+
+    const savedStack = group.strokeStack;
+    const savedActive = group.activeStrokeByUser;
+    const savedPreview = group.activePreviewByUser;
+
+    group.strokeStack = savedStack.filter(s => (s.seq || 0) > 0 && s.seq <= maxSeq);
+    group.activeStrokeByUser = new Map();
+    group.activePreviewByUser = new Map();
+    try {
+      this.compositeLayerRange(targetCtx, groupIdx, groupIdx + 1, null);
+    } finally {
+      group.strokeStack = savedStack;
+      group.activeStrokeByUser = savedActive;
+      group.activePreviewByUser = savedPreview;
+    }
+  }
+
+  /**
    * Build a full-size canvas with the layer's existing content (flatCanvas + strokeStack,
    * no background, no active strokes). Mirrors `_buildFlatContentCanvas` so previews can
    * mask against the same content the commit-time mask uses.
@@ -2618,6 +2688,7 @@ export class LayerManager {
       }
     }
     this.redoStackByUser.clear();
+    this._bakedWatermarkSeq = 0;
 
     if (this._pendingGlitchResults) {
       for (const pending of this._pendingGlitchResults.values()) {

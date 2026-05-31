@@ -42,7 +42,12 @@ export class SnapshotManager {
 
     this._autoSnapshotInFlight = true;
     try {
-      const capture = this._captureSnapshotPixels();
+      // Auto-snapshots are the room's join checkpoint: capture only the baked
+      // (permanent) state and stamp the baked watermark seq. The undoable live
+      // tail is left for the server to replay as commands, so joiners rebuild
+      // those strokes as real records (preserving blend mode + undo/redo)
+      // instead of receiving them baked-flat. Null = nothing baked yet → skip.
+      const capture = this._captureCheckpointPixels();
       if (!capture) return;
 
       const [encoded, thumbBytes] = await Promise.all([
@@ -198,6 +203,22 @@ export class SnapshotManager {
     return capture;
   }
 
+  /**
+   * Captures the PERMANENT (baked) board state for the room checkpoint that
+   * drives join-sync. Unlike a manual save, this excludes the still-undoable
+   * live stroke tail and stamps the baked watermark seq, so the server replays
+   * that tail as commands to joiners (keeping per-stroke blend mode + undo/redo).
+   * Returns null when nothing is baked yet — the caller then skips the snapshot
+   * and joiners replay the full command tail instead.
+   * @returns {{ width: number, height: number, layers: Uint8Array[], backgroundColor: *, snapshotSeq: number }|null}
+   * @private
+   */
+  _captureCheckpointPixels() {
+    const capture = this.app.board?.getCheckpointSnapshotPixels?.();
+    if (!capture?.layers?.length) return null;
+    return capture; // snapshotSeq is the baked watermark, set by the board
+  }
+
   _sendSnapshotSave({ layers, snapshotSeq, thumbBytes = null, name = null, auto = false }) {
     if (!this.app.wsClient || !this.app.connected) return;
 
@@ -327,18 +348,44 @@ export class SnapshotManager {
     }
   }
 
+  /**
+   * Render this client's PERMANENT canvas as of a baked watermark seq (baked
+   * content + confirmed strokes <= seq, no live tail), composited across all
+   * layers over the room background. Mirrors how the checkpoint reference is
+   * built, so the two are directly comparable regardless of the live tail.
+   * @param {number} seq
+   * @returns {HTMLCanvasElement|null}
+   * @private
+   */
+  _renderBakedThroughSeqCanvas(seq) {
+    const lm = this.app.board?.layerManager;
+    const dims = this.app.board?.dimensions;
+    if (!lm || !dims) return null;
+    const [height, width] = dims;
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    this._fillSnapshotBackground(ctx, width, height);
+    for (let i = 0; i < lm.layerGroups.length; i++) {
+      lm.compositeBakedThroughSeq(ctx, i, seq);
+    }
+    return canvas;
+  }
+
   buildPixelParityProbe() {
     const checkpoint = this._pixelParityCheckpoint;
-    if (!checkpoint || !this.app.board?.mainCanvas) return null;
+    if (!checkpoint) return null;
 
-    const latestSeq = Number(this.app.wsClient?.lastProcessedSeq || 0);
-    // Without a historical canvas, only compare when the live canvas still
-    // represents the exact checkpoint watermark. Otherwise tail commits after
-    // the checkpoint would look like false pixel divergence.
-    if (latestSeq !== checkpoint.seq) return null;
+    // Compare the client's permanent state AT the checkpoint watermark seq
+    // against the reference (also captured at that seq). This is independent of
+    // the live tail, so the probe stays meaningful even while users keep drawing
+    // — and it directly checks that the agreed baked state matches across peers.
+    const bakedCanvas = this._renderBakedThroughSeqCanvas(checkpoint.seq);
+    if (!bakedCanvas) return null;
 
     const current = this._downsampleCanvasForPixelParity(
-      this.app.board.mainCanvas,
+      bakedCanvas,
       checkpoint.width,
       checkpoint.height
     );

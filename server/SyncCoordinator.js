@@ -100,10 +100,15 @@ export class SyncCoordinator {
       const bundle = tape?.getBundle(entry.seq);
       return total + (bundle?.length || 0) + (log.getBytes(entry.seq) ? 1 : 0);
     }, 0);
+    // In-flight (uncommitted) strokes have no commit seq yet, so they're absent
+    // from both the checkpoint and the strokeLog tail. Replay their preambles so
+    // the joiner re-begins each active stroke with the right tool state.
+    const pendingBundles = tape?.getPendingBundles?.() || [];
+    const pendingMessageCount = pendingBundles.reduce((total, b) => total + b.frames.length, 0);
     const [boardHeight, boardWidth] = getBoardDimensionsForSize(this.room?.settings?.boardSize);
     this.sendTo(ws, {
       t: T.SYNC_METADATA,
-      syncTotal: checkpointMessageCount + tailMessageCount,
+      syncTotal: checkpointMessageCount + tailMessageCount + pendingMessageCount,
       boardWidth,
       boardHeight
     });
@@ -128,6 +133,21 @@ export class SyncCoordinator {
         }
         console.log(`[Sync] Replayed tail (${baseSeq}, ${latestSeq}] to ${requesterSessionIndex}: ${served} commits${missing ? `, ${missing} evicted` : ''}`);
       }
+    }
+
+    // 2b. Replay in-flight (uncommitted) stroke preambles so a user who is
+    //     mid-stroke at join time is visible to the joiner with the correct
+    //     tool state (blend mode, size, color). No commit follows — the live
+    //     MM/MU continuation lands on this open stroke. Sent after the tail so
+    //     the active stroke sits above all committed strokes, matching peers.
+    if (pendingBundles.length > 0) {
+      let pendingStrokes = 0;
+      for (const { frames } of pendingBundles) {
+        if (ws.readyState !== WebSocket.OPEN) return;
+        for (const frame of frames) this.sendTo(ws, frame);
+        pendingStrokes++;
+      }
+      console.log(`[Sync] Replayed ${pendingStrokes} in-flight stroke(s) to ${requesterSessionIndex}`);
     }
 
     // 3. Live floating selections / masks / obscure regions, then complete.

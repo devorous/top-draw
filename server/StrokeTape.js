@@ -196,6 +196,24 @@ export class StrokeTape {
   }
 
   /**
+   * In-flight (uncommitted) stroke preambles, one per user currently mid-stroke.
+   * Each bundle is the same shape as a committed bundle (tool-state snapshot +
+   * MD + the MM frames seen so far) but has no closing commit yet. A fresh
+   * joiner replays these AFTER the committed tail so it re-begins each active
+   * stroke with the correct tool state (incl. blend mode) and partial geometry;
+   * the live MM/MU continuation then lands on that already-open stroke instead
+   * of a lazily-created source-over one.
+   * @returns {Array<{userId: number, frames: Uint8Array[]}>}
+   */
+  getPendingBundles() {
+    const out = [];
+    for (const [userId, frames] of this._pending) {
+      if (frames && frames.length > 0) out.push({ userId, frames });
+    }
+    return out;
+  }
+
+  /**
    * Drop bundles with seq < cutoffSeq. Mirrors StrokeFingerprintLog.truncateBefore
    * so the geometry tape and the commit log stay bounded together at checkpoints.
    * Keys are inserted in ascending seq order, so we can stop at the first kept key.
