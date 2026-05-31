@@ -787,6 +787,7 @@ export async function sanitizeMessage(data) {
     case T.BOARD_SNAPSHOT_GET:
       sanitized.snapshotId = sanitizeString(data.snapshotId, 64);
       if (!sanitized.snapshotId) return null;
+      sanitized.snapshotProbe = !!data.snapshotProbe;
       return sanitized;
 
     case T.BOARD_SNAPSHOT_REGION_RESTORE:
@@ -852,6 +853,14 @@ export async function sanitizeMessage(data) {
       sanitized.seq = Number(data.seq || 0);
       sanitized.parityCount = clampInt(data.parityCount, 0, 1_000_000, 0);
       sanitized.parityRollingHash = (Number(data.parityRollingHash) >>> 0);
+      sanitized.parityPixelSnapshotSeq = Math.max(0, Math.round(Number(data.parityPixelSnapshotSeq) || 0));
+      sanitized.parityPixelSnapshotId = sanitizeString(data.parityPixelSnapshotId, 64);
+      sanitized.parityPixelTiles = sanitizeUintArray(data.parityPixelTiles, { max: 1_000_000, maxLength: 5000 });
+      sanitized.parityPixelTileSize = clampInt(data.parityPixelTileSize, 1, 1024, 0);
+      sanitized.parityPixelMadThresholdX100 = clampInt(data.parityPixelMadThresholdX100, 0, 25500, 0);
+      sanitized.parityPixelMaxMadX100 = clampInt(data.parityPixelMaxMadX100, 0, 25500, 0);
+      sanitized.parityPixelMeanMadX100 = clampInt(data.parityPixelMeanMadX100, 0, 25500, 0);
+      sanitized.parityPixelTileCols = clampInt(data.parityPixelTileCols, 0, 10000, 0);
       return sanitized;
 
     case T.SYNC_PARITY_CHUNK_REQUEST:

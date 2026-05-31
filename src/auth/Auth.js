@@ -30,6 +30,8 @@ export class Auth {
     this.currentAuthSession = null;
     this._autoLoginInFlight = false;
     this._autoLoginToken = null;
+    this._autoLoginSent = false;
+    this._autoLoginSocket = null;
     this._authPendingTimeout = null;
     this._discordPopup = null;
     this.needsUsernameSetup = false;
@@ -147,6 +149,7 @@ export class Auth {
     // Listen for auth results from WebSocket (in case it fires before AuthModHandlers sets up the main listener)
     if (this.wsClient) {
       this.wsClient.on('auth_result', (data) => this.handleAuthResult(data));
+      this.wsClient.on('socket_ready', () => this.sendPendingAutoLogin());
     }
     window.addEventListener('message', (event) => this.handleDiscordPopupMessage(event));
 
@@ -1457,19 +1460,14 @@ export class Auth {
     this.setAuthPending(true);
 
     if (this._autoLoginInFlight && this._autoLoginToken === token) {
+      this.sendPendingAutoLogin();
       return true;
     }
 
     this._autoLoginInFlight = true;
     this._autoLoginToken = token;
-    if (this._authPendingTimeout) clearTimeout(this._authPendingTimeout);
-    this._authPendingTimeout = setTimeout(() => {
-      if (!this._autoLoginInFlight || this._autoLoginToken !== token) return;
-      this._autoLoginInFlight = false;
-      this._autoLoginToken = null;
-      this.setAuthPending(false);
-      if (this.onError) this.onError('Account login is taking longer than expected. You can still join or try again.');
-    }, 10000);
+    this._autoLoginSent = false;
+    this._autoLoginSocket = null;
 
     // Send token if we have one — covers room switches within a session,
     // "remember me" across page reloads, and page refreshes with a stored token.
@@ -1477,20 +1475,31 @@ export class Auth {
     // than `connected`: the socket flips `connected=true` before the initial
     // CONNECT message is actually sent, so sending AUTH_LOGIN on `connected`
     // alone can race the CONNECT and arrive at the server with no room/session.
-    const isReady = () => this.wsClient?.connected && this.wsClient?.sessionIndex != null;
-    if (isReady()) {
-      void this.wsClient.sendAuthTokenLogin(token);
-    } else {
-      const checkConnection = () => {
-        if (!this._autoLoginInFlight || this._autoLoginToken !== token) return;
-        if (isReady()) {
-          void this.wsClient.sendAuthTokenLogin(token);
-        } else {
-          setTimeout(checkConnection, 100);
-        }
-      };
-      checkConnection();
-    }
+    this.sendPendingAutoLogin();
+    return true;
+  }
+
+  sendPendingAutoLogin() {
+    const token = this._autoLoginToken;
+    const currentSocket = this.wsClient?.socket || null;
+    if (!this._autoLoginInFlight || !token) return false;
+    if (this._autoLoginSent && this._autoLoginSocket === currentSocket) return false;
+    if (!this.wsClient?.connected || this.wsClient?.sessionIndex == null) return false;
+
+    this._autoLoginSent = true;
+    this._autoLoginSocket = currentSocket;
+    void this.wsClient.sendAuthTokenLogin(token);
+
+    if (this._authPendingTimeout) clearTimeout(this._authPendingTimeout);
+    this._authPendingTimeout = setTimeout(() => {
+      if (!this._autoLoginInFlight || this._autoLoginToken !== token) return;
+      this._autoLoginInFlight = false;
+      this._autoLoginToken = null;
+      this._autoLoginSent = false;
+      this._autoLoginSocket = null;
+      this.setAuthPending(false);
+      if (this.onError) this.onError('Account login is taking longer than expected. You can still join or try again.');
+    }, 10000);
     return true;
   }
 
@@ -1498,6 +1507,8 @@ export class Auth {
     this.setLoading(false);
     this._autoLoginInFlight = false;
     this._autoLoginToken = null;
+    this._autoLoginSent = false;
+    this._autoLoginSocket = null;
     if (this._authPendingTimeout) {
       clearTimeout(this._authPendingTimeout);
       this._authPendingTimeout = null;

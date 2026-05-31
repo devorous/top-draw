@@ -742,7 +742,27 @@ export class WebSocketClient {
     if (data.t === T.SYNC_CHECKPOINT_MINTED) {
       const cutoff = Number(data.snapshotSeq) || 0;
       if (cutoff > 0) this.strokeLog.truncateBefore(cutoff + 1);
+      this.emit('sync_checkpoint_minted', {
+        snapshotId: data.snapshotId || '',
+        snapshotSeq: cutoff
+      });
       return;
+    }
+
+    // Checkpoint-based join: the private BOARD_SNAPSHOT_RESTORE that opens a sync
+    // carries snapshotSeq (the checkpoint's applied-seq S) but no real `seq`
+    // (it's unsequenced and not a logged commit). Adopt S as our base watermark
+    // and drop any pre-checkpoint fingerprint entries (matters for an AFK
+    // re-sync, which reuses the existing log) so our compared window is exactly
+    // the (S, latest] tail the server then replays. NOT a return — the image
+    // still applies via the normal board_snapshot_restore handler below.
+    // Manual/sequenced restores carry `seq` instead and are skipped here.
+    if (data.t === T.BOARD_SNAPSHOT_RESTORE && !data.seq && data.snapshotSeq) {
+      const base = Number(data.snapshotSeq) || 0;
+      if (base > 0) {
+        this.strokeLog.truncateBefore(base + 1);
+        if (base > this.lastProcessedSeq) this.lastProcessedSeq = base;
+      }
     }
 
     // Commit-class self-echo: the server re-broadcasts our own commit
@@ -804,6 +824,7 @@ export class WebSocketClient {
           };
           this.onConnect(this.sessionIndex, this.role, data.authUsername, data.iph, connectData);
         }
+        this.emit('socket_ready', { sessionIndex: this.sessionIndex, resumed: false });
         break;
 
       case T.CONNECT_RESUMED:
@@ -815,6 +836,7 @@ export class WebSocketClient {
         if (this.onConnectResumed) {
           this.onConnectResumed(this.sessionIndex, this.role, data.authUsername);
         }
+        this.emit('socket_ready', { sessionIndex: this.sessionIndex, resumed: true });
         break;
 
       case T.PING:
@@ -1569,7 +1591,9 @@ export class WebSocketClient {
           snapshotLayers: data.snapshotLayers,
           snapshotId: data.snapshotId,
           snapshotTs: data.snapshotTs,
-          snapshotIssuer: data.snapshotIssuer
+          snapshotIssuer: data.snapshotIssuer,
+          snapshotSeq: data.snapshotSeq,
+          isSyncCheckpoint: !data.seq && !!data.snapshotSeq
         });
         break;
 
@@ -1598,12 +1622,21 @@ export class WebSocketClient {
 
       case T.BOARD_SNAPSHOT_SAVE:
         // Private response to a BOARD_SNAPSHOT_GET request (not a broadcast restore)
-        if (data.snapshotId && !data.a) {
+        if (data.snapshotId && data.snapshotProbe) {
+          window.app?.snapshotManager?.handleSnapshotProbeResponse?.({
+            snapshotId: data.snapshotId,
+            snapshotTs: data.snapshotTs,
+            snapshotIssuer: data.snapshotIssuer,
+            snapshotLayers: data.snapshotLayers,
+            snapshotSeq: data.snapshotSeq
+          });
+        } else if (data.snapshotId && !data.a) {
           this.emit('board_snapshot_get_response', {
             snapshotId: data.snapshotId,
             snapshotTs: data.snapshotTs,
             snapshotIssuer: data.snapshotIssuer,
-            snapshotLayers: data.snapshotLayers
+            snapshotLayers: data.snapshotLayers,
+            snapshotSeq: data.snapshotSeq
           });
         }
         break;
@@ -2741,8 +2774,8 @@ export class WebSocketClient {
     this.send({ t: T.CHECKPOINT_LIST });
   }
 
-  requestSnapshotGet(snapshotId) {
-    this.send({ t: T.BOARD_SNAPSHOT_GET, snapshotId });
+  requestSnapshotGet(snapshotId, { snapshotProbe = false } = {}) {
+    this.send({ t: T.BOARD_SNAPSHOT_GET, snapshotId, snapshotProbe });
   }
 
   /**

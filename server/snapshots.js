@@ -143,9 +143,11 @@ export async function handleSnapshotSave(ws, data, room) {
 
   // Server-initiated auto-snapshots: any user who was explicitly asked may respond.
   // Manual saves require Trusted+ unless the user is alone in the room.
-  const isServerRequested = room?._pendingSnapshotRequests?.has(ws.sessionIndex);
+  const isServerRequested = room?.clearPendingSnapshotRequest
+    ? room.clearPendingSnapshotRequest(ws.sessionIndex)
+    : room?._pendingSnapshotRequests?.has(ws.sessionIndex);
   if (isServerRequested) {
-    room._pendingSnapshotRequests.delete(ws.sessionIndex);
+    room._pendingSnapshotRequests?.delete(ws.sessionIndex);
   } else if (!canManualSaveSnapshot(ws, room)) {
     return;
   }
@@ -186,6 +188,7 @@ export async function handleSnapshotSave(ws, data, room) {
   // and heals sub-checkpoint joiner gaps — both subsumed by the checkpoint image).
   if (isAuto && checkpointSeq > 0) {
     room.strokeLog?.truncateBefore?.(checkpointSeq + 1);
+    room.strokeTape?.truncateBefore?.(checkpointSeq + 1);
     room.broadcastToAll({
       t: T.SYNC_CHECKPOINT_MINTED,
       snapshotId: snapshotId,
@@ -223,6 +226,7 @@ export async function handleSnapshotSave(ws, data, room) {
         timestamp: snapshotTs,
         issuer: issuer,
         auto: isAuto,
+        seq: checkpointSeq,
         thumbnail: thumbBytes,
         r2Key: r2Key,
         name: data.n || (isAuto ? `Auto-save ${new Date(snapshotTs).toLocaleTimeString()}` : `Snapshot ${new Date(snapshotTs).toLocaleString()}`)
@@ -404,21 +408,25 @@ export async function handleSnapshotRestore(ws, data, room) {
  * @param {Room} room
  */
 export async function handleSnapshotGet(ws, data, room) {
-  if (!canViewSnapshotHistory(ws, room)) return;
-
   const snapshotId = data.snapshotId;
+  const isProbeFetch = !!data.snapshotProbe;
   let snapshotData = null;
+  let snapshotIsAuto = false;
+
+  if (!isProbeFetch && !canViewSnapshotHistory(ws, room)) return;
 
   // 1. Check in-memory buffer first
   let snapshotInMemory = room.snapshots.find(s => s.id === snapshotId);
 
   if (snapshotInMemory && snapshotInMemory.layers && snapshotInMemory.layers.length > 0) {
+    snapshotIsAuto = !!snapshotInMemory.auto;
     snapshotData = {
       id: snapshotInMemory.id,
       ts: snapshotInMemory.ts,
       issuer: snapshotInMemory.issuer,
       layers: snapshotInMemory.layers,
-      thumb: snapshotInMemory.thumb
+      thumb: snapshotInMemory.thumb,
+      seq: snapshotInMemory.seq || 0
     };
   } else {
     // 2. Fetch from the room_snapshots collection and then R2
@@ -431,6 +439,7 @@ export async function handleSnapshotGet(ws, data, room) {
       }
 
       if (doc.r2Key) {
+        snapshotIsAuto = !!doc.auto;
         const bundle = await getSnapshotBundle(doc.r2Key);
         if (!bundle) {
           console.warn(`[Snapshot] Get failed: Snapshot bundle not found in R2 for key ${doc.r2Key}.`);
@@ -441,13 +450,20 @@ export async function handleSnapshotGet(ws, data, room) {
           ts: doc.timestamp,
           issuer: doc.issuer,
           layers: bundle.layers,
-          thumb: bundle.thumbnail
+          thumb: bundle.thumbnail,
+          seq: doc.seq || 0
         };
       }
     } catch (err) {
       console.error(`[Snapshot] DB/R2 fetch error during get for ${snapshotId}:`, err);
       return;
     }
+  }
+
+  if (isProbeFetch) {
+    // Pixel-parity diagnostics may fetch only auto-checkpoints; this avoids
+    // opening the full manual history surface to unregistered clients.
+    if (!snapshotIsAuto) return;
   }
 
   if (!snapshotData || !snapshotData.layers) {
@@ -461,7 +477,9 @@ export async function handleSnapshotGet(ws, data, room) {
     snapshotTs: snapshotData.ts,
     snapshotIssuer: snapshotData.issuer,
     snapshotLayers: snapshotData.layers,
-    snapshotThumb: snapshotData.thumb
+    snapshotThumb: snapshotData.thumb,
+    snapshotSeq: snapshotData.seq || 0,
+    snapshotProbe: isProbeFetch
   });
 }
 

@@ -47,6 +47,10 @@ export function setupSnapshotHandlers(wsClient, app) {
     app.snapshotManager.handleServerRequest();
   });
 
+  wsClient.on('sync_checkpoint_minted', (data) => {
+    app.snapshotManager.handleCheckpointMinted(data);
+  });
+
   // Handle region restoration (broadcast from server)
   wsClient.on('board_snapshot_region_restore', (data) => {
     if (!data.snapshotLayers || data.snapshotLayers.length === 0) return;
@@ -91,10 +95,13 @@ export function setupSnapshotHandlers(wsClient, app) {
   wsClient.on('board_snapshot_restore', (data) => {
     if (!data.snapshotLayers || data.snapshotLayers.length === 0) return;
 
-    const issuer = data.snapshotIssuer || 'Unknown';
-    const ts = new Date(data.snapshotTs).toLocaleString();
-
-    app.ui.showToast(`Board restored to snapshot by ${issuer} (${ts})`, 5000);
+    if (data.isSyncCheckpoint) {
+      app.syncClient?.handleSyncCheckpointRestore?.(data);
+    } else {
+      const issuer = data.snapshotIssuer || 'Unknown';
+      const ts = new Date(data.snapshotTs).toLocaleString();
+      app.ui.showToast(`Board restored to snapshot by ${issuer} (${ts})`, 5000);
+    }
 
     // Apply the per-layer snapshot to the board
     app.board.restoreSnapshot(data.snapshotLayers);

@@ -774,6 +774,19 @@ export class SyncClient {
     this.updateProgress();
   }
 
+  /**
+   * Counts the checkpoint base image used by the checkpoint-join sync path.
+   * This is not a user-triggered snapshot restore; it is the first sync payload.
+   *
+   * @returns {void}
+   */
+  handleSyncCheckpointRestore() {
+    if (!this.syncing) return;
+    this._noteSyncProgress();
+    this.receivedMessages++;
+    this.updateProgress();
+  }
+
   _getSyncableActiveStrokes(group) {
     if (!group?.activeStrokeByUser) return [];
     const active = [];
@@ -1131,6 +1144,11 @@ export class SyncClient {
    * @returns {void}
    */
   bufferEvent(eventName, data) {
+    if (this.syncing) {
+      this._noteSyncProgress();
+      this.receivedMessages++;
+      this.updateProgress();
+    }
     this.eventBuffer.push({ eventName, data });
   }
 
@@ -1142,6 +1160,21 @@ export class SyncClient {
     if (!this.handlerMap || this.eventBuffer.length === 0) {
       this.eventBuffer = [];
       return;
+    }
+
+    // Pre-create remote users for any sessionIndex referenced in the buffered
+    // stream that isn't already known. The checkpoint-join tail can replay
+    // strokes from a user who has since LEFT (absent from our USERS list); the
+    // draw handlers `users.get(sid)` and silently bail without this. The next
+    // authoritative USERS broadcast cleans up these placeholders. See
+    // App.ensureRemoteUser.
+    if (this.app?.ensureRemoteUser) {
+      for (const { data } of this.eventBuffer) {
+        const sid = data?.sessionIndex;
+        if (sid !== undefined && sid !== null && !this.app.users?.has(sid)) {
+          this.app.ensureRemoteUser(sid);
+        }
+      }
     }
 
     for (const { eventName, data } of this.eventBuffer) {

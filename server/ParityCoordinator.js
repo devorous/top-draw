@@ -31,6 +31,7 @@ export class ParityCoordinator {
   constructor(room, sendTo) {
     this.room = room;
     this.sendTo = sendTo;
+    this._lastPixelProbeLogBySession = new Map();
   }
 
   /**
@@ -52,6 +53,7 @@ export class ParityCoordinator {
     const clientSeq = Number(data.seq || 0);
     const clientCount = Number(data.parityCount || 0);
     const clientHash = (data.parityRollingHash >>> 0);
+    this._handlePixelProbe(ws, data);
 
     const summary = log.getSummary();
     const serverCount = summary.count;
@@ -147,6 +149,33 @@ export class ParityCoordinator {
 
     parityPersistence.attachDetail(eventId, { missing, extra, mismatchedSeqs })
       .catch((err) => console.warn('[Parity] attachDetail threw', err));
+  }
+
+  _handlePixelProbe(ws, data) {
+    const snapshotSeq = Number(data.parityPixelSnapshotSeq || 0);
+    if (snapshotSeq <= 0) return;
+
+    const tiles = Array.isArray(data.parityPixelTiles) ? data.parityPixelTiles : [];
+    if (tiles.length === 0) return;
+
+    const sessionIndex = Number(ws.sessionIndex);
+    const key = `${snapshotSeq}:${tiles.join(',')}:${Number(data.parityPixelMaxMadX100 || 0)}`;
+    const previous = this._lastPixelProbeLogBySession.get(sessionIndex);
+    if (previous === key) return;
+    this._lastPixelProbeLogBySession.set(sessionIndex, key);
+
+    console.warn('[PixelParity] divergent checkpoint tiles', {
+      roomId: this.room?.id,
+      sessionIndex,
+      snapshotId: String(data.parityPixelSnapshotId || ''),
+      snapshotSeq,
+      tileSize: Number(data.parityPixelTileSize || 0),
+      tileCols: Number(data.parityPixelTileCols || 0),
+      threshold: Number(data.parityPixelMadThresholdX100 || 0) / 100,
+      maxMad: Number(data.parityPixelMaxMadX100 || 0) / 100,
+      meanMad: Number(data.parityPixelMeanMadX100 || 0) / 100,
+      tiles,
+    });
   }
 
   /**

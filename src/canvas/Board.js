@@ -3148,6 +3148,32 @@ export class Board {
   }
 
   /**
+   * Captures each layer as raw RGBA pixels for off-main-thread snapshot encoding.
+   * The returned buffers are intended to be transferred to a worker.
+   * @returns {{ width: number, height: number, layers: Uint8Array[], backgroundColor: * }|null}
+   */
+  getSnapshotPixels() {
+    if (!this.layerManager) return null;
+    const [height, width] = this.dimensions;
+    const layers = [];
+
+    for (let i = 0; i < this.layerManager.layerGroups.length; i++) {
+      const { ctx } = this.layerManager._createCanvas();
+      ctx.clearRect(0, 0, width, height);
+      this.layerManager.compositeLayerRange(ctx, i, i + 1, null);
+      const imageData = ctx.getImageData(0, 0, width, height);
+      layers.push(new Uint8Array(imageData.data.buffer));
+    }
+
+    return {
+      width,
+      height,
+      layers,
+      backgroundColor: this.backgroundColor,
+    };
+  }
+
+  /**
    * Restores per-layer QOI snapshot data onto the board.
    * @param {Uint8Array[]} layerDatas - Array of QOI blobs, one per layer
    */

@@ -5,6 +5,7 @@ import { SyncCoordinator } from './SyncCoordinator.js';
 import { ParityCoordinator } from './ParityCoordinator.js';
 import { T } from '../shared/MessageTypes.js';
 import { StrokeFingerprintLog } from '../shared/StrokeFingerprint.js';
+import { StrokeTape } from './StrokeTape.js';
 import { WebSocket } from 'ws';
 import { getDB } from './db.js';
 import { scoreProvider } from './providerScoring.js';
@@ -106,6 +107,16 @@ export class Room {
      */
     this.strokeLog = new StrokeFingerprintLog({ storeBytes: true });
 
+    /**
+     * Per-stroke geometry tape, keyed by commit seq. Retains the MD/MM frames
+     * and a tool-state preamble for each stroke so a fresh joiner can redraw
+     * post-checkpoint strokes from the original commands (the fingerprint log
+     * stores only commit markers, which can't reconstruct a brush line). Bounded
+     * alongside strokeLog by checkpoint truncation. See server/StrokeTape.js.
+     * @type {StrokeTape}
+     */
+    this.strokeTape = new StrokeTape(T);
+
     /** @type {ParityCoordinator} Handles SYNC_PARITY_* messages for this room. */
     this.parityCoordinator = new ParityCoordinator(this, this.sendTo);
 
@@ -118,6 +129,7 @@ export class Room {
 
     /** @type {Set<number>} Session indices that were asked for a server-initiated snapshot */
     this._pendingSnapshotRequests = new Set();
+    this._pendingSnapshotRequestTimers = new Map();
   }
 
   /**
@@ -165,6 +177,9 @@ export class Room {
     if (!this._snapshotTimer) return;
     clearInterval(this._snapshotTimer);
     this._snapshotTimer = null;
+    for (const timer of this._pendingSnapshotRequestTimers.values()) clearTimeout(timer);
+    this._pendingSnapshotRequestTimers.clear();
+    this._pendingSnapshotRequests.clear();
   }
 
   /**
@@ -216,8 +231,34 @@ export class Room {
     const chosen = ranked[0]?.ws;
     if (!chosen) return;
 
-    this._pendingSnapshotRequests.add(chosen.sessionIndex);
+    this.markSnapshotRequestPending(chosen.sessionIndex);
     this.sendTo(chosen, { t: T.BOARD_SNAPSHOT_REQUEST });
+  }
+
+  markSnapshotRequestPending(sessionIndex) {
+    const idx = Number(sessionIndex);
+    if (!Number.isFinite(idx)) return;
+
+    this._pendingSnapshotRequests.add(idx);
+    const existing = this._pendingSnapshotRequestTimers.get(idx);
+    if (existing) clearTimeout(existing);
+
+    const timer = setTimeout(() => {
+      this._pendingSnapshotRequests.delete(idx);
+      this._pendingSnapshotRequestTimers.delete(idx);
+    }, Math.max(this._snapshotIntervalMs * 2, 30000));
+    this._pendingSnapshotRequestTimers.set(idx, timer);
+  }
+
+  clearPendingSnapshotRequest(sessionIndex) {
+    const idx = Number(sessionIndex);
+    if (!Number.isFinite(idx)) return false;
+
+    const wasPending = this._pendingSnapshotRequests.delete(idx);
+    const timer = this._pendingSnapshotRequestTimers.get(idx);
+    if (timer) clearTimeout(timer);
+    this._pendingSnapshotRequestTimers.delete(idx);
+    return wasPending;
   }
 
   /**
@@ -260,14 +301,18 @@ export class Room {
 
   /**
    * Fetches the most recent snapshot data, checking in-memory buffer then DB/R2.
-   * @returns {Promise<{id: string, ts: number, issuer: string, layers: Array}|null>}
+   * `seq` is the applied-seq watermark the capture represents (the checkpoint
+   * seq S): the in-memory auto-snapshots carry it; the DB fallback has none
+   * persisted, so it returns 0 (the joiner then replays the full retained tail,
+   * which is empty after a fresh server restart anyway).
+   * @returns {Promise<{id: string, ts: number, issuer: string, layers: Array, seq: number}|null>}
    */
   async getLatestSnapshotData() {
     // Check in-memory rolling buffer first (most recent auto-saves)
     for (let i = this.snapshots.length - 1; i >= 0; i--) {
       const s = this.snapshots[i];
       if (s.layers && s.layers.length > 0) {
-        return { id: s.id, ts: s.ts, issuer: s.issuer, layers: s.layers };
+        return { id: s.id, ts: s.ts, issuer: s.issuer, layers: s.layers, seq: s.seq || 0 };
       }
     }
 
@@ -284,7 +329,7 @@ export class Room {
 
       const bundle = await getSnapshotBundle(doc.r2Key);
       if (!bundle) return null;
-      return { id: doc.snapshotId, ts: doc.timestamp, issuer: doc.issuer, layers: bundle.layers };
+      return { id: doc.snapshotId, ts: doc.timestamp, issuer: doc.issuer, layers: bundle.layers, seq: doc.seq || 0 };
     } catch (err) {
       console.error(`[Room] Failed to fetch latest snapshot for "${this.id}":`, err);
       return null;

@@ -508,6 +508,15 @@ message Msg {
   repeated FingerprintEntry parity_extra = 185;   // MISMATCH_REPORT: client has, server doesn't
   repeated uint64 parity_mismatched_seqs = 186 [packed = true]; // MISMATCH_REPORT: same seq, diff fp
   bool parity_report_truncated = 187; // MISMATCH_REPORT: client truncated its diff before sending
+  uint64 parity_pixel_snapshot_seq = 188; // CHECK: checkpoint seq compared by pixel probe
+  string parity_pixel_snapshot_id = 189;  // CHECK: checkpoint id compared by pixel probe
+  repeated uint32 parity_pixel_tiles = 190 [packed = true]; // CHECK: divergent tile indices
+  uint32 parity_pixel_tile_size = 191; // CHECK: board pixels per tile
+  uint32 parity_pixel_mad_threshold_x100 = 192; // CHECK: MAD threshold * 100
+  uint32 parity_pixel_max_mad_x100 = 193; // CHECK: max tile MAD * 100
+  uint32 parity_pixel_mean_mad_x100 = 194; // CHECK: mean tile MAD * 100
+  uint32 parity_pixel_tile_cols = 195; // CHECK: tile grid width
+  bool snapshot_probe = 196; // BOARD_SNAPSHOT_GET/SAVE response: private checkpoint probe fetch
 
   message FingerprintEntry {
     uint64  seq         = 1;

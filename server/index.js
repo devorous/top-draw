@@ -2591,6 +2591,13 @@ function broadcastToRoom(room, payload, excludeIndex = null) {
     });
   }
 
+  // Retain stroke geometry (MD/MM + tool-state preamble) keyed by commit seq so
+  // a fresh joiner can redraw post-checkpoint strokes from the original commands.
+  // Commit bytes themselves live in strokeLog; this fills the non-committed gap.
+  if (room?.strokeTape) {
+    room.strokeTape.observe(payload.t, payload.u | 0, buffer, POOLED_MSG.seq, isCommitType(payload.t));
+  }
+
   // Commit-class messages echo back to the sender so their strokeLog stays
   // in lockstep with the server's. The client recognizes self-echoes by
   // sessionIndex and skips the draw handlers (it already drew locally).
@@ -2700,8 +2707,11 @@ function getRecentSession(room, sessionIndex) {
 function finalizeSessionRemoval(room, sessionIndex, ws) {
   if (!room || sessionIndex === undefined) return;
   recordRecentSession(room, sessionIndex, ws);
+  room.clearPendingSnapshotRequest?.(sessionIndex);
   room.sessionManager.removeUser(sessionIndex);
   room.sessionManager.freeSessionIndex(sessionIndex);
+  // Discard any in-flight stroke geometry the departing user never committed.
+  room.strokeTape?.dropUser?.(sessionIndex);
   if (!ws.isShadowBanned) {
     broadcastToRoom(room, { t: T.LEFT, u: sessionIndex });
   }

@@ -300,16 +300,25 @@ export class StrokeFingerprintLog {
   /**
    * Drop entries with seq < cutoffSeq. Used after a checkpoint is minted —
    * the checkpoint subsumes everything before it.
+   *
+   * The rolling hash MUST be recomputed over what remains: a fresh joiner builds
+   * its log clean over only the post-checkpoint tail, so an existing client whose
+   * hash still folded in the (now-removed) pre-checkpoint entries would mismatch
+   * it and desync. (See the Stage-1 checkpoint-join path.)
    * @param {number} cutoffSeq
    */
   truncateBefore(cutoffSeq) {
-    const idx = this.entries.findIndex(e => e.seq >= cutoffSeq);
+    if (this.entries.length === 0) return;
+    let idx = this.entries.findIndex(e => e.seq >= cutoffSeq);
+    // No entry at/after the cutoff → every entry precedes it; drop them all.
+    if (idx === -1) idx = this.entries.length;
     if (idx > 0) {
       const removed = this.entries.splice(0, idx);
       this.evicted += idx;
       if (this._bytesBySeq) {
         for (const r of removed) this._bytesBySeq.delete(r.seq);
       }
+      this._recomputeRollingHash();
     }
   }
 

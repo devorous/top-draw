@@ -1,5 +1,5 @@
 <script>
-  import { appState, toggleSnapshotMenu, openLocalSnapshotMenu } from '../../state.svelte.js';
+  import { appState, toggleSnapshotMenu } from '../../state.svelte.js';
   import { LayerPreview } from '../LayerPreview.js';
   import ToolPreview from './ToolPreview.svelte';
 

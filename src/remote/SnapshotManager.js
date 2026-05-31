@@ -1,46 +1,13 @@
 /** @fileoverview Manages board snapshots and server communication. */
 
 import { T } from '../../shared/MessageTypes.js';
-import { LocalSnapshotStore } from './LocalSnapshotStore.js';
+import * as wasm from '../wasm/ddraw_wasm.js';
+import { readQoiDimensions, snapshotLayerDimensions } from '../../shared/qoi.js';
 
-const LOCAL_CAPTURE_INTERVAL_MS = 30000;
-
-const LOCAL_SETTINGS_KEY = 'topdraw_localSnapshotSettings';
-const LOCAL_SETTINGS_DEFAULTS = Object.freeze({
-  enabled: false,        // Disabled by default — periodic captures cause noticeable stutters on slower machines
-  intervalSec: 30,
-  maxCount: 50,
-});
-
-export function getLocalSnapshotSettings() {
-  try {
-    const raw = localStorage.getItem(LOCAL_SETTINGS_KEY);
-    if (!raw) return { ...LOCAL_SETTINGS_DEFAULTS };
-    const parsed = JSON.parse(raw);
-    return {
-      enabled: typeof parsed.enabled === 'boolean' ? parsed.enabled : LOCAL_SETTINGS_DEFAULTS.enabled,
-      intervalSec: clampInt(parsed.intervalSec, 5, 600, LOCAL_SETTINGS_DEFAULTS.intervalSec),
-      maxCount: clampInt(parsed.maxCount, 1, 500, LOCAL_SETTINGS_DEFAULTS.maxCount),
-    };
-  } catch {
-    return { ...LOCAL_SETTINGS_DEFAULTS };
-  }
-}
-
-export function saveLocalSnapshotSettings(partial) {
-  const next = { ...getLocalSnapshotSettings(), ...partial };
-  next.intervalSec = clampInt(next.intervalSec, 5, 600, LOCAL_SETTINGS_DEFAULTS.intervalSec);
-  next.maxCount = clampInt(next.maxCount, 1, 500, LOCAL_SETTINGS_DEFAULTS.maxCount);
-  next.enabled = !!next.enabled;
-  try { localStorage.setItem(LOCAL_SETTINGS_KEY, JSON.stringify(next)); } catch {}
-  return next;
-}
-
-function clampInt(value, min, max, fallback) {
-  const n = parseInt(value, 10);
-  if (!Number.isFinite(n)) return fallback;
-  return Math.max(min, Math.min(max, n));
-}
+const PIXEL_PARITY_TILE_SIZE = 32;
+const PIXEL_PARITY_SAMPLES_PER_TILE = 4;
+const PIXEL_PARITY_MAD_THRESHOLD = 18;
+const PIXEL_PARITY_MAX_TILES = 5000;
 
 export class SnapshotManager {
   /**
@@ -53,21 +20,13 @@ export class SnapshotManager {
     this.snapshotPageSize = 20;
     this.lastListAppend = false;
     this.hasMoreSnapshots = true;
-
-    this._localStore = null;
-    this._localCaptureTimer = null;
-    this._lastLocalHash = null;
-  }
-
-  _getLocalStore() {
-    if (!this._localStore) {
-      try {
-        this._localStore = new LocalSnapshotStore();
-      } catch (err) {
-        console.warn('[SnapshotManager] IndexedDB unavailable:', err);
-      }
-    }
-    return this._localStore;
+    this._snapshotEncodeWorker = null;
+    this._snapshotEncodePromises = new Map();
+    this._snapshotEncodeMsgId = 1;
+    this._autoSnapshotInFlight = false;
+    this._autoSnapshotQueued = false;
+    this._pixelParityCheckpoint = null;
+    this._pixelParityFetchInFlight = null;
   }
 
   /**
@@ -76,29 +35,42 @@ export class SnapshotManager {
    */
   async handleServerRequest() {
     if (!this.app.wsClient || !this.app.connected) return;
+    if (this._autoSnapshotInFlight) {
+      this._autoSnapshotQueued = true;
+      return;
+    }
 
-    const layers = this.app.board.getSnapshot();
-    // Applied-seq the capture represents. getSnapshot() is synchronous, so the
-    // canvas can't change between it and this read — the stamp is exact.
-    const snapshotSeq = this.app.wsClient?.lastProcessedSeq || 0;
-    if (!layers || layers.length === 0) return;
+    this._autoSnapshotInFlight = true;
+    try {
+      const capture = this._captureSnapshotPixels();
+      if (!capture) return;
 
-    // Skip if board hasn't changed
-    const hash = this._computeHashLayers(layers);
-    if (hash === this.lastSnapshotHash) return;
-    this.lastSnapshotHash = hash;
+      const [encoded, thumbBytes] = await Promise.all([
+        this._runWhenIdle(() => this._encodeSnapshotPixels(capture)),
+        this._generateThumbnail(),
+      ]);
+      if (!encoded?.layers?.length) return;
 
-    const thumbBytes = await this._generateThumbnail();
+      // Skip if board hasn't changed. Hashing happens in the encode worker so
+      // the main thread only compares the final scalar.
+      if (encoded.hash === this.lastSnapshotHash) return;
+      this.lastSnapshotHash = encoded.hash;
 
-    const msg = {
-      t: T.BOARD_SNAPSHOT_SAVE,
-      snapshotLayers: layers,
-      snapshotSeq,
-      a: true
-    };
-    if (thumbBytes) msg.snapshotThumb = thumbBytes;
-
-    this.app.wsClient.send(msg);
+      this._sendSnapshotSave({
+        layers: encoded.layers,
+        snapshotSeq: capture.snapshotSeq,
+        thumbBytes,
+        auto: true,
+      });
+    } catch (err) {
+      console.warn('[SnapshotManager] Snapshot encode failed:', err);
+    } finally {
+      this._autoSnapshotInFlight = false;
+      if (this._autoSnapshotQueued) {
+        this._autoSnapshotQueued = false;
+        setTimeout(() => this.handleServerRequest(), 0);
+      }
+    }
   }
 
   /**
@@ -106,22 +78,27 @@ export class SnapshotManager {
    * @param {string} name
    */
   async saveSnapshot(name) {
-    const layers = this.app.board.getSnapshot();
-    const snapshotSeq = this.app.wsClient?.lastProcessedSeq || 0;
-    if (!layers || layers.length === 0) return;
+    const capture = this._captureSnapshotPixels();
+    if (!capture) return;
 
-    const thumbBytes = await this._generateThumbnail();
+    try {
+      const [encoded, thumbBytes] = await Promise.all([
+        this._runWhenIdle(() => this._encodeSnapshotPixels(capture)),
+        this._generateThumbnail(),
+      ]);
+      if (!encoded?.layers?.length) return;
+      this.lastSnapshotHash = encoded.hash;
 
-    const msg = {
-      t: T.BOARD_SNAPSHOT_SAVE,
-      snapshotLayers: layers,
-      snapshotSeq,
-      n: name,
-      a: false
-    };
-    if (thumbBytes) msg.snapshotThumb = thumbBytes;
-
-    this.app.wsClient.send(msg);
+      this._sendSnapshotSave({
+        layers: encoded.layers,
+        snapshotSeq: capture.snapshotSeq,
+        thumbBytes,
+        name,
+        auto: false,
+      });
+    } catch (err) {
+      console.warn('[SnapshotManager] Manual snapshot encode failed:', err);
+    }
   }
 
   /**
@@ -206,207 +183,295 @@ export class SnapshotManager {
   }
 
   /**
-   * Begins capturing snapshots to the local IndexedDB store at the user-configured cadence.
-   * Used by non-uploader clients as a black-box recovery buffer.
-   * Skips entirely if the user has not enabled local capture (default: disabled).
-   * @param {number} [intervalMsOverride] - Optional explicit interval; otherwise read from user settings
+   * Synchronously captures raw layer pixels and the seq watermark they represent.
+   * The QOI encode is intentionally deferred to a worker.
+   * @returns {{ width: number, height: number, layers: Uint8Array[], backgroundColor: *, snapshotSeq: number }|null}
+   * @private
    */
-  startLocalCapture(intervalMsOverride) {
-    this.stopLocalCapture();
-    const settings = getLocalSnapshotSettings();
-    if (!settings.enabled) return;
-    const intervalMs = intervalMsOverride || settings.intervalSec * 1000;
-    this._localCaptureTimer = setInterval(() => this.captureLocalSnapshot(), intervalMs);
-    // Initial capture after a short delay
-    setTimeout(() => this.captureLocalSnapshot(), 3000);
+  _captureSnapshotPixels() {
+    const capture = this.app.board?.getSnapshotPixels?.();
+    if (!capture?.layers?.length) return null;
+
+    // getSnapshotPixels() is synchronous, so no websocket message can advance
+    // lastProcessedSeq between the readback and this stamp.
+    capture.snapshotSeq = this.app.wsClient?.lastProcessedSeq || 0;
+    return capture;
   }
 
-  /**
-   * Restart local capture using the latest persisted settings. Call after the user
-   * changes settings to apply a new interval / re-enable capture.
-   */
-  refreshLocalCapture() {
-    this.startLocalCapture();
-  }
+  _sendSnapshotSave({ layers, snapshotSeq, thumbBytes = null, name = null, auto = false }) {
+    if (!this.app.wsClient || !this.app.connected) return;
 
-  stopLocalCapture() {
-    if (this._localCaptureTimer) {
-      clearInterval(this._localCaptureTimer);
-      this._localCaptureTimer = null;
-    }
-  }
-
-  _getLocalIssuerName() {
-    const self = this.app.self;
-    const name = self?.registeredName || self?.username;
-    return (name && name !== 'Unknown') ? name : 'You';
-  }
-
-  /**
-   * Captures the current board state and stores it in IndexedDB. No network traffic.
-   */
-  async captureLocalSnapshot() {
-    const store = this._getLocalStore();
-    if (!store || !this.app.board) return;
-    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
-
-    const layers = this.app.board.getSnapshot();
-    if (!layers || layers.length === 0) return;
-
-    const hash = this._computeHashLayers(layers);
-    if (hash === this._lastLocalHash) return;
-    this._lastLocalHash = hash;
-
-    const roomId = this.app.currentRoomData?.id || this.app.currentRoomId || 'default';
-    const ts = Date.now();
-    const id = `local_${ts}_${Math.random().toString(36).slice(2, 7)}`;
-    const thumb = await this._generateThumbnail();
-
-    try {
-      await store.add({
-        id,
-        roomId,
-        ts,
-        issuer: this._getLocalIssuerName(),
-        layers,
-        thumb,
-        name: `Local ${new Date(ts).toLocaleTimeString()}`
-      });
-      const { maxCount } = getLocalSnapshotSettings();
-      await store.pruneRoom(roomId, maxCount);
-    } catch (err) {
-      console.warn('[SnapshotManager] Local capture failed:', err);
-    }
-  }
-
-  /**
-   * Returns paginated metadata for local snapshots in the current room (most recent first).
-   * Layer/thumbnail bytes are NOT included; call getLocal(id) to load them.
-   * @param {number} limit - Max number of snapshots to return (default 20)
-   * @param {number} beforeTs - Load snapshots before this timestamp (for pagination)
-   */
-  async listLocal(limit = 20, beforeTs = 0) {
-    const store = this._getLocalStore();
-    if (!store) return [];
-    const roomId = this.app.currentRoomData?.id || this.app.currentRoomId || 'default';
-    try {
-      const records = await store.list(roomId, limit, beforeTs);
-      // Map records to a format similar to remote snapshots for the UI
-      // thumb bytes are included directly (now efficient because they live in a separate meta store)
-      return records.map(r => ({
-        id: r.id,
-        ts: r.ts,
-        issuer: r.issuer,
-        name: r.name,
-        thumb: r.thumb,
-        hasThumb: r.hasThumb,
-        auto: true // local captures are always auto
-      }));
-    } catch (err) {
-      console.warn('[SnapshotManager] Local list failed:', err);
-      return [];
-    }
-  }
-
-  async getLocal(id) {
-    const store = this._getLocalStore();
-    if (!store) return null;
-    try {
-      return await store.get(id);
-    } catch (err) {
-      console.warn('[SnapshotManager] Local get failed:', err);
-      return null;
-    }
-  }
-
-  async getLocalThumb(id) {
-    const store = this._getLocalStore();
-    if (!store) return null;
-    try {
-      return await store.getThumb(id);
-    } catch (err) {
-      console.warn('[SnapshotManager] Local thumb fetch failed:', err);
-      return null;
-    }
-  }
-
-  async deleteLocal(id) {
-    const store = this._getLocalStore();
-    if (!store) return;
-    try {
-      await store.delete(id);
-    } catch (err) {
-      console.warn('[SnapshotManager] Local delete failed:', err);
-    }
-  }
-
-  /**
-   * Applies a local snapshot to the board for THIS client only (no broadcast).
-   * Useful for recovering after a disconnect or stale-state incident.
-   */
-  async applyLocal(id) {
-    const record = await this.getLocal(id);
-    if (!record?.layers) return false;
-    this.app.board.restoreSnapshot(record.layers);
-    this.app.board.requestUpdate();
-    return true;
-  }
-
-  /**
-   * Uploads a local snapshot to the server and immediately broadcasts a restore
-   * so the snapshot is applied to all users in the room. Mirrors the existing
-   * server-snapshot restore flow.
-   *
-   * Falls back to a local-only apply if the client is disconnected.
-   * @param {string} id - Local snapshot ID
-   * @returns {Promise<boolean>} success
-   */
-  async uploadAndRestoreLocal(id) {
-    const record = await this.getLocal(id);
-    if (!record?.layers || record.layers.length === 0) return false;
-
-    // If not connected, just apply locally
-    if (!this.app.wsClient || !this.app.connected) {
-      this.app.board.restoreSnapshot(record.layers);
-      this.app.board.requestUpdate();
-      return true;
+    if (auto) {
+      this.cachePixelParityCheckpoint({ snapshotSeq, layers });
     }
 
     const msg = {
       t: T.BOARD_SNAPSHOT_SAVE,
-      snapshotLayers: record.layers,
-      n: record.name || `Local ${new Date(record.ts || Date.now()).toLocaleTimeString()}`,
-      a: false,
-      snapshotRestoreAfterSave: true
+      snapshotLayers: layers,
+      snapshotSeq,
+      a: auto,
     };
-    if (record.thumb) msg.snapshotThumb = record.thumb;
+    if (name) msg.n = name;
+    if (thumbBytes) msg.snapshotThumb = thumbBytes;
 
     this.app.wsClient.send(msg);
-    return true;
   }
 
-  /**
-   * Uploads a local snapshot to the server as a regular snapshot (no broadcast
-   * restore). Used before a region "Upload" so the snapshot is available on the
-   * server for other users.
-   * @param {string} id - Local snapshot ID
-   * @returns {Promise<boolean>} success
-   */
-  async uploadLocalToServer(id) {
-    const record = await this.getLocal(id);
-    if (!record?.layers || record.layers.length === 0) return false;
-    if (!this.app.wsClient || !this.app.connected) return false;
+  _runWhenIdle(callback) {
+    return new Promise((resolve, reject) => {
+      const run = () => {
+        Promise.resolve()
+          .then(callback)
+          .then(resolve, reject);
+      };
 
-    const msg = {
-      t: T.BOARD_SNAPSHOT_SAVE,
-      snapshotLayers: record.layers,
-      n: record.name || `Local ${new Date(record.ts || Date.now()).toLocaleTimeString()}`,
-      a: false
+      if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+        window.requestIdleCallback(run, { timeout: 2000 });
+      } else {
+        setTimeout(run, 0);
+      }
+    });
+  }
+
+  _getSnapshotEncodeWorker() {
+    if (this._snapshotEncodeWorker) return this._snapshotEncodeWorker;
+
+    const worker = new Worker(new URL('./snapshotEncodeWorker.js', import.meta.url), { type: 'module' });
+    worker.onmessage = (event) => {
+      const { id, type, layers, hash, error } = event.data || {};
+      const pending = this._snapshotEncodePromises.get(id);
+      if (!pending) return;
+      this._snapshotEncodePromises.delete(id);
+
+      if (type === 'ENCODE_SNAPSHOT_ERROR') {
+        pending.reject(new Error(error || 'Snapshot encode failed'));
+      } else {
+        pending.resolve({ layers, hash });
+      }
     };
-    if (record.thumb) msg.snapshotThumb = record.thumb;
+    worker.onerror = (event) => {
+      const err = new Error(event?.message || 'Snapshot encode worker failed');
+      for (const pending of this._snapshotEncodePromises.values()) pending.reject(err);
+      this._snapshotEncodePromises.clear();
+      this._snapshotEncodeWorker?.terminate?.();
+      this._snapshotEncodeWorker = null;
+    };
 
-    this.app.wsClient.send(msg);
-    return true;
+    this._snapshotEncodeWorker = worker;
+    return worker;
+  }
+
+  _encodeSnapshotPixels(capture) {
+    return new Promise((resolve, reject) => {
+      const id = this._snapshotEncodeMsgId++;
+      const worker = this._getSnapshotEncodeWorker();
+      this._snapshotEncodePromises.set(id, { resolve, reject });
+
+      try {
+        worker.postMessage({
+          id,
+          type: 'ENCODE_SNAPSHOT',
+          width: capture.width,
+          height: capture.height,
+          layers: capture.layers,
+          backgroundColor: capture.backgroundColor,
+        }, capture.layers.map((layer) => layer.buffer));
+      } catch (err) {
+        this._snapshotEncodePromises.delete(id);
+        reject(err);
+      }
+    });
+  }
+
+  handleCheckpointMinted({ snapshotId, snapshotSeq }) {
+    const seq = Number(snapshotSeq) || 0;
+    if (!snapshotId || seq <= 0) return;
+
+    if (this._pixelParityCheckpoint?.seq === seq) {
+      this._pixelParityCheckpoint.snapshotId = snapshotId;
+      return;
+    }
+
+    if (this._pixelParityFetchInFlight === snapshotId) return;
+    this._pixelParityFetchInFlight = snapshotId;
+    this.app.wsClient?.requestSnapshotGet?.(snapshotId, { snapshotProbe: true });
+  }
+
+  handleSnapshotProbeResponse(data) {
+    this._pixelParityFetchInFlight = null;
+    const layers = data?.snapshotLayers;
+    const snapshotSeq = Number(data?.snapshotSeq) || 0;
+    if (!data?.snapshotId || snapshotSeq <= 0 || !Array.isArray(layers) || layers.length === 0) return;
+
+    this.cachePixelParityCheckpoint({
+      snapshotId: data.snapshotId,
+      snapshotSeq,
+      layers,
+    });
+  }
+
+  cachePixelParityCheckpoint({ snapshotId = '', snapshotSeq = 0, layers }) {
+    const seq = Number(snapshotSeq) || 0;
+    if (seq <= 0 || !Array.isArray(layers) || layers.length === 0) return;
+
+    try {
+      const reference = this._buildPixelParityReference(layers);
+      if (!reference) return;
+      this._pixelParityCheckpoint = {
+        snapshotId,
+        seq,
+        ...reference,
+      };
+    } catch (err) {
+      console.warn('[SnapshotManager] Pixel parity checkpoint cache failed:', err);
+    }
+  }
+
+  buildPixelParityProbe() {
+    const checkpoint = this._pixelParityCheckpoint;
+    if (!checkpoint || !this.app.board?.mainCanvas) return null;
+
+    const latestSeq = Number(this.app.wsClient?.lastProcessedSeq || 0);
+    // Without a historical canvas, only compare when the live canvas still
+    // represents the exact checkpoint watermark. Otherwise tail commits after
+    // the checkpoint would look like false pixel divergence.
+    if (latestSeq !== checkpoint.seq) return null;
+
+    const current = this._downsampleCanvasForPixelParity(
+      this.app.board.mainCanvas,
+      checkpoint.width,
+      checkpoint.height
+    );
+    if (!current || current.width !== checkpoint.thumbWidth || current.height !== checkpoint.thumbHeight) return null;
+
+    const divergentTiles = [];
+    let maxMad = 0;
+    let totalMad = 0;
+    let tileCount = 0;
+
+    for (let row = 0; row < checkpoint.rows; row++) {
+      for (let col = 0; col < checkpoint.cols; col++) {
+        const mad = this._tileMad(current.data, checkpoint.data, checkpoint.thumbWidth, col, row);
+        maxMad = Math.max(maxMad, mad);
+        totalMad += mad;
+        tileCount++;
+        if (mad > PIXEL_PARITY_MAD_THRESHOLD && divergentTiles.length < PIXEL_PARITY_MAX_TILES) {
+          divergentTiles.push(row * checkpoint.cols + col);
+        }
+      }
+    }
+
+    return {
+      parityPixelSnapshotSeq: checkpoint.seq,
+      parityPixelSnapshotId: checkpoint.snapshotId || '',
+      parityPixelTiles: divergentTiles,
+      parityPixelTileSize: PIXEL_PARITY_TILE_SIZE,
+      parityPixelMadThresholdX100: Math.round(PIXEL_PARITY_MAD_THRESHOLD * 100),
+      parityPixelMaxMadX100: Math.round(maxMad * 100),
+      parityPixelMeanMadX100: Math.round((tileCount > 0 ? totalMad / tileCount : 0) * 100),
+      parityPixelTileCols: checkpoint.cols,
+    };
+  }
+
+  _buildPixelParityReference(layerDatas) {
+    const dimensions = snapshotLayerDimensions(layerDatas);
+    if (!dimensions) return null;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = dimensions.width;
+    canvas.height = dimensions.height;
+    const ctx = canvas.getContext('2d');
+    this._fillSnapshotBackground(ctx, dimensions.width, dimensions.height);
+
+    for (const qoi of layerDatas) {
+      if (!qoi || qoi.length === 0) continue;
+
+      const layerDimensions = readQoiDimensions(qoi);
+      if (!layerDimensions) continue;
+
+      const pixels = wasm.qoi_decode(qoi);
+      if (!pixels || pixels.length !== layerDimensions.width * layerDimensions.height * 4) continue;
+
+      const layerCanvas = document.createElement('canvas');
+      layerCanvas.width = layerDimensions.width;
+      layerCanvas.height = layerDimensions.height;
+      layerCanvas.getContext('2d').putImageData(
+        new ImageData(
+          new Uint8ClampedArray(pixels.buffer, pixels.byteOffset, pixels.byteLength),
+          layerDimensions.width,
+          layerDimensions.height
+        ),
+        0,
+        0
+      );
+      ctx.drawImage(layerCanvas, 0, 0);
+    }
+
+    const thumb = this._downsampleCanvasForPixelParity(canvas, dimensions.width, dimensions.height);
+    if (!thumb) return null;
+
+    return {
+      width: dimensions.width,
+      height: dimensions.height,
+      cols: Math.ceil(dimensions.width / PIXEL_PARITY_TILE_SIZE),
+      rows: Math.ceil(dimensions.height / PIXEL_PARITY_TILE_SIZE),
+      thumbWidth: thumb.width,
+      thumbHeight: thumb.height,
+      data: thumb.data,
+    };
+  }
+
+  _downsampleCanvasForPixelParity(sourceCanvas, width, height) {
+    const cols = Math.ceil(width / PIXEL_PARITY_TILE_SIZE);
+    const rows = Math.ceil(height / PIXEL_PARITY_TILE_SIZE);
+    const thumbWidth = cols * PIXEL_PARITY_SAMPLES_PER_TILE;
+    const thumbHeight = rows * PIXEL_PARITY_SAMPLES_PER_TILE;
+    if (thumbWidth <= 0 || thumbHeight <= 0) return null;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = thumbWidth;
+    canvas.height = thumbHeight;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    ctx.imageSmoothingEnabled = true;
+    ctx.clearRect(0, 0, thumbWidth, thumbHeight);
+    ctx.drawImage(sourceCanvas, 0, 0, width, height, 0, 0, thumbWidth, thumbHeight);
+
+    return {
+      width: thumbWidth,
+      height: thumbHeight,
+      data: ctx.getImageData(0, 0, thumbWidth, thumbHeight).data,
+    };
+  }
+
+  _tileMad(current, reference, thumbWidth, tileCol, tileRow) {
+    const samples = PIXEL_PARITY_SAMPLES_PER_TILE;
+    let total = 0;
+    let count = 0;
+    const startX = tileCol * samples;
+    const startY = tileRow * samples;
+
+    for (let y = 0; y < samples; y++) {
+      for (let x = 0; x < samples; x++) {
+        const offset = ((startY + y) * thumbWidth + startX + x) * 4;
+        total += Math.abs(current[offset] - reference[offset]);
+        total += Math.abs(current[offset + 1] - reference[offset + 1]);
+        total += Math.abs(current[offset + 2] - reference[offset + 2]);
+        count += 3;
+      }
+    }
+
+    return count > 0 ? total / count : 0;
+  }
+
+  _fillSnapshotBackground(ctx, width, height) {
+    const bg = this.app.board?.backgroundColor || [255, 255, 255, 1];
+    if (typeof bg === 'string') {
+      ctx.fillStyle = bg;
+    } else {
+      const [r = 255, g = 255, b = 255, a = 1] = bg;
+      ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
+    }
+    ctx.fillRect(0, 0, width, height);
   }
 
   /**

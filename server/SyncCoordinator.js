@@ -3,6 +3,7 @@
 import { WebSocket } from 'ws';
 import { T } from '../shared/MessageTypes.js';
 import { getProviderActivityTier, isRecentlyActive, scoreProvider } from './providerScoring.js';
+import { getBoardDimensionsForSize } from '../shared/boardSizes.js';
 
 const VISIBLE_SYNC_PROVIDER_TIMEOUT_MS = 3500;
 const HIDDEN_SYNC_PROVIDER_TIMEOUT_MS = 15000;
@@ -29,40 +30,112 @@ export class SyncCoordinator {
   }
 
   /**
-   * Handles a sync request from a new user by selecting a provider and initiating the flow.
-   * Tries up to MAX_SYNC_CANDIDATES non-AFK providers with a timeout each before falling back.
+   * Handles a sync request from a new user with the checkpoint-based join:
+   * serve the latest server checkpoint image (seq S) as the base, then replay
+   * the post-checkpoint tail — for each committed stroke in (S, latest], its
+   * geometry preamble (MD/MM + tool-state, from `room.strokeTape`) followed by
+   * the commit's original wire bytes (from `room.strokeLog`). The joiner's
+   * normal receive pipeline both draws the canvas AND seeds its fingerprint log
+   * from this single source, so there is no image-vs-log divergence and no
+   * live-peer provider election. Finishes with SYNC_COMPLETE.
+   *
+   * NOTE: this replaced the legacy provider-election flow. The election/ranking
+   * helpers and the SYNC_CANVAS/LAYER_BASE/STROKE/STROKE_BATCH/STROKES_DONE/
+   * METADATA relay methods below are now unreachable on the join path and are
+   * pending deletion once this path is live-verified (3-tab + k6 harness).
+   *
    * @param {WebSocket} ws - The WebSocket of the requesting user.
-   * @param {Object} data - The sync request message data.
+   * @param {Object} _data - The sync request message data (provider hint ignored).
    */
-  handleSyncRequest(ws, data) {
+  handleSyncRequest(ws, _data) {
     const requesterSessionIndex = Number(ws.sessionIndex);
-    console.log(`[Sync] User ${requesterSessionIndex} requested sync`);
+    console.log(`[Sync] User ${requesterSessionIndex} requested checkpoint-based sync`);
+    this._serveCheckpointJoin(ws, requesterSessionIndex).catch((err) => {
+      console.error(`[Sync] Checkpoint join failed for ${requesterSessionIndex}:`, err);
+      // Never leave the joiner hanging on the client-side idle timeout.
+      if (ws.readyState === WebSocket.OPEN) this.sendTo(ws, { t: T.SYNC_COMPLETE });
+    });
+  }
 
-    // Honor an explicit provider request, but never use AFK users as providers
-    // because their canvases are intentionally frozen while inactive.
-    let candidates = null;
-    if (data.tu !== undefined && data.tu !== null) {
-      const requestedProvider = Number(data.tu);
-      const providerData = this.sessionManager.users.get(requestedProvider);
-      if (providerData && providerData.name && !providerData.afk && requestedProvider !== requesterSessionIndex) {
-        candidates = [requestedProvider];
-        console.log(`[Sync] Using requested provider ${requestedProvider} (${providerData.name})`);
-      } else {
-        console.log(`[Sync] Requested provider ${requestedProvider} is invalid, AFK, or self — using auto-select`);
+  /**
+   * Serves a checkpoint image + post-checkpoint command tail to a joiner, then
+   * SYNC_COMPLETE. See handleSyncRequest for the rationale.
+   * @param {WebSocket} ws
+   * @param {number} requesterSessionIndex
+   * @private
+   */
+  async _serveCheckpointJoin(ws, requesterSessionIndex) {
+    if (ws.readyState !== WebSocket.OPEN) return;
+
+    const log = this.room?.strokeLog;
+    const tape = this.room?.strokeTape;
+    let snapshot = null;
+
+    // 1. Latest checkpoint image as the base (carries the applied-seq watermark
+    //    S). Absent (fresh room / no persistence) → baseSeq 0, replay full tail.
+    let baseSeq = 0;
+    if (this.room?.canPersistSnapshots?.()) {
+      snapshot = await this.room.getLatestSnapshotData?.();
+      if (ws.readyState !== WebSocket.OPEN) return;
+      if (snapshot && Array.isArray(snapshot.layers) && snapshot.layers.length > 0) {
+        baseSeq = Number(snapshot.seq) || 0;
+        this.sendTo(ws, {
+          t: T.BOARD_SNAPSHOT_RESTORE,
+          snapshotLayers: snapshot.layers,
+          snapshotId: snapshot.id,
+          snapshotTs: snapshot.ts,
+          snapshotIssuer: snapshot.issuer,
+          snapshotSeq: baseSeq,
+        });
+        console.log(`[Sync] Served checkpoint ${snapshot.id} @ seq ${baseSeq} to ${requesterSessionIndex}`);
       }
     }
 
-    if (!candidates) {
-      candidates = this._getRankedCandidates(ws);
+    const latestSeqForMetadata = log?.getSummary?.().latestSeq || 0;
+    const entriesForMetadata = latestSeqForMetadata > baseSeq && log
+      ? log.getRange(baseSeq + 1, latestSeqForMetadata)
+      : [];
+    const checkpointMessageCount = snapshot && Array.isArray(snapshot.layers) && snapshot.layers.length > 0 ? 1 : 0;
+    const tailMessageCount = entriesForMetadata.reduce((total, entry) => {
+      const bundle = tape?.getBundle(entry.seq);
+      return total + (bundle?.length || 0) + (log.getBytes(entry.seq) ? 1 : 0);
+    }, 0);
+    const [boardHeight, boardWidth] = getBoardDimensionsForSize(this.room?.settings?.boardSize);
+    this.sendTo(ws, {
+      t: T.SYNC_METADATA,
+      syncTotal: checkpointMessageCount + tailMessageCount,
+      boardWidth,
+      boardHeight
+    });
+
+    // 2. Replay the post-checkpoint command tail in seq order. Each commit may
+    //    carry a geometry preamble (brush/pen strokes); self-contained commits
+    //    (fill/selection/text) replay their bytes alone.
+    if (log) {
+      const latestSeq = log.getSummary().latestSeq;
+      if (latestSeq > baseSeq) {
+        const entries = log.getRange(baseSeq + 1, latestSeq);
+        let served = 0, missing = 0;
+        for (const entry of entries) {
+          if (ws.readyState !== WebSocket.OPEN) return;
+          const bundle = tape?.getBundle(entry.seq);
+          if (bundle) {
+            for (const frame of bundle) this.sendTo(ws, frame);
+          }
+          const bytes = log.getBytes(entry.seq);
+          if (bytes) { this.sendTo(ws, bytes); served++; }
+          else missing++;
+        }
+        console.log(`[Sync] Replayed tail (${baseSeq}, ${latestSeq}] to ${requesterSessionIndex}: ${served} commits${missing ? `, ${missing} evicted` : ''}`);
+      }
     }
 
-    if (candidates.length === 0) {
-      console.log(`[Sync] No active providers available for user ${requesterSessionIndex}`);
-      this._fallbackToSnapshotOrComplete(ws, requesterSessionIndex);
-      return;
-    }
-
-    this._tryNextCandidate(ws, requesterSessionIndex, candidates, 0);
+    // 3. Live floating selections / masks / obscure regions, then complete.
+    if (ws.readyState !== WebSocket.OPEN) return;
+    this._sendActiveImagesToJoiner(ws);
+    this._sendActiveMasksToJoiner(ws);
+    this._sendActiveObscureRegionsToJoiner(ws);
+    this.sendTo(ws, { t: T.SYNC_COMPLETE });
   }
 
   /**

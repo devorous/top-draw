@@ -141,7 +141,7 @@
       section: 'Basic Tutorial',
       title: 'History & Snapshots',
       target: '[data-tut="history"], .history-btn',
-      text: 'History covers persistent server saves and private local snapshots you can restore or upload from.',
+      text: 'History covers server snapshots you can preview, restore from, or upload selected regions from.',
       actionTarget: '[data-tut="history"], .history-btn',
       actionLabel: 'Click History to review snapshots, or press Next to skip'
     },
@@ -149,7 +149,7 @@
       section: 'Basic Tutorial',
       title: 'Board History',
       target: '[data-tut="history-dialog"], .snapshot-panel',
-      text: 'This panel lets you preview snapshots, compare local and server saves, and restore or upload selected work.',
+      text: 'This panel lets you preview server snapshots, restore the board, or upload selected work.',
       skipIfMissing: true
     },
     {

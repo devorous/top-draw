@@ -569,6 +569,7 @@ export class DrawingApp {
         || this.currentRoomId === '_discovery',
       onMismatch: (diff) => this._handleParityMismatch(diff),
       onOk: () => { this._lastParityOkAt = Date.now(); },
+      getPixelProbe: () => this.snapshotManager?.buildPixelParityProbe?.(),
     });
     this.wsClient.parityClient = this.parityClient;
     this.parityPanel = new ParityPanel(this);
@@ -3142,6 +3143,36 @@ export class DrawingApp {
       this.scheduleMemoryCompaction('last-remote-left');
     }
     this.updateCleanupDebugStats();
+  }
+
+  /**
+   * Ensures a remote User object (with board/context) exists for a session
+   * index, creating a transient placeholder if not. Used during checkpoint-join
+   * replay: the post-checkpoint command tail can contain strokes from a user who
+   * has since LEFT, so they're absent from the joiner's USERS list — the remote
+   * draw handlers `users.get(sid)` and bail without this. Their committed strokes
+   * bake into the shared layer (keyed by user.id) regardless; the next
+   * authoritative USERS broadcast cleans up the placeholder (preserving visuals)
+   * since it won't include the departed sid. Mirrors UserHandlers' creation path.
+   * @param {number} sessionIndex
+   * @returns {User|null} the existing or newly created remote user
+   */
+  ensureRemoteUser(sessionIndex) {
+    const idx = Number(sessionIndex);
+    if (!Number.isFinite(idx)) return null;
+    if (this.sessionIndex !== null && idx === Number(this.sessionIndex)) return this.self;
+
+    let user = this.users.get(idx);
+    if (user) return user;
+
+    user = new User(idx, { username: `User ${idx}` });
+    this.users.set(idx, user);
+
+    const boardData = this.ui.createUserBoard(idx);
+    user.board = boardData.board;
+    user.context = boardData.context;
+    user.board.style.mixBlendMode = this.blendModeManager.toCSSBlendMode(user.blendMode);
+    return user;
   }
 
   forceCleanupResidualState(sessionIndex) {
@@ -7875,7 +7906,6 @@ export class DrawingApp {
     if (isHidden) {
       this.stopPreviewInterval();
       this.stopCheckpointInterval();
-      this.snapshotManager?.stopLocalCapture();
       return;
     }
 
@@ -7888,7 +7918,6 @@ export class DrawingApp {
     if (this.self?.afk) {
       this.stopPreviewInterval();
       this.stopCheckpointInterval();
-      this.snapshotManager?.stopLocalCapture();
       return;
     }
 
@@ -7905,8 +7934,6 @@ export class DrawingApp {
       if (!this._previewInterval) this.startPreviewInterval();
     }
     
-    // Everyone runs local capture for recovery
-    this.snapshotManager?.startLocalCapture();
   }
 
   startCheckpointInterval() {

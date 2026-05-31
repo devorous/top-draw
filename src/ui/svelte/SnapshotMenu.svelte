@@ -1,32 +1,17 @@
 <script>
   import { onMount, onDestroy, tick } from 'svelte';
-  import { appState, clearSnapshotHistoryState, toggleSnapshotMenu, setSnapshotSource } from '../../state.svelte.js';
+  import { appState, clearSnapshotHistoryState, toggleSnapshotMenu } from '../../state.svelte.js';
   import { T } from '../../../shared/MessageTypes.js';
   import * as wasm from '../../wasm/ddraw_wasm.js';
-  import { getLocalSnapshotSettings, saveLocalSnapshotSettings } from '../../remote/SnapshotManager.js';
-
-  let showLocalSettings = $state(false);
-  let localSettings = $state(getLocalSnapshotSettings());
-
-  function toggleLocalSettings() {
-    if (!showLocalSettings) localSettings = getLocalSnapshotSettings();
-    showLocalSettings = !showLocalSettings;
-  }
-
-  function updateLocalSetting(patch) {
-    localSettings = saveLocalSnapshotSettings({ ...localSettings, ...patch });
-    window.app?.snapshotManager?.refreshLocalCapture?.();
-  }
 
   let snapshots = $derived(appState.snapshots || []);
   let snapshotHasMore = $derived(appState.snapshotHasMore);
   let snapshotListVersion = $derived(appState.snapshotListVersion);
-  let snapshotSource = $derived(appState.snapshotSource);
   
   let hasLoadedOlderSnapshots = $derived(snapshots.length > 20);
   let isSoloOccupant = $derived(appState.userCount <= 1);
   let canViewHistory = $derived(appState.selfRole >= 1 || isSoloOccupant);
-  let canRestoreHistory = $derived(appState.selfRole >= 2 || (snapshotSource === 'local' && appState.connected));
+  let canRestoreHistory = $derived(appState.selfRole >= 2);
   let canRestoreBoard = $derived(appState.selfRole >= 2);
 
   let selectedId = $state(null);
@@ -156,29 +141,14 @@
       listRequestTimeout = null;
     }
 
-    if (snapshotSource === 'remote') {
-      window.app?.snapshotManager?.requestList();
-      listRequestTimeout = window.setTimeout(() => {
-        listRequestTimeout = null;
-        if (isLoadingSnapshots) {
-          isLoadingSnapshots = false;
-          listError = 'Failed to load snapshots. Check your connection and try again.';
-        }
-      }, 15000);
-    } else {
-      try {
-        const pageSize = 20;
-        const localList = await window.app.snapshotManager.listLocal(pageSize);
-        appState.snapshots = localList;
-        // Assume there are more if we got exactly pageSize results
-        appState.snapshotHasMore = localList.length === pageSize;
-        appState.snapshotListVersion += 1;
-      } catch (err) {
-        console.warn('[SnapshotMenu] Local list failed:', err);
-      } finally {
+    window.app?.snapshotManager?.requestList();
+    listRequestTimeout = window.setTimeout(() => {
+      listRequestTimeout = null;
+      if (isLoadingSnapshots) {
         isLoadingSnapshots = false;
+        listError = 'Failed to load snapshots. Check your connection and try again.';
       }
-    }
+    }, 15000);
   }
 
   function formatDate(ts) {
@@ -194,21 +164,7 @@
     if (!oldest?.ts) return;
 
     isLoadingMore = true;
-    if (snapshotSource === 'remote') {
-      window.app?.snapshotManager?.requestList({ beforeTs: Number(oldest.ts), append: true });
-    } else {
-      try {
-        const pageSize = 20;
-        const moreSnapshots = await window.app.snapshotManager.listLocal(pageSize, Number(oldest.ts));
-        appState.snapshots = [...appState.snapshots, ...moreSnapshots.filter((snap) => !appState.snapshots.some((existing) => existing.id === snap.id))];
-        appState.snapshotHasMore = moreSnapshots.length === pageSize;
-        appState.snapshotListVersion += 1;
-      } catch (err) {
-        console.warn('[SnapshotMenu] Local load more failed:', err);
-      } finally {
-        isLoadingMore = false;
-      }
-    }
+    window.app?.snapshotManager?.requestList({ beforeTs: Number(oldest.ts), append: true });
   }
 
 
@@ -240,57 +196,27 @@
       previewRequestTimeout = null;
     }
 
-    if (snapshotSource === 'remote') {
-      window.app.wsClient.on('board_snapshot_get_response', async (data) => {
-        if (data.snapshotId !== selectedId) return;
-        window.app.wsClient.messageHandlers.delete('board_snapshot_get_response');
-        if (previewRequestTimeout) {
-          clearTimeout(previewRequestTimeout);
-          previewRequestTimeout = null;
-        }
-        selectedLayers = data.snapshotLayers;
-        isLoadingPreview = false;
-        await tick();
-        renderPreview(data.snapshotLayers);
-        resetView();
-      });
-      window.app.wsClient.requestSnapshotGet(id);
-      previewRequestTimeout = window.setTimeout(() => {
+    window.app.wsClient.on('board_snapshot_get_response', async (data) => {
+      if (data.snapshotId !== selectedId) return;
+      window.app.wsClient.messageHandlers.delete('board_snapshot_get_response');
+      if (previewRequestTimeout) {
+        clearTimeout(previewRequestTimeout);
         previewRequestTimeout = null;
-        if (selectedId !== id || !isLoadingPreview) return;
-        window.app?.wsClient?.messageHandlers?.delete('board_snapshot_get_response');
-        isLoadingPreview = false;
-        previewError = 'Preview could not load. Check snapshot storage settings on the server.';
-      }, 8000);
-    } else {
-      // Local
-      try {
-        const record = await window.app.snapshotManager.getLocal(id);
-        if (record?.layers && record.layers.length > 0) {
-          selectedLayers = record.layers;
-          isLoadingPreview = false;
-          await tick();
-          renderPreview(record.layers);
-          resetView();
-        } else {
-          const snapshotMeta = snapshots.find((snap) => snap.id === id);
-          const thumb = record?.thumb || snapshotMeta?.thumb || null;
-          if (!thumb || thumb.length === 0) {
-            throw new Error('Local record not found or incomplete');
-          }
-
-          selectedLayers = null;
-          isLoadingPreview = false;
-          await tick();
-          await renderThumbnailPreview(thumb);
-          resetView();
-        }
-      } catch (err) {
-        console.warn('[SnapshotMenu] Local preview error', err);
-        isLoadingPreview = false;
-        previewError = 'Failed to load local snapshot from browser storage.';
       }
-    }
+      selectedLayers = data.snapshotLayers;
+      isLoadingPreview = false;
+      await tick();
+      renderPreview(data.snapshotLayers);
+      resetView();
+    });
+    window.app.wsClient.requestSnapshotGet(id);
+    previewRequestTimeout = window.setTimeout(() => {
+      previewRequestTimeout = null;
+      if (selectedId !== id || !isLoadingPreview) return;
+      window.app?.wsClient?.messageHandlers?.delete('board_snapshot_get_response');
+      isLoadingPreview = false;
+      previewError = 'Preview could not load. Check snapshot storage settings on the server.';
+    }, 8000);
   }
 
   function renderPreview(layerDatas) {
@@ -344,55 +270,6 @@
     window.app.snapshotPreviewCanvas = exportCanvas;
   }
 
-  async function renderThumbnailPreview(thumbBytes) {
-    if (!previewCanvas) return;
-
-    const [h, w] = window.app.board.dimensions;
-    previewCanvas.width = w;
-    previewCanvas.height = h;
-    selectionCanvas.width = w;
-    selectionCanvas.height = h;
-
-    const exportCanvas = document.createElement('canvas');
-    exportCanvas.width = w;
-    exportCanvas.height = h;
-    const exportCtx = exportCanvas.getContext('2d');
-    exportCtx.clearRect(0, 0, w, h);
-
-    const bg = window.app.board.backgroundColor || '#ffffff';
-    exportCtx.fillStyle = typeof bg === 'string' ? bg : `rgb(${bg[0]},${bg[1]},${bg[2]})`;
-    exportCtx.fillRect(0, 0, w, h);
-
-    if (thumbBytes && thumbBytes.length > 0) {
-      const url = URL.createObjectURL(new Blob([thumbBytes], { type: 'image/jpeg' }));
-      try {
-        await new Promise((resolve, reject) => {
-          const img = new Image();
-          img.onload = () => {
-            const scale = Math.min(w / img.naturalWidth, h / img.naturalHeight);
-            const drawW = img.naturalWidth * scale;
-            const drawH = img.naturalHeight * scale;
-            const drawX = (w - drawW) / 2;
-            const drawY = (h - drawH) / 2;
-            exportCtx.drawImage(img, drawX, drawY, drawW, drawH);
-            resolve();
-          };
-          img.onerror = () => reject(new Error('Failed to decode thumbnail preview'));
-          img.src = url;
-        });
-      } finally {
-        URL.revokeObjectURL(url);
-      }
-    }
-
-    snapshotExportCanvas = exportCanvas;
-    const ctx = previewCanvas.getContext('2d');
-    ctx.clearRect(0, 0, w, h);
-    ctx.drawImage(exportCanvas, 0, 0);
-
-    window.app.snapshotPreviewCanvas = exportCanvas;
-  }
-
   function openSnapshotSaveDialog() {
     if (!selectedId || !snapshotExportCanvas) return;
     window.app?.openSaveDialogForCanvas?.(snapshotExportCanvas);
@@ -413,56 +290,25 @@
         confirmLabel: 'Replace',
         danger: true
       })) return;
-      if (snapshotSource === 'local') {
-        // Upload to server then broadcast restore so all users sync
-        const ok = await window.app.snapshotManager.uploadAndRestoreLocal(selectedId);
-        if (ok) {
-          window.app?.ui?.showToast?.('Local snapshot uploaded and restored', 3000);
-          close();
-        } else {
-          alert('Failed to upload local snapshot.');
-        }
-      } else {
-        window.app.snapshotManager.restoreSnapshot(selectedId);
-        close();
-      }
+      window.app.snapshotManager.restoreSnapshot(selectedId);
+      close();
       return;
     }
 
-    // Lasso region: not supported for cropped upload
-    // Local: fall back to remote-style behavior is unavailable, so warn
-    // Remote: use existing server-side region restore (lasso path)
+    // Lasso region: use existing server-side region restore.
     if (mode === 'lasso') {
-      if (snapshotSource === 'remote') {
-        applyRegionRestore();
-        close();
-      } else {
-        window.app?.ui?.showToast?.('Lasso upload not supported. Use rectangle selection to upload a cropped region.', 4000);
-      }
+      applyRegionRestore();
+      close();
       return;
     }
 
-    // Rectangle region → Upload as floating multi-layer selection (works for both local and remote)
-    let layersToUpload;
-    if (snapshotSource === 'local') {
-      const record = await window.app.snapshotManager.getLocal(selectedId);
-      if (!record?.layers) {
-        alert('Failed to load snapshot.');
-        return;
-      }
-      layersToUpload = record.layers;
-      // Also push the local snapshot to the server so it's available to other users
-      // (mirrors the server-snapshot flow). Fire-and-forget; ignore failures.
-      window.app.snapshotManager.uploadLocalToServer(selectedId).catch(() => {});
-    } else {
-      if (!selectedLayers || selectedLayers.length === 0) {
-        alert('Snapshot data is still loading. Please wait and try again.');
-        return;
-      }
-      layersToUpload = selectedLayers;
+    // Rectangle region: upload as a floating multi-layer selection.
+    if (!selectedLayers || selectedLayers.length === 0) {
+      alert('Snapshot data is still loading. Please wait and try again.');
+      return;
     }
 
-    await window.app.uploadSnapshotLayersAsSelection(layersToUpload, selection);
+    await window.app.uploadSnapshotLayersAsSelection(selectedLayers, selection);
     close();
   }
 
@@ -492,20 +338,9 @@
       danger: true
     })) return;
     
-    if (snapshotSource === 'remote') {
-      window.app.snapshotManager.deleteSnapshot(selectedId);
-      // Update local cache
-      appState.snapshots = snapshots.filter(s => s.id !== selectedId);
-      appState.snapshotListVersion += 1;
-    } else {
-      await window.app.snapshotManager.deleteLocal(selectedId);
-      if (thumbUrls.has(selectedId)) {
-        URL.revokeObjectURL(thumbUrls.get(selectedId));
-        thumbUrls.delete(selectedId);
-      }
-      appState.snapshots = snapshots.filter(s => s.id !== selectedId);
-      appState.snapshotListVersion += 1;
-    }
+    window.app.snapshotManager.deleteSnapshot(selectedId);
+    appState.snapshots = snapshots.filter(s => s.id !== selectedId);
+    appState.snapshotListVersion += 1;
     
     selectedId = null;
     selectedLayers = null;
@@ -654,7 +489,7 @@
   });
 
   onMount(() => {
-    if (!canViewHistory && snapshotSource === 'remote') {
+    if (!canViewHistory) {
       window.app.snapshotPreviewCanvas = null;
       previewError = 'Only registered users can view board history.';
       return;
@@ -690,16 +525,6 @@
     (mode === 'lasso' && lassoPoints.length > 3)
   );
 
-  function handleSourceChange(source) {
-    selectedId = null;
-    selectedLayers = null;
-    selection = null;
-    lassoPoints = [];
-    previewError = '';
-    listError = '';
-    setSnapshotSource(source);
-    refresh();
-  }
 </script>
 
 <div class="snapshot-overlay" role="presentation" onclick={(e) => e.target === e.currentTarget && close()} onpointerup={(e) => e.pointerType !== 'mouse' && e.target === e.currentTarget && close()}>
@@ -709,30 +534,6 @@
     <div class="snap-header">
       <div class="snap-header-left">
         <span class="snap-title">Board History</span>
-        <div class="snap-source-toggle">
-          <button 
-            class="snap-source-btn" 
-            class:active={snapshotSource === 'remote'} 
-            onclick={() => handleSourceChange('remote')}
-          >
-            Server
-          </button>
-          <button
-            class="snap-source-btn"
-            class:active={snapshotSource === 'local'}
-            onclick={() => handleSourceChange('local')}
-          >
-            Local
-          </button>
-        </div>
-        {#if snapshotSource === 'local'}
-          <button class="snap-settings-btn" class:active={showLocalSettings} onclick={toggleLocalSettings} title="Local snapshot settings">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="12" r="3"/>
-              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-            </svg>
-          </button>
-        {/if}
       </div>
       <div class="snap-header-right">
         <button class="snap-reload-btn" onclick={refresh} onpointerup={(e) => e.pointerType !== 'mouse' && refresh()} title="Refresh">&#8635;</button>
@@ -806,50 +607,6 @@
       {/if}
     </div>
 
-    {#if snapshotSource === 'local' && showLocalSettings}
-      <div class="snap-local-settings">
-        <div class="snap-local-settings-row">
-          <label class="snap-local-toggle">
-            <input
-              type="checkbox"
-              checked={localSettings.enabled}
-              onchange={(e) => updateLocalSetting({ enabled: e.currentTarget.checked })}
-            />
-            <span>Enable local snapshots</span>
-          </label>
-          <span class="snap-local-hint">Stored in your browser (IndexedDB) for recovery.</span>
-        </div>
-        <div class="snap-local-settings-row">
-          <label class="snap-local-field">
-            <span>Interval</span>
-            <input
-              type="number"
-              min="5"
-              max="600"
-              step="5"
-              disabled={!localSettings.enabled}
-              value={localSettings.intervalSec}
-              onchange={(e) => updateLocalSetting({ intervalSec: parseInt(e.currentTarget.value, 10) })}
-            />
-            <span class="snap-local-suffix">sec</span>
-          </label>
-          <label class="snap-local-field">
-            <span>Keep last</span>
-            <input
-              type="number"
-              min="1"
-              max="500"
-              step="1"
-              disabled={!localSettings.enabled}
-              value={localSettings.maxCount}
-              onchange={(e) => updateLocalSetting({ maxCount: parseInt(e.currentTarget.value, 10) })}
-            />
-            <span class="snap-local-suffix">snapshots</span>
-          </label>
-        </div>
-      </div>
-    {/if}
-
     <!-- Thumbnail strip -->
     <div
       class="snap-strip-wrap"
@@ -868,16 +625,10 @@
         <span class="snap-strip-empty snap-strip-error">{listError}</span>
       {:else if snapshots.length === 0}
         <span class="snap-strip-empty">
-          {#if snapshotSource === 'remote'}
-            {#if canViewHistory}
-              No snapshots available yet.
-            {:else}
-              Only registered users can view board history unless they are alone in the room.
-            {/if}
-          {:else if !localSettings.enabled}
-            Local snapshots are disabled. Click the gear icon above to enable automatic captures.
+          {#if canViewHistory}
+            No snapshots available yet.
           {:else}
-            No local snapshots yet. They are captured every {localSettings.intervalSec}s for recovery.
+            Only registered users can view board history unless they are alone in the room.
           {/if}
         </span>
       {:else}
@@ -916,25 +667,23 @@
     <!-- Footer -->
     <div class="snap-footer">
       <span class="snap-hint">
-        {#if !canRestoreHistory && snapshotSource === 'remote'}
+        {#if !canRestoreHistory}
           View-only mode for registered users. Trusted users and above can restore snapshots.
         {:else if !selectedId}
           Select a snapshot below
-        {:else if hasSelection && mode === 'rectangle'}
-          Selection active — region uploads as a movable floating selection
-        {:else if hasSelection && mode === 'lasso' && snapshotSource === 'remote'}
-          Lasso selection — restores the region (broadcast to all users)
         {:else if hasSelection && mode === 'lasso'}
-          Lasso selection — not supported for upload (use rectangle)
+          Lasso selection - restores the region (broadcast to all users)
+        {:else if hasSelection && mode === 'rectangle'}
+          Selection active - region uploads as a movable floating selection
         {:else}
-          No selection — replaces the entire board
+          No selection - replaces the entire board
         {/if}
       </span>
       <div class="snap-footer-btns">
         {#if selectedId}
           <button class="btn danger" onclick={doDelete} onpointerup={(e) => e.pointerType !== 'mouse' && doDelete()}>Delete</button>
         {/if}
-        {#if hasSelection && snapshotSource === 'remote'}
+        {#if hasSelection}
           <button class="btn secondary" onclick={clearSelection} onpointerup={(e) => e.pointerType !== 'mouse' && clearSelection()}>Clear Selection</button>
         {/if}
         <button class="btn secondary" disabled={!selectedId} onclick={openSnapshotSaveDialog} onpointerup={(e) => e.pointerType !== 'mouse' && openSnapshotSaveDialog()}>
@@ -943,7 +692,7 @@
         <button class="btn primary" disabled={!selectedId || !canRestoreHistory} onclick={doRestore} onpointerup={(e) => e.pointerType !== 'mouse' && doRestore()}>
           {#if !hasSelection}
             Restore Board
-          {:else if mode === 'lasso' && snapshotSource === 'remote'}
+          {:else if mode === 'lasso'}
             Restore Region
           {:else}
             Upload
@@ -985,15 +734,6 @@
     border-bottom: 1px solid var(--border-subtle, #333); flex-shrink: 0;
   }
   .snap-header-left { display: flex; align-items: center; gap: 20px; }
-
-  .snap-source-toggle {
-    display: flex; background: #000; padding: 2px; border-radius: 6px;
-  }
-  .snap-source-btn {
-    padding: 3px 10px; border: none; background: transparent; color: #777;
-    font-size: 11px; font-weight: 600; cursor: pointer; border-radius: 4px;
-  }
-  .snap-source-btn.active { background: #222; color: var(--accent-primary); }
 
   .snap-title { font-size: 14px; font-weight: 600; color: var(--text-primary, #eee); }
   .snap-header-right { display: flex; align-items: center; gap: 8px; }
@@ -1083,36 +823,6 @@
   .btn.primary:disabled { opacity: 0.4; cursor: not-allowed; }
   .btn.danger { background: rgba(220, 53, 69, 0.2); color: #ff6b6b; border: 1px solid rgba(220, 53, 69, 0.4); }
   .btn.danger:hover { background: rgba(220, 53, 69, 0.4); }
-
-  .snap-settings-btn {
-    display: inline-flex; align-items: center; justify-content: center;
-    width: 26px; height: 26px; background: transparent; border: 1px solid #333;
-    border-radius: 5px; color: var(--text-secondary, #aaa); cursor: pointer; margin-left: 4px;
-  }
-  .snap-settings-btn:hover { background: var(--bg-elevated, #2a2a2a); color: #fff; }
-  .snap-settings-btn.active { background: var(--accent-primary, #7c5cbf); color: #fff; border-color: var(--accent-primary, #7c5cbf); }
-
-  .snap-local-settings {
-    background: var(--bg-tertiary, #111); border-top: 1px solid var(--border-subtle, #333);
-    padding: 10px 16px; display: flex; flex-direction: column; gap: 8px; flex-shrink: 0;
-  }
-  .snap-local-settings-row {
-    display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
-  }
-  .snap-local-toggle {
-    display: inline-flex; align-items: center; gap: 6px; color: #ddd; font-size: 12px; cursor: pointer;
-  }
-  .snap-local-toggle input { cursor: pointer; }
-  .snap-local-hint { font-size: 11px; color: #777; }
-  .snap-local-field {
-    display: inline-flex; align-items: center; gap: 6px; color: #bbb; font-size: 12px;
-  }
-  .snap-local-field input {
-    width: 64px; padding: 3px 6px; background: #0a0a0a; border: 1px solid #333;
-    border-radius: 4px; color: #eee; font-size: 12px;
-  }
-  .snap-local-field input:disabled { opacity: 0.4; cursor: not-allowed; }
-  .snap-local-suffix { color: #777; font-size: 11px; }
 
   .snap-back-to-present {
     position: absolute; right: 18px; bottom: 128px; display: inline-flex;

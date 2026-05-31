@@ -76,7 +76,6 @@ class DrawingState {
   snapshotHasMore = $state(true);
   snapshotListVersion = $state(0);
   snapshotMenuVisible = $state(false);
-  snapshotSource = $state('remote'); // 'remote' | 'local'
 
   // Derived
   get currentColorRgba() {
@@ -415,17 +414,6 @@ export function toggleSnapshotMenu() {
   }
 
   openSnapshotMenu();
-}
-
-export function openLocalSnapshotMenu() {
-  appState.snapshotSource = 'local';
-  appState.snapshotMenuVisible = true;
-}
-
-export function setSnapshotSource(source) {
-  if (appState.snapshotSource === source) return;
-  appState.snapshotSource = source;
-  clearSnapshotHistoryState();
 }
 
 export function openMessengerWithUser(id, name) {
