@@ -142,6 +142,7 @@ export class SessionManager {
       instanceId: crypto.randomBytes(4).toString('hex'),
       afk: false,
       cursorHidden: true,
+      cursorLastActivity: 0,
       lastActivity: Date.now(),
       x: 0, y: 0, lastx: 0, lasty: 0,
       mousedown: false,

@@ -106,6 +106,7 @@ const DEFAULT_ROOM_ID = 'lobby';
 const ROOM_JOIN_POLICIES = new Set(['open', 'registered', 'trusted']);
 const VALID_ROOM_BOARD_SIZES = new Set(Object.keys(BOARD_SIZE_PRESETS));
 const ROOM_OVERLAY_SESSION_INDEX = 0xffffffff;
+const CURSOR_IDLE_HIDE_MS = 5000;
 
 function parsePositiveIntEnv(name, fallback) {
   const parsed = Number.parseInt(process.env[name] || '', 10);
@@ -1319,7 +1320,17 @@ function isShadowHiddenFromViewer(subjectUser, viewer) {
   return subjectUser.sessionIndex !== viewer.sessionIndex;
 }
 
+function isCursorEffectivelyHidden(user, now = Date.now()) {
+  if (!user) return true;
+  if (user.cursorHidden) return true;
+  if (user.tool === Tool.TEXT && user.text) return false;
+
+  const lastActivity = Number(user.cursorLastActivity || 0);
+  return !lastActivity || now - lastActivity >= CURSOR_IDLE_HIDE_MS;
+}
+
 function mapUsersForBroadcast(users, viewer = null, room = null) {
+  const now = Date.now();
   return users
     .filter(u => !room || !isSessionPendingDisconnect(room, u.sessionIndex))
     .filter(u => !isShadowHiddenFromViewer(u, viewer))
@@ -1343,7 +1354,7 @@ function mapUsersForBroadcast(users, viewer = null, room = null) {
         role: u.role || Role.GUEST,
         globalRole: client?.globalRole || Role.GUEST,
         roomRole: client?.roomRole || Role.GUEST,
-        ch: u.cursorHidden || false,
+        ch: isCursorEffectivelyHidden(u, now),
         br: u.blurRadius || 500,
         ly: u.activeLayer || 0,
         bm: u.blendMode || 'source-over',
@@ -1909,6 +1920,7 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
         user.lasty = user.y;
         user.x = accX / 10;
         user.y = accY / 10;
+        user.cursorLastActivity = Date.now();
 
         // Track distance for metrics
         if (ws.userId && user.mousedown) {
@@ -2115,6 +2127,7 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
 
     case T.SHOW_CURSOR:
       user.cursorHidden = false;
+      user.cursorLastActivity = Date.now();
       break;
 
     case T.MIR:
