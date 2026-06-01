@@ -35,6 +35,7 @@ import { BlendModeManager } from './canvas/BlendModeManager.js';
 import { PerformanceDebugPanel } from './ui/PerformanceDebugPanel.js';
 import { TimeMachine } from './timebar/TimeMachine.svelte.js';
 import { recorder } from './replay/Recorder.js';
+import { rollingTapeRecorder } from './replay/RollingTapeRecorder.js';
 import { decodeDdraw, isDdrawFile } from './replay/ddrawCodec.js';
 // PerformanceSettings is lazy-loaded by Moderation._showPerformanceSettings()
 import { highlight } from './ui/Highlight.js';
@@ -590,6 +591,7 @@ export class DrawingApp {
     TimeMachine.init(this.board, this.wsClient);
     this.TimeMachine = TimeMachine; // Expose for WebSocketClient recording
     this.recorder = recorder;       // Local replay tape. TimeMachine.recordAction → here.
+    this.rollingTapeRecorder = rollingTapeRecorder; // Automatic 2-min DVR tape (History → Recent).
 
     updateStartupStatus('Preparing controls...');
     // Initialize Svelte UI components
@@ -649,6 +651,11 @@ export class DrawingApp {
     this.syncClient.onSyncComplete = () => {
       console.log('[App] Sync complete');
       this.updateRecordingButtonState();
+      // Start (first sync) or re-anchor (resync) the automatic rolling DVR tape.
+      // Skip offline mode — there's no shared room history to record.
+      if (this.currentRoomId && !this.isOfflineMode) {
+        this.rollingTapeRecorder.onSyncComplete(this);
+      }
     };
 
     updateStartupStatus('Loading account...');
@@ -2809,6 +2816,8 @@ export class DrawingApp {
     }
 
     this.resetRoomState({ preserveRemoteVisuals: false, clearBoard: true });
+    // Drop the rolling tape from the room we're leaving; it re-arms on sync.
+    this.rollingTapeRecorder.stop('room-change');
 
     this.isOfflineMode = false;
     this.currentRoomId = roomId;
@@ -3032,6 +3041,7 @@ export class DrawingApp {
     appState.connected = false;
     this.ui.setRemoteUsersConnected(false);
     TimeMachine.stop();
+    this.rollingTapeRecorder.stop('leave-room');
     this.updateRecordingButtonState();
 
     if (this.landingPage) {
@@ -3468,6 +3478,13 @@ export class DrawingApp {
     appState.connected = true;
     this.ui.setRemoteUsersConnected(true);
     appState.currentRoomId = this.currentRoomId || null;
+
+    // Start the automatic rolling DVR tape the moment we're in a room — even
+    // when alone (the solo-join path never fires sync-complete). onSyncComplete
+    // re-anchors it to the synced board once sync finishes.
+    if (this.currentRoomId && !this.isOfflineMode) {
+      this.rollingTapeRecorder.start(this);
+    }
     this.ui.hideOverlay();
     this.ui.showCursor();
     this.ui.updateSelfName(this.self.username);
@@ -3689,6 +3706,9 @@ export class DrawingApp {
     this.stopPreviewInterval();
     this.stopCheckpointInterval();
     TimeMachine.stop();
+    // Socket dropped — the rolling tape may now have gaps. Mark it stale (keep
+    // capturing) so the Recent view can warn; a successful resync re-anchors it.
+    this.rollingTapeRecorder.markStale('disconnect');
     this.updateRecordingButtonState();
 
     // Hide remote cursors so they don't sit frozen on the canvas, piled up

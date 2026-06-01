@@ -77,6 +77,12 @@ class TimeMachineState {
   isExportingVideo = $state(false);
   /** 0..1 export progress */
   videoExportProgress = $state(0);
+  /**
+   * true while replay output is being painted into an in-panel canvas (the
+   * History "Recent" mini-player) rather than the full-board #replayCanvas
+   * overlay. Gates the bottom Timebar + chrome-hiding body classes off.
+   */
+  isEmbedded = $state(false);
 
   // ── backward-compat getters ────────────────────────────────────────────────
   /** @deprecated use isOpen */
@@ -138,6 +144,10 @@ class TimeMachineState {
   _lastDynCheckpointTs = null;
   /** @type {TimeLapseExporter|null} */
   _activeVideoExporter = null;
+  /** @type {HTMLCanvasElement|null} in-panel canvas the replay is mirrored into */
+  _embedCanvas = null;
+  /** @type {CanvasRenderingContext2D|null} */
+  _embedCtx = null;
 
   // ── initialisation ─────────────────────────────────────────────────────────
 
@@ -184,6 +194,42 @@ class TimeMachineState {
     boardsWrapper.appendChild(this._replayCanvas);
   }
 
+  /**
+   * Point replay output at an in-panel canvas (the History "Recent" mini-player).
+   * While attached, painting routines mirror the board-sized #replayCanvas into
+   * this canvas and the board chrome is left untouched (the modal sits on top).
+   * @param {HTMLCanvasElement} canvas
+   */
+  attachEmbedTarget(canvas) {
+    if (!canvas) return;
+    this._embedCanvas = canvas;
+    this._embedCtx = canvas.getContext('2d');
+    this.isEmbedded = true;
+    if (this._replayCanvas) {
+      canvas.width = this._replayCanvas.width;
+      canvas.height = this._replayCanvas.height;
+    }
+  }
+
+  /** Stop mirroring into the in-panel canvas. */
+  detachEmbedTarget() {
+    this._embedCanvas = null;
+    this._embedCtx = null;
+    this.isEmbedded = false;
+  }
+
+  /** Mirror the current #replayCanvas pixels into the embed canvas, 1:1. @private */
+  _blitToEmbed() {
+    if (!this.isEmbedded || !this._embedCtx || !this._embedCanvas || !this._replayCanvas) return;
+    if (this._embedCanvas.width !== this._replayCanvas.width ||
+        this._embedCanvas.height !== this._replayCanvas.height) {
+      this._embedCanvas.width = this._replayCanvas.width;
+      this._embedCanvas.height = this._replayCanvas.height;
+    }
+    this._embedCtx.clearRect(0, 0, this._embedCanvas.width, this._embedCanvas.height);
+    this._embedCtx.drawImage(this._replayCanvas, 0, 0);
+  }
+
   _drawToReplayCanvas() {
     if (!this._replayCtx || !this._replayEngine.outputCanvas) return;
     const bgColor = this._board?.backgroundColor || [255, 255, 255, 1];
@@ -198,6 +244,7 @@ class TimeMachineState {
     // and resurrect preview mode).
     this._activeCheckpointTs = null;
     this.isPreviewMode = false;
+    this._blitToEmbed();
   }
 
   _drawVisualCheckpoint(cp) {
@@ -234,6 +281,7 @@ class TimeMachineState {
     this.isPreviewMode = true;
     this._showReplayCanvas(true);
     this._syncBotCursorsFromStates(botStates || []);
+    this._blitToEmbed();
   }
 
   _decodeCheckpointBlob(cp) {
@@ -330,7 +378,16 @@ class TimeMachineState {
    * @param {'inbound'|'outbound'} direction
    */
   recordAction(msg, direction) {
-    const rec = (typeof window !== 'undefined' ? window.app?.recorder : null);
+    const app = (typeof window !== 'undefined' ? window.app : null);
+    const dir = direction === 'inbound' ? 'in' : 'out';
+
+    // Automatic rolling DVR tape — always fed while enabled (independent of the
+    // manual recorder toggle below).
+    const rolling = app?.rollingTapeRecorder;
+    if (rolling?.isEnabled?.()) rolling.record(msg, dir);
+
+    // Manual session tape (topbar tape button).
+    const rec = app?.recorder;
     if (!rec?.isRecording?.()) return;
     if (direction === 'inbound') {
       rec.recordIncoming(msg);
@@ -370,6 +427,10 @@ class TimeMachineState {
       if (this._replayCanvas) {
         this._replayCanvas.width = rw;
         this._replayCanvas.height = rh;
+      }
+      if (this._embedCanvas) {
+        this._embedCanvas.width = rw;
+        this._embedCanvas.height = rh;
       }
     }
 
@@ -472,6 +533,9 @@ class TimeMachineState {
    * @private
    */
   _refitBoardToContainer() {
+    // Don't move the live board's view while the embedded mini-player is up —
+    // the board is untouched behind the modal.
+    if (this.isEmbedded) return;
     const board = this._board ?? window.app?.board;
     if (!board?.resetView) return;
     if (typeof requestAnimationFrame === 'undefined') {
@@ -509,6 +573,7 @@ class TimeMachineState {
     }
     this._showReplayCanvas(false);
     this._removeBotCursors();
+    this.detachEmbedTarget();
 
     // Make sure we don't leave the live WS drain paused after teardown.
     if (this._wsClient) {
@@ -880,6 +945,49 @@ class TimeMachineState {
     if (layer0?.flatCtx) {
       layer0.flatCtx.drawImage(src, 0, 0);
     }
+    liveBoard.markCompositeFull?.();
+    liveBoard.compositeAllLayers?.();
+    this.catchUp();
+  }
+
+  /**
+   * Region variant of {@link restoreLocalToCurrentState}: revert only the given
+   * rectangle to the currently-displayed replay state, keeping the rest of the
+   * live board as-is. `region` is in board pixels ({x, y, width, height}); null
+   * falls back to the full-board restore.
+   *
+   * Like the full version this is a single-user "rewind my own canvas" op — it
+   * collapses to layer 0 and the server is unaware until the next stroke.
+   * @param {{x:number,y:number,width:number,height:number}|null} region
+   */
+  restoreLocalRegionToCurrentState(region) {
+    if (!region) return this.restoreLocalToCurrentState();
+    if (this._source !== 'local' || !this.isReviewing) return;
+    const replaySrc = this._replayEngine?.outputCanvas;
+    const liveBoard = this._board;
+    const lm = liveBoard?.layerManager;
+    if (!replaySrc || !liveBoard || !lm?.getCompositedCanvas) return;
+
+    const current = lm.getCompositedCanvas();
+    const w = current.width, h = current.height;
+    const rx = Math.max(0, Math.round(region.x));
+    const ry = Math.max(0, Math.round(region.y));
+    const rw = Math.min(w - rx, Math.round(region.width));
+    const rh = Math.min(h - ry, Math.round(region.height));
+    if (rw <= 0 || rh <= 0) return;
+
+    // Build current board + the region replaced by the replayed pixels.
+    const merged = document.createElement('canvas');
+    merged.width = w;
+    merged.height = h;
+    const mctx = merged.getContext('2d');
+    mctx.drawImage(current, 0, 0);
+    mctx.clearRect(rx, ry, rw, rh);
+    mctx.drawImage(replaySrc, rx, ry, rw, rh, rx, ry, rw, rh);
+
+    liveBoard.clear?.();
+    const layer0 = lm.layerGroups?.[0];
+    if (layer0?.flatCtx) layer0.flatCtx.drawImage(merged, 0, 0);
     liveBoard.markCompositeFull?.();
     liveBoard.compositeAllLayers?.();
     this.catchUp();
@@ -1401,6 +1509,12 @@ class TimeMachineState {
   // ── canvas overlay ─────────────────────────────────────────────────────────
 
   _showReplayCanvas(show) {
+    // Embedded mode mirrors into an in-panel canvas, so the board-overlay
+    // #replayCanvas stays hidden and the live board/chrome are left alone.
+    if (this.isEmbedded) {
+      if (this._replayCanvas) this._replayCanvas.style.display = 'none';
+      return;
+    }
     if (this._replayCanvas) {
       this._replayCanvas.style.display = show ? 'block' : 'none';
     }
@@ -1487,6 +1601,9 @@ class TimeMachineState {
   }
 
   _syncBotCursorsFromStates(states) {
+    // Embedded mini-player draws only the replay canvas; bot cursors are DOM
+    // elements over the live board, so skip them (they'd float behind the modal).
+    if (this.isEmbedded) return;
     const ui = window.app?.ui;
     if (!ui) return;
 

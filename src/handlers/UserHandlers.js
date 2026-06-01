@@ -492,6 +492,10 @@ export function setupUserHandlers(wsClient, app) {
           app.syncClient.hideOverlay();
           app.syncClient.hasCompletedSync = true;
           app.updateRecordingButtonState?.();
+          // Alone in the room: handleSyncComplete() never runs (we skipped
+          // requestSync), so fire the sync-complete side effects here too —
+          // otherwise the rolling DVR tape never starts when you're solo.
+          app.syncClient.onSyncComplete?.();
         }, 2500);
       }
     }

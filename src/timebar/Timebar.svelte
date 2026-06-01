@@ -214,7 +214,7 @@
   // viewer knows the full-resolution render is on its way.
   $effect(() => {
     if (typeof document === 'undefined') return;
-    document.body.classList.toggle('replay-preview-mode', !!TimeMachine.isPreviewMode);
+    document.body.classList.toggle('replay-preview-mode', !TimeMachine.isEmbedded && !!TimeMachine.isPreviewMode);
   });
 
   // Hide chrome (sidebar, board menu, undo/redo HUD, view-add button) while
@@ -222,7 +222,7 @@
   // tools are meaningless on a frozen historical board.
   $effect(() => {
     if (typeof document === 'undefined') return;
-    document.body.classList.toggle('replay-reviewing-mode', !!TimeMachine.isReviewing);
+    document.body.classList.toggle('replay-reviewing-mode', !TimeMachine.isEmbedded && !!TimeMachine.isReviewing);
   });
 
   // Keep the loading overlay centered over the live canvas region rather than
@@ -320,14 +320,14 @@
 
 </script>
 
-{#if TimeMachine.isReviewing}
+{#if TimeMachine.isReviewing && !TimeMachine.isEmbedded}
   <div class="history-badge">
     <span class="pulse"></span>
     VIEWING HISTORY
   </div>
 {/if}
 
-{#if TimeMachine.isPreviewMode}
+{#if TimeMachine.isPreviewMode && !TimeMachine.isEmbedded}
   <div class="replay-preview-overlay" bind:this={overlayElement}>
     <div class="replay-preview-spinner"></div>
     <div class="replay-preview-text">Loading…</div>
@@ -336,7 +336,7 @@
 
 <TimeLapseDialog bind:open={timeLapseDialogOpen} onClose={() => (timeLapseDialogOpen = false)} />
 
-{#if TimeMachine.isOpen || TimeMachine.isLoading}
+{#if (TimeMachine.isOpen || TimeMachine.isLoading) && !TimeMachine.isEmbedded}
 <button
   class="toggle-btn"
   class:bar-visible={TimeMachine.isVisible}

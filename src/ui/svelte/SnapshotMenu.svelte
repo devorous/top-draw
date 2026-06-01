@@ -3,6 +3,7 @@
   import { appState, clearSnapshotHistoryState, toggleSnapshotMenu } from '../../state.svelte.js';
   import { T } from '../../../shared/MessageTypes.js';
   import * as wasm from '../../wasm/ddraw_wasm.js';
+  import { TimeMachine } from '../../timebar/TimeMachine.svelte.js';
 
   let snapshots = $derived(appState.snapshots || []);
   let snapshotHasMore = $derived(appState.snapshotHasMore);
@@ -13,6 +14,312 @@
   let canViewHistory = $derived(appState.selfRole >= 1 || isSoloOccupant);
   let canRestoreHistory = $derived(appState.selfRole >= 2);
   let canRestoreBoard = $derived(appState.selfRole >= 2);
+
+  // ── History view tabs ──────────────────────────────────────────────────────
+  // Recent  = local rolling DVR tape (this client's last ~2 minutes), no server.
+  // Server  = longer-range room history reconstructed from server checkpoints.
+  // Snapshots = saved still images for restore / region restore.
+  let view = $state('recent'); // 'recent' | 'server' | 'snapshots'
+  let snapshotsLoadedOnce = false;
+
+  // Rolling-tape status, polled while the Recent tab is visible.
+  let recentStatus = $state(null);
+  let recentStatusTimer = null;
+
+  function refreshRecentStatus() {
+    recentStatus = window.app?.rollingTapeRecorder?.getStatus?.() ?? null;
+  }
+
+  function startRecentStatusPolling() {
+    refreshRecentStatus();
+    if (recentStatusTimer) return;
+    recentStatusTimer = window.setInterval(refreshRecentStatus, 1000);
+  }
+
+  function stopRecentStatusPolling() {
+    if (recentStatusTimer) {
+      clearInterval(recentStatusTimer);
+      recentStatusTimer = null;
+    }
+  }
+
+  // ── Embedded Recent player ──────────────────────────────────────────────────
+  // The Recent tape plays inside this modal: TimeMachine paints into embedCanvas
+  // (embedded mode) instead of taking over the whole board.
+  let embedCanvas = $state(null);
+  let embedActive = $state(false);   // a tape is loaded into the in-panel player
+  let embedStarting = false;         // guards against re-entrant auto-start
+  let lastBundle = null;             // the frozen tape currently in the player
+  let handoffToFull = false;         // true while handing the tape to the OG full-board replay
+
+  // Reactive mirrors of TimeMachine playback state for the compact controls.
+  let tmPlaying = $derived(TimeMachine.isPlaying);
+  let tmStart = $derived(TimeMachine.sessionStart);
+  let tmEnd = $derived(TimeMachine.sessionEnd);
+  let tmCurrent = $derived(TimeMachine.currentTime);
+  let tmLoading = $derived(TimeMachine.isLoading);
+  let scrubbingLocal = false;
+
+  let recentElapsedLabel = $derived(formatClock(Math.max(0, tmCurrent - tmStart)));
+  let recentTotalLabel = $derived(formatClock(Math.max(0, tmEnd - tmStart)));
+
+  function formatClock(ms) {
+    const s = Math.floor((ms || 0) / 1000);
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  }
+
+  function switchView(next) {
+    if (view === next) return;
+    if (view === 'recent') stopEmbeddedRecent();
+    view = next;
+    if (next === 'recent') {
+      startRecentStatusPolling();
+      maybeStartEmbeddedRecent();
+    } else {
+      stopRecentStatusPolling();
+    }
+    // Lazily fetch the server snapshot list the first time the user opens the
+    // Snapshots tab — Recent is local-only and Server uses its own request.
+    if (next === 'snapshots' && !snapshotsLoadedOnce && canViewHistory) {
+      snapshotsLoadedOnce = true;
+      refresh();
+    }
+  }
+
+  /** Freeze the rolling tape into the in-panel player. */
+  async function startEmbeddedRecent() {
+    if (embedActive || embedStarting) return;
+    const rec = window.app?.rollingTapeRecorder;
+    const bundle = rec?.snapshotRecording?.();
+    if (!bundle || !bundle.deltas || bundle.deltas.length === 0) return;
+    lastBundle = bundle;
+
+    embedStarting = true;
+    embedActive = true;
+    try {
+      await tick(); // ensure embedCanvas is bound in the DOM
+      if (!embedCanvas) { embedActive = false; return; }
+      TimeMachine.attachEmbedTarget(embedCanvas);
+      await TimeMachine.loadFromRecording(bundle);
+    } catch (err) {
+      console.error('[SnapshotMenu] embedded recent replay failed:', err);
+      embedActive = false;
+      TimeMachine.detachEmbedTarget?.();
+      window.app?.ui?.showToast?.('Could not load recent replay', 3000, 'error');
+    } finally {
+      embedStarting = false;
+    }
+  }
+
+  /** Auto-start the player when Recent has content and isn't already running. */
+  function maybeStartEmbeddedRecent() {
+    if (view !== 'recent' || embedActive || embedStarting) return;
+    // NOTE: don't gate on embedCanvas here — the <canvas> only mounts once
+    // embedActive flips true (inside startEmbeddedRecent, which awaits tick
+    // before using it). Requiring it up front deadlocks: canvas needs active,
+    // active needs this function, this function needed canvas.
+    if (recentStatus?.hasContent) startEmbeddedRecent();
+  }
+
+  /** Tear down the in-panel player (tab switch / close). */
+  function stopEmbeddedRecent() {
+    // When handing the tape off to the full-board replay, that replay now owns
+    // TimeMachine — don't stop it out from under the handoff.
+    clearRegion();
+    regionSelecting = false;
+    if (handoffToFull) { embedActive = false; return; }
+    if (!embedActive && !embedStarting) return;
+    embedActive = false;
+    try { TimeMachine.stop(); } catch {}
+    TimeMachine.detachEmbedTarget?.();
+  }
+
+  function toggleRecentPlay() {
+    if (TimeMachine.isPlaying) TimeMachine.pause();
+    else TimeMachine.play();
+  }
+
+  // ── Mini-player actions (parity with the full Timebar review controls) ──────
+  let tmExporting = $derived(TimeMachine.isExportingVideo);
+  let tmExportProgress = $derived(TimeMachine.videoExportProgress);
+
+  async function saveRecentReplay() {
+    await TimeMachine.exportCurrentRecording();
+  }
+
+  async function undoRecentToHere() {
+    const hasRegion = !!regionRect;
+    const msg = hasRegion
+      ? 'Revert just the selected region of your board to this point in the replay?'
+      : 'Replace your current board with this state?';
+    const ok = await window.showAppConfirm(msg, {
+      title: hasRegion ? 'Undo region to here' : 'Undo to here',
+      confirmLabel: 'Undo',
+      danger: true,
+    });
+    if (!ok) return;
+    if (hasRegion) TimeMachine.restoreLocalRegionToCurrentState(regionRect);
+    else TimeMachine.restoreLocalToCurrentState();
+    // restoreLocal* calls catchUp() which stops the (embedded) replay; close.
+    close();
+  }
+
+  function exportRecentVideo() {
+    if (TimeMachine.isExportingVideo) return;
+    // Reuse the existing region-aware time-lapse exporter. Defaults match the
+    // dialog (30× speed, 30fps); the mini player just passes the picked region.
+    TimeMachine.exportTimeLapseVideo({ region: regionRect || null });
+  }
+
+  function cancelRecentVideo() {
+    TimeMachine.cancelVideoExport();
+  }
+
+  // ── Region selection on the mini canvas ─────────────────────────────────────
+  // regionRect is in board pixels (what the exporter / region-undo consume).
+  let regionSelecting = $state(false);
+  let regionRect = $state(null);
+  let regionDrag = null;             // { startX, startY } in client px
+  let regionDragRect = $state(null); // live drag feedback, viewport-fixed px
+  let regionOutline = $state(null);  // committed region outline, viewport-fixed px
+
+  function toggleRegionSelect() {
+    if (regionSelecting) { regionSelecting = false; return; }
+    regionSelecting = true;
+    regionRect = null;
+    regionOutline = null;
+  }
+
+  function clearRegion() {
+    regionRect = null;
+    regionOutline = null;
+    regionDragRect = null;
+  }
+
+  /** Convert a client point to board-pixel coords via the embed canvas rect. */
+  function clientToBoard(clientX, clientY) {
+    if (!embedCanvas) return null;
+    const r = embedCanvas.getBoundingClientRect();
+    if (!r.width || !r.height) return null;
+    return {
+      x: ((clientX - r.left) / r.width) * embedCanvas.width,
+      y: ((clientY - r.top) / r.height) * embedCanvas.height,
+    };
+  }
+
+  function onRegionPointerDown(e) {
+    if (!regionSelecting) return;
+    e.preventDefault();
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    regionDrag = { startX: e.clientX, startY: e.clientY };
+    regionDragRect = { x: e.clientX, y: e.clientY, w: 0, h: 0 };
+  }
+
+  function onRegionPointerMove(e) {
+    if (!regionDrag) return;
+    regionDragRect = {
+      x: Math.min(regionDrag.startX, e.clientX),
+      y: Math.min(regionDrag.startY, e.clientY),
+      w: Math.abs(e.clientX - regionDrag.startX),
+      h: Math.abs(e.clientY - regionDrag.startY),
+    };
+  }
+
+  function onRegionPointerUp(e) {
+    if (!regionDrag) return;
+    const start = clientToBoard(regionDrag.startX, regionDrag.startY);
+    const end = clientToBoard(e.clientX, e.clientY);
+    regionDrag = null;
+    regionDragRect = null;
+    if (!start || !end) { regionSelecting = false; return; }
+    const x = Math.min(start.x, end.x);
+    const y = Math.min(start.y, end.y);
+    const width = Math.abs(end.x - start.x);
+    const height = Math.abs(end.y - start.y);
+    if (width < 8 || height < 8) { regionSelecting = false; return; }
+    regionRect = { x, y, width, height };
+    regionSelecting = false;
+  }
+
+  // Keep the committed-region outline anchored to the canvas (re-measured each
+  // frame so it survives window resize / the modal reflowing).
+  $effect(() => {
+    if (!embedActive || !regionRect || !embedCanvas) { regionOutline = null; return; }
+    let rafId = 0;
+    const sync = () => {
+      if (embedCanvas && regionRect) {
+        const r = embedCanvas.getBoundingClientRect();
+        const sx = r.width / embedCanvas.width;
+        const sy = r.height / embedCanvas.height;
+        regionOutline = {
+          left: r.left + regionRect.x * sx,
+          top: r.top + regionRect.y * sy,
+          width: regionRect.width * sx,
+          height: regionRect.height * sy,
+        };
+      }
+      rafId = requestAnimationFrame(sync);
+    };
+    sync();
+    return () => cancelAnimationFrame(rafId);
+  });
+
+  function onRecentScrubInput(e) {
+    const t = Number(e.currentTarget.value);
+    if (!scrubbingLocal) { scrubbingLocal = true; TimeMachine.beginScrub(); }
+    TimeMachine.scrubTo(t);
+  }
+
+  function onRecentScrubChange(e) {
+    const t = Number(e.currentTarget.value);
+    TimeMachine.endScrub(t);
+    scrubbingLocal = false;
+  }
+
+  /** Hand the current recent tape off to the original full-board replay UI. */
+  async function openFullscreenReplay() {
+    const bundle = lastBundle ?? window.app?.rollingTapeRecorder?.snapshotRecording?.();
+    if (!bundle || !bundle.deltas?.length) return;
+    handoffToFull = true;
+    embedActive = false;
+    try { TimeMachine.stop(); } catch {}     // end the embedded session + detach embed
+    close();                                 // hide the History modal
+    try {
+      await window.app?.TimeMachine?.loadFromRecording?.(bundle);  // OG full-board replay + Timebar
+    } catch (err) {
+      console.error('[SnapshotMenu] fullscreen replay handoff failed:', err);
+      window.app?.ui?.showToast?.('Could not open replay', 3000, 'error');
+    }
+  }
+
+  // Re-attempt auto-start once status polling reports content (e.g. the user
+  // opened History a beat after joining, before any deltas accumulated).
+  $effect(() => {
+    if (view === 'recent' && recentStatus?.hasContent) {
+      maybeStartEmbeddedRecent();
+    }
+  });
+
+  /** Open the server checkpoint timeline in the scrubber; close this menu. */
+  function openServerReplay() {
+    const app = window.app;
+    if (app?.syncClient && app.currentRoomId && !app.isOfflineMode && !app.syncClient.hasCompletedSync) {
+      app?.ui?.showToast?.('Please wait for sync to finish before opening server history', 2500);
+      return;
+    }
+    close();
+    app?.TimeMachine?.loadFromServer?.();
+  }
+
+  function formatWindow(ms) {
+    const s = Math.round((ms || 0) / 1000);
+    if (s < 90) return `${s}s`;
+    return `${Math.round(s / 60)} min`;
+  }
+
+  let recentHasContent = $derived(!!recentStatus?.hasContent);
+  let recentEnabled = $derived(!!recentStatus?.enabled);
+  let recentStale = $derived(!!recentStatus?.stale);
 
   let selectedId = $state(null);
   let selectedLayers = $state(null);
@@ -489,14 +796,14 @@
   });
 
   onMount(() => {
+    // Recent (local rolling tape) is the default view — start polling its status
+    // and auto-load the in-panel player.
+    startRecentStatusPolling();
+    maybeStartEmbeddedRecent();
+    lastHandledSnapshotListVersion = snapshotListVersion;
     if (!canViewHistory) {
       window.app.snapshotPreviewCanvas = null;
-      previewError = 'Only registered users can view board history.';
-      return;
     }
-
-    lastHandledSnapshotListVersion = snapshotListVersion;
-    refresh();
     const tickFrame = () => {
       marchingAntsOffset = (marchingAntsOffset + 0.4) % 13;
       drawSelection();
@@ -506,6 +813,8 @@
   });
 
   onDestroy(() => {
+    stopRecentStatusPolling();
+    stopEmbeddedRecent();
     if (animId) cancelAnimationFrame(animId);
     if (previewRequestTimeout) clearTimeout(previewRequestTimeout);
     if (listRequestTimeout) clearTimeout(listRequestTimeout);
@@ -533,14 +842,162 @@
     <!-- Header -->
     <div class="snap-header">
       <div class="snap-header-left">
-        <span class="snap-title">Board History</span>
+        <span class="snap-title">History</span>
+        <div class="snap-tabs" role="tablist">
+          <button class="snap-tab" class:active={view === 'recent'} role="tab" aria-selected={view === 'recent'}
+            onclick={() => switchView('recent')} onpointerup={(e) => e.pointerType !== 'mouse' && switchView('recent')}>Recent</button>
+          <button class="snap-tab" class:active={view === 'server'} role="tab" aria-selected={view === 'server'}
+            onclick={() => switchView('server')} onpointerup={(e) => e.pointerType !== 'mouse' && switchView('server')}>Server</button>
+        </div>
       </div>
       <div class="snap-header-right">
-        <button class="snap-reload-btn" onclick={refresh} onpointerup={(e) => e.pointerType !== 'mouse' && refresh()} title="Refresh">&#8635;</button>
+        {#if view === 'snapshots'}
+          <button class="snap-reload-btn" onclick={refresh} onpointerup={(e) => e.pointerType !== 'mouse' && refresh()} title="Refresh">&#8635;</button>
+        {/if}
         <button class="snap-close-btn" onclick={close} onpointerup={(e) => e.pointerType !== 'mouse' && close()} title="Close">&times;</button>
       </div>
     </div>
 
+    {#if view === 'recent'}
+      <!-- Recent: local rolling DVR tape, played inside the modal -->
+      <div class="snap-tab-panel snap-recent">
+        {#if embedActive}
+          <div class="rp-player">
+            <div class="rp-stage">
+              <canvas bind:this={embedCanvas} class="rp-canvas"></canvas>
+              {#if tmLoading}
+                <div class="rp-overlay"><div class="rp-spinner"></div></div>
+              {/if}
+              {#if regionSelecting}
+                <div
+                  class="rp-region-picker"
+                  role="presentation"
+                  onpointerdown={onRegionPointerDown}
+                  onpointermove={onRegionPointerMove}
+                  onpointerup={onRegionPointerUp}
+                  onpointerleave={onRegionPointerUp}
+                >
+                  <span class="rp-region-hint">Drag a rectangle to pick a region</span>
+                </div>
+              {/if}
+              <button
+                class="rp-fullscreen"
+                onclick={openFullscreenReplay}
+                onpointerup={(e) => e.pointerType !== 'mouse' && openFullscreenReplay()}
+                title="Open full-screen replay"
+                aria-label="Open full-screen replay"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+              </button>
+            </div>
+            <div class="rp-controls">
+              <button class="rp-play" onclick={toggleRecentPlay} title={tmPlaying ? 'Pause' : 'Play'} aria-label={tmPlaying ? 'Pause' : 'Play'}>
+                {#if tmPlaying}
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+                {:else}
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                {/if}
+              </button>
+              <span class="rp-time">{recentElapsedLabel}</span>
+              <input
+                class="rp-scrubber"
+                type="range"
+                min={tmStart}
+                max={tmEnd}
+                value={tmCurrent}
+                step="1"
+                oninput={onRecentScrubInput}
+                onchange={onRecentScrubChange}
+                aria-label="Recent replay scrubber"
+              />
+              <span class="rp-time rp-time-total">{recentTotalLabel}</span>
+            </div>
+
+            {#if tmExporting}
+              <div class="rp-export-progress">
+                <div class="rp-export-bar" style="width: {Math.round(tmExportProgress * 100)}%"></div>
+                <span class="rp-export-label">Exporting video… {Math.round(tmExportProgress * 100)}%</span>
+                <button class="rp-action" onclick={cancelRecentVideo}>Cancel</button>
+              </div>
+            {:else}
+              <div class="rp-actions">
+                <button
+                  class="rp-action"
+                  class:active={regionSelecting || !!regionRect}
+                  onclick={toggleRegionSelect}
+                  title="Select a region of the canvas"
+                >
+                  {#if regionRect}
+                    Region: {Math.round(regionRect.width)}×{Math.round(regionRect.height)}
+                  {:else if regionSelecting}
+                    Picking…
+                  {:else}
+                    Select region
+                  {/if}
+                </button>
+                {#if regionRect}
+                  <button class="rp-action" onclick={clearRegion} title="Clear region">Clear</button>
+                {/if}
+                <span class="rp-actions-spacer"></span>
+                <button class="rp-action danger" onclick={undoRecentToHere} title={regionRect ? 'Undo just this region to here' : 'Undo board to here'}>
+                  {regionRect ? 'Undo region' : 'Undo to here'}
+                </button>
+                <button class="rp-action" onclick={saveRecentReplay} title="Save this replay as a .ddraw file">Save .ddraw</button>
+                <button class="rp-action accent" onclick={exportRecentVideo} title={regionRect ? 'Export this region as a time-lapse video' : 'Export a time-lapse video'}>Export video</button>
+              </div>
+            {/if}
+
+            {#if recentStale}
+              <div class="snap-recent-warn rp-warn">This tape may be incomplete (you were disconnected or away).</div>
+            {/if}
+
+            {#if regionDragRect}
+              <div class="rp-region-rect" style="left:{regionDragRect.x}px;top:{regionDragRect.y}px;width:{regionDragRect.w}px;height:{regionDragRect.h}px"></div>
+            {/if}
+            {#if regionOutline && !regionSelecting}
+              <div class="rp-region-outline" style="left:{regionOutline.left}px;top:{regionOutline.top}px;width:{regionOutline.width}px;height:{regionOutline.height}px">
+                <span class="rp-region-tag">Region</span>
+              </div>
+            {/if}
+          </div>
+        {:else}
+          <div class="snap-recent-card">
+            <div class="snap-recent-icon" aria-hidden="true">⏱</div>
+            <h3 class="snap-recent-title">Recent activity</h3>
+            <p class="snap-recent-sub">
+              A local replay of roughly the last {formatWindow(recentStatus?.windowMs)} on this device.
+            </p>
+            {#if !recentEnabled}
+              <div class="snap-recent-empty">Recent history starts recording once you've joined and synced a room.</div>
+            {:else}
+              <div class="snap-recent-empty">Nothing to replay yet — draw something, or wait a few seconds for activity to accumulate.</div>
+            {/if}
+          </div>
+        {/if}
+      </div>
+    {:else if view === 'server'}
+      <!-- Server: longer-range checkpoint+delta replay -->
+      <div class="snap-tab-panel snap-recent">
+        <div class="snap-recent-card">
+          <div class="snap-recent-icon" aria-hidden="true">🗄</div>
+          <h3 class="snap-recent-title">Server history</h3>
+          <p class="snap-recent-sub">
+            Longer room history reconstructed from server checkpoints. Opens the timeline so you can scrub
+            and play back past activity beyond the local window.
+          </p>
+          {#if !canViewHistory}
+            <div class="snap-recent-empty">Only registered users can view server history (unless you're alone in the room).</div>
+          {/if}
+          <button
+            class="btn primary snap-recent-play"
+            disabled={!canViewHistory}
+            onclick={openServerReplay}
+            onpointerup={(e) => e.pointerType !== 'mouse' && openServerReplay()}
+          >Open server timeline</button>
+        </div>
+      </div>
+    {:else}
+    <!-- Snapshots: saved still images / restore -->
     <!-- Preview area -->
     <div class="snap-preview-wrap" bind:this={previewWrap} onwheel={onWheel}>
       {#if !selectedId}
@@ -700,6 +1157,7 @@
         </button>
       </div>
     </div>
+    {/if}
 
   </div>
 </div>
@@ -737,6 +1195,130 @@
 
   .snap-title { font-size: 14px; font-weight: 600; color: var(--text-primary, #eee); }
   .snap-header-right { display: flex; align-items: center; gap: 8px; }
+
+  .snap-tabs { display: flex; align-items: center; gap: 2px; background: var(--bg-secondary, #1a1a1a); border: 1px solid var(--border-subtle, #333); border-radius: 8px; padding: 3px; }
+  .snap-tab {
+    background: transparent; border: none; border-radius: 5px; padding: 5px 12px;
+    font-size: 12px; font-weight: 600; color: var(--text-secondary, #aaa); cursor: pointer;
+  }
+  .snap-tab:hover { color: var(--text-primary, #fff); background: var(--bg-elevated, #2a2a2a); }
+  .snap-tab.active { background: var(--accent-primary, #7c5cbf); color: #fff; }
+
+  /* Recent / Server panels */
+  .snap-tab-panel { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 24px; }
+  .snap-recent-card {
+    max-width: 420px; text-align: center; display: flex; flex-direction: column;
+    align-items: center; gap: 12px;
+  }
+  .snap-recent-icon { font-size: 40px; line-height: 1; opacity: 0.9; }
+  .snap-recent-title { margin: 0; font-size: 18px; font-weight: 600; color: var(--text-primary, #eee); }
+  .snap-recent-sub { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text-secondary, #aaa); }
+  .snap-recent-empty { font-size: 12px; color: var(--text-muted, #777); }
+  .snap-recent-warn {
+    font-size: 12px; color: #f0b94a; background: rgba(240, 185, 74, 0.1);
+    border: 1px solid rgba(240, 185, 74, 0.35); border-radius: 6px; padding: 8px 12px;
+  }
+  .snap-recent-play { margin-top: 6px; min-width: 180px; }
+  .snap-recent-play:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* Embedded Recent player */
+  .snap-recent { padding: 16px; }
+  .rp-player { flex: 1; min-height: 0; width: 100%; display: flex; flex-direction: column; gap: 12px; }
+  .rp-stage {
+    flex: 1; min-height: 0; position: relative; display: flex; align-items: center;
+    justify-content: center; background: #0a0a0a; border-radius: 8px; overflow: hidden;
+  }
+  .rp-canvas {
+    max-width: 100%; max-height: 100%; object-fit: contain;
+    /* Checkerboard so transparent boards read as transparent, not black. */
+    background-image:
+      linear-gradient(45deg, #1a1a1a 25%, transparent 25%),
+      linear-gradient(-45deg, #1a1a1a 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #1a1a1a 75%),
+      linear-gradient(-45deg, transparent 75%, #1a1a1a 75%);
+    background-size: 20px 20px;
+    background-position: 0 0, 0 10px, 10px -10px, -10px 0;
+    background-color: #2a2a2a;
+  }
+  .rp-overlay {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: rgba(0, 0, 0, 0.25); backdrop-filter: blur(2px);
+  }
+  .rp-spinner {
+    width: 36px; height: 36px; border: 3px solid rgba(255, 255, 255, 0.25);
+    border-top-color: #fff; border-radius: 50%; animation: rp-spin 0.9s linear infinite;
+  }
+  @keyframes rp-spin { to { transform: rotate(360deg); } }
+  .rp-fullscreen {
+    position: absolute; top: 10px; right: 10px; width: 32px; height: 32px;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(0, 0, 0, 0.55); border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 6px; color: #eee; cursor: pointer;
+  }
+  .rp-fullscreen:hover { background: rgba(0, 0, 0, 0.8); color: #fff; }
+
+  .rp-controls { display: flex; align-items: center; gap: 12px; padding: 0 4px; }
+  .rp-play {
+    flex-shrink: 0; width: 38px; height: 38px; display: flex; align-items: center;
+    justify-content: center; border-radius: 50%; border: 1px solid var(--border-subtle, #333);
+    background: var(--bg-elevated, #2a2a2a); color: #fff; cursor: pointer;
+  }
+  .rp-play:hover { background: var(--accent-primary, #7c5cbf); }
+  .rp-time { font-size: 12px; color: var(--text-secondary, #aaa); font-variant-numeric: tabular-nums; min-width: 34px; }
+  .rp-time-total { text-align: right; }
+  .rp-scrubber { flex: 1; accent-color: var(--accent-primary, #7c5cbf); cursor: pointer; }
+  .rp-warn { margin: 0; }
+
+  /* Action toolbar */
+  .rp-actions { display: flex; align-items: center; gap: 8px; padding: 0 4px; flex-wrap: wrap; }
+  .rp-actions-spacer { flex: 1; }
+  .rp-action {
+    background: transparent; border: 1px solid var(--border-subtle, #333); color: var(--text-secondary, #bbb);
+    border-radius: 6px; padding: 6px 12px; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap;
+  }
+  .rp-action:hover { background: var(--bg-elevated, #2a2a2a); color: #fff; }
+  .rp-action.active { border-color: var(--accent-primary, #7c5cbf); color: var(--accent-primary, #7c5cbf); }
+  .rp-action.accent { background: var(--accent-primary, #7c5cbf); border-color: var(--accent-primary, #7c5cbf); color: #fff; }
+  .rp-action.accent:hover { filter: brightness(1.1); }
+  .rp-action.danger { border-color: rgba(220, 53, 69, 0.4); color: #ff6b6b; }
+  .rp-action.danger:hover { background: rgba(220, 53, 69, 0.25); color: #fff; }
+
+  /* Region picker overlay on the canvas */
+  .rp-region-picker {
+    position: absolute; inset: 0; z-index: 5; cursor: crosshair; touch-action: none;
+    background: rgba(0, 0, 0, 0.2);
+  }
+  .rp-region-hint {
+    position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.8); color: #fff; font-size: 12px; font-weight: 600;
+    padding: 6px 12px; border-radius: 6px; pointer-events: none;
+  }
+  .rp-region-rect {
+    position: fixed; z-index: 2100; pointer-events: none;
+    border: 2px dashed #fff; background: rgba(124, 92, 191, 0.18);
+  }
+  .rp-region-outline {
+    position: fixed; z-index: 2100; pointer-events: none;
+    border: 2px dashed var(--accent-primary, #7c5cbf);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55), inset 0 0 0 1px rgba(0, 0, 0, 0.55);
+  }
+  .rp-region-tag {
+    position: absolute; top: -20px; left: -2px; background: var(--accent-primary, #7c5cbf);
+    color: #fff; font-size: 11px; font-weight: 600; padding: 2px 6px; border-radius: 4px 4px 0 0; white-space: nowrap;
+  }
+
+  /* Video export progress (mirrors TimeLapseDialog, inline) */
+  .rp-export-progress {
+    position: relative; display: flex; align-items: center; gap: 10px; padding: 0 4px;
+    height: 32px;
+  }
+  .rp-export-bar {
+    position: absolute; left: 4px; top: 0; bottom: 0; border-radius: 6px;
+    background: linear-gradient(90deg, var(--accent-primary, #7c5cbf), #a98fe0);
+    opacity: 0.35; transition: width 120ms ease-out; pointer-events: none;
+  }
+  .rp-export-label { font-size: 12px; color: var(--text-primary, #eee); z-index: 1; flex: 1; }
+
 
   .snap-reload-btn {
     background: none; border: none; cursor: pointer; color: var(--text-secondary, #aaa);

@@ -256,6 +256,9 @@ export class SyncClient {
     this.inactive = !!inactive;
     if (this.inactive) {
       this.showInactiveUi();
+      // While AFK the server filters draw traffic to us, so the rolling tape
+      // stops seeing the full picture — flag it stale until the resync below.
+      this.app?.rollingTapeRecorder?.markStale?.('afk');
     } else {
       this.hideInactiveUi();
       if (wasInactive && this.hasCompletedSync && !this.syncing && this.wsClient?.connected) {
