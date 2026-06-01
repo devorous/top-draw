@@ -298,6 +298,25 @@ export class StrokeFingerprintLog {
   }
 
   /**
+   * Whether any live (retained, post-checkpoint) commit is attributed to the
+   * given session index. The retained entries ARE the tail a fresh joiner
+   * replays on the checkpoint-join path, so an index that still appears here
+   * is "haunted": reusing it for a new joiner makes that joiner self-filter the
+   * departed author's replayed frames (sessionIndex collision — see
+   * docs/0000Sync_Issues.md, Issue 1). Used by session-index allocation to
+   * avoid reusing such an index until a checkpoint truncates its commits out.
+   * @param {number} userId - Session index to test.
+   * @returns {boolean}
+   */
+  hasLiveCommitsFrom(userId) {
+    const uid = userId | 0;
+    for (const e of this.entries) {
+      if (e.userId === uid) return true;
+    }
+    return false;
+  }
+
+  /**
    * Drop entries with seq < cutoffSeq. Used after a checkpoint is minted —
    * the checkpoint subsumes everything before it.
    *

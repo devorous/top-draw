@@ -2893,11 +2893,10 @@ export class Board {
         this.layerManager.compositeLayerRange(this.mainCtx, 0, splitLayer + 1, this.getCompositeBackgroundColor(), mainDirtyRects);
 
         if (isDrawing) {
-          const blendMode = this.getActiveLayerBlendMode();
-          if (blendMode !== 'source-over') {
-            this.mainCtx.globalCompositeOperation = blendMode;
-            this._drawCompositeCanvas(this.mainCtx, this.topCanvas, mainDirtyRects);
-          }
+          // The local live preview stays on topCanvas, where CSS mix-blend-mode
+          // provides the live blend preview. Copying it into mainCanvas here
+          // leaves a stale blended snapshot behind until the next composite,
+          // which shows up as a doubled first mark at stroke start.
           this.mainCtx.globalCompositeOperation = 'source-over';
           this.mainCtx.globalAlpha = 1.0;
         }
@@ -2919,11 +2918,10 @@ export class Board {
         this.layerManager.compositeLayerRange(this.mainCtx, 0, totalLayers, this.getCompositeBackgroundColor(), mainDirtyRects);
 
         if (isDrawing) {
-          const blendMode = this.getActiveLayerBlendMode();
-          if (blendMode !== 'source-over') {
-            this.mainCtx.globalCompositeOperation = blendMode;
-            this._drawCompositeCanvas(this.mainCtx, this.topCanvas, mainDirtyRects);
-          }
+          // The local live preview stays on topCanvas, where CSS mix-blend-mode
+          // provides the live blend preview. Copying it into mainCanvas here
+          // leaves a stale blended snapshot behind until the next composite,
+          // which shows up as a doubled first mark at stroke start.
           this.mainCtx.globalCompositeOperation = 'source-over';
           this.mainCtx.globalAlpha = 1.0;
         }
@@ -3184,20 +3182,45 @@ export class Board {
    * and let joiners replay the full command tail).
    * @returns {{ width: number, height: number, layers: Uint8Array[], backgroundColor: *, snapshotSeq: number }|null}
    */
-  getCheckpointSnapshotPixels() {
+  async getCheckpointSnapshotPixels() {
     if (!this.layerManager) return null;
     const watermark = this.layerManager.getBakedWatermarkSeq?.() || 0;
     if (watermark <= 0) return null;
 
     const [height, width] = this.dimensions;
     const layers = [];
+    let capturedAny = false;
     for (let i = 0; i < this.layerManager.layerGroups.length; i++) {
+      // Skip unused layers (commonly 2 & 3): a zero-length layer costs no
+      // composite or readback and is treated as transparent on restore + by the
+      // parity reference. Most boards only draw on layer 1, so this typically
+      // cuts the capture to a single layer.
+      if (this.layerManager.isLayerEmptyThroughSeq(i, watermark)) {
+        layers.push(new Uint8Array(0));
+        continue;
+      }
+      // Spread the capture one real layer per frame: each layer's composite +
+      // full-frame getImageData readback is ~7ms at 1080p, so doing them all in
+      // one synchronous pass drops a frame or two and stutters whoever is
+      // actively drawing when the server asks them for the periodic snapshot.
+      // Yielding between captures lets the browser paint in between.
+      if (capturedAny) await this._nextFramePixelYield();
+      // A bake landing between yields would move strokes from the live stack
+      // into flatCanvas and advance the watermark, so compositeBakedThroughSeq
+      // for the original watermark would mix states across layers. Detect that
+      // and abort — the next 15s auto-snapshot cycle retries from a stable base.
+      if ((this.layerManager.getBakedWatermarkSeq?.() || 0) !== watermark) return null;
       const { ctx } = this.layerManager._createCanvas();
       ctx.clearRect(0, 0, width, height);
       this.layerManager.compositeBakedThroughSeq(ctx, i, watermark);
       const imageData = ctx.getImageData(0, 0, width, height);
       layers.push(new Uint8Array(imageData.data.buffer));
+      capturedAny = true;
     }
+
+    // watermark > 0 means something was baked, so at least one layer should have
+    // captured. If none did (degenerate state), there's nothing to snapshot.
+    if (!capturedAny) return null;
 
     return {
       width,
@@ -3206,6 +3229,23 @@ export class Board {
       backgroundColor: this.backgroundColor,
       snapshotSeq: watermark,
     };
+  }
+
+  /**
+   * Yield to the next animation frame so a multi-layer snapshot capture can be
+   * spread across frames instead of blocking one. Falls back to a short timer so
+   * a hidden/throttled tab (where rAF is paused) can't stall the capture and
+   * wedge the auto-snapshot in-flight guard.
+   * @returns {Promise<void>}
+   * @private
+   */
+  _nextFramePixelYield() {
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = () => { if (!settled) { settled = true; resolve(); } };
+      if (typeof requestAnimationFrame === 'function') requestAnimationFrame(finish);
+      setTimeout(finish, 100);
+    });
   }
 
   /**

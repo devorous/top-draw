@@ -1143,6 +1143,24 @@ export class LayerManager {
   }
 
   /**
+   * Cheap check (no pixel readback): would compositeBakedThroughSeq(groupIdx,
+   * maxSeq) render nothing? True when the layer has no baked flat content and no
+   * confirmed strokes at or below maxSeq — i.e. an unused layer. Lets a checkpoint
+   * capture skip the expensive composite + full-frame getImageData for empty
+   * layers, which is the common case since most boards only use layer 1.
+   * @param {number} groupIdx
+   * @param {number} maxSeq
+   * @returns {boolean}
+   */
+  isLayerEmptyThroughSeq(groupIdx, maxSeq) {
+    const group = this.layerGroups[groupIdx];
+    if (!group) return true;
+    // flatCanvas only exists once something has been baked into this layer.
+    if (group.flatCanvas) return false;
+    return !group.strokeStack.some((s) => (s.seq || 0) > 0 && s.seq <= maxSeq);
+  }
+
+  /**
    * Check if any user has exceeded the max strokes limit
    * @param {Object} group - Layer group
    * @param {number} max - Max strokes

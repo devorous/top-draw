@@ -212,10 +212,10 @@ export class ParityCoordinator {
   }
 
   /**
-   * Handle SYNC_PARITY_RESYNC_REQUEST from a client. For each requested seq
-   * we still have the bytes for, write the original wire bytes directly to
-   * the client's socket. The bytes are bit-identical to what the client
-   * originally missed, so the receiver's normal _processMessage pipeline
+   * Handle SYNC_PARITY_RESYNC_REQUEST from a client. For each requested seq we
+   * still have the bytes for, replay the same self-contained bundle used by the
+   * checkpoint-join tail: retained tool/geometry preamble first, then the
+   * original commit bytes. The receiver's normal _processMessage pipeline
    * applies them as if they had just arrived for the first time.
    *
    * Skipped seqs (evicted from the log) are silently ignored — the client
@@ -245,6 +245,14 @@ export class ParityCoordinator {
       const bytes = log.getBytes(seq);
       if (!bytes) { result.missed++; continue; }
       try {
+        const bundle = this.room?.strokeTape?.getBundle?.(seq);
+        if (bundle) {
+          for (const frame of bundle) {
+            if (this.sendTo(ws, frame) === false) {
+              throw new Error('socket closed while sending bundle');
+            }
+          }
+        }
         if (this.sendTo(ws, bytes) !== false) {
           result.served++;
         } else {

@@ -37,6 +37,22 @@ export function setupWebSocketHandlers(app) {
         return;
       }
 
+      // Checkpoint/resync tails can carry frames from authors who have since
+      // LEFT and are therefore absent from our USERS list. The draw/tool-state
+      // handlers bail on an unknown author (`users.get(sid) === undefined`),
+      // silently dropping that user's replayed strokes (Issue 7). Materialize a
+      // transient placeholder up front so the whole preamble (tool-state -> md
+      // -> mm -> mu) applies to a real user and renders, including live-path tail
+      // frames that arrive just after SYNC_COMPLETE and parity-resync replays.
+      // The next authoritative USERS broadcast removes the placeholder,
+      // preserving its baked visuals. ensureRemoteUser is idempotent, so this is
+      // a no-op once the author exists.
+      if (data &&
+          data.sessionIndex !== undefined && data.sessionIndex !== null &&
+          data.sessionIndex !== app.sessionIndex && !app.users?.has(data.sessionIndex)) {
+        app.ensureRemoteUser?.(data.sessionIndex);
+      }
+
       if (app.syncClient?.buffering) {
         app.syncClient.bufferEvent(eventName, data);
         return;

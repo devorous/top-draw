@@ -187,12 +187,21 @@ export async function handleSnapshotSave(ws, data, room) {
   // compared parity window collapses to the post-checkpoint tail (bounds the log
   // and heals sub-checkpoint joiner gaps — both subsumed by the checkpoint image).
   if (isAuto && checkpointSeq > 0) {
-    room.strokeLog?.truncateBefore?.(checkpointSeq + 1);
-    room.strokeTape?.truncateBefore?.(checkpointSeq + 1);
+    // Truncate only up to the seq of the snapshot a joiner would actually be
+    // served — the highest-seq retained auto snapshot — and mint with THAT
+    // snapshot's id/seq. Truncating to the just-received `checkpointSeq` directly
+    // would, when a second client's lower-seq auto-save arrives after a higher-seq
+    // one, advance the log base past the served image and lose the strokes in the
+    // gap (Issue 6). The base snapshot just added above is included in the
+    // selection, so `base.seq >= checkpointSeq` always.
+    const base = room.getJoinCheckpointMeta?.() || { id: snapshotId, seq: checkpointSeq };
+    const baseSeq = base.seq > 0 ? base.seq : checkpointSeq;
+    room.strokeLog?.truncateBefore?.(baseSeq + 1);
+    room.strokeTape?.truncateBefore?.(baseSeq + 1);
     room.broadcastToAll({
       t: T.SYNC_CHECKPOINT_MINTED,
-      snapshotId: snapshotId,
-      snapshotSeq: checkpointSeq
+      snapshotId: base.id || snapshotId,
+      snapshotSeq: baseSeq
     });
   }
 

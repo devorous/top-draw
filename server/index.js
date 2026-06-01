@@ -3144,7 +3144,15 @@ wss.on('connection', async (ws, req) => {
 
           sendTo(ws, initialSettingsPayload);
 
-          const sessionIndex = room.sessionManager.allocateSessionIndex();
+          // Don't reuse a departed user's index while their post-checkpoint
+          // commits are still in the live tail — the joiner would self-filter
+          // the replayed frames and lose that work (see docs/0000Sync_Issues.md
+          // Issue 1). The retained strokeLog entries ARE that tail.
+          const reuseLog = room.strokeLog;
+          const isIndexReusable = reuseLog
+            ? (idx) => !reuseLog.hasLiveCommitsFrom(idx)
+            : null;
+          const sessionIndex = room.sessionManager.allocateSessionIndex(isIndexReusable);
           ws.sessionIndex = sessionIndex;
 
           console.log('[IdentityDebug][server] JOIN message data fields:', {

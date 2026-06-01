@@ -148,11 +148,48 @@ export class Room {
   addSnapshot(snapshot) {
     this.snapshots.push(snapshot);
     if (this.snapshots.length > 24) {
-      this.snapshots.shift();
+      // Evict oldest, but never the highest-seq auto snapshot: it's the join
+      // checkpoint base the stroke log is truncated against, and dropping it
+      // while the log stays truncated would reopen the Issue 6 hole.
+      const best = this._bestInMemoryAutoSnapshot();
+      let evictIdx = 0;
+      if (best && this.snapshots[0] === best) evictIdx = 1;
+      this.snapshots.splice(evictIdx, 1);
     }
     if (snapshot?.auto && (Number(snapshot.seq) || 0) > 0 && Array.isArray(snapshot.layers) && snapshot.layers.length > 0) {
       this.joinCheckpointInvalidated = false;
     }
+  }
+
+  /**
+   * The highest-seq in-memory auto snapshot that still carries layers — i.e. the
+   * one a fresh joiner would actually be served as its checkpoint base. Selection
+   * is by seq, NOT array/arrival order: a second client's auto-save can arrive
+   * out of seq order, and serving the last-pushed (lower-seq) snapshot while the
+   * log was already truncated to a higher seq drops the strokes in the gap
+   * (Issue 6). DB/R2 is not consulted — this is the live rolling buffer only.
+   * @returns {Object|null}
+   * @private
+   */
+  _bestInMemoryAutoSnapshot() {
+    let best = null;
+    for (const s of this.snapshots) {
+      if (s?.layers && s.layers.length > 0 && (!best || (Number(s.seq) || 0) > (Number(best.seq) || 0))) {
+        best = s;
+      }
+    }
+    return best;
+  }
+
+  /**
+   * Id + seq of the join checkpoint base (the highest-seq servable auto snapshot),
+   * or null. The stroke log must never be truncated past `seq` (Issue 6 invariant),
+   * and a fresh join must be served exactly this snapshot.
+   * @returns {{id: string, seq: number}|null}
+   */
+  getJoinCheckpointMeta() {
+    const best = this._bestInMemoryAutoSnapshot();
+    return best ? { id: best.id, seq: Number(best.seq) || 0 } : null;
   }
 
   /**
@@ -163,6 +200,23 @@ export class Room {
    */
   invalidateJoinCheckpoint() {
     this.joinCheckpointInvalidated = true;
+  }
+
+  /**
+   * Cheap, synchronous check for an in-memory join checkpoint (an auto-snapshot
+   * carrying layers) a joiner could adopt. Does NOT touch DB/R2 — it reflects
+   * the live rolling buffer only, which is exactly what isolated-room solo-join
+   * verification needs to tell "correctly skipped an existing checkpoint" apart
+   * from "none existed" (see docs/0000Sync_Issues.md, Issue 4).
+   * @returns {boolean}
+   */
+  hasInMemoryJoinCheckpoint() {
+    if (this.joinCheckpointInvalidated) return false;
+    for (let i = this.snapshots.length - 1; i >= 0; i--) {
+      const s = this.snapshots[i];
+      if (s?.auto && s.layers && s.layers.length > 0) return true;
+    }
+    return false;
   }
 
   /**
@@ -362,12 +416,12 @@ export class Room {
       return null;
     }
 
-    // Check in-memory rolling buffer first (most recent auto-saves)
-    for (let i = this.snapshots.length - 1; i >= 0; i--) {
-      const s = this.snapshots[i];
-      if (s.layers && s.layers.length > 0) {
-        return { id: s.id, ts: s.ts, issuer: s.issuer, layers: s.layers, seq: s.seq || 0 };
-      }
+    // Check in-memory rolling buffer first. Select by highest seq (NOT array
+    // order): an out-of-order, lower-seq auto-save must not shadow a higher-seq
+    // one the log was already truncated to (Issue 6).
+    const best = this._bestInMemoryAutoSnapshot();
+    if (best) {
+      return { id: best.id, ts: best.ts, issuer: best.issuer, layers: best.layers, seq: Number(best.seq) || 0 };
     }
 
     // Fall back to DB/R2

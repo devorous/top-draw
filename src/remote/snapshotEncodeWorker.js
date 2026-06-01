@@ -94,6 +94,12 @@ self.onmessage = async (event) => {
     const encodedLayers = [];
     for (let i = 0; i < layers.length; i++) {
       const data = layers[i];
+      // An empty (unused) layer arrives as a zero-length buffer — pass it through
+      // as zero-length so it stays cheap and is skipped on restore / parity.
+      if (!data || data.length === 0) {
+        encodedLayers.push(new Uint8Array(0));
+        continue;
+      }
       if (i === 0) stripSnapshotBackground(data, width, height, backgroundColor);
       encodedLayers.push(qoi_encode(data, width, height));
     }

@@ -8,6 +8,13 @@ const PIXEL_PARITY_TILE_SIZE = 32;
 const PIXEL_PARITY_SAMPLES_PER_TILE = 4;
 const PIXEL_PARITY_MAD_THRESHOLD = 18;
 const PIXEL_PARITY_MAX_TILES = 5000;
+// Right after a fresh checkpoint reference is cached (e.g. a mint under load),
+// the client's baked layers are still settling onto the new watermark, briefly
+// tripping a handful of stroke-edge tiles that heal to maxMad=0 within a second
+// or two. Don't *report* divergence until the reference has been stable for this
+// long — a persistent (real) divergence survives the window and still logs, but
+// the per-mint transient false positives are suppressed.
+const PIXEL_PARITY_SETTLE_GRACE_MS = 6000;
 
 export class SnapshotManager {
   /**
@@ -47,7 +54,7 @@ export class SnapshotManager {
       // tail is left for the server to replay as commands, so joiners rebuild
       // those strokes as real records (preserving blend mode + undo/redo)
       // instead of receiving them baked-flat. Null = nothing baked yet → skip.
-      const capture = this._captureCheckpointPixels();
+      const capture = await this._captureCheckpointPixels();
       if (!capture) return;
 
       const [encoded, thumbBytes] = await Promise.all([
@@ -213,8 +220,11 @@ export class SnapshotManager {
    * @returns {{ width: number, height: number, layers: Uint8Array[], backgroundColor: *, snapshotSeq: number }|null}
    * @private
    */
-  _captureCheckpointPixels() {
-    const capture = this.app.board?.getCheckpointSnapshotPixels?.();
+  async _captureCheckpointPixels() {
+    // Async: the board spreads the per-layer pixel readback across frames to
+    // avoid a capture stutter (see Board.getCheckpointSnapshotPixels). Returns
+    // null if nothing is baked, or if a bake advanced the watermark mid-capture.
+    const capture = await this.app.board?.getCheckpointSnapshotPixels?.();
     if (!capture?.layers?.length) return null;
     return capture; // snapshotSeq is the baked watermark, set by the board
   }
@@ -296,7 +306,9 @@ export class SnapshotManager {
           height: capture.height,
           layers: capture.layers,
           backgroundColor: capture.backgroundColor,
-        }, capture.layers.map((layer) => layer.buffer));
+          // Only transfer real layer buffers; empty (unused) layers are
+          // zero-length and have nothing to hand off.
+        }, capture.layers.map((layer) => layer.buffer).filter((buf) => buf.byteLength > 0));
       } catch (err) {
         this._snapshotEncodePromises.delete(id);
         reject(err);
@@ -308,9 +320,22 @@ export class SnapshotManager {
     const seq = Number(snapshotSeq) || 0;
     if (!snapshotId || seq <= 0) return;
 
-    if (this._pixelParityCheckpoint?.seq === seq) {
-      this._pixelParityCheckpoint.snapshotId = snapshotId;
+    const armed = this._pixelParityCheckpoint;
+
+    // Exact-seq match: the armed pixel reference already corresponds to this
+    // checkpoint — just stamp on the freshly-minted id.
+    if (armed?.seq === seq) {
+      armed.snapshotId = snapshotId;
       return;
+    }
+
+    // An armed-but-id-less checkpoint whose seq drifted from the server's
+    // authoritative watermark. We arm at save time (before the id and final
+    // seq are minted), so a drift left the id permanently "". Stamp it now so
+    // parity logs carry a usable id immediately; the probe-fetch below rebuilds
+    // the reference at the authoritative seq and replaces this entry wholesale.
+    if (armed && !armed.snapshotId) {
+      armed.snapshotId = snapshotId;
     }
 
     if (this._pixelParityFetchInFlight === snapshotId) return;
@@ -341,6 +366,9 @@ export class SnapshotManager {
       this._pixelParityCheckpoint = {
         snapshotId,
         seq,
+        // Timestamp the reference build so buildPixelParityProbe() can suppress
+        // the transient post-mint settling divergence (see SETTLE_GRACE above).
+        builtAt: Date.now(),
         ...reference,
       };
     } catch (err) {
@@ -361,6 +389,8 @@ export class SnapshotManager {
     const lm = this.app.board?.layerManager;
     const dims = this.app.board?.dimensions;
     if (!lm || !dims) return null;
+    const bakedWatermark = lm.getBakedWatermarkSeq?.() || 0;
+    if (bakedWatermark > seq) return null;
     const [height, width] = dims;
     const canvas = document.createElement('canvas');
     canvas.width = width;
@@ -368,7 +398,12 @@ export class SnapshotManager {
     const ctx = canvas.getContext('2d');
     this._fillSnapshotBackground(ctx, width, height);
     for (let i = 0; i < lm.layerGroups.length; i++) {
-      lm.compositeBakedThroughSeq(ctx, i, seq);
+      const layerCanvas = document.createElement('canvas');
+      layerCanvas.width = width;
+      layerCanvas.height = height;
+      const layerCtx = layerCanvas.getContext('2d');
+      lm.compositeBakedThroughSeq(layerCtx, i, seq);
+      ctx.drawImage(layerCanvas, 0, 0);
     }
     return canvas;
   }
@@ -408,10 +443,17 @@ export class SnapshotManager {
       }
     }
 
+    // Within the settle grace after a fresh reference build, report no tiles so
+    // the server doesn't log the transient post-mint divergence (it returns early
+    // on an empty tile list). maxMad/meanMad are still sent for telemetry. A real,
+    // persistent divergence outlives the grace and reports normally on later beats.
+    const settled = (Date.now() - (checkpoint.builtAt || 0)) >= PIXEL_PARITY_SETTLE_GRACE_MS;
+    const reportedTiles = settled ? divergentTiles : [];
+
     return {
       parityPixelSnapshotSeq: checkpoint.seq,
       parityPixelSnapshotId: checkpoint.snapshotId || '',
-      parityPixelTiles: divergentTiles,
+      parityPixelTiles: reportedTiles,
       parityPixelTileSize: PIXEL_PARITY_TILE_SIZE,
       parityPixelMadThresholdX100: Math.round(PIXEL_PARITY_MAD_THRESHOLD * 100),
       parityPixelMaxMadX100: Math.round(maxMad * 100),

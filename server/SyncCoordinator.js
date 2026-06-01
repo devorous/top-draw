@@ -86,7 +86,14 @@ export class SyncCoordinator {
     //    replay full tail.
     let baseSeq = 0;
     if (aloneJoiner && this.room?.canPersistSnapshots?.()) {
+      // Lone joiner: deliberately do NOT auto-apply the persisted checkpoint
+      // (no peers to match). Log whether one actually existed first, so solo-join
+      // verification can distinguish "correctly skipped an existing checkpoint"
+      // from "none existed" (Issue 4). hasInMemoryJoinCheckpoint() is the live
+      // rolling-buffer view; a DB/R2-only checkpoint won't show here.
+      const hadInMemoryCheckpoint = !!this.room.hasInMemoryJoinCheckpoint?.();
       this.room.invalidateJoinCheckpoint?.();
+      console.log(`[Sync] Lone joiner ${requesterSessionIndex}: skipping persisted join checkpoint (in-memory checkpoint existed=${hadInMemoryCheckpoint}); starting from live command tail only`);
     } else if (this.room?.canPersistSnapshots?.()) {
       snapshot = await this.room.getLatestSnapshotData?.({ forJoin: true });
       if (ws.readyState !== WebSocket.OPEN) return;
@@ -101,6 +108,16 @@ export class SyncCoordinator {
           snapshotSeq: baseSeq,
         });
         console.log(`[Sync] Served checkpoint ${snapshot.id} @ seq ${baseSeq} to ${requesterSessionIndex}`);
+
+        // Invariant guard (Issue 6): the served image (<= baseSeq) plus the
+        // surviving log tail (>= lowest retained seq) must jointly cover every
+        // seq with no gap. If the log's earliest retained entry sits above
+        // baseSeq+1, the strokes in between are in neither — surface it loudly
+        // rather than losing pixels silently.
+        const firstRetainedSeq = log?.entries?.length ? log.entries[0].seq : 0;
+        if (firstRetainedSeq > baseSeq + 1) {
+          console.warn(`[Sync] CHECKPOINT GAP for ${requesterSessionIndex}: served seq ${baseSeq} but log base is ${firstRetainedSeq} — strokes (${baseSeq}, ${firstRetainedSeq}) are unrecoverable for this joiner`);
+        }
       }
     }
 

@@ -110,11 +110,33 @@ export class SessionManager {
 
   /**
    * Allocates a session index for a new user, reusing freed indices if available.
+   *
+   * A just-departed index is normally the most attractive to reuse (LIFO), but
+   * reuse is unsafe while that departed user's post-checkpoint commits still sit
+   * in the live stroke tail: a joiner handed the same index self-filters the
+   * departed author's replayed frames and silently loses their work (sessionIndex
+   * collision — see docs/0000Sync_Issues.md, Issue 1). The optional `isReusable`
+   * predicate lets the caller veto "haunted" indices; we then pick the newest
+   * reusable freed index, parking the haunted ones until a checkpoint truncates
+   * their commits out of the tail (at which point they pass the predicate again).
+   * If every freed index is haunted, we grow the space rather than collide.
+   *
+   * @param {((index: number) => boolean)|null} [isReusable=null] - Returns false
+   *   for indices that must not be reused yet. When omitted, plain LIFO reuse.
    * @returns {number} - The allocated session index.
    */
-  allocateSessionIndex() {
+  allocateSessionIndex(isReusable = null) {
     if (this.freedIndices.length > 0) {
-      return this.freedIndices.pop();
+      if (typeof isReusable !== 'function') {
+        return this.freedIndices.pop();
+      }
+      // Scan newest-freed first so we keep LIFO behaviour among reusable indices.
+      for (let i = this.freedIndices.length - 1; i >= 0; i--) {
+        if (isReusable(this.freedIndices[i])) {
+          return this.freedIndices.splice(i, 1)[0];
+        }
+      }
+      // All freed indices still haunted → fall through and grow the space.
     }
     return this.nextSessionIndex++;
   }

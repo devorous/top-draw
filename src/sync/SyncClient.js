@@ -354,7 +354,10 @@ export class SyncClient {
     if (normalizedTarget !== null) {
       console.log(`[SyncClient] Requesting canvas sync from user ${normalizedTarget}...`);
     } else {
-      console.log('[SyncClient] Requesting canvas sync (auto-select provider)...');
+      // The server always serves a checkpoint + post-checkpoint command tail here
+      // (SyncCoordinator._serveCheckpointJoin); there is no live-peer provider
+      // election on the join path anymore.
+      console.log('[SyncClient] Requesting checkpoint-based canvas sync...');
     }
 
     this.wsClient.requestSync(normalizedTarget);
