@@ -9,7 +9,7 @@
 import { ReplayEngine } from './ReplayEngine.js';
 import { T } from '../../shared/MessageTypes.js';
 import { encodeDdraw, suggestDdrawFilename } from '../replay/ddrawCodec.js';
-import { TimeLapseExporter, suggestVideoFilename } from '../replay/TimeLapseExporter.js';
+import { TimeLapseExporter, suggestImageSequenceFilename, suggestVideoFilename } from '../replay/TimeLapseExporter.js';
 
 const SEEK_TELEMETRY_LOG_INTERVAL_MS = 1500;
 const LOCAL_REVERSE_SCRUB_FRAME_MS = 500;
@@ -238,6 +238,13 @@ class TimeMachineState {
     this._replayCtx.filter = 'none';
     this._replayCtx.imageSmoothingEnabled = true;
     this._replayCtx.drawImage(this._replayEngine.outputCanvas, 0, 0);
+    // Overlay ephemeral vector text (faded by playhead age) then bot cursors on
+    // top of the crisp output. Drawn here (not baked into the engine's
+    // outputCanvas) so restore-to-live can't stamp them into real board pixels.
+    // Mirrored into the embed canvas by _blitToEmbed below, so the mini-player
+    // gets them too.
+    this._replayEngine.drawVectorText(this._replayCtx);
+    this._replayEngine.drawCursors(this._replayCtx);
     // Painting from the replay engine output means we're crisp — drop the preview flag.
     // Also clear the active checkpoint ts so any in-flight WebP decode skips its
     // paint (the cached frame would otherwise slam back over this crisp output
@@ -871,11 +878,11 @@ class TimeMachineState {
   }
 
   /**
-   * Render the active local recording into a video file and trigger a browser
+   * Render the active local recording and trigger a browser
    * download. Uses a dedicated ReplayEngine instance so the user's current
    * scrub position is unaffected.
    *
-   * @param {{ speed?: number, fps?: number, region?: {x:number,y:number,width:number,height:number}|null }} [opts]
+   * @param {{ speed?: number, fps?: number, output?: 'video'|'sequence', region?: {x:number,y:number,width:number,height:number}|null }} [opts]
    * @returns {Promise<boolean>}
    */
   async exportTimeLapseVideo(opts = {}) {
@@ -888,6 +895,7 @@ class TimeMachineState {
 
     const speed = Math.max(1, Math.min(240, Number(opts.speed) || 30));
     const fps = Math.max(10, Math.min(60, Math.round(Number(opts.fps) || 30)));
+    const output = opts.output === 'sequence' ? 'sequence' : 'video';
     const region = opts.region ?? null;
 
     this.isExportingVideo = true;
@@ -897,6 +905,7 @@ class TimeMachineState {
       wsClient: this._wsClient,
       speed,
       fps,
+      output,
       region,
       backgroundColor: this._board?.backgroundColor,
       onProgress: (p) => { this.videoExportProgress = p; },
@@ -905,24 +914,26 @@ class TimeMachineState {
     try {
       const result = await this._activeVideoExporter.export();
       if (!result) {
-        window.app?.ui?.showToast?.('Video export cancelled', 2000);
+        window.app?.ui?.showToast?.('Render cancelled', 2000);
         return false;
       }
+      const isSequence = result.kind === 'sequence' || output === 'sequence';
       const ext = result.mimeType.includes('webm') ? 'webm' : 'mp4';
       const url = URL.createObjectURL(result.blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = suggestVideoFilename(rec, ext);
+      a.download = isSequence ? suggestImageSequenceFilename(rec) : suggestVideoFilename(rec, ext);
       document.body.appendChild(a);
       a.click();
       a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 60_000);
       const sizeMb = (result.blob.size / (1024 * 1024)).toFixed(1);
-      window.app?.ui?.showToast?.(`Saved time-lapse (${sizeMb} MB)`, 2500);
+      const label = isSequence ? 'image sequence' : 'time-lapse';
+      window.app?.ui?.showToast?.(`Saved ${label} (${sizeMb} MB)`, 2500);
       return true;
     } catch (err) {
-      console.error('[TimeMachine] video export failed:', err);
-      window.app?.ui?.showToast?.(`Could not export video: ${err.message || err}`, 4000, 'error');
+      console.error('[TimeMachine] render failed:', err);
+      window.app?.ui?.showToast?.(`Could not render: ${err.message || err}`, 4000, 'error');
       return false;
     } finally {
       this.isExportingVideo = false;
@@ -935,11 +946,20 @@ class TimeMachineState {
     if (this._activeVideoExporter) this._activeVideoExporter.cancel();
   }
 
-  restoreLocalToCurrentState() {
+  async restoreLocalToCurrentState() {
     if (this._source !== 'local' || !this.isReviewing) return;
     const src = this._replayEngine?.outputCanvas;
     const liveBoard = this._board;
     if (!src || !liveBoard) return;
+
+    if (window.app?.connected && window.app?.snapshotManager?.broadcastReplayCanvasRestore) {
+      const sent = await window.app.snapshotManager.broadcastReplayCanvasRestore(src);
+      if (sent) {
+        this.catchUp();
+        return true;
+      }
+    }
+
     liveBoard.clear?.();
     const layer0 = liveBoard.layerManager?.layerGroups?.[0];
     if (layer0?.flatCtx) {
@@ -948,6 +968,7 @@ class TimeMachineState {
     liveBoard.markCompositeFull?.();
     liveBoard.compositeAllLayers?.();
     this.catchUp();
+    return true;
   }
 
   /**
@@ -960,8 +981,8 @@ class TimeMachineState {
    * collapses to layer 0 and the server is unaware until the next stroke.
    * @param {{x:number,y:number,width:number,height:number}|null} region
    */
-  restoreLocalRegionToCurrentState(region) {
-    if (!region) return this.restoreLocalToCurrentState();
+  async restoreLocalRegionToCurrentState(region) {
+    if (!region) return await this.restoreLocalToCurrentState();
     if (this._source !== 'local' || !this.isReviewing) return;
     const replaySrc = this._replayEngine?.outputCanvas;
     const liveBoard = this._board;
@@ -975,6 +996,19 @@ class TimeMachineState {
     const rw = Math.min(w - rx, Math.round(region.width));
     const rh = Math.min(h - ry, Math.round(region.height));
     if (rw <= 0 || rh <= 0) return;
+
+    if (window.app?.connected && window.app?.snapshotManager?.broadcastReplayRegionRestore) {
+      const sent = await window.app.snapshotManager.broadcastReplayRegionRestore(replaySrc, {
+        x: rx,
+        y: ry,
+        width: rw,
+        height: rh
+      });
+      if (sent) {
+        this.catchUp();
+        return true;
+      }
+    }
 
     // Build current board + the region replaced by the replayed pixels.
     const merged = document.createElement('canvas');
@@ -991,6 +1025,7 @@ class TimeMachineState {
     liveBoard.markCompositeFull?.();
     liveBoard.compositeAllLayers?.();
     this.catchUp();
+    return true;
   }
 
   // ── private helpers ────────────────────────────────────────────────────────
@@ -1415,7 +1450,10 @@ class TimeMachineState {
         return false;
       }
 
-      await this._replayEngine.loadCheckpointImage(data.checkpointImg);
+      await this._replayEngine.loadCheckpointImage(data.checkpointImg, {
+        m: data.mirror,
+        mirrorRegions: data.mirrorRegions || []
+      });
       if (isStale()) return false;
 
       const actions = data.deltas?.length
@@ -1600,58 +1638,13 @@ class TimeMachineState {
     this._syncBotCursorsFromStates(this._captureBotCursorStates());
   }
 
-  _syncBotCursorsFromStates(states) {
-    // Embedded mini-player draws only the replay canvas; bot cursors are DOM
-    // elements over the live board, so skip them (they'd float behind the modal).
-    if (this.isEmbedded) return;
-    const ui = window.app?.ui;
-    if (!ui) return;
-
-    const desired = new Set();
-    for (const state of states || []) {
-      const id = Number(state.id);
-      const x = Number(state.x);
-      const y = Number(state.y);
-      if (!Number.isFinite(id) || !Number.isFinite(x) || !Number.isFinite(y)) continue;
-
-      const size = Number(state.size) || 10;
-      const tool = state.tool || 'brush';
-      const color = state.color || [100, 100, 100, 1];
-      const botId = -1000 - id;
-      desired.add(botId);
-
-      if (!this._botCursorIds.has(botId)) {
-        ui.createRemoteUser(botId, {
-          username: state.username || `User ${id}`,
-          role: state.role ?? 0,
-          color,
-          size,
-          tool,
-          x,
-          y
-        });
-        this._botCursorIds.add(botId);
-      }
-
-      ui.updateRemoteCursor(botId, x, y, size);
-      ui.updateRemoteSize(botId, size);
-      ui.updateRemoteToolDisplay(botId, tool);
-      ui.updateRemoteColor(botId, color);
-
-      if (tool === 'text') {
-        ui.updateRemoteText(botId, state.text || '');
-        ui.setRemoteTextDomVisible(botId, false);
-      } else {
-        ui.updateRemoteText(botId, '');
-        ui.setRemoteTextDomVisible(botId, false);
-      }
-    }
-
-    for (const botId of [...this._botCursorIds]) {
-      if (desired.has(botId)) continue;
-      ui.removeRemoteUser(botId);
-      this._botCursorIds.delete(botId);
-    }
+  _syncBotCursorsFromStates(_states) {
+    // Bot cursors are now baked directly into the replay output canvas by
+    // ReplayEngine.drawCursors (see replay/cursorOverlay.js). That paints
+    // them in both the embedded mini-player and the full-board replay, perfectly
+    // aligned with the drawing pixels. Tear down any legacy DOM bot cursors and
+    // skip creating new ones so they don't render twice.
+    if (this._botCursorIds.size > 0) this._removeBotCursors();
   }
 
   _removeBotCursors() {

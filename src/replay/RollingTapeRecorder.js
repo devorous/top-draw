@@ -24,6 +24,7 @@ const RECORDING_VERSION = 2;
 
 /** Visible scrub window. Two minutes of "what just happened". */
 const DEFAULT_WINDOW_MS = 120_000;
+const DEFAULT_ENABLED = true;
 /** Anchor/intra checkpoint cadence. Plan calls for 10–15s. */
 const INTRA_CHECKPOINT_INTERVAL_MS = 12_000;
 /** Low-res scrub-preview cadence (matches Recorder + TimeMachine). */
@@ -46,6 +47,8 @@ const HARD_MAX_DELTAS = 200_000;
 
 export class RollingTapeRecorder {
   constructor() {
+    /** @type {boolean} User preference gate for automatic capture. */
+    this._configuredEnabled = DEFAULT_ENABLED;
     /** @type {boolean} True while actively capturing. */
     this._enabled = false;
     /**
@@ -87,6 +90,30 @@ export class RollingTapeRecorder {
   isStale() { return this._stale; }
 
   /**
+   * Update rolling tape preferences. Disabling stops and clears the buffer.
+   * @param {{ enabled?: boolean, windowMs?: number }} options
+   */
+  configure(options = {}) {
+    if (options.windowMs != null) {
+      const windowMs = Number(options.windowMs);
+      if (Number.isFinite(windowMs) && windowMs > 0) {
+        this._windowMs = windowMs;
+        if (this._enabled) this._prune();
+      }
+    }
+
+    if (options.enabled != null) {
+      this._configuredEnabled = !!options.enabled;
+      if (!this._configuredEnabled && this._enabled) {
+        this.stop('disabled');
+        return;
+      }
+    }
+
+    this._notify();
+  }
+
+  /**
    * Begin (or restart) capture. Captures the anchor checkpoint immediately and
    * starts the checkpoint/prune timers. Idempotent — calling start while already
    * enabled re-anchors (clears the buffer and recaptures), which is what a
@@ -95,6 +122,10 @@ export class RollingTapeRecorder {
    */
   start(app) {
     if (!app) return;
+    if (!this._configuredEnabled) {
+      this.stop('disabled');
+      return;
+    }
     this._app = app;
     if (this._enabled) {
       // Already running — treat as a re-anchor.
@@ -169,6 +200,10 @@ export class RollingTapeRecorder {
    * @param {Object} app
    */
   onSyncComplete(app) {
+    if (!this._configuredEnabled) {
+      this.stop('disabled');
+      return;
+    }
     if (this._enabled) {
       this.reset('resync');
     } else {
@@ -276,6 +311,7 @@ export class RollingTapeRecorder {
     const anchor = this._checkpoints.length ? this._pickAnchor(horizon) : null;
     return {
       enabled: this._enabled,
+      configuredEnabled: this._configuredEnabled,
       stale: this._stale,
       staleReason: this._staleReason,
       windowMs: this._windowMs,

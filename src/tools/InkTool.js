@@ -419,8 +419,11 @@ export class InkTool extends Tool {
     const points = buildPreviewStrokePoints(canvas, 50);
     drawPreviewStrokeGuide(ctx, points, user.color || [0, 0, 0]);
 
-    const thinning = Math.max(0, Math.min(1, Number(user.thinning ?? 0.5)));
-    const simulatePressure = user.simulatePressure !== undefined ? user.simulatePressure : true;
+    // The preview window always renders as if thinning is fully maxed (1.0) and
+    // pressure simulation is on, so the user's thinning/pressure toggles don't change
+    // the preview's tapered shape — it looks off without the taper.
+    const thinning = 1;
+    const simulatePressure = true;
     const smoothing = Math.max(0, Math.min(50, Number(user.smoothing ?? 15))) / 50;
     const strokePoints = points.map(point => [point.x, point.y, point.pressure]);
     const effectiveThinning = !simulatePressure

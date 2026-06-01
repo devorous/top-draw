@@ -1647,6 +1647,8 @@ export class WebSocketClient {
         this.emit('replay_response', {
           checkpointId: data.checkpointId || null,
           checkpointImg: data.checkpointImg || null,
+          mirror: !!data.m,
+          mirrorRegions: data.mirrorRegionsJson ? JSON.parse(data.mirrorRegionsJson) : [],
           deltas: data.replayDeltasJson ? JSON.parse(data.replayDeltasJson) : []
         });
         break;

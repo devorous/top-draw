@@ -2,7 +2,7 @@ import { getDefaultKeybindings, KEYBIND_ACTIONS_BY_ID } from '../input/keybinds/
 import { normalizeBinding } from '../input/keybinds/KeybindMatcher.js';
 
 export const APP_PREFERENCES_STORAGE_KEY = 'topDrawAppPreferences';
-const APP_PREFERENCES_VERSION = 11;
+const APP_PREFERENCES_VERSION = 12;
 const SIDEBAR_SIDES = new Set(['left', 'right']);
 // The 3 base colors from which all theme CSS variables are derived.
 // Empty string means "use the CSS default".
@@ -16,6 +16,12 @@ export const DEFAULT_SFX_PREFERENCES = Object.freeze({
   chat: true,
   staff: true,
   inbox: true
+});
+export const DEFAULT_REPLAY_PREFERENCES = Object.freeze({
+  manualSnapshotIntervalMs: 30_000,
+  manualMaxLengthMs: 0,
+  rollingEnabled: true,
+  rollingWindowMs: 120_000
 });
 
 export function createDefaultAppPreferences() {
@@ -35,7 +41,8 @@ export function createDefaultAppPreferences() {
       scrollToZoom: false,
       showFloatingArt: true,
       chatOpacity: 0.95,
-      sfx: { ...DEFAULT_SFX_PREFERENCES }
+      sfx: { ...DEFAULT_SFX_PREFERENCES },
+      replay: { ...DEFAULT_REPLAY_PREFERENCES }
     },
     keybinds: getDefaultKeybindings()
   };
@@ -136,6 +143,35 @@ function sanitizeSfx(rawSfx) {
   };
 }
 
+function sanitizeOptionMs(rawValue, allowedValues, fallback) {
+  const value = Number(rawValue);
+  return allowedValues.includes(value) ? value : fallback;
+}
+
+function sanitizeReplay(rawReplay) {
+  const source = rawReplay && typeof rawReplay === 'object' ? rawReplay : {};
+  return {
+    manualSnapshotIntervalMs: sanitizeOptionMs(
+      source.manualSnapshotIntervalMs,
+      [30_000, 60_000, 120_000, 300_000],
+      DEFAULT_REPLAY_PREFERENCES.manualSnapshotIntervalMs
+    ),
+    manualMaxLengthMs: sanitizeOptionMs(
+      source.manualMaxLengthMs,
+      [0, 120_000, 300_000, 600_000, 1_800_000, 3_600_000],
+      DEFAULT_REPLAY_PREFERENCES.manualMaxLengthMs
+    ),
+    rollingEnabled: source.rollingEnabled !== undefined
+      ? !!source.rollingEnabled
+      : DEFAULT_REPLAY_PREFERENCES.rollingEnabled,
+    rollingWindowMs: sanitizeOptionMs(
+      source.rollingWindowMs,
+      [30_000, 60_000, 120_000, 300_000, 600_000],
+      DEFAULT_REPLAY_PREFERENCES.rollingWindowMs
+    )
+  };
+}
+
 function sanitizePreferences(rawPreferences) {
   const defaults = createDefaultAppPreferences();
   const parsed = rawPreferences && typeof rawPreferences === 'object' ? rawPreferences : {};
@@ -208,7 +244,8 @@ function sanitizePreferences(rawPreferences) {
       scrollToZoom: migratedScrollToZoom,
       showFloatingArt: migratedShowFloatingArt,
       chatOpacity: sanitizeChatOpacity(parsed.general?.chatOpacity),
-      sfx: sanitizeSfx(migratedSfx)
+      sfx: sanitizeSfx(migratedSfx),
+      replay: sanitizeReplay(parsed.general?.replay)
     },
     keybinds: sanitizeKeybinds(migratedKeybinds)
   };

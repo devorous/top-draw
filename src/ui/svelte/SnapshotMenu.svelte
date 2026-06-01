@@ -4,6 +4,7 @@
   import { T } from '../../../shared/MessageTypes.js';
   import * as wasm from '../../wasm/ddraw_wasm.js';
   import { TimeMachine } from '../../timebar/TimeMachine.svelte.js';
+  import TimeLapseDialog from '../../timebar/TimeLapseDialog.svelte';
 
   let snapshots = $derived(appState.snapshots || []);
   let snapshotHasMore = $derived(appState.snapshotHasMore);
@@ -19,7 +20,7 @@
   // Recent  = local rolling DVR tape (this client's last ~2 minutes), no server.
   // Server  = longer-range room history reconstructed from server checkpoints.
   // Snapshots = saved still images for restore / region restore.
-  let view = $state('recent'); // 'recent' | 'server' | 'snapshots'
+  let view = $state('recent'); // 'recent' | 'snapshots' (server replay removed)
   let snapshotsLoadedOnce = false;
 
   // Rolling-tape status, polled while the Recent tab is visible.
@@ -96,6 +97,7 @@
 
     embedStarting = true;
     embedActive = true;
+    resetRpView();
     try {
       await tick(); // ensure embedCanvas is bound in the DOM
       if (!embedCanvas) { embedActive = false; return; }
@@ -127,6 +129,7 @@
     // TimeMachine — don't stop it out from under the handoff.
     clearRegion();
     regionSelecting = false;
+    resetRpView();
     if (handoffToFull) { embedActive = false; return; }
     if (!embedActive && !embedStarting) return;
     embedActive = false;
@@ -143,6 +146,12 @@
   let tmExporting = $derived(TimeMachine.isExportingVideo);
   let tmExportProgress = $derived(TimeMachine.videoExportProgress);
 
+  // The Render button opens the same time-lapse dialog used by the full-board
+  // replay (Output, Speed, FPS, etc.) rather than rendering with inline
+  // defaults. The dialog runs over the embedded player, so it can't pick a
+  // region on the hidden #replayCanvas — we hand it the region picked here.
+  let timeLapseDialogOpen = $state(false);
+
   async function saveRecentReplay() {
     await TimeMachine.exportCurrentRecording();
   }
@@ -158,17 +167,15 @@
       danger: true,
     });
     if (!ok) return;
-    if (hasRegion) TimeMachine.restoreLocalRegionToCurrentState(regionRect);
-    else TimeMachine.restoreLocalToCurrentState();
+    if (hasRegion) await TimeMachine.restoreLocalRegionToCurrentState(regionRect);
+    else await TimeMachine.restoreLocalToCurrentState();
     // restoreLocal* calls catchUp() which stops the (embedded) replay; close.
     close();
   }
 
-  function exportRecentVideo() {
+  function openRenderDialog() {
     if (TimeMachine.isExportingVideo) return;
-    // Reuse the existing region-aware time-lapse exporter. Defaults match the
-    // dialog (30× speed, 30fps); the mini player just passes the picked region.
-    TimeMachine.exportTimeLapseVideo({ region: regionRect || null });
+    timeLapseDialogOpen = true;
   }
 
   function cancelRecentVideo() {
@@ -241,6 +248,64 @@
     regionSelecting = false;
   }
 
+  // ── Pan / zoom on the mini canvas ───────────────────────────────────────────
+  // The player canvas is object-fit:contain (fit-to-stage) at zoom 1. Wheel
+  // zooms toward the cursor, drag pans. Layered on top of object-fit via a CSS
+  // transform, so zoom 1 + no pan reproduces the plain fitted view.
+  let rpZoom = $state(1);
+  let rpPanX = $state(0);
+  let rpPanY = $state(0);
+  let rpPanning = $state(false);
+  let rpPanStart = null;
+
+  let rpCanvasTransform = $derived(`translate(${rpPanX}px, ${rpPanY}px) scale(${rpZoom})`);
+
+  function resetRpView() {
+    rpZoom = 1;
+    rpPanX = 0;
+    rpPanY = 0;
+  }
+
+  function onRpWheel(e) {
+    if (!embedCanvas) return;
+    e.preventDefault();
+    const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+    const next = Math.max(1, Math.min(8, rpZoom * factor));
+    if (next === rpZoom) return;
+    const ratio = next / rpZoom;
+    // Keep the board point under the cursor fixed: shift pan by the cursor's
+    // offset from the displayed canvas center, scaled by (1 - ratio).
+    const rect = embedCanvas.getBoundingClientRect();
+    if (rect.width && rect.height) {
+      const fx = (e.clientX - rect.left) / rect.width - 0.5;
+      const fy = (e.clientY - rect.top) / rect.height - 0.5;
+      rpPanX += fx * rect.width * (1 - ratio);
+      rpPanY += fy * rect.height * (1 - ratio);
+    }
+    rpZoom = next;
+    if (rpZoom === 1) { rpPanX = 0; rpPanY = 0; }
+  }
+
+  function onRpPointerDown(e) {
+    if (regionSelecting || e.button !== 0) return;
+    rpPanning = true;
+    rpPanStart = { x: e.clientX - rpPanX, y: e.clientY - rpPanY };
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+  }
+
+  function onRpPointerMove(e) {
+    if (!rpPanning || !rpPanStart) return;
+    rpPanX = e.clientX - rpPanStart.x;
+    rpPanY = e.clientY - rpPanStart.y;
+  }
+
+  function onRpPointerUp(e) {
+    if (!rpPanning) return;
+    rpPanning = false;
+    rpPanStart = null;
+    e.currentTarget?.releasePointerCapture?.(e.pointerId);
+  }
+
   // Keep the committed-region outline anchored to the canvas (re-measured each
   // frame so it survives window resize / the modal reflowing).
   $effect(() => {
@@ -300,17 +365,6 @@
     }
   });
 
-  /** Open the server checkpoint timeline in the scrubber; close this menu. */
-  function openServerReplay() {
-    const app = window.app;
-    if (app?.syncClient && app.currentRoomId && !app.isOfflineMode && !app.syncClient.hasCompletedSync) {
-      app?.ui?.showToast?.('Please wait for sync to finish before opening server history', 2500);
-      return;
-    }
-    close();
-    app?.TimeMachine?.loadFromServer?.();
-  }
-
   function formatWindow(ms) {
     const s = Math.round((ms || 0) / 1000);
     if (s < 90) return `${s}s`;
@@ -319,6 +373,7 @@
 
   let recentHasContent = $derived(!!recentStatus?.hasContent);
   let recentEnabled = $derived(!!recentStatus?.enabled);
+  let recentConfigured = $derived(recentStatus?.configuredEnabled !== false);
   let recentStale = $derived(!!recentStatus?.stale);
 
   let selectedId = $state(null);
@@ -843,11 +898,12 @@
     <div class="snap-header">
       <div class="snap-header-left">
         <span class="snap-title">History</span>
+        <!-- Server-history tab removed: server-side replay is gated off
+             (ENABLE_SERVER_REPLAY_DB) and returns an empty timeline. Recent
+             (local rolling tape) is the only live history view. -->
         <div class="snap-tabs" role="tablist">
           <button class="snap-tab" class:active={view === 'recent'} role="tab" aria-selected={view === 'recent'}
             onclick={() => switchView('recent')} onpointerup={(e) => e.pointerType !== 'mouse' && switchView('recent')}>Recent</button>
-          <button class="snap-tab" class:active={view === 'server'} role="tab" aria-selected={view === 'server'}
-            onclick={() => switchView('server')} onpointerup={(e) => e.pointerType !== 'mouse' && switchView('server')}>Server</button>
         </div>
       </div>
       <div class="snap-header-right">
@@ -864,7 +920,24 @@
         {#if embedActive}
           <div class="rp-player">
             <div class="rp-stage">
-              <canvas bind:this={embedCanvas} class="rp-canvas"></canvas>
+              <canvas
+                bind:this={embedCanvas}
+                class="rp-canvas"
+                class:panning={rpPanning}
+                class:zoomed={rpZoom > 1}
+                style="transform: {rpCanvasTransform}"
+                onwheel={onRpWheel}
+                onpointerdown={onRpPointerDown}
+                onpointermove={onRpPointerMove}
+                onpointerup={onRpPointerUp}
+                onpointerleave={onRpPointerUp}
+                ondblclick={resetRpView}
+              ></canvas>
+              {#if rpZoom > 1}
+                <button class="rp-zoom-reset" onclick={resetRpView} title="Reset zoom">
+                  {Math.round(rpZoom * 100)}%
+                </button>
+              {/if}
               {#if tmLoading}
                 <div class="rp-overlay"><div class="rp-spinner"></div></div>
               {/if}
@@ -916,7 +989,7 @@
             {#if tmExporting}
               <div class="rp-export-progress">
                 <div class="rp-export-bar" style="width: {Math.round(tmExportProgress * 100)}%"></div>
-                <span class="rp-export-label">Exporting video… {Math.round(tmExportProgress * 100)}%</span>
+                <span class="rp-export-label">Rendering... {Math.round(tmExportProgress * 100)}%</span>
                 <button class="rp-action" onclick={cancelRecentVideo}>Cancel</button>
               </div>
             {:else}
@@ -943,7 +1016,7 @@
                   {regionRect ? 'Undo region' : 'Undo to here'}
                 </button>
                 <button class="rp-action" onclick={saveRecentReplay} title="Save this replay as a .ddraw file">Save .ddraw</button>
-                <button class="rp-action accent" onclick={exportRecentVideo} title={regionRect ? 'Export this region as a time-lapse video' : 'Export a time-lapse video'}>Export video</button>
+                <button class="rp-action accent" onclick={openRenderDialog} title={regionRect ? 'Render this region as a time-lapse' : 'Render time-lapse'}>Render</button>
               </div>
             {/if}
 
@@ -967,34 +1040,15 @@
             <p class="snap-recent-sub">
               A local replay of roughly the last {formatWindow(recentStatus?.windowMs)} on this device.
             </p>
-            {#if !recentEnabled}
+            {#if !recentConfigured}
+              <div class="snap-recent-empty">Recent replay is disabled in App Settings.</div>
+            {:else if !recentEnabled}
               <div class="snap-recent-empty">Recent history starts recording once you've joined and synced a room.</div>
             {:else}
               <div class="snap-recent-empty">Nothing to replay yet — draw something, or wait a few seconds for activity to accumulate.</div>
             {/if}
           </div>
         {/if}
-      </div>
-    {:else if view === 'server'}
-      <!-- Server: longer-range checkpoint+delta replay -->
-      <div class="snap-tab-panel snap-recent">
-        <div class="snap-recent-card">
-          <div class="snap-recent-icon" aria-hidden="true">🗄</div>
-          <h3 class="snap-recent-title">Server history</h3>
-          <p class="snap-recent-sub">
-            Longer room history reconstructed from server checkpoints. Opens the timeline so you can scrub
-            and play back past activity beyond the local window.
-          </p>
-          {#if !canViewHistory}
-            <div class="snap-recent-empty">Only registered users can view server history (unless you're alone in the room).</div>
-          {/if}
-          <button
-            class="btn primary snap-recent-play"
-            disabled={!canViewHistory}
-            onclick={openServerReplay}
-            onpointerup={(e) => e.pointerType !== 'mouse' && openServerReplay()}
-          >Open server timeline</button>
-        </div>
       </div>
     {:else}
     <!-- Snapshots: saved still images / restore -->
@@ -1162,6 +1216,13 @@
   </div>
 </div>
 
+<TimeLapseDialog
+  bind:open={timeLapseDialogOpen}
+  onClose={() => (timeLapseDialogOpen = false)}
+  initialRegion={regionRect}
+  allowRegionPick={false}
+/>
+
 <style>
   .snapshot-overlay {
     position: fixed;
@@ -1230,6 +1291,10 @@
   }
   .rp-canvas {
     max-width: 100%; max-height: 100%; object-fit: contain;
+    transform-origin: center center;
+    /* Override the global `canvas { cursor: none }` (the live board hides the
+       system cursor to draw its own brush ring — meaningless in the player). */
+    cursor: grab;
     /* Checkerboard so transparent boards read as transparent, not black. */
     background-image:
       linear-gradient(45deg, #1a1a1a 25%, transparent 25%),
@@ -1240,6 +1305,15 @@
     background-position: 0 0, 0 10px, 10px -10px, -10px 0;
     background-color: #2a2a2a;
   }
+  .rp-canvas.zoomed { cursor: grab; }
+  .rp-canvas.panning { cursor: grabbing; }
+  .rp-zoom-reset {
+    position: absolute; bottom: 10px; right: 10px; z-index: 6;
+    padding: 4px 8px; min-width: 44px; font-size: 11px; font-weight: 600;
+    background: rgba(0, 0, 0, 0.55); border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 6px; color: #eee; cursor: pointer; font-variant-numeric: tabular-nums;
+  }
+  .rp-zoom-reset:hover { background: rgba(0, 0, 0, 0.8); color: #fff; }
   .rp-overlay {
     position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
     background: rgba(0, 0, 0, 0.25); backdrop-filter: blur(2px);

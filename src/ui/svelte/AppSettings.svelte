@@ -2,6 +2,7 @@
   import { appState } from '../../state.svelte.js';
   import {
     createDefaultAppPreferences,
+    DEFAULT_REPLAY_PREFERENCES,
     DEFAULT_SFX_PREFERENCES,
     THEME_BASE_COLORS
   } from '../../config/AppPreferences.js';
@@ -38,6 +39,28 @@
     { key: 'accent', label: 'Accent' },
     { key: 'text',   label: 'Text' },
     { key: 'boardBg', label: 'Board BG' }
+  ];
+  const REPLAY_SNAPSHOT_INTERVAL_OPTIONS = [
+    { label: '30 sec', value: 30_000 },
+    { label: '1 min', value: 60_000 },
+    { label: '2 min', value: 120_000 },
+    { label: '5 min', value: 300_000 }
+  ];
+  const REPLAY_MAX_LENGTH_OPTIONS = [
+    { label: 'Unlimited', value: 0 },
+    { label: '2 min', value: 120_000 },
+    { label: '5 min', value: 300_000 },
+    { label: '10 min', value: 600_000 },
+    { label: '30 min', value: 1_800_000 },
+    { label: '1 hour', value: 3_600_000 }
+  ];
+  const ROLLING_TAPE_WINDOW_OPTIONS = [
+    { label: 'Off', value: 0 },
+    { label: '30 sec', value: 30_000 },
+    { label: '1 min', value: 60_000 },
+    { label: '2 min', value: 120_000 },
+    { label: '5 min', value: 300_000 },
+    { label: '10 min', value: 600_000 }
   ];
 
   function isSidebarOnLeft() {
@@ -214,6 +237,67 @@ function getChatOpacity() {
       inbox: 'Inbox'
     };
     updatePreferences(nextPreferences, `${labels[name]} sound ${enabled ? 'enabled' : 'disabled'}`);
+  }
+
+  function getReplaySettings() {
+    return {
+      ...DEFAULT_REPLAY_PREFERENCES,
+      ...(appPreferences?.general?.replay ?? {})
+    };
+  }
+
+  function updateReplaySettings(updates, toastMessage = '') {
+    const nextPreferences = {
+      ...appPreferences,
+      general: {
+        ...(appPreferences?.general ?? {}),
+        replay: {
+          ...getReplaySettings(),
+          ...updates
+        }
+      }
+    };
+
+    updatePreferences(nextPreferences, toastMessage);
+  }
+
+  function getManualSnapshotIntervalMs() {
+    return getReplaySettings().manualSnapshotIntervalMs;
+  }
+
+  function getManualMaxLengthMs() {
+    return getReplaySettings().manualMaxLengthMs;
+  }
+
+  function getRollingTapeSelectValue() {
+    const replay = getReplaySettings();
+    return replay.rollingEnabled === false ? 0 : replay.rollingWindowMs;
+  }
+
+  function updateManualSnapshotInterval(value) {
+    updateReplaySettings(
+      { manualSnapshotIntervalMs: Number(value) },
+      'Replay snapshot distance updated'
+    );
+  }
+
+  function updateManualMaxLength(value) {
+    const maxLengthMs = Number(value);
+    updateReplaySettings(
+      { manualMaxLengthMs: maxLengthMs },
+      maxLengthMs > 0 ? 'Replay max length updated' : 'Replay max length removed'
+    );
+  }
+
+  function updateRollingTapeWindow(value) {
+    const windowMs = Number(value);
+    updateReplaySettings(
+      {
+        rollingEnabled: windowMs > 0,
+        rollingWindowMs: windowMs > 0 ? windowMs : getReplaySettings().rollingWindowMs
+      },
+      windowMs > 0 ? 'Recent replay length updated' : 'Recent replay disabled'
+    );
   }
 
   function updateChatOpacity(rawValue) {
@@ -711,6 +795,51 @@ function getChatOpacity() {
               </div>
             </div>
 
+            <h4>Replay</h4>
+            <div class="settings-select-grid">
+              <label class="settings-select-card" for="replay-snapshot-interval">
+                <span class="settings-slider-title">Snapshot Distance</span>
+                <select
+                  id="replay-snapshot-interval"
+                  class="settings-select"
+                  value={getManualSnapshotIntervalMs()}
+                  onchange={(event) => updateManualSnapshotInterval(event.currentTarget.value)}
+                >
+                  {#each REPLAY_SNAPSHOT_INTERVAL_OPTIONS as option (option.value)}
+                    <option value={option.value}>{option.label}</option>
+                  {/each}
+                </select>
+              </label>
+
+              <label class="settings-select-card" for="replay-max-length">
+                <span class="settings-slider-title">Max Recording Length</span>
+                <select
+                  id="replay-max-length"
+                  class="settings-select"
+                  value={getManualMaxLengthMs()}
+                  onchange={(event) => updateManualMaxLength(event.currentTarget.value)}
+                >
+                  {#each REPLAY_MAX_LENGTH_OPTIONS as option (option.value)}
+                    <option value={option.value}>{option.label}</option>
+                  {/each}
+                </select>
+              </label>
+
+              <label class="settings-select-card" for="rolling-tape-window">
+                <span class="settings-slider-title">Recent Replay Length</span>
+                <select
+                  id="rolling-tape-window"
+                  class="settings-select"
+                  value={getRollingTapeSelectValue()}
+                  onchange={(event) => updateRollingTapeWindow(event.currentTarget.value)}
+                >
+                  {#each ROLLING_TAPE_WINDOW_OPTIONS as option (option.value)}
+                    <option value={option.value}>{option.label}</option>
+                  {/each}
+                </select>
+              </label>
+            </div>
+
             <h4>App Colours</h4>
             <p>Pick your app colours and local board background.</p>
             <div class="theme-grid-compact">
@@ -1122,6 +1251,37 @@ function getChatOpacity() {
     cursor: pointer;
   }
 
+  .settings-select-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.85rem;
+    margin: 0.75rem 0 1rem;
+  }
+
+  .settings-select-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    padding: 0.65rem 0.8rem;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 0.84rem;
+    font-weight: 600;
+  }
+
+  .settings-select {
+    width: 100%;
+    min-height: 36px;
+    padding: 0.45rem 0.55rem;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    font: inherit;
+  }
+
   .settings-toggles-row-tight {
     margin-top: 0.35rem;
     margin-bottom: 0;
@@ -1326,6 +1486,10 @@ function getChatOpacity() {
     .keybind-toolbar-actions {
       flex-direction: column;
       align-items: stretch;
+    }
+
+    .settings-select-grid {
+      grid-template-columns: 1fr;
     }
 
     .keybind-search {

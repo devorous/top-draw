@@ -145,6 +145,57 @@ export class SnapshotManager {
   }
 
   /**
+   * Broadcast a replay-rendered canvas as a room-wide board restore. The replay
+   * output is flattened into layer 0 and transparent layers are sent for the
+   * remaining groups, matching the existing local replay restore behavior while
+   * letting the server sequence and relay the mutation to collaborators.
+   * @param {HTMLCanvasElement} canvas
+   * @returns {Promise<boolean>}
+   */
+  async broadcastReplayCanvasRestore(canvas) {
+    if (!this.app.wsClient || !this.app.connected || !canvas) return false;
+    const encoded = await this._encodeFlattenedCanvasLayers(canvas);
+    if (!encoded?.layers?.length) return false;
+
+    this.app.wsClient.send({
+      t: T.BOARD_SNAPSHOT_RESTORE,
+      snapshotLayers: encoded.layers
+    });
+    return true;
+  }
+
+  /**
+   * Broadcast a replay-rendered canvas as a room-wide region restore. Layer 0
+   * carries the flattened replay pixels and all upper layers carry transparent
+   * images so receivers clear the restored region on every layer.
+   * @param {HTMLCanvasElement} canvas
+   * @param {{x:number,y:number,width:number,height:number}} region
+   * @returns {Promise<boolean>}
+   */
+  async broadcastReplayRegionRestore(canvas, region) {
+    if (!this.app.wsClient || !this.app.connected || !canvas || !region) return false;
+    const encoded = await this._encodeFlattenedCanvasLayers(canvas);
+    if (!encoded?.layers?.length) return false;
+
+    const x = Math.max(0, Math.round(region.x));
+    const y = Math.max(0, Math.round(region.y));
+    const width = Math.max(0, Math.round(region.width));
+    const height = Math.max(0, Math.round(region.height));
+    if (width <= 0 || height <= 0) return false;
+
+    this.app.wsClient.send({
+      t: T.BOARD_SNAPSHOT_REGION_RESTORE,
+      snapshotLayers: encoded.layers,
+      a: false,
+      sx: x,
+      sy: y,
+      sw: width,
+      sh: height
+    });
+    return true;
+  }
+
+  /**
    * Request deletion of a specific snapshot.
    * @param {string} id
    */
@@ -314,6 +365,34 @@ export class SnapshotManager {
         reject(err);
       }
     });
+  }
+
+  async _encodeFlattenedCanvasLayers(canvas) {
+    const board = this.app.board;
+    const width = board?.getWidth?.() || canvas.width;
+    const height = board?.getHeight?.() || canvas.height;
+    if (!width || !height) return null;
+
+    const flattened = document.createElement('canvas');
+    flattened.width = width;
+    flattened.height = height;
+    const ctx = flattened.getContext('2d');
+    ctx.clearRect(0, 0, width, height);
+    ctx.drawImage(canvas, 0, 0, width, height);
+
+    const layerCount = Math.max(1, board?.layerManager?.getLayerCount?.() || board?.layerManager?.layerGroups?.length || 1);
+    const layers = [new Uint8Array(ctx.getImageData(0, 0, width, height).data.buffer)];
+    const transparentByteLength = width * height * 4;
+    for (let i = 1; i < layerCount; i++) {
+      layers.push(new Uint8Array(transparentByteLength));
+    }
+
+    return await this._runWhenIdle(() => this._encodeSnapshotPixels({
+      width,
+      height,
+      layers,
+      backgroundColor: board?.backgroundColor
+    }));
   }
 
   handleCheckpointMinted({ snapshotId, snapshotSeq }) {

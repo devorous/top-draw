@@ -31,7 +31,7 @@
         confirmLabel: 'Undo',
         danger: true
       })) {
-        TimeMachine.restoreLocalToCurrentState();
+        await TimeMachine.restoreLocalToCurrentState();
       }
       return;
     }
@@ -325,6 +325,14 @@
     <span class="pulse"></span>
     VIEWING HISTORY
   </div>
+
+  <!-- Floating exit, top-right. Functionally identical to the timebar's
+       catch-up/return-live button — leaves review and returns to the live board.
+       Replaces the (now hidden) top toolbar during review. -->
+  <button class="replay-exit-btn" onclick={() => TimeMachine.catchUp()} title="Exit replay">
+    <svg viewBox="0 0 24 24" width="16" height="16"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round"/></svg>
+    Exit
+  </button>
 {/if}
 
 {#if TimeMachine.isPreviewMode && !TimeMachine.isEmbedded}
@@ -429,8 +437,8 @@
             <button class="save-replay-btn" onclick={() => TimeMachine.exportCurrentRecording()} title="Save this replay as a .ddraw file">
               Save .ddraw
             </button>
-            <button class="save-replay-btn" onclick={() => (timeLapseDialogOpen = true)} title="Render as a time-lapse video">
-              Export video
+            <button class="save-replay-btn" onclick={() => (timeLapseDialogOpen = true)} title="Render time-lapse">
+              Render
             </button>
           {/if}
           {#if TimeMachine.isLocalReplay || appState.isModerator}
@@ -439,7 +447,7 @@
             </button>
           {/if}
           <button class="catch-up-btn" onclick={() => TimeMachine.catchUp()}>
-            {TimeMachine.isLocalReplay ? 'Return Live' : 'Catch Up'}
+            Exit
           </button>
         </div>
       {/if}
@@ -510,6 +518,34 @@
     to   { opacity: 1; }
   }
 
+  .replay-exit-btn {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    z-index: 10002;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    background: rgba(15, 20, 30, 0.92);
+    border: 1px solid #a0aec0;
+    border-radius: 10px;
+    color: #fff;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    cursor: pointer;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(8px);
+    transition: all 0.2s ease;
+
+    &:hover {
+      background: rgba(160, 174, 192, 0.25);
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(160, 174, 192, 0.4);
+    }
+  }
+
   .history-badge {
     position: fixed;
     top: 80px;
@@ -538,10 +574,11 @@
     }
   }
 
-  /* Hide drawing chrome whenever a replay review is active. The top toolbar
-     (zoom +/-, rotation reset) stays so the viewer can navigate around the
-     canvas. The history badge stays visible to make it clear they're in
-     replay mode. */
+  /* Hide drawing chrome whenever a replay review is active, including the top
+     toolbar (.boardBtns) — the floating Exit button replaces it and the viewer
+     can still pan/zoom by dragging the replay canvas. The history badge stays
+     visible to make it clear they're in replay mode. */
+  :global(body.replay-reviewing-mode .boardBtns),
   :global(body.replay-reviewing-mode #boardMenu),
   :global(body.replay-reviewing-mode #chatMount),
   :global(body.replay-reviewing-mode #chatToastContainer),
@@ -709,7 +746,13 @@
     }
 
     .scrubber-viewport {
-      flex: 1;
+      flex: 1 1 0;
+      /* Without an explicit zero min-width a flex item won't shrink below the
+         intrinsic width of its content. The inner .custom-scrubber carries an
+         inline pixel width that grows as you zoom in, so omitting this lets the
+         viewport balloon and shove .review-actions off to the right. Pinning it
+         to 0 keeps the bar a fixed width and scrolls the scrubber instead. */
+      min-width: 0;
       position: relative;
       overflow-x: auto;
       overflow-y: hidden;

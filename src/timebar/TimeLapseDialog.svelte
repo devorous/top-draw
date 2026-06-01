@@ -1,15 +1,41 @@
 <script>
   import { TimeMachine } from './TimeMachine.svelte.js';
 
-  /** @type {{ open: boolean, onClose: () => void }} */
-  let { open = $bindable(false), onClose } = $props();
+  /**
+   * @type {{
+   *   open: boolean,
+   *   onClose: () => void,
+   *   initialRegion?: {x:number,y:number,width:number,height:number}|null,
+   *   allowRegionPick?: boolean,
+   * }}
+   */
+  let {
+    open = $bindable(false),
+    onClose,
+    // When the dialog is opened over the embedded Recent mini-player, region
+    // selection happens on that player's canvas (not #replayCanvas, which is
+    // hidden). The caller hands us the already-picked region and disables the
+    // dialog's own canvas-based picker.
+    initialRegion = null,
+    allowRegionPick = true,
+  } = $props();
 
   let speed = $state(30);
   let fps = $state(30);
+  let output = $state('video');
   let useRegion = $state(false);
   /** Board-pixel coords. Null = full board. */
   let region = $state(null);
   let pickingRegion = $state(false);
+
+  // When the host owns region selection (embedded mode), mirror the region it
+  // passes in each time the dialog opens.
+  $effect(() => {
+    if (open && !allowRegionPick) {
+      region = initialRegion;
+      useRegion = !!initialRegion;
+    }
+  });
 
   // Region picker — overlays the replay canvas and converts pointer-down/move/up
   // into board pixel coordinates. We measure #replayCanvas's on-screen rect and
@@ -87,11 +113,16 @@
     useRegion = false;
   }
 
-  // Estimated wall-clock time for the export = output video duration.
+  // Estimated wall-clock time for video render = output video duration.
   let outputSecondsEstimate = $derived.by(() => {
     const tape = Math.max(0, (TimeMachine.sessionEnd || 0) - (TimeMachine.sessionStart || 0));
     if (!tape || !speed) return 0;
     return (tape / 1000) / speed;
+  });
+
+  let frameEstimate = $derived.by(() => {
+    const frames = Math.ceil(outputSecondsEstimate * fps);
+    return Math.max(1, Number.isFinite(frames) ? frames : 1);
   });
 
   function formatSeconds(s) {
@@ -106,6 +137,7 @@
     const opts = {
       speed,
       fps,
+      output,
       region: useRegion ? region : null,
     };
     // Don't await — let the dialog stay open so the progress bar updates.
@@ -137,8 +169,9 @@
   $effect(() => {
     if (typeof window === 'undefined') return;
     // Hide outline while picking (the active drag-rect is the user feedback),
-    // while the dialog is closed entirely, and when no region is set.
-    if (!open || pickingRegion || !useRegion || !region) {
+    // while the dialog is closed entirely, and when no region is set. In
+    // host-owned region mode the embedded player draws its own outline.
+    if (!open || pickingRegion || !useRegion || !region || !allowRegionPick) {
       outlineRect = null;
       return;
     }
@@ -169,11 +202,29 @@
   <div class="overlay" onclick={close} role="dialog" aria-modal="true">
     <div class="dialog" onclick={(e) => e.stopPropagation()} role="document">
       <div class="header">
-        <h3>Export time-lapse</h3>
+        <h3>Render time-lapse</h3>
         <button class="close-btn" onclick={close} title="Close">×</button>
       </div>
 
       <div class="body">
+        <div class="row output-row">
+          <span>Output</span>
+          <div class="segmented">
+            <button
+              type="button"
+              class:active={output === 'video'}
+              onclick={() => (output = 'video')}
+              disabled={TimeMachine.isExportingVideo}
+            >Video</button>
+            <button
+              type="button"
+              class:active={output === 'sequence'}
+              onclick={() => (output = 'sequence')}
+              disabled={TimeMachine.isExportingVideo}
+            >Frames</button>
+          </div>
+        </div>
+
         <label class="row">
           <span>Speed</span>
           <input type="range" min="1" max="120" step="1" bind:value={speed} disabled={TimeMachine.isExportingVideo} />
@@ -192,21 +243,33 @@
         <div class="row region-row">
           <span>Region</span>
           <div class="region-controls">
-            {#if region}
+            {#if allowRegionPick}
+              {#if region}
+                <span class="region-info">
+                  {Math.round(region.width)} × {Math.round(region.height)} px
+                </span>
+                <button class="btn-small" onclick={startPick} disabled={TimeMachine.isExportingVideo}>Re-select</button>
+                <button class="btn-small" onclick={clearRegion} disabled={TimeMachine.isExportingVideo}>Clear</button>
+              {:else}
+                <span class="region-info muted">Full board</span>
+                <button class="btn-small" onclick={startPick} disabled={TimeMachine.isExportingVideo}>Select region…</button>
+              {/if}
+            {:else if region}
               <span class="region-info">
                 {Math.round(region.width)} × {Math.round(region.height)} px
               </span>
-              <button class="btn-small" onclick={startPick} disabled={TimeMachine.isExportingVideo}>Re-select</button>
-              <button class="btn-small" onclick={clearRegion} disabled={TimeMachine.isExportingVideo}>Clear</button>
             {:else}
               <span class="region-info muted">Full board</span>
-              <button class="btn-small" onclick={startPick} disabled={TimeMachine.isExportingVideo}>Select region…</button>
             {/if}
           </div>
         </div>
 
         <div class="estimate">
-          ≈ {formatSeconds(outputSecondsEstimate)} of video (export takes about the same wall time)
+          {#if output === 'sequence'}
+            About {frameEstimate} PNG frames in a ZIP
+          {:else}
+            About {formatSeconds(outputSecondsEstimate)} of video
+          {/if}
         </div>
 
         {#if TimeMachine.isExportingVideo}
@@ -222,7 +285,7 @@
           <button class="btn-secondary" onclick={() => TimeMachine.cancelVideoExport()}>Cancel</button>
         {:else}
           <button class="btn-secondary" onclick={close}>Close</button>
-          <button class="btn-primary" onclick={startExport}>Start export</button>
+          <button class="btn-primary" onclick={startExport}>Render</button>
         {/if}
       </div>
     </div>
@@ -255,7 +318,7 @@
     aria-hidden="true"
     style="left: {outlineRect.left}px; top: {outlineRect.top}px; width: {outlineRect.width}px; height: {outlineRect.height}px"
   >
-    <span class="region-outline-tag">Export region</span>
+    <span class="region-outline-tag">Render region</span>
   </div>
 {/if}
 
@@ -333,6 +396,34 @@
 
   .region-row {
     grid-template-columns: 70px 1fr;
+  }
+
+  .output-row {
+    grid-template-columns: 70px 1fr;
+  }
+
+  .segmented {
+    display: inline-flex;
+    width: fit-content;
+    padding: 3px;
+    gap: 2px;
+    background: #1f242e;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 7px;
+    button {
+      background: transparent;
+      color: inherit;
+      border: 0;
+      border-radius: 5px;
+      padding: 4px 10px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      opacity: 0.72;
+      &:hover:not(:disabled) { background: #2d3340; opacity: 1; }
+      &.active { background: #4a90e2; color: #fff; opacity: 1; }
+      &:disabled { opacity: 0.5; cursor: not-allowed; }
+    }
   }
 
   .region-controls {

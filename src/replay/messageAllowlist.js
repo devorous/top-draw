@@ -32,7 +32,7 @@ export const REPLAY_MESSAGE_ALLOWLIST = new Set([
   T.UNDO, T.REDO,
 
   // Room/board state
-  T.MIRROR_REGION, T.MIR, T.CLR, T.KP, T.PAN, T.CANCEL,
+  T.SETTINGS, T.MIRROR_REGION, T.MIR, T.CLR, T.KP, T.PAN, T.CANCEL,
 
   // Chat (visible in replay)
   T.MSG,

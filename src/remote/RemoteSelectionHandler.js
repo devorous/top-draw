@@ -828,8 +828,10 @@ export class RemoteSelectionHandler {
       dirtyHeight = ih;
     }
 
-    // Track the dirty region so the stroke is properly saved
-    this.board.expandDirtyRect(user, dirtyX, dirtyY, dirtyWidth, dirtyHeight);
+    // Track the dirty region so the stroke is properly saved. Pass the explicit
+    // commit layer so the dirty rect lands on the stroke we just began on
+    // (layerIdx may differ from user.activeLayer for replay bots).
+    this.board.expandDirtyRect(user, dirtyX, dirtyY, dirtyWidth, dirtyHeight, layerIdx);
 
     // Store affected tiles in the stroke record for undo
     const tt = this.board.tileTracker;
@@ -1026,7 +1028,7 @@ export class RemoteSelectionHandler {
       }
       layerCtx.globalAlpha = 1.0;
 
-      this.board.expandDirtyRect(user, ix, iy, iw, ih);
+      this.board.expandDirtyRect(user, ix, iy, iw, ih, layerIdx);
 
       // Store affected tiles in the stroke record for undo
       const tileOwnership = this.board.tileTracker;

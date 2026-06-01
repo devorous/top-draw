@@ -35,7 +35,7 @@ import { isCommitType } from '../../shared/StrokeFingerprint.js';
  */
 
 const RECORDING_VERSION = 2;
-const INTRA_CHECKPOINT_INTERVAL_MS = 30_000;
+const DEFAULT_INTRA_CHECKPOINT_INTERVAL_MS = 30_000;
 const HARD_MAX_DELTAS = 500_000;
 // Visual-checkpoint cadence. Each tick downscales the live board to a small WebP
 // so .ddraw files ship with a scrub-preview grid baked in — the load path can
@@ -55,6 +55,12 @@ export class Recorder {
     this._intraCheckpointTimer = null;
     /** @type {number | null} */
     this._visualCheckpointTimer = null;
+    /** @type {number | null} */
+    this._maxLengthTimer = null;
+    /** @type {number} */
+    this._intraCheckpointIntervalMs = DEFAULT_INTRA_CHECKPOINT_INTERVAL_MS;
+    /** @type {number} 0 means unlimited. */
+    this._maxLengthMs = 0;
     /** @type {boolean} */
     this._visualCheckpointInFlight = false;
     /** @type {Object | null} */
@@ -75,6 +81,24 @@ export class Recorder {
   /** Number of deltas captured so far. */
   deltaCount() {
     return this.recording?.deltas.length ?? 0;
+  }
+
+  /**
+   * Update recording timers from app preferences. Safe while recording.
+   * @param {{ checkpointIntervalMs?: number, maxLengthMs?: number }} options
+   */
+  configure(options = {}) {
+    const checkpointIntervalMs = Number(options.checkpointIntervalMs);
+    if (Number.isFinite(checkpointIntervalMs) && checkpointIntervalMs > 0) {
+      this._intraCheckpointIntervalMs = checkpointIntervalMs;
+      if (this.state === 'recording') this._scheduleIntraCheckpoint();
+    }
+
+    const maxLengthMs = Number(options.maxLengthMs);
+    if (Number.isFinite(maxLengthMs) && maxLengthMs >= 0) {
+      this._maxLengthMs = maxLengthMs;
+      if (this.state === 'recording') this._scheduleMaxLengthStop();
+    }
   }
 
   /**
@@ -104,6 +128,7 @@ export class Recorder {
 
     this._scheduleIntraCheckpoint();
     this._scheduleVisualCheckpoint();
+    this._scheduleMaxLengthStop();
     this._notifyStateChange();
   }
 
@@ -125,6 +150,10 @@ export class Recorder {
       clearTimeout(this._visualCheckpointTimer);
       this._visualCheckpointTimer = null;
     }
+    if (this._maxLengthTimer != null) {
+      clearTimeout(this._maxLengthTimer);
+      this._maxLengthTimer = null;
+    }
 
     this.recording.endedAt = Date.now();
     const bundle = this.recording;
@@ -144,6 +173,10 @@ export class Recorder {
     if (this._visualCheckpointTimer != null) {
       clearTimeout(this._visualCheckpointTimer);
       this._visualCheckpointTimer = null;
+    }
+    if (this._maxLengthTimer != null) {
+      clearTimeout(this._maxLengthTimer);
+      this._maxLengthTimer = null;
     }
     this.state = 'idle';
     this.recording = null;
@@ -169,6 +202,10 @@ export class Recorder {
   _append(msg, dir) {
     if (this.state !== 'recording' || !this.recording) return;
     if (!shouldRecord(msg)) return;
+    if (this._maxLengthMs > 0 && this.elapsedMs() >= this._maxLengthMs) {
+      this._autoStop('max recording length reached');
+      return;
+    }
 
     // The server echoes commit-class messages (MU, FILL, SEL_COMMIT, UNDO, …)
     // back to the sender so its strokeLog stays in sync. We see the same
@@ -213,7 +250,32 @@ export class Recorder {
     this._intraCheckpointTimer = setTimeout(() => {
       this._captureIntraCheckpoint();
       if (this.state === 'recording') this._scheduleIntraCheckpoint();
-    }, INTRA_CHECKPOINT_INTERVAL_MS);
+    }, this._intraCheckpointIntervalMs);
+  }
+
+  /** @private */
+  _scheduleMaxLengthStop() {
+    if (this._maxLengthTimer != null) {
+      clearTimeout(this._maxLengthTimer);
+      this._maxLengthTimer = null;
+    }
+    if (this._maxLengthMs <= 0 || !this.recording) return;
+
+    const remaining = Math.max(0, this.recording.startedAt + this._maxLengthMs - Date.now());
+    this._maxLengthTimer = setTimeout(() => {
+      if (this.state === 'recording') {
+        this._autoStop('max recording length reached');
+      }
+    }, remaining);
+  }
+
+  /** @private */
+  _autoStop(reason) {
+    console.warn(`[Recorder] ${reason}, auto-stopping recording`);
+    const bundle = this.stop();
+    if (bundle) {
+      this._notifyStateChange(bundle);
+    }
   }
 
   /** @private */

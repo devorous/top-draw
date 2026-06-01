@@ -2540,9 +2540,15 @@ export class Board {
    * Expand the dirty rectangle for a user's active stroke so the stroke
    * bake step can crop to a tight content bound.
    */
-  expandDirtyRect(user, x, y, width, height) {
+  expandDirtyRect(user, x, y, width, height, layerIndex) {
     if (!this.layerManager) return;
-    const activeLayer = user?.activeLayer ?? this.app?.self?.activeLayer ?? 0;
+    // Prefer the explicit layer the active stroke was begun on. Selection
+    // commit/stamp/fill begin their stroke on a layer derived from the message
+    // (`ly`), which can differ from `user.activeLayer` (e.g. replay bots whose
+    // active layer was never synced via a CL message). Falling back to
+    // user.activeLayer would expand the wrong layer's dirty rect and the bake
+    // step would discard the stroke as empty.
+    const activeLayer = layerIndex ?? user?.activeLayer ?? this.app?.self?.activeLayer ?? 0;
     const userId = user?.id ?? this.app?.self?.id ?? 0;
     const group = this.layerManager.layerGroups[activeLayer];
     if (!group) return;

@@ -345,8 +345,17 @@ export async function handleSnapshotRestore(ws, data, room) {
   const snapshotId = data.snapshotId;
   let snapshotData = null;
 
+  if (Array.isArray(data.snapshotLayers) && data.snapshotLayers.length > 0) {
+    snapshotData = {
+      id: snapshotId || `restore_${Date.now()}`,
+      ts: Date.now(),
+      issuer: ws.username || 'Unknown',
+      layers: data.snapshotLayers
+    };
+  }
+
   // 1. Check in-memory buffer first for very recent/auto snapshots
-  let snapshotInMemory = room.snapshots.find(s => s.id === snapshotId);
+  let snapshotInMemory = !snapshotData && room.snapshots.find(s => s.id === snapshotId);
 
   if (snapshotInMemory && snapshotInMemory.layers && snapshotInMemory.layers.length > 0) {
     snapshotData = {
@@ -355,7 +364,11 @@ export async function handleSnapshotRestore(ws, data, room) {
       issuer: snapshotInMemory.issuer,
       layers: snapshotInMemory.layers
     };
-  } else {
+  } else if (!snapshotData) {
+    if (!snapshotId) {
+      console.warn(`[Snapshot] Restore failed: no snapshotId or direct layer payload for room "${room.id}".`);
+      return;
+    }
     // 2. Fetch from the room_snapshots collection and then R2
     try {
       const doc = await findSnapshotDoc(room.id, snapshotId);
@@ -437,7 +450,7 @@ export async function handleSnapshotGet(ws, data, room) {
       thumb: snapshotInMemory.thumb,
       seq: snapshotInMemory.seq || 0
     };
-  } else {
+  } else if (!snapshotData) {
     // 2. Fetch from the room_snapshots collection and then R2
     try {
       const doc = await findSnapshotDoc(room.id, snapshotId);
@@ -504,15 +517,26 @@ export async function handleSnapshotRegionRestore(ws, data, room) {
   const snapshotId = data.snapshotId;
   let snapshotData = null;
 
+  if (Array.isArray(data.snapshotLayers) && data.snapshotLayers.length > 0) {
+    snapshotData = {
+      id: snapshotId || `region_restore_${Date.now()}`,
+      layers: data.snapshotLayers
+    };
+  }
+
   // 1. Check in-memory buffer
-  let snapshotInMemory = room.snapshots.find(s => s.id === snapshotId);
+  let snapshotInMemory = !snapshotData && room.snapshots.find(s => s.id === snapshotId);
 
   if (snapshotInMemory && snapshotInMemory.layers && snapshotInMemory.layers.length > 0) {
     snapshotData = {
       id: snapshotInMemory.id,
       layers: snapshotInMemory.layers
     };
-  } else {
+  } else if (!snapshotData) {
+    if (!snapshotId) {
+      console.warn(`[Snapshot] Region restore failed: no snapshotId or direct layer payload for room "${room.id}".`);
+      return;
+    }
     // 2. Fetch from the room_snapshots collection and then R2
     try {
       const doc = await findSnapshotDoc(room.id, snapshotId);

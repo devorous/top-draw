@@ -141,6 +141,52 @@ function captureUserTransientState(user) {
 }
 
 /**
+ * Snapshot active SVG text overlay records in replay-engine format. Text
+ * overlay state is not part of the composited canvas, so it has to be carried
+ * beside snapshots/checkpoints with a wall-clock tape birth timestamp.
+ *
+ * @param {import('../canvas/Board.js').Board} board
+ * @param {number} capturedAt
+ * @returns {Array<[string, Object]>}
+ */
+function captureVectorTextRecords(board, capturedAt) {
+  const records = board?.textOverlay?.records;
+  if (!records?.size) return [];
+
+  const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+  const out = [];
+  for (const [id, stored] of records) {
+    const record = stored?.record;
+    if (!id || !record?.text) continue;
+
+    const lifetimeMs = Number(record.lifetimeMs) || 30_000;
+    const ageMs = Math.max(0, now - (Number(stored.bornAt) || now));
+    if (ageMs >= lifetimeMs) continue;
+
+    out.push([String(id), {
+      record: {
+        text: record.text,
+        font: record.font,
+        size: record.size,
+        color: Array.isArray(record.color) ? [...record.color] : record.color,
+        x: record.x,
+        y: record.y,
+        textPositionMultiplier: record.textPositionMultiplier,
+        textPositionOffset: record.textPositionOffset,
+        layerIdx: record.layerIdx
+      },
+      bornTs: capturedAt - ageMs,
+      lifetimeMs,
+      fadeMs: Number.isFinite(record.fadeMs) ? record.fadeMs : undefined,
+      holdMs: Number.isFinite(record.holdMs) ? record.holdMs : undefined,
+      minOpacity: Number.isFinite(record.minOpacity) ? record.minOpacity : 0,
+      baseOpacity: Number.isFinite(record.opacity) ? record.opacity : 1
+    }]);
+  }
+  return out;
+}
+
+/**
  * Build the opening snapshot for a recording.
  *
  * @param {Object} app - the live App instance (window.app)
@@ -167,6 +213,8 @@ export function captureOpeningSnapshot(app) {
     throw new Error('[captureOpeningSnapshot] no layerManager on board');
   }
 
+  const recordedAt = Date.now();
+
   // Composite the whole board to a single PNG dataURL. ReplayEngine.loadSnapshot
   // uses `canvasData` as the base image when no `history` is present.
   const compositeCanvas = lm.getCompositedCanvas();
@@ -186,7 +234,7 @@ export function captureOpeningSnapshot(app) {
 
   return {
     version: 2,
-    recordedAt: Date.now(),
+    recordedAt,
     roomId: app.currentRoomId ?? null,
     boardDimensions: [board.getHeight?.() ?? 0, board.getWidth?.() ?? 0],
     backgroundColor: Array.isArray(board.backgroundColor)
@@ -199,5 +247,6 @@ export function captureOpeningSnapshot(app) {
       ? board.mirrorRegions.map((r) => ({ ...r }))
       : [],
     mirror: !!board.mirror,
+    vectorText: captureVectorTextRecords(board, recordedAt),
   };
 }

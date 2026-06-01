@@ -593,6 +593,8 @@ export class DrawingApp {
     this.recorder = recorder;       // Local replay tape. TimeMachine.recordAction → here.
     this.rollingTapeRecorder = rollingTapeRecorder; // Automatic 2-min DVR tape (History → Recent).
 
+    this._applyReplayPreferences();
+
     updateStartupStatus('Preparing controls...');
     // Initialize Svelte UI components
     this.svelteComponents = initSvelteUI(this);
@@ -4401,6 +4403,30 @@ export class DrawingApp {
     }
   }
 
+  _applyReplayPreferences() {
+    const replay = this.appPreferences?.general?.replay ?? {};
+    this.recorder?.configure?.({
+      checkpointIntervalMs: replay.manualSnapshotIntervalMs,
+      maxLengthMs: replay.manualMaxLengthMs
+    });
+
+    const rollingEnabled = replay.rollingEnabled !== false;
+    this.rollingTapeRecorder?.configure?.({
+      enabled: rollingEnabled,
+      windowMs: replay.rollingWindowMs
+    });
+
+    if (
+      rollingEnabled &&
+      this.currentRoomId &&
+      !this.isOfflineMode &&
+      this.rollingTapeRecorder &&
+      !this.rollingTapeRecorder.isEnabled?.()
+    ) {
+      this.rollingTapeRecorder.start(this);
+    }
+  }
+
   setAppPreferences(preferences) {
     this.appPreferences = saveAppPreferences(preferences);
     applyThemeColors(this.appPreferences?.general?.themeColors);
@@ -4418,6 +4444,7 @@ export class DrawingApp {
       this.ui?.showToast?.('Low-latency canvas setting will apply after refresh', 3500);
     }
     this._applyLowPowerPreference();
+    this._applyReplayPreferences();
     appState.appPreferences = this.appPreferences;
     return this.appPreferences;
   }
@@ -6875,7 +6902,9 @@ export class DrawingApp {
         y: snapshot.y,
         textPositionMultiplier: snapshot.textPositionMultiplier,
         textPositionOffset: snapshot.textPositionOffset,
-        layerIdx: snapshot.layerIndex
+        layerIdx: snapshot.layerIndex,
+        lifetimeMs: snapshot.lifetimeMs,
+        fadeMs: snapshot.fadeMs
       });
     }
 

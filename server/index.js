@@ -2355,6 +2355,9 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
   }
 
   if (data.t === T.MIRROR_REGION) {
+    if (ENABLE_SERVER_REPLAY_DB && (room.settings.dedicatedReplayUser || room._electedUploader)) {
+      getRecorder(room.id).record({ ...data, u: sessionIndex });
+    }
     broadcastToRoom(room, buildSettingsPayload(room));
     return;
   }
@@ -5006,21 +5009,62 @@ wss.on('connection', async (ws, req) => {
           );
           // Fetch checkpoint image if available
           let cpImg = null;
+          let cpMirror = false;
+          let cpMirrorRegions = [];
+          let checkpointActiveTexts = [];
+          let checkpointTs = 0;
           if (replayCpId) {
             const cpDb = getDB();
             if (cpDb) {
               const cpDoc = await cpDb.collection('checkpoints').findOne(
                 { roomId: room.id, checkpointId: replayCpId },
-                { projection: { img: 1 } }
+                { projection: { img: 1, mirror: 1, mirrorRegions: 1, activeTexts: 1, timestamp: 1 } }
               );
-              if (cpDoc) cpImg = cpDoc.img;
+              if (cpDoc) {
+                cpImg = cpDoc.img;
+                cpMirror = !!cpDoc.mirror;
+                cpMirrorRegions = Array.isArray(cpDoc.mirrorRegions) ? cpDoc.mirrorRegions : [];
+                checkpointActiveTexts = Array.isArray(cpDoc.activeTexts) ? cpDoc.activeTexts : [];
+                checkpointTs = Number(cpDoc.timestamp) || 0;
+              }
             }
           }
+          const activeTextDeltas = checkpointActiveTexts
+            .map((r) => {
+              const lifetimeMs = Math.max(0, Number(r.lifetimeMs) || 0);
+              const bornAt = Number(r.bornAt) || 0;
+              const ageMs = Math.max(0, checkpointTs - bornAt);
+              if (!checkpointTs || !lifetimeMs || ageMs >= lifetimeMs) return null;
+              return {
+                _ts: checkpointTs,
+                t: T.TEXT_APPLY,
+                u: r.sessionIndex,
+                g: r.text || '',
+                ps: [Number(r.x) || 0, Number(r.y) || 0],
+                s: Number(r.size) || 1000,
+                c: Number(r.color) >>> 0,
+                p: Number(r.opacity) || 100,
+                ly: Number(r.layerIndex) || 0,
+                bm: r.blendMode || 'source-over',
+                bbm: r.blendBakeMode === 'background' ? 'background' : 'existing',
+                fo: r.font || '',
+                tm: Number.isFinite(Number(r.textPositionMultiplier)) ? Number(r.textPositionMultiplier) : 0,
+                to: Number.isFinite(Number(r.textPositionOffset)) ? Number(r.textPositionOffset) : 0,
+                textId: r.id || '',
+                textLifetimeMs: lifetimeMs,
+                textFadeMs: Math.max(0, Math.min(Number(r.fadeMs) || lifetimeMs, lifetimeMs)),
+                textAgeMs: ageMs,
+                textPixel: false
+              };
+            })
+            .filter(Boolean);
           sendTo(ws, {
             t: T.REPLAY_RESPONSE,
             checkpointId: replayCpId || '',
             checkpointImg: cpImg || new Uint8Array(0),
-            replayDeltasJson: JSON.stringify(deltas)
+            m: cpMirror,
+            mirrorRegionsJson: JSON.stringify(cpMirrorRegions),
+            replayDeltasJson: JSON.stringify([...activeTextDeltas, ...deltas])
           });
           break;
         }

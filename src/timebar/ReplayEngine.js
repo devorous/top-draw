@@ -10,7 +10,16 @@ import { unpackColor } from '../../shared/ColorUtils.js';
 import { RemoteUserHandler } from '../remote/RemoteUserHandler.js';
 import { LayerManager } from '../canvas/LayerManager.js';
 import { ToolManager } from '../tools/Tools.js';
-import { getPreviewTextLayout, getUserTextLineHeight } from '../utils/textLayout.js';
+import { getPreviewTextLayout, getUserTextLineHeight, paintTextRecord } from '../utils/textLayout.js';
+import { drawReplayCursor } from '../replay/cursorOverlay.js';
+import {
+  TEXT_OVERLAY_DEFAULT_LIFETIME_MS,
+  TEXT_OVERLAY_DEFAULT_MIN_OPACITY,
+  TEXT_OVERLAY_DEFAULT_FADE_MS
+} from '../canvas/TextOverlay.js';
+
+/** Hide a replay cursor after this much idle time relative to the playhead (ms). Mirrors live REMOTE_CURSOR_IDLE_MS. */
+const REPLAY_CURSOR_IDLE_MS = 5000;
 
 /**
  * Minimal board facade backed by a real LayerManager.
@@ -61,6 +70,7 @@ class ReplayBoard {
 
     this.activeSelectionLayer = -1;
     this.app = null;
+    this.mirrorRegions = [];
     this._needsComposite = false;
     this._dirtyRects = [];
     // Per-stroke composite dirty rects. Each endStroke() appends the freshly
@@ -93,20 +103,40 @@ class ReplayBoard {
 
   setMirror(m) { this.mirror = !!m; }
 
+  setMirrorRegions(regions = []) {
+    this.mirrorRegions = Array.isArray(regions)
+      ? regions
+        .map((region) => this._normalizeMirrorRegion(region))
+        .filter(Boolean)
+      : [];
+  }
+
   // ── stubs ──────────────────────────────────────────────────────────────
-  // RemoteUserHandler calls these on the live Board during MD/MM/MU. They
-  // exist to apply selection masking and mirror drawing, which the replay
-  // path doesn't need (no live selection in the replay engine, mirrors are
-  // already baked into the recorded stroke data). Missing methods throw and
+  // RemoteUserHandler calls these on the live Board during MD/MM/MU. Replay
+  // keeps the same selection-mask and mirror helper API so live drawing paths
+  // can be routed through this facade. Missing methods throw and
   // are silently swallowed by ReplayEngine._processAction's try/catch — so
-  // they have to exist as no-ops or strokes never commit.
+  // they have to exist here or strokes never commit.
   applySelectionMaskClipForStroke(_layerIndex, _userId) { return false; }
   releaseSelectionMaskClipForStroke(_layerIndex, _userId) {}
   withSelectionMaskClip(ctx, _userId, drawFn) {
     if (typeof drawFn === 'function') drawFn();
   }
-  forEachMirrorRegion(_target, _callback) {}
-  getActiveMirrorRegions() { return Array.isArray(this.mirrorRegions) ? this.mirrorRegions : []; }
+  getActiveMirrorRegions() {
+    if (this.mirror) {
+      return this._expandMirrorRegionTransforms({
+        id: '__global_mirror__',
+        x: 0,
+        y: 0,
+        width: this.getWidth(),
+        height: this.getHeight(),
+        mode: 'vertical',
+        showLine: true,
+        synthetic: true
+      });
+    }
+    return (this.mirrorRegions || []).flatMap((region) => this._expandMirrorRegionTransforms(region));
+  }
   renderMirrorRegions() {}
   clearTop() {
     if (this.topCtx) this.topCtx.clearRect(0, 0, this.getWidth(), this.getHeight());
@@ -331,8 +361,13 @@ class ReplayBoard {
   }
 
   // Dirty rect tracking — must update active stroke bounds or commits get discarded
-  expandDirtyRect(user, x, y, width, height) {
-    const activeLayer = user?.activeLayer ?? 0;
+  expandDirtyRect(user, x, y, width, height, layerIndex) {
+    // Prefer the explicit layer the stroke was begun on (selection commit/stamp/
+    // fill derive it from the message's `ly`). Replay bots default to a
+    // different activeLayer than the author had, so falling back to
+    // user.activeLayer here would target the wrong group's active stroke and the
+    // commit would bake nothing.
+    const activeLayer = layerIndex ?? user?.activeLayer ?? 0;
     const userId = user?.id ?? 0;
     const group = this.layerManager.layerGroups[activeLayer];
     if (!group) return;
@@ -483,6 +518,278 @@ class ReplayBoard {
   }
 
   getActiveLayerBlendMode() { return 'source-over'; }
+
+  mirrorPointToRegion(point, region) {
+    if (!region || !point) return point;
+    const centerX = region.x + (region.width / 2);
+    const centerY = region.y + (region.height / 2);
+    const dx = point.x - centerX;
+    const dy = point.y - centerY;
+    const transform = region.transform || region.mode || region.axis;
+
+    if (transform === 'rotateCustom') {
+      const angle = Number(region.rotationAngle || 0);
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+      return {
+        x: centerX + (dx * cos) - (dy * sin),
+        y: centerY + (dx * sin) + (dy * cos)
+      };
+    }
+
+    if (transform === 'fibStep') {
+      const invPHI = 0.6180339887;
+      const step = region.fibStep || 1;
+      const eyeX = region.x + region.width * invPHI;
+      const eyeY = region.y + region.height * invPHI;
+      const angle = step * (Math.PI / 2);
+      const scale = Math.pow(invPHI, step);
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+      const fdx = point.x - eyeX;
+      const fdy = point.y - eyeY;
+      return {
+        x: eyeX + ((fdx * cos) - (fdy * sin)) * scale,
+        y: eyeY + ((fdx * sin) + (fdy * cos)) * scale
+      };
+    }
+
+    switch (transform) {
+      case 'horizontal':
+      case 'flipY':
+        return { x: point.x, y: (centerY * 2) - point.y };
+      case 'vertical':
+      case 'flipX':
+        return { x: (centerX * 2) - point.x, y: point.y };
+      case 'flipXY':
+      case 'rotate180':
+        return { x: (centerX * 2) - point.x, y: (centerY * 2) - point.y };
+      case 'rotate90':
+        return { x: centerX - dy, y: centerY + dx };
+      case 'rotate270':
+        return { x: centerX + dy, y: centerY - dx };
+      default:
+        return { x: (centerX * 2) - point.x, y: point.y };
+    }
+  }
+
+  mirrorPointsToRegion(points, region) {
+    if (!Array.isArray(points)) return [];
+    return points.map((point) => this.mirrorPointToRegion(point, region));
+  }
+
+  withMirrorRegionClip(ctx, region, drawFn) {
+    if (!ctx || !region || typeof drawFn !== 'function') return;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(region.x, region.y, region.width, region.height);
+    ctx.clip();
+    drawFn();
+    ctx.restore();
+  }
+
+  withMirroredRegionTransform(ctx, region, drawFn) {
+    if (!ctx || !region || typeof drawFn !== 'function') return;
+    this.withMirrorRegionClip(ctx, region, () => {
+      ctx.save();
+      const centerX = region.x + (region.width / 2);
+      const centerY = region.y + (region.height / 2);
+      const transform = region.transform || region.mode || region.axis;
+      switch (transform) {
+        case 'horizontal':
+        case 'flipY':
+          ctx.translate(0, centerY * 2);
+          ctx.scale(1, -1);
+          break;
+        case 'vertical':
+        case 'flipX':
+          ctx.translate(centerX * 2, 0);
+          ctx.scale(-1, 1);
+          break;
+        case 'flipXY':
+        case 'rotate180':
+          ctx.translate(centerX * 2, centerY * 2);
+          ctx.scale(-1, -1);
+          break;
+        case 'rotate90':
+          ctx.translate(centerX, centerY);
+          ctx.rotate(Math.PI / 2);
+          ctx.translate(-centerX, -centerY);
+          break;
+        case 'rotate270':
+          ctx.translate(centerX, centerY);
+          ctx.rotate(-Math.PI / 2);
+          ctx.translate(-centerX, -centerY);
+          break;
+        case 'rotateCustom':
+          ctx.translate(centerX, centerY);
+          ctx.rotate(Number(region.rotationAngle || 0));
+          ctx.translate(-centerX, -centerY);
+          break;
+        case 'fibStep': {
+          const invPHI = 0.6180339887;
+          const step = region.fibStep || 1;
+          const eyeX = region.x + region.width * invPHI;
+          const eyeY = region.y + region.height * invPHI;
+          const angle = step * (Math.PI / 2);
+          const scale = Math.pow(invPHI, step);
+          ctx.translate(eyeX, eyeY);
+          ctx.rotate(angle);
+          ctx.scale(scale, scale);
+          ctx.translate(-eyeX, -eyeY);
+          break;
+        }
+        default:
+          ctx.translate(centerX * 2, 0);
+          ctx.scale(-1, 1);
+          break;
+      }
+      drawFn();
+      ctx.restore();
+    });
+  }
+
+  drawMirroredCanvas(ctx, sourceCanvas, region, x = 0, y = 0) {
+    if (!ctx || !sourceCanvas || !region) return;
+    this.withMirroredRegionTransform(ctx, region, () => {
+      ctx.drawImage(sourceCanvas, x, y);
+    });
+  }
+
+  forEachMirrorRegion(target, callback) {
+    if (typeof callback !== 'function') return;
+    const bounds = this._getMirrorTargetBounds(target);
+    for (const region of this.getActiveMirrorRegions()) {
+      if (!bounds || this._rectIntersects(bounds, region)) {
+        callback(region);
+      }
+    }
+  }
+
+  _normalizeMirrorRegion(region) {
+    if (!region) return null;
+    const x = Math.floor(Number(region.x));
+    const y = Math.floor(Number(region.y));
+    const width = Math.floor(Number(region.width));
+    const height = Math.floor(Number(region.height));
+    if (![x, y, width, height].every(Number.isFinite)) return null;
+
+    const mode = this._normalizeMirrorMode(region.mode || region.axis);
+    return {
+      id: String(region.id || `mr_${x}_${y}_${width}_${height}`),
+      x: Math.max(0, x),
+      y: Math.max(0, y),
+      width: Math.max(1, width),
+      height: Math.max(1, height),
+      mode,
+      axis: mode,
+      slices: this._normalizeMirrorSlices(region.slices),
+      fibDepth: this._normalizeFibDepth(region.fibDepth),
+      showLine: region.showLine !== false,
+      owner: region.owner || region.createdBy || null
+    };
+  }
+
+  _normalizeMirrorMode(mode) {
+    return ['horizontal', 'quad', 'rotational', 'radial', 'fib'].includes(mode) ? mode : 'vertical';
+  }
+
+  _normalizeMirrorSlices(slices) {
+    const parsed = Math.floor(Number(slices));
+    if (!Number.isFinite(parsed)) return 6;
+    return Math.max(3, Math.min(16, parsed));
+  }
+
+  _normalizeFibDepth(depth) {
+    const parsed = Math.floor(Number(depth));
+    if (!Number.isFinite(parsed)) return 4;
+    return Math.max(1, Math.min(8, parsed));
+  }
+
+  _expandMirrorRegionTransforms(region) {
+    if (!region) return [];
+    const baseRegion = {
+      ...region,
+      mode: this._normalizeMirrorMode(region.mode || region.axis),
+      slices: this._normalizeMirrorSlices(region.slices),
+      fibDepth: this._normalizeFibDepth(region.fibDepth)
+    };
+    const transformsByMode = {
+      vertical: ['flipX'],
+      horizontal: ['flipY'],
+      quad: ['flipX', 'flipY', 'flipXY'],
+      rotational: ['rotate180']
+    };
+
+    if (baseRegion.mode === 'radial') {
+      const transforms = [];
+      for (let step = 1; step < baseRegion.slices; step += 1) {
+        transforms.push({
+          ...baseRegion,
+          transform: 'rotateCustom',
+          rotationAngle: (Math.PI * 2 * step) / baseRegion.slices,
+          rotationStep: step,
+          synthetic: true,
+          id: `${baseRegion.id}_radial_${step}`
+        });
+      }
+      return transforms;
+    }
+
+    if (baseRegion.mode === 'fib') {
+      const transforms = [];
+      for (let step = 1; step <= baseRegion.fibDepth; step += 1) {
+        transforms.push({
+          ...baseRegion,
+          transform: 'fibStep',
+          fibStep: step,
+          synthetic: true,
+          id: `${baseRegion.id}_fib_${step}`
+        });
+      }
+      return transforms;
+    }
+
+    return (transformsByMode[baseRegion.mode] || transformsByMode.vertical).map((transform) => ({
+      ...baseRegion,
+      transform,
+      synthetic: true,
+      id: `${baseRegion.id}_${transform}`
+    }));
+  }
+
+  _getMirrorTargetBounds(target) {
+    if (!target) return null;
+    if (target.rect) return target.rect;
+    if (target.point) return { x: target.point.x, y: target.point.y, width: 0, height: 0 };
+    if (!Array.isArray(target.points) || target.points.length === 0) return null;
+
+    let minX = target.points[0].x;
+    let minY = target.points[0].y;
+    let maxX = target.points[0].x;
+    let maxY = target.points[0].y;
+    for (const point of target.points) {
+      minX = Math.min(minX, point.x);
+      minY = Math.min(minY, point.y);
+      maxX = Math.max(maxX, point.x);
+      maxY = Math.max(maxY, point.y);
+    }
+    return {
+      x: minX,
+      y: minY,
+      width: maxX - minX,
+      height: maxY - minY
+    };
+  }
+
+  _rectIntersects(a, b) {
+    return (
+      a.x <= b.x + b.width &&
+      a.x + a.width >= b.x &&
+      a.y <= b.y + b.height &&
+      a.y + a.height >= b.y
+    );
+  }
 }
 
 
@@ -513,6 +820,18 @@ export class ReplayEngine {
 
     /** @type {boolean} Mirror mode */
     this.mirror = false;
+
+    /** @type {boolean} Whether to draw remote user cursors over the replay */
+    this.renderCursors = true;
+    /** @type {number} Playhead timestamp of the most recent action batch (ms) */
+    this._currentReplayTs = 0;
+    /**
+     * Active vector (ephemeral, fading) text records keyed by id. Each entry is
+     * `{ record, bornTs, lifetimeMs, fadeMs, holdMs, minOpacity, baseOpacity }`. Faded
+     * against the playhead in drawVectorText. Cleared on reset().
+     * @type {Map<string, Object>}
+     */
+    this._vectorTextRecords = new Map();
 
     /** @type {Array<number>} Background color */
     this.backgroundColor = [255, 255, 255, 1];
@@ -786,6 +1105,7 @@ export class ReplayEngine {
   reset() {
     this.botUsers.clear();
     this._patternStateByUser.clear();
+    this._vectorTextRecords.clear();
     this._snapshotHasLayerState = false;
     this.outputCtx?.clearRect(0, 0, this.width, this.height);
     this.topCtx?.clearRect(0, 0, this.width, this.height);
@@ -804,7 +1124,7 @@ export class ReplayEngine {
    * for incremental replay. Cheap — clones the composited mainCanvas as an
    * ImageBitmap (GPU-resident) and shallow-copies relevant bot fields.
    * Caller is responsible for closing the bitmap when evicting.
-   * @returns {Promise<{bitmap: ImageBitmap, botStates: Object}|null>}
+   * @returns {Promise<{bitmap: ImageBitmap, botStates: Object, mirror: boolean, mirrorRegions: Object[]}|null>}
    */
   async captureDynamicCheckpoint() {
     const mainCanvas = this._replayBoard?.mainCanvas;
@@ -838,7 +1158,70 @@ export class ReplayEngine {
         patternColorMode: u.patternColorMode,
       };
     }
-    return { bitmap, botStates };
+    return {
+      bitmap,
+      botStates,
+      // Active ephemeral vector text — not part of the composited bitmap, so it
+      // must ride along or a backward scrub through this checkpoint would drop
+      // any text still mid-fade. bornTs is tape-time, so it stays valid.
+      vectorText: this._cloneVectorTextRecords(),
+      mirror: this._replayBoard?.mirror ?? this.mirror,
+      mirrorRegions: (this._replayBoard?.mirrorRegions || []).map((region) => ({ ...region }))
+    };
+  }
+
+  /**
+   * Deep-clone the active vector text records for checkpoint serialization.
+   * @returns {Array<[string, Object]>}
+   * @private
+   */
+  _cloneVectorTextRecords() {
+    const out = [];
+    for (const [id, entry] of this._vectorTextRecords) {
+      out.push([id, {
+        record: { ...entry.record, color: Array.isArray(entry.record.color) ? [...entry.record.color] : entry.record.color },
+        bornTs: entry.bornTs,
+        lifetimeMs: entry.lifetimeMs,
+        fadeMs: entry.fadeMs,
+        holdMs: entry.holdMs,
+        minOpacity: entry.minOpacity,
+        baseOpacity: entry.baseOpacity
+      }]);
+    }
+    return out;
+  }
+
+  /**
+   * Restore serialized vector text records from a snapshot/checkpoint.
+   * @param {Array<[string, Object]>} vectorText
+   * @private
+   */
+  _restoreVectorTextRecords(vectorText) {
+    if (!Array.isArray(vectorText)) return;
+    for (const item of vectorText) {
+      if (!Array.isArray(item) || item.length < 2) continue;
+      const [id, entry] = item;
+      if (!id || !entry?.record) continue;
+      const lifetimeMs = Number(entry.lifetimeMs) || TEXT_OVERLAY_DEFAULT_LIFETIME_MS;
+      const fadeMs = Number.isFinite(Number(entry.fadeMs))
+        ? Math.max(0, Math.min(Number(entry.fadeMs), lifetimeMs))
+        : Math.max(0, Math.min(TEXT_OVERLAY_DEFAULT_FADE_MS, lifetimeMs));
+      const holdMs = Number.isFinite(Number(entry.holdMs))
+        ? Math.max(0, Math.min(Number(entry.holdMs), lifetimeMs))
+        : Math.max(0, lifetimeMs - fadeMs);
+      this._vectorTextRecords.set(String(id), {
+        record: {
+          ...entry.record,
+          color: Array.isArray(entry.record.color) ? [...entry.record.color] : entry.record.color
+        },
+        bornTs: Number(entry.bornTs) || 0,
+        lifetimeMs,
+        fadeMs,
+        holdMs,
+        minOpacity: Number.isFinite(Number(entry.minOpacity)) ? Number(entry.minOpacity) : TEXT_OVERLAY_DEFAULT_MIN_OPACITY,
+        baseOpacity: Number.isFinite(Number(entry.baseOpacity)) ? Number(entry.baseOpacity) : 1
+      });
+    }
   }
 
   /**
@@ -846,7 +1229,7 @@ export class ReplayEngine {
    * replay. Mirrors loadCheckpointImage but accepts an ImageBitmap and a
    * snapshot of bot user state so we don't lose tool/color/size context
    * acquired between the static checkpoint and this point in the tape.
-   * @param {{bitmap: ImageBitmap, botStates: Object}} cp
+   * @param {{bitmap: ImageBitmap, botStates: Object, mirror?: boolean, mirrorRegions?: Object[]}} cp
    * @returns {Promise<void>}
    */
   async loadDynamicCheckpoint(cp) {
@@ -855,21 +1238,30 @@ export class ReplayEngine {
     this._snapshotHasLayerState = false;
     this._snapshotCtx.clearRect(0, 0, this.width, this.height);
     this._snapshotCtx.drawImage(cp.bitmap, 0, 0);
+    this.mirror = !!cp.mirror;
+    this._replayBoard.setMirror(this.mirror);
+    this._replayBoard.setMirrorRegions(cp.mirrorRegions || []);
     for (const [idStr, state] of Object.entries(cp.botStates || {})) {
       const bot = this._createBotUser(Number(idStr), state);
       this._storePatternState(bot);
     }
+    // Restore floating vector text captured with the checkpoint (reset() above
+    // cleared the map). Records placed after this checkpoint are re-added when
+    // the caller replays the trailing deltas via appendActions.
+    this._restoreVectorTextRecords(cp.vectorText);
   }
 
   /**
    * Load a server-side checkpoint image as the base state for replay.
    * Clears all state and draws the checkpoint onto the snapshot canvas.
    * @param {Uint8Array} imageData - PNG image bytes
+   * @param {Object} [state={}] - Checkpoint room state, e.g. mirror metadata
    * @returns {Promise<void>}
    */
-  async loadCheckpointImage(imageData) {
+  async loadCheckpointImage(imageData, state = {}) {
     this.reset();
     this._snapshotHasLayerState = false;
+    this._applySettingsMessage(state);
 
     const blob = new Blob([imageData], { type: 'image/png' });
     const url = URL.createObjectURL(blob);
@@ -887,6 +1279,10 @@ export class ReplayEngine {
    */
   async loadSnapshot(snapshot) {
     this.reset();
+
+    this.mirror = !!snapshot?.mirror;
+    this._replayBoard.setMirror(this.mirror);
+    this._replayBoard.setMirrorRegions(snapshot?.mirrorRegions || []);
 
     const hasHistory = Array.isArray(snapshot.history) && snapshot.history.some((layerHistory) => Array.isArray(layerHistory) && layerHistory.length > 0);
     const hasRedoHistory = !!snapshot.redoHistory && Object.values(snapshot.redoHistory).some((batches) => Array.isArray(batches) && batches.length > 0);
@@ -941,6 +1337,10 @@ export class ReplayEngine {
     if (snapshot.activeStrokes) {
       await this._restoreActiveStrokes(snapshot.activeStrokes);
     }
+
+    // Vector text is intentionally not in the composited canvas snapshot, so
+    // restore it as playhead-faded overlay state.
+    this._restoreVectorTextRecords(snapshot.vectorText);
   }
 
   /**
@@ -1308,47 +1708,49 @@ export class ReplayEngine {
     const bh = Math.min(height, result.maxY + pad + 1) - by;
     board.expandDirtyRect(user, bx, by, bw, bh);
 
-    if (board.mirror) {
-      const mx = width - 1 - x;
-      if (mx >= 0 && mx < width) {
-        let mirrorResult = await fillTool._fillWorker.computeFill(
-          board.mainCtx.getImageData(0, 0, width, height).data,
+    for (const region of board.getActiveMirrorRegions()) {
+      if (!region?.synthetic) continue;
+      const mirrored = board.mirrorPointToRegion({ x, y }, region);
+      const mx = Math.round(mirrored.x);
+      const my = Math.round(mirrored.y);
+      if (mx < 0 || mx >= width || my < 0 || my >= height) continue;
+
+      let mirrorResult = await fillTool._fillWorker.computeFill(
+        board.mainCtx.getImageData(0, 0, width, height).data,
+        width,
+        height,
+        mx,
+        my,
+        10,
+        expansion,
+        null
+      );
+
+      if (mirrorResult) {
+        const mirrorFillLimit = fillTool._isFillTooLarge(mirrorResult, width, height);
+        if (mirrorFillLimit) mirrorResult = null;
+      }
+
+      if (!mirrorResult) continue;
+      board.withMirrorRegionClip(strokeCtx, region, () => {
+        fillTool._renderMaskComposite(
+          strokeCtx,
+          mirrorResult,
+          fillR,
+          fillG,
+          fillB,
+          userOpacity,
+          blurRadius,
           width,
           height,
-          mx,
-          y,
-          10,
-          expansion,
-          null
+          user
         );
-
-        if (mirrorResult) {
-          const mirrorFillLimit = fillTool._isFillTooLarge(mirrorResult, width, height);
-          if (mirrorFillLimit) {
-            mirrorResult = null;
-          }
-        }
-
-        if (mirrorResult) {
-          fillTool._renderMaskComposite(
-            strokeCtx,
-            mirrorResult,
-            fillR,
-            fillG,
-            fillB,
-            userOpacity,
-            blurRadius,
-            width,
-            height,
-            user
-          );
-          const mbx = Math.max(0, mirrorResult.minX - pad);
-          const mby = Math.max(0, mirrorResult.minY - pad);
-          const mbw = Math.min(width, mirrorResult.maxX + pad + 1) - mbx;
-          const mbh = Math.min(height, mirrorResult.maxY + pad + 1) - mby;
-          board.expandDirtyRect(user, mbx, mby, mbw, mbh);
-        }
-      }
+      });
+      const mbx = Math.max(0, mirrorResult.minX - pad);
+      const mby = Math.max(0, mirrorResult.minY - pad);
+      const mbw = Math.min(width, mirrorResult.maxX + pad + 1) - mbx;
+      const mbh = Math.min(height, mirrorResult.maxY + pad + 1) - mby;
+      board.expandDirtyRect(user, mbx, mby, mbw, mbh);
     }
 
     board.layerManager.commitUserStroke(layerIndex, userId);
@@ -1930,15 +2332,19 @@ export class ReplayEngine {
       if (action.timestamp > upToTimestamp) break;
 
       const msg = action.msg;
-      if (msg && msg.u != null && (msg.t === T.MD || msg.t === T.MM)) {
+      if (msg && msg.u != null && (msg.t === T.MD || msg.t === T.MM || msg.t === T.MU)) {
         const user = this._getOrCreateBot(msg.u);
+        // Track cursor activity so idle cursors can be hidden during render,
+        // matching the live 5s idle-hide behavior.
+        user._lastCursorTs = action.timestamp;
         if (user.tool === 'circleBlur' || user.tool === 'inkdropper' || user.tool === 'fill') {
           this._replayBoard._doComposite();
         }
       }
 
-      await this._processAction(action.msg);
+      await this._processAction(action.msg, action.timestamp);
     }
+    this._currentReplayTs = upToTimestamp;
     if (shouldCancel?.()) return false;
 
     this._compositeOutput();
@@ -1975,13 +2381,84 @@ export class ReplayEngine {
     return [Number(val)];
   }
 
+  _parseMirrorRegionsFromMessage(msg) {
+    if (Array.isArray(msg?.mirrorRegions)) return msg.mirrorRegions;
+    if (typeof msg?.mirrorRegionsJson !== 'string') return null;
+    try {
+      const parsed = JSON.parse(msg.mirrorRegionsJson);
+      return Array.isArray(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  _applySettingsMessage(msg) {
+    if (!msg) return;
+    if (msg.m !== undefined || msg.mirror !== undefined) {
+      this.mirror = msg.m !== undefined ? !!msg.m : !!msg.mirror;
+      this._replayBoard?.setMirror(this.mirror);
+    }
+    const mirrorRegions = this._parseMirrorRegionsFromMessage(msg);
+    if (mirrorRegions) {
+      this._replayBoard?.setMirrorRegions(mirrorRegions);
+    }
+    if (Array.isArray(msg.roomBackgroundColor)) {
+      this.backgroundColor = [...msg.roomBackgroundColor];
+      if (this._replayBoard) this._replayBoard.backgroundColor = [...msg.roomBackgroundColor];
+    }
+  }
+
+  _applyMirrorRegionMessage(msg) {
+    if (!msg?.mirrorRegionsJson || !this._replayBoard) return;
+    let payload = null;
+    try {
+      payload = JSON.parse(msg.mirrorRegionsJson);
+    } catch {
+      return;
+    }
+    if (!payload || typeof payload !== 'object' || !payload.action) return;
+
+    const current = this._replayBoard.mirrorRegions || [];
+    if ((payload.action === 'create' || payload.action === 'update') && payload.region) {
+      const id = String(payload.region.id || '');
+      const existingIndex = id ? current.findIndex((region) => region.id === id) : -1;
+      const next = [...current];
+      if (existingIndex >= 0) {
+        next[existingIndex] = payload.region;
+      } else {
+        next.push(payload.region);
+      }
+      this._replayBoard.setMirrorRegions(next);
+      return;
+    }
+
+    if (payload.action === 'remove') {
+      const id = payload.id || payload.region?.id;
+      if (!id) return;
+      this._replayBoard.setMirrorRegions(current.filter((region) => region.id !== id));
+    }
+  }
+
   /**
    * Process a single action message (already decoded JSON).
    * Routes drawing actions through the real RemoteUserHandler.
+   * @param {Object} msg - Decoded action message.
+   * @param {number} [actionTs] - Tape timestamp of this action (ms). Used to
+   *   anchor vector text fade timing to the playhead.
    * @private
    */
-  async _processAction(msg) {
+  async _processAction(msg, actionTs = this._currentReplayTs) {
     if (!msg) return;
+
+    if (msg.t === T.SETTINGS) {
+      this._applySettingsMessage(msg);
+      return;
+    }
+
+    if (msg.t === T.MIRROR_REGION) {
+      this._applyMirrorRegionMessage(msg);
+      return;
+    }
 
     const userId = msg.u;
     if (userId == null) return;
@@ -2157,8 +2634,10 @@ export class ReplayEngine {
           }
           break;
 
-        case T.TEXT_APPLY:
-          this._remoteHandler.handleTextApply(user, {
+        case T.TEXT_APPLY: {
+          const isPixel = !!msg.textPixel;
+          const data = {
+            id: msg.textId || null,
             text: msg.g || '',
             position: {
               x: Array.isArray(msg.ps) ? msg.ps[0] : user.x,
@@ -2169,11 +2648,32 @@ export class ReplayEngine {
             opacity: msg.p !== undefined ? msg.p / 100 : user.opacity,
             layerIndex: msg.ly ?? user.activeLayer ?? 0,
             blendMode: msg.bm || user.blendMode || 'source-over',
+            blendBakeMode: msg.bbm === 'background' ? 'background' : 'existing',
             font: msg.fo || user.font,
             textPositionMultiplier: msg.tm,
-            textPositionOffset: msg.to
-          });
+            textPositionOffset: msg.to,
+            pixel: isPixel
+          };
+          if (isPixel) {
+            // Pixel-mode text rasterizes as a permanent stroke on the replay layer.
+            this._remoteHandler.handleTextApply(user, data);
+          } else {
+            // Vector-mode text is an ephemeral fading record. The replay board has
+            // no textOverlay, so the engine tracks the record itself and fades it
+            // against the playhead (see _addVectorTextRecord / drawVectorText).
+            this._addVectorTextRecord(user, msg, data, actionTs);
+            // Mirror handleTextApply's preview teardown: stop showing the
+            // in-progress typing preview now that the text is committed.
+            user.text = '';
+            user.context?.clearRect(0, 0, this.width, this.height);
+          }
           this._syncReplayTextPreview(user);
+          break;
+        }
+
+        case T.TEXT_REMOVE:
+          // Eraser / explicit removal of a floating vector text record.
+          if (msg.textId) this._vectorTextRecords.delete(msg.textId);
           break;
 
         case T.FILL:
@@ -2372,8 +2872,9 @@ export class ReplayEngine {
         // opacity and would paint the same preview a second time on top of
         // mainCanvas — doubling its opacity. Skip when the layered preview is
         // active; mainCanvas already has it.
-        const layeredActive = !!user._layeredPreviewActive
-          || (user.board.style?.opacity === '0' || user.board.style?.opacity === 0);
+        const cssHiddenLayeredPreview = user.tool !== 'erase'
+          && (user.board.style?.opacity === '0' || user.board.style?.opacity === 0);
+        const layeredActive = !!user._layeredPreviewActive || cssHiddenLayeredPreview;
 
         if (!layeredActive) {
           const blendMode = user.blendMode || 'source-over';
@@ -2417,6 +2918,120 @@ export class ReplayEngine {
     if (this.topCanvas) {
       ctx.drawImage(this.topCanvas, 0, 0);
     }
+
+  }
+
+  /**
+   * Draw the recorded users' cursors (ring / crosshair / square + name label)
+   * onto an arbitrary context — used by the live mini/full replay to overlay
+   * cursors on the display canvas. Deliberately NOT baked into outputCanvas:
+   * that canvas is copied verbatim into real board pixels by
+   * TimeMachine.restoreLocalToCurrentState, so cursors must stay out of it.
+   *
+   * Cursors idle past REPLAY_CURSOR_IDLE_MS relative to the playhead are
+   * hidden, matching the live REMOTE_CURSOR_IDLE_MS behavior.
+   *
+   * @param {CanvasRenderingContext2D} ctx - Destination context.
+   * @param {number} [offsetX=0] - Subtracted from each cursor's x (region origin).
+   * @param {number} [offsetY=0] - Subtracted from each cursor's y.
+   * @returns {void}
+   */
+  drawCursors(ctx, offsetX = 0, offsetY = 0) {
+    if (!ctx || this.renderCursors === false) return;
+    const now = this._currentReplayTs ?? 0;
+
+    for (const user of this.botUsers.values()) {
+      const lastTs = user._lastCursorTs;
+      if (lastTs == null || now - lastTs > REPLAY_CURSOR_IDLE_MS) continue;
+      drawReplayCursor(ctx, user, offsetX, offsetY);
+    }
+  }
+
+  /**
+   * Track a committed vector (ephemeral) text record so it can be faded against
+   * the playhead. Mirrors TextOverlay.add's defaulting of lifetime/hold/min
+   * opacity and its ageMs → bornAt anchoring, but in tape time instead of
+   * wall-clock so seeking reproduces the exact opacity.
+   *
+   * @param {User} user
+   * @param {Object} msg - Decoded TEXT_APPLY message.
+   * @param {Object} data - Normalized payload built in the TEXT_APPLY case.
+   * @param {number} actionTs - Tape timestamp of the TEXT_APPLY action.
+   * @private
+   */
+  _addVectorTextRecord(user, msg, data, actionTs) {
+    if (!data.text) return;
+    const id = data.id || `t_${user.id ?? 0}_${actionTs}_${this._vectorTextRecords.size}`;
+
+    const lifetimeMs = Number.isFinite(msg.textLifetimeMs) && msg.textLifetimeMs > 0
+      ? msg.textLifetimeMs
+      : TEXT_OVERLAY_DEFAULT_LIFETIME_MS;
+    const fadeMs = Number.isFinite(msg.textFadeMs)
+      ? Math.max(0, Math.min(msg.textFadeMs, lifetimeMs))
+      : Math.max(0, Math.min(TEXT_OVERLAY_DEFAULT_FADE_MS, lifetimeMs));
+    const holdMs = Math.max(0, lifetimeMs - fadeMs);
+    const minOpacity = TEXT_OVERLAY_DEFAULT_MIN_OPACITY;
+    const ageMs = Number.isFinite(msg.textAgeMs) ? Math.max(0, msg.textAgeMs) : 0;
+    if (ageMs >= lifetimeMs) return; // already expired at placement
+
+    this._vectorTextRecords.set(id, {
+      record: {
+        text: data.text,
+        font: data.font,
+        size: data.size,
+        color: data.color,
+        x: data.position?.x ?? user.x,
+        y: data.position?.y ?? user.y,
+        textPositionMultiplier: data.textPositionMultiplier,
+        textPositionOffset: data.textPositionOffset,
+        layerIdx: data.layerIndex
+      },
+      bornTs: (actionTs ?? this._currentReplayTs) - ageMs,
+      lifetimeMs,
+      fadeMs,
+      holdMs,
+      minOpacity,
+      baseOpacity: data.opacity ?? 1
+    });
+  }
+
+  /**
+   * Paint active vector text records onto a context, faded by their age at the
+   * current playhead. Like cursors, this is a display overlay (not baked into
+   * outputCanvas) since the text is ephemeral and must not become permanent
+   * canvas pixels. Expired records are pruned.
+   *
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {number} [offsetX=0] - Subtracted from each record's x (region origin).
+   * @param {number} [offsetY=0]
+   * @returns {void}
+   */
+  drawVectorText(ctx, offsetX = 0, offsetY = 0) {
+    if (!ctx || this._vectorTextRecords.size === 0) return;
+    const now = this._currentReplayTs ?? 0;
+    const expired = [];
+
+    for (const [id, entry] of this._vectorTextRecords) {
+      const age = now - entry.bornTs;
+      if (age >= entry.lifetimeMs) { expired.push(id); continue; }
+      if (age < 0) continue; // not yet placed at this playhead
+
+      let fadeAlpha = 1;
+      if (age > entry.holdMs) {
+        const fadeWindow = Math.max(1, entry.lifetimeMs - entry.holdMs);
+        const t = Math.min(1, (age - entry.holdMs) / fadeWindow);
+        fadeAlpha = 1 - t * (1 - entry.minOpacity);
+      }
+      const opacity = entry.baseOpacity * fadeAlpha;
+      if (opacity <= 0) continue;
+
+      ctx.save();
+      if (offsetX || offsetY) ctx.translate(-offsetX, -offsetY);
+      paintTextRecord(ctx, { ...entry.record, opacity });
+      ctx.restore();
+    }
+
+    for (const id of expired) this._vectorTextRecords.delete(id);
   }
 
   /**

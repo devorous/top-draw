@@ -111,10 +111,14 @@ export class TextOverlay {
     if (this.records.has(record.id)) return;
     if (!this.svg) return;
 
-    const lifetimeMs = Number.isFinite(record.lifetimeMs) ? record.lifetimeMs : this._roomLifetimeMs;
-    const holdMs = Number.isFinite(record.holdMs) ? Math.min(record.holdMs, lifetimeMs) : Math.min(DEFAULT_HOLD_MS, lifetimeMs);
     // Legacy `fadeMs` is supported but reinterpreted as the trailing ramp window.
-    const fadeMs = Number.isFinite(record.fadeMs) ? record.fadeMs : Math.max(0, lifetimeMs - holdMs);
+    const lifetimeMs = Number.isFinite(record.lifetimeMs) ? record.lifetimeMs : this._roomLifetimeMs;
+    const fadeMs = Number.isFinite(record.fadeMs)
+      ? Math.max(0, Math.min(record.fadeMs, lifetimeMs))
+      : Math.max(0, Math.min(DEFAULT_FADE_MS, lifetimeMs));
+    const holdMs = Number.isFinite(record.holdMs)
+      ? Math.max(0, Math.min(record.holdMs, lifetimeMs))
+      : Math.max(0, lifetimeMs - fadeMs);
     const minOpacity = Number.isFinite(record.minOpacity) ? Math.max(0, Math.min(1, record.minOpacity)) : DEFAULT_MIN_OPACITY;
     const ageMs = Number.isFinite(record.ageMs) ? Math.max(0, record.ageMs) : 0;
     const bornAt = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - ageMs;

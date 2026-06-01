@@ -10,6 +10,34 @@ const COLLECTION = 'checkpoints';
 const MAX_CHECKPOINTS_PER_ROOM = 1440; // 24h at 1/min
 const CHECKPOINT_INTERVAL_MIN_MS = 30_000; // Reject if < 30s since last
 
+function snapshotActiveTexts(room, now) {
+  if (!Array.isArray(room.activeTexts) || room.activeTexts.length === 0) return [];
+  room.activeTexts = room.activeTexts.filter((record) => {
+    const lifetimeMs = Number(record?.lifetimeMs) || 0;
+    const bornAt = Number(record?.bornAt) || 0;
+    return lifetimeMs > 0 && bornAt > 0 && now - bornAt < lifetimeMs;
+  });
+  return room.activeTexts.map((record) => ({
+    id: record.id,
+    sessionIndex: record.sessionIndex,
+    text: record.text,
+    font: record.font,
+    size: record.size,
+    color: record.color,
+    opacity: record.opacity,
+    layerIndex: record.layerIndex,
+    blendMode: record.blendMode,
+    blendBakeMode: record.blendBakeMode,
+    textPositionMultiplier: record.textPositionMultiplier,
+    textPositionOffset: record.textPositionOffset,
+    x: record.x,
+    y: record.y,
+    bornAt: record.bornAt,
+    lifetimeMs: record.lifetimeMs,
+    fadeMs: record.fadeMs
+  }));
+}
+
 function sendCheckpointPermissionDenied(ws, room) {
   ws.send(room.Msg.encode(room.Msg.create({
     t: T.MOD_RESULT,
@@ -74,6 +102,9 @@ export async function handleCheckpointUpload(ws, data, room) {
       timestamp: now,
       uploader: senderName,
       img: imgBuffer,
+      mirror: !!room.settings.mirror,
+      mirrorRegions: room.settings.mirrorRegions || [],
+      activeTexts: snapshotActiveTexts(room, now),
       sizeBytes: imgBuffer.length
     });
 
@@ -173,7 +204,9 @@ export async function handleCheckpointGet(ws, data, room) {
       checkpointImg: doc.img,
       checkpointId: doc.checkpointId,
       checkpointTs: doc.timestamp,
-      checkpointUploader: doc.uploader
+      checkpointUploader: doc.uploader,
+      m: !!doc.mirror,
+      mirrorRegionsJson: JSON.stringify(doc.mirrorRegions || [])
     })).finish());
   } catch (err) {
     console.error('[Checkpoint] DB get error:', err);

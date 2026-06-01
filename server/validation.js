@@ -751,9 +751,10 @@ export async function sanitizeMessage(data) {
       return sanitized;
     }
 
-    case T.BOARD_SNAPSHOT_SAVE:
-      if (Array.isArray(data.snapshotLayers) && data.snapshotLayers.length > 0) {
-        sanitized.snapshotLayers = data.snapshotLayers;
+    case T.BOARD_SNAPSHOT_SAVE: {
+      const snapshotLayers = data.snapshotLayers ?? data.snapshot_layers;
+      if (Array.isArray(snapshotLayers) && snapshotLayers.length > 0) {
+        sanitized.snapshotLayers = snapshotLayers;
       } else {
         return null;
       }
@@ -770,6 +771,7 @@ export async function sanitizeMessage(data) {
         data.snapshotRestoreAfterSave ?? data.snapshot_restore_after_save
       );
       return sanitized;
+    }
 
     case T.BOARD_SNAPSHOT_LIST_REQUEST:
       if (data.snapshotTs !== undefined) {
@@ -777,10 +779,15 @@ export async function sanitizeMessage(data) {
       }
       return sanitized;
 
-    case T.BOARD_SNAPSHOT_RESTORE:
+    case T.BOARD_SNAPSHOT_RESTORE: {
       sanitized.snapshotId = sanitizeString(data.snapshotId, 64);
-      if (!sanitized.snapshotId) return null;
+      const snapshotLayers = data.snapshotLayers ?? data.snapshot_layers;
+      if (Array.isArray(snapshotLayers) && snapshotLayers.length > 0) {
+        sanitized.snapshotLayers = snapshotLayers;
+      }
+      if (!sanitized.snapshotId && !sanitized.snapshotLayers) return null;
       return sanitized;
+    }
 
     case T.BOARD_SNAPSHOT_DELETE:
       sanitized.snapshotId = sanitizeString(data.snapshotId, 64);
@@ -793,9 +800,13 @@ export async function sanitizeMessage(data) {
       sanitized.snapshotProbe = !!data.snapshotProbe;
       return sanitized;
 
-    case T.BOARD_SNAPSHOT_REGION_RESTORE:
+    case T.BOARD_SNAPSHOT_REGION_RESTORE: {
       sanitized.snapshotId = sanitizeString(data.snapshotId, 64);
-      if (!sanitized.snapshotId) return null;
+      const snapshotLayers = data.snapshotLayers ?? data.snapshot_layers;
+      if (Array.isArray(snapshotLayers) && snapshotLayers.length > 0) {
+        sanitized.snapshotLayers = snapshotLayers;
+      }
+      if (!sanitized.snapshotId && !sanitized.snapshotLayers) return null;
       sanitized.a = !!data.a;
       sanitized.sx = Math.round(data.sx) || 0;
       sanitized.sy = Math.round(data.sy) || 0;
@@ -803,6 +814,7 @@ export async function sanitizeMessage(data) {
       sanitized.sh = Math.round(data.sh) || 0;
       sanitized.cr = Array.isArray(data.cr) ? data.cr.map(Number).filter(isFinite) : [];
       return sanitized;
+    }
 
     case T.CHECKPOINT_UPLOAD: {
       const cpValidation = await validateImageBytes(data.checkpointImg, {
