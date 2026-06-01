@@ -1562,7 +1562,7 @@ export class Auth {
       }
 
       if (this.onSuccess) {
-        this.onSuccess(data.token, data.role, username, data.globalRole, data.roomRole);
+        this.onSuccess(data.token, data.role, username, data.globalRole, data.roomRole, !!data.hasDiscord);
       }
     } else {
       this._pendingUsername = null;
@@ -1588,8 +1588,8 @@ export class Auth {
 
   replayAuthSession() {
     if (!this.currentAuthSession || !this.onSuccess) return false;
-    const { token, role, username, globalRole, roomRole } = this.currentAuthSession;
-    this.onSuccess(token, role, username, globalRole, roomRole);
+    const { token, role, username, globalRole, roomRole, hasDiscord } = this.currentAuthSession;
+    this.onSuccess(token, role, username, globalRole, roomRole, !!hasDiscord);
     return true;
   }
 

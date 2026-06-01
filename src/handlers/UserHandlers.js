@@ -251,6 +251,10 @@ export function setupUserHandlers(wsClient, app) {
         if (userData.registeredName) {
           app.self.registeredName = userData.registeredName;
         }
+        if (userData.hasDiscord !== undefined) {
+          app.self.hasDiscord = !!userData.hasDiscord;
+          app.ui.updateSelfBadges?.(app.self);
+        }
         if (userData.globalRole !== undefined) {
           app.self.globalRole = userData.globalRole || 0;
           appState.selfGlobalRole = app.self.globalRole;
@@ -424,6 +428,10 @@ export function setupUserHandlers(wsClient, app) {
 
         if (userData.registeredName) {
           user.registeredName = userData.registeredName;
+        }
+        if (userData.hasDiscord !== undefined && user.hasDiscord !== !!userData.hasDiscord) {
+          user.hasDiscord = !!userData.hasDiscord;
+          ui.updateRemoteBadges?.(userData.sessionIndex, user);
         }
         if (userData.visibleIp !== undefined) {
           user.visibleIp = userData.visibleIp || '';

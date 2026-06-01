@@ -4,6 +4,7 @@
 import { mount, unmount } from 'svelte';
 import { showAppConfirm } from './ConfirmDialog.js';
 import { EditableValueHandler } from './EditableValueHandler.js';
+import { badgesForUser, renderBadgesInto } from './Badges.js';
 import { RemoteUserUI } from './RemoteUserUI.js';
 import { LayerPreview } from './LayerPreview.js';
 import { ResizableSections } from './ResizableSections.js';
@@ -640,6 +641,7 @@ menuBtn: document.getElementById('menuBtn'),
       selfUserEntry: document.querySelector('.userEntry.self'),
       selfListTool: document.querySelector('.listTool.self'),
       selfListColor: document.querySelector('.listColor.self'),
+      selfUserBadges: document.querySelector('.userBadges.self'),
       selfListUser: document.querySelector('.listUser.self'),
 
       toast: document.getElementById('toast'),
@@ -1773,6 +1775,16 @@ menuBtn: document.getElementById('menuBtn'),
     this.elements.selfListUser.textContent = name;
   }
 
+  /**
+   * Updates the local user's account badges in the user list.
+   * @param {Object} userData - Local user/auth state.
+   */
+  updateSelfBadges(userData = window.app?.self) {
+    const badgeEl = this.elements.selfUserBadges;
+    if (!badgeEl) return;
+    renderBadgesInto(badgeEl, badgesForUser(userData));
+  }
+
   setSelfUserMuted(muted) {
     const entry = this.elements.selfUserEntry;
     const userEl = this.elements.selfListUser;
@@ -2216,6 +2228,10 @@ menuBtn: document.getElementById('menuBtn'),
 
   updateRemoteName(userId, name) {
     return this.remoteUserUI.updateRemoteName(userId, name);
+  }
+
+  updateRemoteBadges(userId, userData) {
+    return this.remoteUserUI?.updateRemoteBadges(userId, userData);
   }
 
   updateRemoteText(userId, textContent) {

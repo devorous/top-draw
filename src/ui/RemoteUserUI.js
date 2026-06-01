@@ -414,6 +414,19 @@ export class RemoteUserUI {
     return container;
   }
 
+  updateRemoteBadges(userId, userData) {
+    const id = `u${userId}`;
+    const badgesEl = document.querySelector(`.userBadges.${id}`);
+    if (badgesEl) {
+      renderBadgesInto(badgesEl, badgesForUser(userData));
+    }
+
+    const groupInfo = this._getGroupForUser(userId);
+    if (groupInfo?.group.displayUserId === userId && groupInfo.group.headerBadgesEl) {
+      renderBadgesInto(groupInfo.group.headerBadgesEl, badgesForUser(userData));
+    }
+  }
+
   setReplayModeActive(active) {
     this._replayModeActive = !!active;
 

@@ -75,6 +75,7 @@ export class User {
     this.role = options.role || 0;
     this.globalRole = options.globalRole || 0;
     this.roomRole = options.roomRole || 0;
+    this.hasDiscord = !!options.hasDiscord;
     this.isMuted = options.isMuted || false;
     this.ipHash = options.ipHash || options.iph || '';
     this.visibleIp = options.visibleIp || '';
@@ -398,7 +399,7 @@ export class User {
    * @returns {void}
    */
   updateFrom(data) {
-    const fields = ['x', 'y', 'size', 'pressure', 'spacing', 'smoothing', 'opacity', 'hardness', 'blurRadius', 'color', 'tool', 'text', 'cursorStyle', 'username', 'blendMode', 'blendBakeMode', 'activeLayer', 'patternScale', 'patternShape', 'patternName', 'patternRotation', 'patternSpacing', 'font', 'textPositionMultiplier', 'textPositionOffset'];
+    const fields = ['x', 'y', 'size', 'pressure', 'spacing', 'smoothing', 'opacity', 'hardness', 'blurRadius', 'color', 'tool', 'text', 'cursorStyle', 'username', 'blendMode', 'blendBakeMode', 'activeLayer', 'patternScale', 'patternShape', 'patternName', 'patternRotation', 'patternSpacing', 'font', 'textPositionMultiplier', 'textPositionOffset', 'hasDiscord'];
       fields.forEach(field => {
         if (data[field] !== undefined) {
           if (field === 'font') {

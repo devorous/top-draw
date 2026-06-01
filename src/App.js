@@ -654,7 +654,7 @@ export class DrawingApp {
     updateStartupStatus('Loading account...');
     // Auth and LandingPage were created in auth-landing phase, wire up app callbacks
     if (this.auth) {
-      this.auth.onSuccess = (token, role, username, globalRole, roomRole) => this.handleAuthSuccess(token, role, username, globalRole, roomRole);
+      this.auth.onSuccess = (token, role, username, globalRole, roomRole, hasDiscord) => this.handleAuthSuccess(token, role, username, globalRole, roomRole, hasDiscord);
       this.auth.onError = (error) => this.handleAuthError(error);
       this.auth.replayAuthSession?.();
     }
@@ -3962,9 +3962,10 @@ export class DrawingApp {
    * @param {number} role - The user's role level.
    * @param {string} username - The user's verified username.
    */
-  handleAuthSuccess(token, role, username, globalRole = role, roomRole = 0) {
+  handleAuthSuccess(token, role, username, globalRole = role, roomRole = 0, hasDiscord = false) {
     this.selfRole = role;
     this.self.role = role;
+    this.self.hasDiscord = !!hasDiscord;
     appState.selfRole = role;
     appState.selfGlobalRole = globalRole;
     appState.selfRoomRole = roomRole;
@@ -3978,6 +3979,7 @@ export class DrawingApp {
     }
 
     this.ui.updateSelfRole(role);
+    this.ui.updateSelfBadges?.(this.self);
 
     this.updateRoomSettingsButtonVisibility();
     this.updateGalleryButtonVisibility(role);
