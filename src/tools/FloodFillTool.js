@@ -305,9 +305,6 @@ export class FloodFillTool {
       for (let px = minX; px <= maxX; px++) {
         if (mask[py * width + px]) {
           const oi = ((py - padMinY) * padW + (px - padMinX)) * 4;
-          pd[oi] = fillR;
-          pd[oi + 1] = fillG;
-          pd[oi + 2] = fillB;
           pd[oi + 3] = a;
         }
       }
@@ -316,18 +313,16 @@ export class FloodFillTool {
     const stackblur = getStackblurSync();
     if (stackblur) {
       for (let i = 0; i < pd.length; i += 4) {
-        const alpha = pd[i + 3] / 255;
-        pd[i] *= alpha;
-        pd[i + 1] *= alpha;
-        pd[i + 2] *= alpha;
+        pd[i] = pd[i + 1] = pd[i + 2] = pd[i + 3];
       }
       stackblur(pd, padW, padH, br);
       for (let i = 0; i < pd.length; i += 4) {
-        const alpha = pd[i + 3] / 255;
-        if (alpha > 0) {
-          pd[i] /= alpha;
-          pd[i + 1] /= alpha;
-          pd[i + 2] /= alpha;
+        if (pd[i + 3] > 0) {
+          pd[i] = fillR;
+          pd[i + 1] = fillG;
+          pd[i + 2] = fillB;
+        } else {
+          pd[i] = pd[i + 1] = pd[i + 2] = 0;
         }
       }
       ctx.putImageData(padded, padMinX, padMinY);
