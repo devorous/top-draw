@@ -221,8 +221,15 @@
     await desktopWindowApi.startDragging();
   }
 
+  function isInteractiveTarget(event) {
+    return (
+      event.target instanceof HTMLElement &&
+      event.target.closest('button, input, select, textarea, a, [data-no-drag]')
+    );
+  }
+
   function handleBarMouseDown(event) {
-    if (event.target instanceof HTMLElement && event.target.closest('button')) return;
+    if (isInteractiveTarget(event)) return;
     if (event.button !== 0) return;
     event.preventDefault();
     if (tauriDragRegion && desktopWindowApi) {
@@ -233,13 +240,13 @@
   }
 
   function handleBarTouchStart(event) {
-    if (event.target instanceof HTMLElement && event.target.closest('button')) return;
+    if (isInteractiveTarget(event)) return;
     event.preventDefault();
     if (draggable) onDragStart?.(event);
   }
 
   function handleBarDoubleClick(event) {
-    if (event.target instanceof HTMLElement && event.target.closest('button')) return;
+    if (isInteractiveTarget(event)) return;
     if (showWindowControls) {
       void toggleMaximizeWindow();
     }
