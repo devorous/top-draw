@@ -11,7 +11,8 @@
  * The shape is chosen by tool family, each stroked in the user's color over a
  * soft white halo so it reads on any background:
  *   - select                         → 10px crosshair (no ring).
- *   - blur / glitchBlur / imageBrush → hollow square footprint (no ring).
+ *   - blur / glitchBlur / imageBrush
+ *     / pixel                        → hollow square footprint (no ring).
  *   - text                           → no shape; the in-progress text preview is
  *                                      already painted onto the canvas, so the
  *                                      cursor is just the name label.
@@ -23,7 +24,7 @@
 // Tool families, mirroring RemoteUserUI._applyRemoteToolDisplay. Anything not
 // listed falls through to the ring (matches the live circle default).
 const SELECT_TOOLS = new Set(['select']);
-const SQUARE_TOOLS = new Set(['blur', 'glitchBlur', 'imageBrush']);
+const SQUARE_TOOLS = new Set(['blur', 'glitchBlur', 'imageBrush', 'pixel']);
 const NO_SHAPE_TOOLS = new Set(['text']);
 
 /**

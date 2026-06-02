@@ -401,9 +401,14 @@ class TimeMachineState {
     }
 
     // Automatic rolling DVR tape — always fed while enabled (independent of the
-    // manual recorder toggle below).
+    // manual recorder toggle below). While the replay menu is open the local user
+    // is navigating history, not the live board: their own outbound traffic
+    // (cursor moves, etc.) must not pollute or advance the live tape. Inbound
+    // (other users' real activity) keeps recording so the tape stays current.
     const rolling = app?.rollingTapeRecorder;
-    if (rolling?.isEnabled?.()) rolling.record(msg, dir);
+    if (rolling?.isEnabled?.() && !(dir === 'out' && this.isOpen)) {
+      rolling.record(msg, dir);
+    }
 
     // Manual session tape (topbar tape button).
     const rec = app?.recorder;

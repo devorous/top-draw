@@ -34,6 +34,14 @@ const VISUAL_CHECKPOINT_QUALITY = 0.6;
 /** How often the ring buffer is pruned back to the horizon. */
 const PRUNE_INTERVAL_MS = 5000;
 /**
+ * Dead-air removal: events are stamped on a compressed "activity clock" rather
+ * than wall-clock, so idle gaps don't consume the visible window and viewers
+ * only ever scrub through moments that had activity. Real time is allowed to
+ * flow for this long into any pause (a natural lead-out beat); past that the
+ * clock freezes until the next input, then resumes from where it left off.
+ */
+const IDLE_LEADOUT_MS = 500;
+/**
  * Safety cap on resident deltas. Two minutes of normal drawing is far below
  * this; the cap only matters during pathological floods (e.g. a script). When
  * hit we drop the oldest deltas regardless of the checkpoint anchor — a slightly
@@ -76,6 +84,24 @@ export class RollingTapeRecorder {
     this._visualTimer = null;
     this._pruneTimer = null;
     this._visualInFlight = false;
+    /**
+     * True when at least one input (delta) has been recorded since the last
+     * visual checkpoint was captured. Gates the visual-checkpoint timer so an
+     * idle canvas doesn't append duplicate "nothing changed" frames to the tape.
+     * @type {boolean}
+     */
+    this._activitySinceVisual = false;
+    /** Same idea, for the heavier intra (anchor) checkpoint cadence. @type {boolean} */
+    this._activitySinceIntra = false;
+
+    // Compressed activity clock (see IDLE_LEADOUT_MS). We track the wall time and
+    // assigned virtual time of the last input; the virtual "now" is a pure
+    // function of those plus the current wall clock, so it freezes IDLE_LEADOUT_MS
+    // after the last input and resumes on the next one. Monotonic by construction.
+    /** @type {number} Wall-clock ms of the last stamped input. */
+    this._lastInputWall = 0;
+    /** @type {number} Virtual ts assigned to the last stamped input. */
+    this._lastInputVirtual = 0;
 
     /** @type {((status: ReturnType<RollingTapeRecorder['getStatus']>) => void) | null} */
     this.onStatusChange = null;
@@ -239,7 +265,13 @@ export class RollingTapeRecorder {
     } catch {
       cloned = JSON.parse(JSON.stringify(msg));
     }
-    this._deltas.push({ ts: Date.now(), msg: cloned, dir });
+    // Stamp on the compressed activity clock so genuine idle gaps collapse out of
+    // the timeline. Any genuinely-sent message (including hover cursor moves)
+    // counts as activity; messages the local user makes while reviewing a replay
+    // never reach here (filtered in TimeMachine.recordAction).
+    this._deltas.push({ ts: this._stampInput(), msg: cloned, dir });
+    this._activitySinceVisual = true;
+    this._activitySinceIntra = true;
 
     if (this._deltas.length > HARD_MAX_DELTAS) {
       // Pathological flood — drop the oldest excess immediately rather than
@@ -262,7 +294,7 @@ export class RollingTapeRecorder {
    */
   snapshotRecording() {
     if (this._checkpoints.length === 0) return null;
-    const now = Date.now();
+    const now = this._virtualNow();
     const horizon = now - this._windowMs;
     const anchor = this._pickAnchor(horizon);
     if (!anchor) return null;
@@ -306,7 +338,7 @@ export class RollingTapeRecorder {
    *   oldestTs: number|null, newestTs: number|null, hasContent: boolean }}
    */
   getStatus() {
-    const now = Date.now();
+    const now = this._virtualNow();
     const horizon = now - this._windowMs;
     const anchor = this._checkpoints.length ? this._pickAnchor(horizon) : null;
     return {
@@ -326,6 +358,32 @@ export class RollingTapeRecorder {
 
   // ── private ─────────────────────────────────────────────────────────────────
 
+  /**
+   * Current time on the compressed activity clock. Pure read — does not mutate
+   * state. Equals the last input's virtual ts plus however much real time has
+   * elapsed since, capped at IDLE_LEADOUT_MS (so it freezes during dead air).
+   * Used for the prune horizon, status, and snapshot bounds so they stay on the
+   * same timeline as the stamped deltas.
+   * @private
+   */
+  _virtualNow() {
+    const elapsed = Date.now() - this._lastInputWall;
+    return this._lastInputVirtual + Math.min(Math.max(elapsed, 0), IDLE_LEADOUT_MS);
+  }
+
+  /**
+   * Advance the activity clock for a newly arrived input and return its virtual
+   * timestamp. Real time flows for the first IDLE_LEADOUT_MS of any preceding
+   * gap, then the gap is dropped — collapsing dead air out of the timeline.
+   * @private
+   */
+  _stampInput() {
+    const vts = this._virtualNow();
+    this._lastInputWall = Date.now();
+    this._lastInputVirtual = vts;
+    return vts;
+  }
+
   /** Newest checkpoint with ts <= horizon, else the oldest checkpoint. @private */
   _pickAnchor(horizon) {
     let anchor = null;
@@ -341,7 +399,7 @@ export class RollingTapeRecorder {
     if (!this._enabled || !this._app) return;
     try {
       const snapshot = captureOpeningSnapshot(this._app);
-      this._checkpoints.push({ ts: Date.now(), snapshot });
+      this._checkpoints.push({ ts: this._virtualNow(), snapshot });
     } catch (err) {
       console.warn('[RollingTape] checkpoint capture failed:', err);
     }
@@ -353,7 +411,12 @@ export class RollingTapeRecorder {
     this._intraTimer = setTimeout(() => {
       // Idle-schedule the capture so a busy drawing frame doesn't stutter.
       const run = () => {
-        this._captureCheckpoint();
+        // Skip anchor checkpoints during dead air — the board hasn't changed,
+        // and the activity clock is frozen, so another one would be redundant.
+        if (this._activitySinceIntra) {
+          this._activitySinceIntra = false;
+          this._captureCheckpoint();
+        }
         if (this._enabled) this._scheduleIntra();
       };
       if (typeof requestIdleCallback === 'function') {
@@ -390,7 +453,7 @@ export class RollingTapeRecorder {
    */
   _prune() {
     if (this._checkpoints.length === 0) return;
-    const horizon = Date.now() - this._windowMs;
+    const horizon = this._virtualNow() - this._windowMs;
     const anchor = this._pickAnchor(horizon);
     if (!anchor) return;
     const cut = anchor.ts;
@@ -414,10 +477,14 @@ export class RollingTapeRecorder {
    */
   _captureVisualCheckpoint() {
     if (!this._enabled || !this._app || this._visualInFlight) return;
+    // Skip idle frames: nothing happened on the canvas since the last capture,
+    // so re-snapshotting would only append an identical frame.
+    if (!this._activitySinceVisual) return;
     const board = this._app.board;
     const src = board?.mainCanvas;
     if (!src || !src.width || !src.height) return;
 
+    this._activitySinceVisual = false;
     try { board.compositeAllLayers?.(); } catch {}
 
     const w = Math.max(1, Math.round(src.width * VISUAL_CHECKPOINT_SCALE));
@@ -430,7 +497,7 @@ export class RollingTapeRecorder {
     tctx.imageSmoothingQuality = 'high';
     tctx.drawImage(src, 0, 0, w, h);
 
-    const ts = Date.now();
+    const ts = this._virtualNow();
     this._visualInFlight = true;
     tmp.toBlob(
       (blob) => {
@@ -448,6 +515,13 @@ export class RollingTapeRecorder {
     this._checkpoints = [];
     this._deltas = [];
     this._visualCheckpoints = [];
+    this._activitySinceVisual = false;
+    this._activitySinceIntra = false;
+    // Re-anchor the activity clock to the present so the fresh tape starts at
+    // real time and only diverges once dead air accumulates.
+    const now = Date.now();
+    this._lastInputWall = now;
+    this._lastInputVirtual = now;
   }
 
   /** @private */

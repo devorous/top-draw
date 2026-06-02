@@ -63,6 +63,13 @@ export class Recorder {
     this._maxLengthMs = 0;
     /** @type {boolean} */
     this._visualCheckpointInFlight = false;
+    /**
+     * True when at least one input (delta) has been recorded since the last
+     * visual checkpoint. Gates the visual-checkpoint timer so an idle canvas
+     * doesn't append duplicate "nothing changed" frames to the recording.
+     * @type {boolean}
+     */
+    this._activitySinceVisual = false;
     /** @type {Object | null} */
     this._app = null;
     /** @type {((rec: ReplayRecording|null) => void) | null} */
@@ -125,6 +132,7 @@ export class Recorder {
       assets: {},
     };
     this.state = 'recording';
+    this._activitySinceVisual = false;
 
     this._scheduleIntraCheckpoint();
     this._scheduleVisualCheckpoint();
@@ -242,6 +250,7 @@ export class Recorder {
       cloned = JSON.parse(JSON.stringify(msg));
     }
     this.recording.deltas.push({ ts: Date.now(), msg: cloned, dir });
+    this._activitySinceVisual = true;
   }
 
   /** @private */
@@ -308,11 +317,15 @@ export class Recorder {
     if (this.state !== 'recording' || !this.recording || !this._app) return;
     if (this._visualCheckpointInFlight) return;
     if (this.recording.visualCheckpoints.length >= VISUAL_CHECKPOINT_MAX_COUNT) return;
+    // Skip idle frames: nothing happened on the canvas since the last capture,
+    // so re-snapshotting would only append an identical frame.
+    if (!this._activitySinceVisual) return;
 
     const board = this._app.board;
     const src = board?.mainCanvas;
     if (!src || !src.width || !src.height) return;
 
+    this._activitySinceVisual = false;
     // Make sure pending strokes are reflected before we read pixels. Cheap when
     // nothing's dirty.
     try { board.compositeAllLayers?.(); } catch {}
