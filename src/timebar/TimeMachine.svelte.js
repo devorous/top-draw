@@ -14,6 +14,12 @@ import { TimeLapseExporter, suggestImageSequenceFilename, suggestVideoFilename }
 const SEEK_TELEMETRY_LOG_INTERVAL_MS = 1500;
 const LOCAL_REVERSE_SCRUB_FRAME_MS = 500;
 const LOCAL_REVERSE_SCRUB_INTERVAL_MS = 90;
+/**
+ * While the user holds the scrubber still on a low-res preview frame, wait this
+ * long for the position to stop changing, then render the crisp full-resolution
+ * frame in the background so a parked scrubber upgrades off the thumbnail.
+ */
+const SCRUB_SETTLE_UPGRADE_MS = 130;
 const VISUAL_CHECKPOINT_INTERVAL_MS = 2000;
 /** Hard cap on visual checkpoints (frame count, before stride). */
 const VISUAL_CHECKPOINT_MAX_COUNT = 600;
@@ -121,6 +127,10 @@ class TimeMachineState {
   _scrubLastSeekAt = 0;
   _scrubQueuedTimestamp = null;
   _scrubTimer = null;
+  /** Pending "upgrade thumbnail → full-res" timer fired when the scrubber settles. */
+  _scrubSettleTimer = null;
+  /** True while a settle-upgrade seek is in flight (so movement can invalidate it). */
+  _scrubSettleSeeking = false;
   _isPlaybackAdvancing = false;
   _pendingPlaybackTimestamp = null;
   _playbackStartPerf = 0;
@@ -706,6 +716,10 @@ class TimeMachineState {
     if (!this.isOpen) return;
     if (!this.isScrubbing) this.beginScrub();
 
+    // The scrubber moved, so any pending/in-flight settle upgrade is for a
+    // stale position — drop it (and invalidate its paint) before re-evaluating.
+    this._cancelScrubSettle();
+
     const clamped = this._clampTimestamp(timestamp);
     const previous = this._scrubLastRequestedTimestamp ?? this.currentTime;
     const isReverse = clamped < previous;
@@ -729,7 +743,13 @@ class TimeMachineState {
     ) {
       this.currentTime = clamped;
       const cp = this._findVisualCheckpointNear(clamped);
-      if (this._drawVisualCheckpoint(cp)) return;
+      if (this._drawVisualCheckpoint(cp)) {
+        // We're parked on a low-res cached frame. If the user holds here without
+        // moving, render the crisp full-resolution frame in the background so
+        // the preview upgrades even before the scrubber is released.
+        this._scheduleScrubSettle(clamped);
+        return;
+      }
     }
 
     let target = clamped;
@@ -752,9 +772,45 @@ class TimeMachineState {
     }
   }
 
+  /**
+   * After the scrubber settles on a thumbnail, render the crisp frame in the
+   * background. Superseded by {@link _cancelScrubSettle} as soon as the user
+   * moves again, so only a genuinely-held position triggers the upgrade.
+   * @param {number} timestamp
+   */
+  _scheduleScrubSettle(timestamp) {
+    if (this._source !== 'local') return;
+    this._scrubSettleTimer = setTimeout(() => {
+      this._scrubSettleTimer = null;
+      // Bail if the user released, moved on, or it's already the crisp frame.
+      if (!this.isOpen || !this.isScrubbing) return;
+      if (this._scrubLastRequestedTimestamp !== timestamp) return;
+      if (this._lastAppliedTimestamp === timestamp) return;
+
+      this._scrubSettleSeeking = true;
+      Promise.resolve(this.seek(timestamp)).finally(() => {
+        this._scrubSettleSeeking = false;
+      });
+    }, SCRUB_SETTLE_UPGRADE_MS);
+  }
+
+  _cancelScrubSettle() {
+    if (this._scrubSettleTimer != null) {
+      clearTimeout(this._scrubSettleTimer);
+      this._scrubSettleTimer = null;
+    }
+    // A settle-upgrade seek may already be running; bump the generation so its
+    // crisp paint is treated as stale and won't land over the newer thumbnail.
+    if (this._scrubSettleSeeking) {
+      this._seekGeneration += 1;
+      this._scrubSettleSeeking = false;
+    }
+  }
+
   endScrub(timestamp = null) {
     if (!this.isOpen) return;
     this.isScrubbing = false;
+    this._cancelScrubSettle();
     if (this._scrubTimer != null) {
       clearTimeout(this._scrubTimer);
       this._scrubTimer = null;
@@ -790,6 +846,7 @@ class TimeMachineState {
 
   _clearScrubState() {
     this.isScrubbing = false;
+    this._cancelScrubSettle();
     if (this._scrubTimer != null) {
       clearTimeout(this._scrubTimer);
       this._scrubTimer = null;

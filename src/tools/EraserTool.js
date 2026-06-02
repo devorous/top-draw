@@ -167,6 +167,12 @@ export class EraserTool extends Tool {
     });
 
     state.previewDirtyBounds = null;
+    // The live preview surface (topCanvas) is used only as a destination-out mask;
+    // the visible erase preview is composited into the main canvas. Keep topCanvas
+    // hidden so it isn't also painted on top — a full clearTop(null) (e.g. when
+    // mirror regions force a null preview rect) resets its opacity and would
+    // otherwise double the erase strength in the preview vs. the committed result.
+    if (this._isLocalUser(user)) this._setPreviewMaskVisible(false);
     this.board.requestUpdate();
   }
 
