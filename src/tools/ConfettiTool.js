@@ -233,6 +233,16 @@ export class ConfettiTool extends Tool {
 
     this.board.forEachMirrorRegion({ rect }, (region) => {
       this.board.withMirroredRegionTransform(ctx, region, () => draw(ctx, particle));
+      // Mark the mirrored area dirty too so the reflected particle composites to
+      // screen live during the stroke (not just on pointer-up). Mirrors the
+      // two-corner approach used in onPointerUp's dirty-bounds expansion.
+      const p1 = this.board.mirrorPointToRegion({ x: rect.x, y: rect.y }, region);
+      const p2 = this.board.mirrorPointToRegion({ x: rect.x + rect.width, y: rect.y + rect.height }, region);
+      const mx = Math.floor(Math.min(p1.x, p2.x));
+      const my = Math.floor(Math.min(p1.y, p2.y));
+      const mw = Math.ceil(Math.abs(p2.x - p1.x));
+      const mh = Math.ceil(Math.abs(p2.y - p1.y));
+      this.board.expandDirtyRect(user, mx, my, mw, mh);
     });
 
     this.expandDirtyBounds(user, rect);

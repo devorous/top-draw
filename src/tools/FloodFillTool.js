@@ -51,6 +51,19 @@ export class FloodFillTool {
   }
 
   get advancedMode() { return this._advancedMode; }
+
+  /**
+   * Whether the interactive (drag-to-adjust) fill should be used right now.
+   * Disabled while mirrors are active: the interactive preview recomputes a
+   * flood fill for every mirror region on each drag frame (laggy) and its
+   * multi-region commit does not undo cleanly. Falling back to a single-click
+   * fill keeps mirrors working while committing one undoable stroke.
+   * @private
+   */
+  _useAdvancedMode() {
+    return this._advancedMode && !this.board.hasMirrors?.();
+  }
+
   set advancedMode(val) {
     this._advancedMode = val;
     if (!val) {
@@ -585,8 +598,8 @@ export class FloodFillTool {
       if (dr * dr + dg * dg + db * db + da * da <= 100) return;
     }
 
-    if (!this.advancedMode) {
-      // -- Standard mode --
+    if (!this._useAdvancedMode()) {
+      // -- Standard mode (also used while mirrors are active) --
       const result = await this._fillWorker.computeFill(
         data, width, height, x, y, 10, 0, null
       );
@@ -650,7 +663,7 @@ export class FloodFillTool {
   }
 
   onPointerMove(user, pos, lastPos, e) {
-    if (!this._active || !this.advancedMode) return;
+    if (!this._active || !this._useAdvancedMode()) return;
 
     const zoom = this.board.zoom || 1;
     const dx = (pos.x - this._startPos.x) * zoom;
