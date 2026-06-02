@@ -66,6 +66,11 @@ export function setupSnapshotHandlers(wsClient, app) {
       if (app._pendingSnapshotRegionRestorePromise === restorePromise) {
         app._pendingSnapshotRegionRestorePromise = null;
       }
+      // NOTE: the rolling DVR tape is intentionally NOT reset here. Like the
+      // full-board BOARD_SNAPSHOT_RESTORE below, the region restore is on the
+      // replay allowlist, so the tape records it and the replay engine re-applies
+      // it as a timeline event — the reverted region lands as a new event at the
+      // end of the timeline, keeping all history before AND after the undo point.
     });
   });
 
@@ -117,6 +122,11 @@ export function setupSnapshotHandlers(wsClient, app) {
       app.board.layerManager._clearPreviewsFromGroup(group);
     }
     app.updateUndoRedoHud();
+
+    // NOTE: the rolling DVR tape is NOT reset/truncated here. BOARD_SNAPSHOT_RESTORE
+    // is on the replay allowlist, so the tape records this restore and the replay
+    // engine re-applies it — the reverted state lands as a new event at the end of
+    // the timeline, keeping all history before AND after the undo point intact.
 
     // Re-request sync for everything else if needed
     // app.syncClient.requestSync();

@@ -409,16 +409,40 @@ export async function handleSnapshotRestore(ws, data, room) {
   const broadcastRestore = room.broadcastSequencedRestore
     ? room.broadcastSequencedRestore.bind(room)
     : room.broadcastToAll.bind(room);
-  broadcastRestore({
+  const restoreSeq = Number(broadcastRestore({
     t: T.BOARD_SNAPSHOT_RESTORE,
     snapshotLayers: snapshotData.layers,
     snapshotId: snapshotData.id,
     snapshotTs: snapshotData.ts,
     snapshotIssuer: snapshotData.issuer
-  });
+  })) || 0;
 
   if (snapshotCoversRoomBoard(snapshotData.layers, room)) {
     room.clearAllTiles();
+
+    // Re-baseline join sync. The restore is the authoritative full board as of
+    // restoreSeq, so register it as the in-memory join checkpoint and truncate
+    // the command tail (incl. the restore commit itself) up to and including it.
+    // Without this, the stale pre-restore auto-snapshot stays the join base AND
+    // the pre-restore strokes stay in the tail — a joiner then renders the
+    // original board from the checkpoint image AND the same strokes replayed
+    // from the tail, double-drawing at ~2x opacity once a later checkpoint
+    // advances past the restore. Mirrors the SYNC_CHECKPOINT_MINTED truncation.
+    if (restoreSeq > 0) {
+      room.addSnapshot?.({
+        id: snapshotData.id,
+        ts: snapshotData.ts,
+        issuer: snapshotData.issuer,
+        layers: snapshotData.layers,
+        seq: restoreSeq,
+        auto: true,
+      });
+      room.strokeLog?.truncateBefore?.(restoreSeq + 1);
+      room.strokeTape?.truncateBefore?.(restoreSeq + 1);
+      // We now hold a fresh, valid in-memory base, so undo any prior "skip the
+      // persisted checkpoint" invalidation from a blank/lone-join session.
+      room.joinCheckpointInvalidated = false;
+    }
   }
 }
 

@@ -388,6 +388,18 @@ class TimeMachineState {
     const app = (typeof window !== 'undefined' ? window.app : null);
     const dir = direction === 'inbound' ? 'in' : 'out';
 
+    // MIR is a relative toggle on the wire, so replaying it depends on the
+    // mirror state being correct at that point — a single dropped MIR (gappy
+    // tape, AFK draw-filtering) would invert global mirror for the rest of
+    // playback. Stamp the post-toggle absolute state onto our own outbound
+    // toggles so the replay engine can re-assert rather than blind-flip. This is
+    // reliable only outbound: the local board is toggled before broadcastMirror()
+    // runs, and the outbound msg is a throwaway spread (safe to mutate). Inbound
+    // MIRs stay relative but self-heal from the periodic absolute SETTINGS.
+    if (msg && msg.t === T.MIR && dir === 'out' && app?.board) {
+      msg.m = !!app.board.mirror;
+    }
+
     // Automatic rolling DVR tape — always fed while enabled (independent of the
     // manual recorder toggle below).
     const rolling = app?.rollingTapeRecorder;
@@ -952,6 +964,11 @@ class TimeMachineState {
     const liveBoard = this._board;
     if (!src || !liveBoard) return;
 
+    // The board is reverted to the replay state at the current position. This
+    // restore is broadcast as a BOARD_SNAPSHOT_RESTORE, which the rolling DVR
+    // tape records and the replay engine re-applies — so it lands as a new event
+    // at the END of the timeline. Nothing before or after the undo point is
+    // lost; the history stays fully intact and scrubbable.
     if (window.app?.connected && window.app?.snapshotManager?.broadcastReplayCanvasRestore) {
       const sent = await window.app.snapshotManager.broadcastReplayCanvasRestore(src);
       if (sent) {
@@ -1024,6 +1041,11 @@ class TimeMachineState {
     if (layer0?.flatCtx) layer0.flatCtx.drawImage(merged, 0, 0);
     liveBoard.markCompositeFull?.();
     liveBoard.compositeAllLayers?.();
+    // Offline/no-broadcast path only. Like the full-board restoreLocalToCurrentState,
+    // we do NOT reset the rolling tape here — resetting would discard the entire
+    // replay history. When connected, the region restore is broadcast, recorded,
+    // and replayed as a timeline event (history preserved); offline there is no
+    // recording path, so we leave the existing tape intact.
     this.catchUp();
     return true;
   }

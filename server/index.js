@@ -2687,6 +2687,11 @@ function broadcastSequencedRestore(room, payload) {
     flushClientOutbox(client);
     sendEncodedBuffer(client, buffer, `sequencedRestore:${payload?.t ?? 'unknown'}`);
   });
+
+  // Return the seq this restore was assigned so callers can re-baseline join
+  // sync against it (truncate the command tail, register the restore image as
+  // the new join checkpoint). Undefined when the room has no sequence counter.
+  return POOLED_MSG.seq;
 }
 
 /**

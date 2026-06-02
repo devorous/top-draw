@@ -34,6 +34,13 @@ export const REPLAY_MESSAGE_ALLOWLIST = new Set([
   // Room/board state
   T.SETTINGS, T.MIRROR_REGION, T.MIR, T.CLR, T.KP, T.PAN, T.CANCEL,
 
+  // Board snapshot restore ("undo to here" / moderator restore) and its region
+  // variant ("undo region to here"). Recorded so the replay re-applies the
+  // reverted state as a timeline event instead of leaving the tape inconsistent
+  // — keeps history before AND after the undo point (region restore no longer
+  // resets the rolling tape; it lands as a delta and replays like everything else).
+  T.BOARD_SNAPSHOT_RESTORE, T.BOARD_SNAPSHOT_REGION_RESTORE,
+
   // Chat (visible in replay)
   T.MSG,
 ]);

@@ -12,6 +12,8 @@ import { LayerManager } from '../canvas/LayerManager.js';
 import { ToolManager } from '../tools/Tools.js';
 import { getPreviewTextLayout, getUserTextLineHeight, paintTextRecord } from '../utils/textLayout.js';
 import { drawReplayCursor } from '../replay/cursorOverlay.js';
+import * as wasm from '../wasm/ddraw_wasm.js';
+import { readQoiDimensions } from '../../shared/qoi.js';
 import {
   TEXT_OVERLAY_DEFAULT_LIFETIME_MS,
   TEXT_OVERLAY_DEFAULT_MIN_OPACITY,
@@ -408,6 +410,177 @@ class ReplayBoard {
     this._fullComposite = true;
     this._compositeDirtyRects.length = 0;
     if (this.tileGrid?.markAllDirty) this.tileGrid.markAllDirty();
+  }
+
+  /**
+   * Apply a recorded BOARD_SNAPSHOT_RESTORE during replay: wholesale-replace the
+   * board with the captured per-layer QOI state. Mirrors the live
+   * Board.restoreSnapshot (clear all strokes, paint each decoded layer onto its
+   * baked canvas) so an "undo to here" replays as a board jump.
+   * @param {Uint8Array[]} layerDatas
+   */
+  restoreSnapshot(layerDatas) {
+    const lm = this.layerManager;
+    if (!lm || !Array.isArray(layerDatas) || layerDatas.length === 0) return;
+
+    // Wholesale replacement — drop every user's stroke/redo history so the
+    // decoded pixels are the sole content (matches live full-board restore).
+    lm.clearAll();
+
+    for (let i = 0; i < layerDatas.length && i < lm.layerGroups.length; i++) {
+      const qoi = layerDatas[i];
+      if (!qoi || qoi.length === 0) continue;
+
+      let pixels;
+      try { pixels = wasm.qoi_decode(qoi); } catch { continue; }
+      if (!pixels || pixels.length === 0) continue;
+
+      const dims = readQoiDimensions(qoi);
+      if (!dims || pixels.length !== dims.width * dims.height * 4) continue;
+
+      const imageData = new ImageData(
+        new Uint8ClampedArray(pixels.buffer, pixels.byteOffset, pixels.byteLength),
+        dims.width,
+        dims.height
+      );
+      const sourceCanvas = document.createElement('canvas');
+      sourceCanvas.width = dims.width;
+      sourceCanvas.height = dims.height;
+      sourceCanvas.getContext('2d').putImageData(imageData, 0, 0);
+
+      const group = lm.layerGroups[i];
+      if (group?.flatCanvas) {
+        group.flatCtx.drawImage(sourceCanvas, 0, 0);
+      } else {
+        lm.addToBaseBin(i, sourceCanvas, 0, 0);
+      }
+    }
+
+    this.markCompositeFull();
+  }
+
+  /**
+   * Region variant of {@link restoreSnapshot}: revert only the recorded
+   * rect/lasso region to the captured per-layer pixels, leaving the rest of the
+   * replay board intact. Mirrors the live applyRegionRestore (see
+   * SnapshotHandlers.js) so an "undo region to here" replays as a normal
+   * timeline event — history before and after it stays intact.
+   * @param {Uint8Array[]} layerDatas
+   * @param {{isLasso?: boolean, sx?: number, sy?: number, sw?: number, sh?: number, lassoFlat?: number[]}} opts
+   */
+  restoreRegion(layerDatas, { isLasso = false, sx = 0, sy = 0, sw = 0, sh = 0, lassoFlat = [] } = {}) {
+    const lm = this.layerManager;
+    if (!lm || !Array.isArray(layerDatas) || layerDatas.length === 0) return;
+    const [height, width] = this.dimensions;
+    const rx = Number(sx) || 0;
+    const ry = Number(sy) || 0;
+    const rw = Number(sw) || 0;
+    const rh = Number(sh) || 0;
+    if (!isLasso && (rw <= 0 || rh <= 0)) return;
+
+    const lassoPoints = [];
+    for (let i = 0; i + 1 < lassoFlat.length; i += 2) {
+      lassoPoints.push({ x: lassoFlat[i], y: lassoFlat[i + 1] });
+    }
+    const buildLassoPath = (ctx) => {
+      if (lassoPoints.length < 2) return;
+      ctx.beginPath();
+      ctx.moveTo(lassoPoints[0].x, lassoPoints[0].y);
+      for (let i = 1; i < lassoPoints.length; i++) ctx.lineTo(lassoPoints[i].x, lassoPoints[i].y);
+      ctx.closePath();
+    };
+
+    for (let i = 0; i < layerDatas.length && i < lm.layerGroups.length; i++) {
+      const qoi = layerDatas[i];
+      if (!qoi || qoi.length === 0) continue;
+
+      let pixels;
+      try { pixels = wasm.qoi_decode(qoi); } catch { continue; }
+      if (!pixels || pixels.length === 0) continue;
+
+      const dims = readQoiDimensions(qoi);
+      if (!dims || pixels.length !== dims.width * dims.height * 4) continue;
+
+      const snapshotCanvas = document.createElement('canvas');
+      snapshotCanvas.width = dims.width;
+      snapshotCanvas.height = dims.height;
+      snapshotCanvas.getContext('2d').putImageData(
+        new ImageData(
+          new Uint8ClampedArray(pixels.buffer, pixels.byteOffset, pixels.byteLength),
+          dims.width,
+          dims.height
+        ), 0, 0
+      );
+
+      const group = lm.layerGroups[i];
+      if (!group) continue;
+
+      // Bake pending strokes into the base so the region clear is complete —
+      // strokeStack entries composite above flatCanvas, so clearing the base
+      // without baking first would leave recent strokes in the region.
+      for (const stroke of group.strokeStack) {
+        lm.addToBaseBin(i, stroke.canvas, stroke.x, stroke.y, stroke.blendMode);
+      }
+      group.strokeStack = [];
+      group.userStrokeCounts = new Map();
+
+      if (group.flatCanvas) {
+        // Layer 0: direct pixel manipulation on the flat canvas.
+        const ctx = group.flatCtx;
+        ctx.save();
+        if (!isLasso) {
+          ctx.clearRect(rx, ry, rw, rh);
+          this._drawSnapshotRectRegion(ctx, snapshotCanvas, rx, ry, rw, rh);
+        } else {
+          buildLassoPath(ctx);
+          ctx.clip();
+          ctx.clearRect(0, 0, width, height);
+          ctx.drawImage(snapshotCanvas, 0, 0);
+        }
+        ctx.restore();
+      } else {
+        // Layers 1+: append destination-out erase then source-over fill.
+        const eraseCanvas = document.createElement('canvas');
+        eraseCanvas.width = width; eraseCanvas.height = height;
+        const eraseCtx = eraseCanvas.getContext('2d');
+        eraseCtx.fillStyle = '#000';
+        if (!isLasso) {
+          eraseCtx.fillRect(rx, ry, rw, rh);
+        } else {
+          buildLassoPath(eraseCtx);
+          eraseCtx.fill();
+        }
+        lm.addToBaseBin(i, eraseCanvas, 0, 0, 'destination-out');
+
+        const fillCanvas = document.createElement('canvas');
+        fillCanvas.width = width; fillCanvas.height = height;
+        const fillCtx = fillCanvas.getContext('2d');
+        fillCtx.save();
+        if (!isLasso) {
+          this._drawSnapshotRectRegion(fillCtx, snapshotCanvas, rx, ry, rw, rh);
+        } else {
+          buildLassoPath(fillCtx);
+          fillCtx.clip();
+          fillCtx.drawImage(snapshotCanvas, 0, 0);
+        }
+        fillCtx.restore();
+        lm.addToBaseBin(i, fillCanvas, 0, 0, 'source-over');
+      }
+    }
+
+    this.markCompositeFull();
+  }
+
+  /** Draw the clipped source region of a snapshot canvas 1:1 (region restore). @private */
+  _drawSnapshotRectRegion(ctx, snapshotCanvas, x, y, w, h) {
+    const sourceX = Math.max(0, x);
+    const sourceY = Math.max(0, y);
+    const sourceRight = Math.min(snapshotCanvas.width, x + w);
+    const sourceBottom = Math.min(snapshotCanvas.height, y + h);
+    const srcW = sourceRight - sourceX;
+    const srcH = sourceBottom - sourceY;
+    if (srcW <= 0 || srcH <= 0) return;
+    ctx.drawImage(snapshotCanvas, sourceX, sourceY, srcW, srcH, sourceX, sourceY, srcW, srcH);
   }
 
   maskPreviewForExistingMode(ctx, user, rect = null) {
@@ -1107,6 +1280,14 @@ export class ReplayEngine {
     this._patternStateByUser.clear();
     this._vectorTextRecords.clear();
     this._snapshotHasLayerState = false;
+    // Clear global mirror back to OFF so it agrees with the freshly-built
+    // _replayBoard (mirror=false, mirrorRegions=[]). T.MIR is a relative toggle,
+    // so a stale `this.mirror` left over from a previous replay would (a) desync
+    // from _replayBoard.mirror and (b) make the next MIR toggle flip the wrong
+    // way. Load paths normally re-assert mirror, but loadCheckpointImage only
+    // sets it when the server sends `m`, so a missing flag must default to OFF
+    // here rather than inheriting the previous session's state.
+    this.mirror = false;
     this.outputCtx?.clearRect(0, 0, this.width, this.height);
     this.topCtx?.clearRect(0, 0, this.width, this.height);
     this._snapshotCtx?.clearRect(0, 0, this.width, this.height);
@@ -2460,6 +2641,38 @@ export class ReplayEngine {
       return;
     }
 
+    // Board-level restores ("undo to here" / "undo region to here" / moderator
+    // restore) carry no owning user — the wire has no `u`, and the recorder's
+    // structuredClone drops proto3 default scalars, so msg.u is `undefined`
+    // here for every receiver's recorded tape. Handle them BEFORE the
+    // `userId == null` guard below; otherwise the restore silently no-ops in
+    // replay for everyone except the initiator (whose outbound copy stamped a
+    // real `u`) — which is why a late-joiner's timeline appeared frozen on the
+    // pre-undo board even though their live board reverted correctly.
+    if (msg.t === T.BOARD_SNAPSHOT_RESTORE) {
+      if (Array.isArray(msg.snapshotLayers) && msg.snapshotLayers.length > 0) {
+        this._replayBoard.restoreSnapshot(msg.snapshotLayers);
+        // The opening-snapshot base no longer applies once the board has been
+        // wholesale-replaced — clear it like CLR does so a later seek rebuild
+        // doesn't repaint stale pixels under the restored state.
+        this._snapshotCtx?.clearRect(0, 0, this.width, this.height);
+      }
+      return;
+    }
+
+    if (msg.t === T.BOARD_SNAPSHOT_REGION_RESTORE) {
+      if (Array.isArray(msg.snapshotLayers) && msg.snapshotLayers.length > 0) {
+        this._replayBoard.restoreRegion(msg.snapshotLayers, {
+          isLasso: !!msg.a,
+          sx: msg.sx, sy: msg.sy, sw: msg.sw, sh: msg.sh,
+          lassoFlat: Array.isArray(msg.cr) ? msg.cr : []
+        });
+        // A region restore only rewrites part of the board, so the opening
+        // snapshot base still applies to the rest — don't clear _snapshotCtx.
+      }
+      return;
+    }
+
     const userId = msg.u;
     if (userId == null) return;
 
@@ -2593,7 +2806,11 @@ export class ReplayEngine {
           break;
 
         case T.MIR:
-          this.mirror = !this.mirror;
+          // Prefer the absolute post-toggle state when the recorder stamped it
+          // (our own outbound toggles); fall back to a relative flip for
+          // inbound/legacy MIRs that carry no `m`. Re-asserting from absolute
+          // means a single dropped MIR can't strand global mirror inverted.
+          this.mirror = msg.m !== undefined ? !!msg.m : !this.mirror;
           this._replayBoard.mirror = this.mirror;
           break;
 
@@ -2712,14 +2929,20 @@ export class ReplayEngine {
 
         case T.GLITCH_RESULT:
           // Glitch result images were pre-loaded into _glitchResultCache by _preloadGlitchResults().
-          // Apply the cached result to the user's most recent glitchBlur stroke.
           if (msg.g) {
             const glitchKey = `${userId}_${msg.sx}_${msg.sy}_${msg.sw}_${msg.sh}`;
             const cached = this._glitchResultCache?.get(glitchKey);
-            console.log('[ReplayEngine] GLITCH_RESULT:', { userId, bounds: { x: msg.sx, y: msg.sy, w: msg.sw, h: msg.sh }, hasCached: !!cached });
             if (cached) {
               const bounds = { x: Number(msg.sx), y: Number(msg.sy), width: Number(msg.sw), height: Number(msg.sh) };
-              this._replayBoard.layerManager?.applyRemoteGlitchResult(userId, cached, bounds);
+              // glitchBlur strokes are NOT committed on MU ("committed when
+              // GLITCH_RESULT arrives") — so the result must CREATE the stroke,
+              // exactly like the live 'glitch_result' handler does via
+              // queue/resolve → commitRemoteGlitchImage. applyRemoteGlitchResult
+              // only attaches to an already-committed glitch stroke (which never
+              // exists in replay), so it would buffer the result forever and the
+              // glitch would never render.
+              const token = this._remoteHandler.queueRemoteGlitchImage(user, bounds, msg.ly, msg.seq);
+              if (token) this._remoteHandler.resolveRemoteGlitchImage(token, cached);
             }
           }
           break;
