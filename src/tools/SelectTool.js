@@ -929,25 +929,30 @@ export class SelectTool extends Tool {
    * Draws all handles on the given context.
    * @param {CanvasRenderingContext2D} ctx
    */
-  _drawHandles(ctx) {
-    const { drawSize } = this._getHandleMetrics();
+  _drawHandles() {
+    const ctx = this.board.getHandleCtx();
+    if (!ctx) return;
+    const { squareSize, circleRadius } = this._getHandleMetrics();
+    const toC = (p) => this.board.boardToContainerPos(p.x, p.y);
 
     for (const handle of this.handles) {
+      const h = toC(handle);
       if (handle.isRotation) {
-        const tm = this.handles.find(h => h.id === 'tm');
+        const tm = this.handles.find(hd => hd.id === 'tm');
         if (tm) {
+          const t = toC(tm);
           ctx.strokeStyle = '#000';
           ctx.lineWidth = 1;
           ctx.beginPath();
-          ctx.moveTo(tm.x, tm.y);
-          ctx.lineTo(handle.x, handle.y);
+          ctx.moveTo(t.x, t.y);
+          ctx.lineTo(h.x, h.y);
           ctx.stroke();
         }
 
         ctx.fillStyle = '#fff';
         ctx.strokeStyle = '#000';
         ctx.beginPath();
-        ctx.arc(handle.x, handle.y, drawSize / 2 + 2, 0, Math.PI * 2);
+        ctx.arc(h.x, h.y, circleRadius, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
       } else if (handle.isPerspective) {
@@ -956,19 +961,20 @@ export class SelectTool extends Tool {
         const corner = this.corners[cornerId];
 
         if (corner) {
+          const c = toC(corner);
           ctx.strokeStyle = '#222';
           ctx.lineWidth = 0.75;
           ctx.setLineDash([]);
           ctx.beginPath();
-          ctx.moveTo(corner.x, corner.y);
-          ctx.lineTo(handle.x, handle.y);
+          ctx.moveTo(c.x, c.y);
+          ctx.lineTo(h.x, h.y);
           ctx.stroke();
 
           ctx.fillStyle = '#88CCCC';
           ctx.strokeStyle = '#000';
           ctx.lineWidth = 1;
           ctx.beginPath();
-          ctx.arc(handle.x, handle.y, drawSize / 2 + 2, 0, Math.PI * 2);
+          ctx.arc(h.x, h.y, circleRadius, 0, Math.PI * 2);
           ctx.fill();
           ctx.stroke();
         }
@@ -976,18 +982,8 @@ export class SelectTool extends Tool {
         ctx.fillStyle = '#fff';
         ctx.strokeStyle = '#000';
         ctx.lineWidth = 1;
-        ctx.fillRect(
-          handle.x - drawSize / 2,
-          handle.y - drawSize / 2,
-          drawSize,
-          drawSize
-        );
-        ctx.strokeRect(
-          handle.x - drawSize / 2,
-          handle.y - drawSize / 2,
-          drawSize,
-          drawSize
-        );
+        ctx.fillRect(h.x - squareSize / 2, h.y - squareSize / 2, squareSize, squareSize);
+        ctx.strokeRect(h.x - squareSize / 2, h.y - squareSize / 2, squareSize, squareSize);
       }
     }
   }
@@ -1913,7 +1909,9 @@ export class SelectTool extends Tool {
   drawTransformHandles(ctx) {
     if (!this.corners) return;
 
-    const { drawSize } = this._getHandleMetrics();
+    const { squareSize, circleRadius, perspectiveDistance } = this._getHandleMetrics();
+    const hctx = this.board.getHandleCtx();
+    const toC = (p) => this.board.boardToContainerPos(p.x, p.y);
 
     const c = this.corners;
     const center = this.getSelectionCenter();
@@ -1931,12 +1929,15 @@ export class SelectTool extends Tool {
       br: { x: maxX, y: maxY }
     };
 
-    // Draw bounding box rectangle (dashed gray line)
+    // Draw bounding box rectangle (dashed gray line) — content-aligned, stays on
+    // the board overlay so it tracks the selection while panning/zooming.
     ctx.strokeStyle = 'rgba(128, 128, 128, 0.5)';
     ctx.lineWidth = 1;
     ctx.setLineDash([4, 4]);
     ctx.strokeRect(minX, minY, maxX - minX, maxY - minY);
     ctx.setLineDash([]);
+
+    if (!hctx) return;
 
     // Bounding box handles
     const tm = { x: (bbox.tl.x + bbox.tr.x) / 2, y: (bbox.tl.y + bbox.tr.y) / 2 };
@@ -1948,23 +1949,14 @@ export class SelectTool extends Tool {
       { x: (bbox.tr.x + bbox.br.x) / 2, y: (bbox.tr.y + bbox.br.y) / 2 }  // mr
     ];
 
-    // Draw bounding box handles as white squares
+    // Draw bounding box handles as white squares (screen-space overlay)
     for (const pos of bboxHandlePositions) {
-      ctx.fillStyle = '#fff';
-      ctx.strokeStyle = '#000';
-      ctx.lineWidth = 1;
-      ctx.fillRect(
-        pos.x - drawSize / 2,
-        pos.y - drawSize / 2,
-        drawSize,
-        drawSize
-      );
-      ctx.strokeRect(
-        pos.x - drawSize / 2,
-        pos.y - drawSize / 2,
-        drawSize,
-        drawSize
-      );
+      const p = toC(pos);
+      hctx.fillStyle = '#fff';
+      hctx.strokeStyle = '#000';
+      hctx.lineWidth = 1;
+      hctx.fillRect(p.x - squareSize / 2, p.y - squareSize / 2, squareSize, squareSize);
+      hctx.strokeRect(p.x - squareSize / 2, p.y - squareSize / 2, squareSize, squareSize);
     }
 
     // Draw perspective handles (extending from actual corners)
@@ -1977,7 +1969,7 @@ export class SelectTool extends Tool {
         return { x: corner.x, y: corner.y };
       }
 
-      const extendDist = dist + this.perspectiveHandleDistance;
+      const extendDist = dist + perspectiveDistance;
       return {
         x: center.x + (dx / dist) * extendDist,
         y: center.y + (dy / dist) * extendDist
@@ -1993,43 +1985,48 @@ export class SelectTool extends Tool {
 
     // Draw perspective handle connecting lines first (dark grey, very thin)
     for (const { corner, handle } of perspectiveHandles) {
-      ctx.strokeStyle = '#222';
-      ctx.lineWidth = 0.75;
-      ctx.beginPath();
-      ctx.moveTo(corner.x, corner.y);
-      ctx.lineTo(handle.x, handle.y);
-      ctx.stroke();
+      const a = toC(corner);
+      const b = toC(handle);
+      hctx.strokeStyle = '#222';
+      hctx.lineWidth = 0.75;
+      hctx.beginPath();
+      hctx.moveTo(a.x, a.y);
+      hctx.lineTo(b.x, b.y);
+      hctx.stroke();
     }
 
     // Draw perspective handle circles
     for (const { handle } of perspectiveHandles) {
-      ctx.fillStyle = '#88CCCC';
-      ctx.strokeStyle = '#000';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.arc(handle.x, handle.y, drawSize / 2 + 2, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
+      const b = toC(handle);
+      hctx.fillStyle = '#88CCCC';
+      hctx.strokeStyle = '#000';
+      hctx.lineWidth = 1;
+      hctx.beginPath();
+      hctx.arc(b.x, b.y, circleRadius, 0, Math.PI * 2);
+      hctx.fill();
+      hctx.stroke();
     }
 
     // Draw rotation handle
     const rotHandle = this.getRotationHandlePosition(center, tm.x, tm.y);
+    const tmC = toC(tm);
+    const rotC = toC(rotHandle);
 
     // Draw connecting line from top-middle to rotation handle
-    ctx.strokeStyle = '#000';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(tm.x, tm.y);
-    ctx.lineTo(rotHandle.x, rotHandle.y);
-    ctx.stroke();
+    hctx.strokeStyle = '#000';
+    hctx.lineWidth = 1;
+    hctx.beginPath();
+    hctx.moveTo(tmC.x, tmC.y);
+    hctx.lineTo(rotC.x, rotC.y);
+    hctx.stroke();
 
     // Draw rotation handle as a circle
-    ctx.fillStyle = '#fff';
-    ctx.strokeStyle = '#000';
-    ctx.beginPath();
-    ctx.arc(rotHandle.x, rotHandle.y, drawSize / 2 + 2, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
+    hctx.fillStyle = '#fff';
+    hctx.strokeStyle = '#000';
+    hctx.beginPath();
+    hctx.arc(rotC.x, rotC.y, circleRadius, 0, Math.PI * 2);
+    hctx.fill();
+    hctx.stroke();
   }
 
   applyTransform() {
@@ -2118,18 +2115,38 @@ export class SelectTool extends Tool {
     const effectiveScreenSize = Math.min(this.handleSize, sizeCapFromSelection);
     const effectiveScreenHit = Math.min(this.handleHitArea, hitCapFromSelection);
 
+    // Handles render on the screen-space overlay (NOT zoom-scaled), so draw sizes
+    // are plain on-screen CSS pixels. Square corner/edge handles stay a constant
+    // on-screen size; the circle handles (rotation + perspective) ease from full
+    // size (1.0) at <=100% zoom down to MIN_SCALE (0.75) at max zoom.
+    // Hit-testing and handle POSITIONING happen in board space, so those values are
+    // the on-screen target divided by zoom (board px = screen px / zoom).
+    const MAX_ZOOM = 10;
+    const MIN_SCALE = 0.75;
+    const t = Math.min(1, Math.max(0, (zoom - 1) / (MAX_ZOOM - 1)));
+    const circleScale = 1 - (1 - MIN_SCALE) * t;
+
     return {
-      drawSize: effectiveScreenSize * zoom,
-      hitArea: effectiveScreenHit * zoom
+      // Draw sizes — on-screen CSS pixels.
+      squareSize: effectiveScreenSize,
+      circleRadius: (effectiveScreenSize / 2 + 2) * circleScale,
+      // Hit-test extents — board pixels.
+      squareHit: effectiveScreenHit / zoom,
+      circleHit: (effectiveScreenHit * circleScale) / zoom,
+      // Gap (board px) from a corner to its perspective handle; the on-screen gap
+      // eases with the circle scale. Rotation gap is held constant on-screen.
+      perspectiveDistance: (this.perspectiveHandleDistance * circleScale) / zoom,
+      rotationDistance: this.rotationHandleDistance / zoom
     };
   }
 
   getHandleAtPoint(pos) {
-    const { hitArea } = this._getHandleMetrics();
+    const { squareHit, circleHit } = this._getHandleMetrics();
 
     for (const handle of this.handles) {
       const dx = pos.x - handle.x;
       const dy = pos.y - handle.y;
+      const hitArea = (handle.isRotation || handle.isPerspective) ? circleHit : squareHit;
       if (Math.abs(dx) <= hitArea && Math.abs(dy) <= hitArea) {
         return handle;
       }
@@ -2162,6 +2179,7 @@ export class SelectTool extends Tool {
       };
 
       // Calculate perspective handle positions (extend outward from ACTUAL corners)
+      const { perspectiveDistance } = this._getHandleMetrics();
       const getPerspectiveHandlePos = (corner) => {
         const dx = corner.x - center.x;
         const dy = corner.y - center.y;
@@ -2171,8 +2189,8 @@ export class SelectTool extends Tool {
           return { x: corner.x, y: corner.y };
         }
 
-        // Extend outward by perspectiveHandleDistance
-        const extendDist = dist + this.perspectiveHandleDistance;
+        // Extend outward by the zoom-scaled perspective gap
+        const extendDist = dist + perspectiveDistance;
         return {
           x: center.x + (dx / dist) * extendDist,
           y: center.y + (dy / dist) * extendDist
@@ -2249,17 +2267,19 @@ export class SelectTool extends Tool {
   }
 
   getRotationHandlePosition(center, topMiddleX, topMiddleY) {
-    // Position the rotation handle above the top-middle, extended outward from center
+    // Position the rotation handle above the top-middle, extended outward from center.
+    // The gap is a constant on-screen distance, so convert to board px (screen / zoom).
+    const gap = this.rotationHandleDistance / Math.max(0.01, this.board.zoom || 1);
     const dx = topMiddleX - center.x;
     const dy = topMiddleY - center.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
 
     if (dist === 0) {
-      return { x: topMiddleX, y: topMiddleY - this.rotationHandleDistance };
+      return { x: topMiddleX, y: topMiddleY - gap };
     }
 
     // Extend the handle position outward from center
-    const extendDist = dist + this.rotationHandleDistance;
+    const extendDist = dist + gap;
     return {
       x: center.x + (dx / dist) * extendDist,
       y: center.y + (dy / dist) * extendDist
@@ -2450,10 +2470,16 @@ export class SelectTool extends Tool {
   }
 
   /**
-   * Draws all selection handles (perspective, corner, rotation) on the given context.
-   * @param {CanvasRenderingContext2D} ctx
+   * Draws all selection handles (perspective, corner, rotation) on the screen-space
+   * handle overlay, converting board positions to container space so they stay crisp
+   * and a constant on-screen size at any zoom. The passed ctx is unused (legacy).
    */
-  _drawSelectionUIHandles(ctx) {
+  _drawSelectionUIHandles() {
+    const ctx = this.board.getHandleCtx();
+    if (!ctx) return;
+    const { squareSize, circleRadius } = this._getHandleMetrics();
+    const toC = (p) => this.board.boardToContainerPos(p.x, p.y);
+
     // PASS 1: Draw perspective handle connecting lines first (so corner handles appear on top)
     for (const handle of this.handles) {
       if (handle.isPerspective) {
@@ -2463,12 +2489,14 @@ export class SelectTool extends Tool {
 
         if (corner) {
           // Draw connecting line from corner to perspective handle (dark grey, very thin)
+          const a = toC(corner);
+          const b = toC(handle);
           ctx.strokeStyle = '#222';
           ctx.lineWidth = 0.75;
           ctx.setLineDash([]);
           ctx.beginPath();
-          ctx.moveTo(corner.x, corner.y);
-          ctx.lineTo(handle.x, handle.y);
+          ctx.moveTo(a.x, a.y);
+          ctx.lineTo(b.x, b.y);
           ctx.stroke();
         }
       }
@@ -2477,12 +2505,13 @@ export class SelectTool extends Tool {
     // PASS 2: Draw perspective handle circles
     for (const handle of this.handles) {
       if (handle.isPerspective) {
+        const b = toC(handle);
         // Draw perspective handle as desaturated cyan circle
         ctx.fillStyle = '#88CCCC';
         ctx.strokeStyle = '#000';
         ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.arc(handle.x, handle.y, this.handleSize / 2 + 2, 0, Math.PI * 2);
+        ctx.arc(b.x, b.y, circleRadius, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
       }
@@ -2491,41 +2520,34 @@ export class SelectTool extends Tool {
     // PASS 3: Draw regular corner/edge handles (these appear on top of perspective lines)
     for (const handle of this.handles) {
       if (!handle.isPerspective && !handle.isRotation) {
+        const p = toC(handle);
         ctx.fillStyle = '#fff';
         ctx.strokeStyle = '#000';
         ctx.lineWidth = 1;
-        ctx.fillRect(
-          handle.x - this.handleSize / 2,
-          handle.y - this.handleSize / 2,
-          this.handleSize,
-          this.handleSize
-        );
-        ctx.strokeRect(
-          handle.x - this.handleSize / 2,
-          handle.y - this.handleSize / 2,
-          this.handleSize,
-          this.handleSize
-        );
+        ctx.fillRect(p.x - squareSize / 2, p.y - squareSize / 2, squareSize, squareSize);
+        ctx.strokeRect(p.x - squareSize / 2, p.y - squareSize / 2, squareSize, squareSize);
       }
     }
 
     // PASS 4: Draw rotation handle last
     const rotHandle = this.handles.find(h => h.isRotation);
     if (rotHandle) {
+      const r = toC(rotHandle);
       const tm = this.handles.find(h => h.id === 'tm');
       if (tm) {
+        const t = toC(tm);
         ctx.strokeStyle = '#000';
         ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.moveTo(tm.x, tm.y);
-        ctx.lineTo(rotHandle.x, rotHandle.y);
+        ctx.moveTo(t.x, t.y);
+        ctx.lineTo(r.x, r.y);
         ctx.stroke();
       }
 
       ctx.fillStyle = '#fff';
       ctx.strokeStyle = '#000';
       ctx.beginPath();
-      ctx.arc(rotHandle.x, rotHandle.y, this.handleSize / 2 + 2, 0, Math.PI * 2);
+      ctx.arc(r.x, r.y, circleRadius, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
     }

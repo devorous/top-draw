@@ -48,6 +48,10 @@ const zoomIconUrl = '../images/magnifying-glass.svg';
  * UI Manager class
  */
 export class UI {
+  // Half-length (px, board space) of the constant-size crosshair used by
+  // tools like select/fill that don't scale the cursor with brush size.
+  static FIXED_CROSSHAIR_HALF = 10;
+
   constructor() {
     this.elements = {};
     this.svgCache = new Map(); // Initialize SVG cache
@@ -874,17 +878,29 @@ menuBtn: document.getElementById('menuBtn'),
     this.elements.selfCircle.setAttribute('r', size);
     this.elements.selfSquare.setAttribute('width', size * 2);
     this.elements.selfSquare.setAttribute('height', size * 2);
+    // Tools that force a crosshair regardless of brush size (select, fill, etc.)
+    // keep a constant-size crosshair — it shouldn't scale with the size slider.
+    const tool = window.app?.self?.tool;
+    const half = this.toolUsesFixedCrosshair(tool) ? UI.FIXED_CROSSHAIR_HALF : size;
     const crosshairLines = this.elements.selfCrosshair.querySelectorAll('line');
     crosshairLines.forEach((line) => {
       const x1 = parseFloat(line.getAttribute('x1'));
       if (!isNaN(x1) && x1 !== 0) {
-        line.setAttribute('x1', -size);
-        line.setAttribute('x2', size);
+        line.setAttribute('x1', -half);
+        line.setAttribute('x2', half);
       } else {
-        line.setAttribute('y1', -size);
-        line.setAttribute('y2', size);
+        line.setAttribute('y1', -half);
+        line.setAttribute('y2', half);
       }
     });
+  }
+
+  /**
+   * Tools that always render a crosshair cursor independent of the brush size.
+   * Their crosshair stays a constant on-screen size.
+   */
+  toolUsesFixedCrosshair(tool) {
+    return tool === 'select' || tool === 'fill' || tool === 'inkdropper' || tool === 'rotate';
   }
 
   getSupportedCursorStyleTools() {
@@ -938,6 +954,21 @@ menuBtn: document.getElementById('menuBtn'),
       selfSquare.style.display = 'block';
     } else if (style === 'crosshair') {
       selfCrosshair.style.display = 'block';
+      // Constant-size crosshair for non-brush tools; reset in case the size
+      // slider previously stretched the lines while a brush tool was active.
+      if (this.toolUsesFixedCrosshair(tool)) {
+        const half = UI.FIXED_CROSSHAIR_HALF;
+        selfCrosshair.querySelectorAll('line').forEach((line) => {
+          const x1 = parseFloat(line.getAttribute('x1'));
+          if (!isNaN(x1) && x1 !== 0) {
+            line.setAttribute('x1', -half);
+            line.setAttribute('x2', half);
+          } else {
+            line.setAttribute('y1', -half);
+            line.setAttribute('y2', half);
+          }
+        });
+      }
     } else if (style === 'dot') {
       if (selfDot) selfDot.style.display = 'block';
     } else if (style === 'hand') {

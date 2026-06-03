@@ -241,6 +241,25 @@ export class Board {
     this.boardsWrapper.appendChild(this.selectionOverlay);
     this.selectionCtx = this._createBoard2DContext(this.selectionOverlay, 'selection');
 
+    // Screen-space overlay for selection handles. Unlike selectionOverlay (which
+    // lives inside the zoom-scaled #boards wrapper and therefore gets upscaled and
+    // pixelated), this canvas is a child of the untransformed container and is
+    // rasterized at real device pixels every frame, so handles stay crisp and a
+    // constant on-screen size at any zoom. Handle positions are converted from
+    // board space to container space via boardToContainerPos().
+    this.handleOverlay = document.createElement('canvas');
+    this.handleOverlay.id = 'handleOverlay';
+    this.handleOverlay.style.position = 'absolute';
+    this.handleOverlay.style.top = '0';
+    this.handleOverlay.style.left = '0';
+    this.handleOverlay.style.pointerEvents = 'none';
+    this.handleOverlay.style.zIndex = '6';
+    this.container.appendChild(this.handleOverlay);
+    this.handleCtx = this.handleOverlay.getContext('2d');
+    this._handleOverlayCssW = 0;
+    this._handleOverlayCssH = 0;
+    this._handleOverlayDpr = 0;
+
     this.interactionBlockOverlay = document.createElement('canvas');
     this.interactionBlockOverlay.id = 'interactionBlockOverlay';
     this.interactionBlockOverlay.style.position = 'absolute';
@@ -3056,6 +3075,67 @@ export class Board {
       const pad = this.selectionOverlayPadding;
       this.selectionCtx.clearRect(0, 0, this.dimensions[1] + pad * 2, this.dimensions[0] + pad * 2);
     }
+    this.clearHandleOverlay();
+  }
+
+  /**
+   * Clear the screen-space handle overlay canvas.
+   */
+  clearHandleOverlay() {
+    if (this.handleCtx) {
+      this.handleCtx.setTransform(1, 0, 0, 1, 0, 0);
+      this.handleCtx.clearRect(0, 0, this.handleOverlay.width, this.handleOverlay.height);
+    }
+  }
+
+  /**
+   * Get the screen-space handle overlay context, sized to the container at the
+   * current device pixel ratio and transformed so drawing happens in CSS pixels
+   * using container-relative coordinates (see boardToContainerPos). Does not clear
+   * — clearHandleOverlay() runs via clearSelectionOverlay() on each full clearTop.
+   * @returns {CanvasRenderingContext2D|null}
+   */
+  getHandleCtx() {
+    if (!this.handleCtx) return null;
+    const rect = this._getContainerRect();
+    const dpr = window.devicePixelRatio || 1;
+    const cssW = rect.width;
+    const cssH = rect.height;
+    if (this._handleOverlayCssW !== cssW || this._handleOverlayCssH !== cssH || this._handleOverlayDpr !== dpr) {
+      this.handleOverlay.style.width = `${cssW}px`;
+      this.handleOverlay.style.height = `${cssH}px`;
+      this.handleOverlay.width = Math.max(1, Math.round(cssW * dpr));
+      this.handleOverlay.height = Math.max(1, Math.round(cssH * dpr));
+      this._handleOverlayCssW = cssW;
+      this._handleOverlayCssH = cssH;
+      this._handleOverlayDpr = dpr;
+    }
+    this.handleCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return this.handleCtx;
+  }
+
+  /**
+   * Transforms board-space coordinates to container-space (untransformed screen)
+   * coordinates — the inverse of getBoardRelativePos. Accounts for flip, zoom,
+   * rotation and pan. Used to position handles on the screen-space overlay.
+   * @param {number} bx - Board X
+   * @param {number} by - Board Y
+   * @returns {{x: number, y: number}} Container-relative pixel coordinates
+   */
+  boardToContainerPos(bx, by) {
+    let x = bx;
+    if (this.canvasFlipped) {
+      x = this.getWidth() - x;
+    }
+    const rx = x * this.zoom;
+    const ry = by * this.zoom;
+    const rad = this.rotation * Math.PI / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+    return {
+      x: rx * cos - ry * sin + this.panX,
+      y: rx * sin + ry * cos + this.panY
+    };
   }
 
   /**
