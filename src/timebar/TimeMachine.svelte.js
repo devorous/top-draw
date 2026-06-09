@@ -70,6 +70,8 @@ class TimeMachineState {
   isPlaying = $state(false);
   /** true while the user is dragging the replay thumb */
   isScrubbing = $state(false);
+  /** true if playback was running when the current scrub began, so we resume on release */
+  _wasPlayingBeforeScrub = false;
   /** true while loading checkpoint list or a replay window */
   isLoading = $state(false);
   /** true once checkpoint list has been loaded for the current room */
@@ -709,6 +711,9 @@ class TimeMachineState {
     this._pendingSeekTimestamp = null;
     this._scrubLastRequestedTimestamp = this.currentTime;
     this._scrubLastSeekAt = 0;
+    // Remember whether we were mid-playback so we can resume after the scrub
+    // (clicking/dragging the timeline shouldn't stop a running replay).
+    this._wasPlayingBeforeScrub = this.isPlaying;
     this.pause();
   }
 
@@ -821,6 +826,13 @@ class TimeMachineState {
     this._scrubQueuedTimestamp = null;
     this._scrubLastRequestedTimestamp = null;
     this.seek(exact);
+    // Resume playback if the scrub interrupted a running replay, unless we
+    // landed at the very end of the tape.
+    const resume = this._wasPlayingBeforeScrub;
+    this._wasPlayingBeforeScrub = false;
+    if (resume && this.currentTime < this.sessionEnd) {
+      this.play();
+    }
   }
 
   _flushScrubSeek() {
@@ -846,6 +858,7 @@ class TimeMachineState {
 
   _clearScrubState() {
     this.isScrubbing = false;
+    this._wasPlayingBeforeScrub = false;
     this._cancelScrubSettle();
     if (this._scrubTimer != null) {
       clearTimeout(this._scrubTimer);

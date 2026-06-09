@@ -34,6 +34,15 @@ import { isCommitType } from '../../shared/StrokeFingerprint.js';
  * @property {Record<string, string>} assets - SHA-1 → dataURL (Phase 3+)
  */
 
+/** Clone a decoded message, tolerating typed-array/alias-bearing payloads. */
+function structuredCloneSafe(msg) {
+  try {
+    return structuredClone(msg);
+  } catch {
+    return JSON.parse(JSON.stringify(msg));
+  }
+}
+
 const RECORDING_VERSION = 2;
 const DEFAULT_INTRA_CHECKPOINT_INTERVAL_MS = 30_000;
 const HARD_MAX_DELTAS = 500_000;
@@ -170,6 +179,28 @@ export class Recorder {
     this._app = null;
     this._notifyStateChange();
     return bundle;
+  }
+
+  /**
+   * Return a frozen copy of the in-progress recording without stopping it.
+   * Used by the "View" button so the user can preview the tape so far while
+   * recording continues. Returns null when idle.
+   * @returns {ReplayRecording | null}
+   */
+  snapshot() {
+    if (this.state !== 'recording' || !this.recording) return null;
+    const rec = this.recording;
+    return {
+      version: rec.version,
+      roomId: rec.roomId,
+      startedAt: rec.startedAt,
+      endedAt: Date.now(),
+      openingSnapshot: rec.openingSnapshot,
+      deltas: rec.deltas.map((d) => ({ ts: d.ts, msg: structuredCloneSafe(d.msg), dir: d.dir })),
+      intraCheckpoints: rec.intraCheckpoints.map((cp) => ({ ts: cp.ts, snapshot: cp.snapshot })),
+      visualCheckpoints: rec.visualCheckpoints.map((cp) => ({ ts: cp.ts, blob: cp.blob })),
+      assets: { ...rec.assets },
+    };
   }
 
   /** Discard the in-progress recording without returning it. */

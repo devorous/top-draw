@@ -131,6 +131,66 @@ async function maybeCreateInitialCheckpoint(roomId, bgColor, ts) {
   getRecorder(roomId).onCheckpoint(id);
 }
 
+/**
+ * Persist a full-board restore to DB/R2 as an authoritative auto-checkpoint.
+ *
+ * The in-memory re-baseline (room.addSnapshot + strokeLog.truncateBefore in
+ * handleSnapshotRestore) makes a refresher get the restored board WHILE the
+ * room stays populated, but the rolling buffer is RAM-only. Without persisting,
+ * a joiner that falls back to DB/R2 (room emptied and reloaded, in-memory
+ * checkpoint evicted, late join after restart) is served the STALE pre-restore
+ * checkpoint — and because the live strokeLog was truncated past that older
+ * seq, the gap can't be rebuilt, so the joiner desyncs (the pre-undo board
+ * reappears / strokes layer back on top). Persisting the restored image at the
+ * restore's seq keeps the DB join base in lockstep with the in-memory one.
+ *
+ * Best-effort: mirrors the auto-snapshot persistence in handleSnapshotSave and
+ * never throws (a failed persist must not abort the live restore broadcast).
+ *
+ * @param {Object} room
+ * @param {{ id: string, ts: number, issuer: string, layers: Array }} snapshotData
+ * @param {number} seq - Server seq the restore was sequenced at (the new baseSeq).
+ */
+async function persistRestoredCheckpoint(room, snapshotData, seq) {
+  const isProd = process.env.NODE_ENV === 'production';
+  const allowDevSaves = process.env.ALLOW_DEV_SNAPSHOTS === 'true';
+  if (!(isProd || allowDevSaves)) return;
+  if (!room?.canPersistSnapshots?.()) return;
+  const db = getDB();
+  if (!db) return;
+  if (!snapshotData?.id || !Array.isArray(snapshotData.layers) || snapshotData.layers.length === 0) return;
+
+  try {
+    await room.saveToDB();
+    await maybeCreateInitialCheckpoint(
+      room.id,
+      room.settings?.backgroundColor || '#ffffff',
+      room.createdAt
+    );
+
+    const r2Key = `snapshots/${room.id}/${snapshotData.id}.bundle`;
+    await uploadSnapshotBundle(r2Key, { layers: snapshotData.layers, thumbnail: null });
+
+    await db.collection('room_snapshots').insertOne({
+      snapshotId: snapshotData.id,
+      roomId: room.id,
+      timestamp: snapshotData.ts,
+      issuer: snapshotData.issuer,
+      auto: true,            // a join-checkpoint base, like an auto-snapshot
+      seq: seq,
+      thumbnail: null,
+      r2Key: r2Key,
+      name: `Board restore ${new Date(snapshotData.ts).toLocaleTimeString()}`
+    });
+    await unsetLegacyEmbeddedSnapshots(db, room.id);
+    await pruneSnapshotsForRoom(db, room);
+    getRecorder(room.id).onCheckpoint(snapshotData.id);
+    console.log(`[Snapshot] Persisted full-board restore ${snapshotData.id} @ seq ${seq} for room "${room.id}"`);
+  } catch (err) {
+    console.error(`[Snapshot] Failed to persist restore checkpoint for room "${room.id}":`, err);
+  }
+}
+
 export async function handleSnapshotSave(ws, data, room) {
 
   // Only allow saving if in production or specifically enabled for dev
@@ -274,16 +334,38 @@ export async function handleSnapshotSave(ws, data, room) {
     const broadcastRestore = room.broadcastSequencedRestore
       ? room.broadcastSequencedRestore.bind(room)
       : room.broadcastToAll.bind(room);
-    broadcastRestore({
+    const restoreSeq = Number(broadcastRestore({
       t: T.BOARD_SNAPSHOT_RESTORE,
       snapshotLayers: layers,
       snapshotId: snapshotId,
       snapshotTs: snapshotTs,
       snapshotIssuer: issuer
-    });
+    })) || 0;
 
     if (snapshotCoversRoomBoard(layers, room)) {
       room.clearAllTiles();
+
+      // Re-baseline join sync against the shared restore, identical to
+      // handleSnapshotRestore. The manual snapshot pushed earlier in this
+      // function carries empty layers (in-memory manual saves don't), so it is
+      // NOT a usable join base — without re-baselining here, a joiner/refresher
+      // re-syncs from the stale pre-restore checkpoint + the full command tail
+      // and double-renders the original board. Register the restored image as
+      // the in-memory join checkpoint, truncate the tail past it, and persist
+      // it as the authoritative DB/R2 base (matches handleSnapshotRestore).
+      if (restoreSeq > 0) {
+        const restoreSnapshot = {
+          id: `restore_${Date.now()}`,
+          ts: snapshotTs,
+          issuer: issuer,
+          layers: layers,
+        };
+        room.addSnapshot?.({ ...restoreSnapshot, seq: restoreSeq, auto: true });
+        room.strokeLog?.truncateBefore?.(restoreSeq + 1);
+        room.strokeTape?.truncateBefore?.(restoreSeq + 1);
+        room.joinCheckpointInvalidated = false;
+        await persistRestoredCheckpoint(room, restoreSnapshot, restoreSeq);
+      }
     }
   }
 }
@@ -442,6 +524,14 @@ export async function handleSnapshotRestore(ws, data, room) {
       // We now hold a fresh, valid in-memory base, so undo any prior "skip the
       // persisted checkpoint" invalidation from a blank/lone-join session.
       room.joinCheckpointInvalidated = false;
+
+      // Persist the restored board as the authoritative DB/R2 checkpoint too.
+      // The in-memory re-baseline above only serves refreshers while the room
+      // stays populated; without this, a joiner that falls back to DB (room
+      // emptied/reloaded, in-memory checkpoint evicted) gets the stale
+      // pre-restore checkpoint while the truncated log can't rebuild the gap —
+      // the desync after a full-board undo + refresh. Best-effort, never throws.
+      await persistRestoredCheckpoint(room, snapshotData, restoreSeq);
     }
   }
 }

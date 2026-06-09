@@ -2,6 +2,7 @@
   import { appState, toggleSnapshotMenu } from '../../state.svelte.js';
   import { LayerPreview } from '../LayerPreview.js';
   import ToolPreview from './ToolPreview.svelte';
+  import ImageSelectorWindow from './ImageSelectorWindow.svelte';
 
   let { onBlendModeChange = null, onBlendBakeModeChange = null, onBlendModeLockToggle = null, onLayerSelect = null, onLayerVisibilityToggle = null } = $props();
 
@@ -303,6 +304,10 @@
     </button>
   </div>
   {/if}
+
+  <!-- Image / pattern selection window (appears below History for tools that
+       support image pickers: image brush, confetti, pattern, fill/select patterns) -->
+  <ImageSelectorWindow />
 </div>
 
 <style>

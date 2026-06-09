@@ -1,27 +1,51 @@
 <script>
   import { TimeMachine } from './TimeMachine.svelte.js';
   import { appState } from '../state.svelte.js';
-  import { onMount, onDestroy } from 'svelte'; // Added import
+  import { onDestroy } from 'svelte';
   import TimeLapseDialog from './TimeLapseDialog.svelte';
+
+  // NOTE: The original full-width tick-marked scrubber lives in
+  // Timebar.fullscreen.backup.svelte (kept as a reference, not mounted).
+  // This component renders the compact "mini-player" style timeline over the
+  // full-board replay takeover instead.
 
   let timeLapseDialogOpen = $state(false);
 
-  // Format timestamp relative to the current live time
-  function formatRelativeTime(timestamp) {
-    if (!timestamp) return '0:00';
-    const referenceTime = TimeMachine.sessionEnd;
-    const secondsAgo = Math.floor((referenceTime - timestamp) / 1000);
-    const mins = Math.floor(secondsAgo / 60);
-    const secs = secondsAgo % 60;
-    return `-${mins}:${secs.toString().padStart(2, '0')}`;
+  // Reactive mirrors of TimeMachine playback state for the compact controls.
+  let tmPlaying = $derived(TimeMachine.isPlaying);
+  let tmStart = $derived(TimeMachine.sessionStart);
+  let tmEnd = $derived(TimeMachine.sessionEnd);
+  let tmCurrent = $derived(TimeMachine.currentTime);
+  let tmLoading = $derived(TimeMachine.isLoading);
+  let tmExporting = $derived(TimeMachine.isExportingVideo);
+  let tmExportProgress = $derived(TimeMachine.videoExportProgress);
+
+  let elapsedLabel = $derived(formatClock(Math.max(0, tmCurrent - tmStart)));
+  let totalLabel = $derived(formatClock(Math.max(0, tmEnd - tmStart)));
+
+  function formatClock(ms) {
+    const s = Math.floor((ms || 0) / 1000);
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
   }
 
   function togglePlay() {
-    if (TimeMachine.isPlaying) {
-      TimeMachine.pause();
-    } else {
-      TimeMachine.play();
-    }
+    if (TimeMachine.isPlaying) TimeMachine.pause();
+    else TimeMachine.play();
+  }
+
+  // ── Scrubbing via the range input ───────────────────────────────────────────
+  let scrubbing = false;
+
+  function onScrubInput(e) {
+    const t = Number(e.currentTarget.value);
+    if (!scrubbing) { scrubbing = true; TimeMachine.beginScrub(); }
+    TimeMachine.scrubTo(t);
+  }
+
+  function onScrubChange(e) {
+    const t = Number(e.currentTarget.value);
+    TimeMachine.endScrub(t);
+    scrubbing = false;
   }
 
   async function handleUndoToState() {
@@ -44,169 +68,20 @@
     }
   }
 
-  let isScrubbing = false;
-  let lastScrubTime = null;
-  let scrubberElement = $state(); // Will be assigned to the .custom-scrubber div
-  let viewportElement = $state(); // The horizontally-scrollable wrapper
+  function openRenderDialog() {
+    if (TimeMachine.isExportingVideo) return;
+    timeLapseDialogOpen = true;
+  }
 
-  // ── Horizontal-zoom configuration ────────────────────────────────────────
-  // The viewport shows viewportSeconds of tape at once; the inner scrubber
-  // is wider than the viewport when the recording is longer, so the user can
-  // scroll horizontally to reach earlier moments. Mouse wheel over the
-  // timebar zooms in/out. Auto-scroll keeps the playhead onscreen during
-  // playback. pxPerSecond is derived from the viewport's current width so
-  // things stay responsive when side panels open/close.
+  function cancelVideo() {
+    TimeMachine.cancelVideoExport();
+  }
+
   let overlayElement = $state(); // .replay-preview-overlay node (positioned over #boards)
-  let viewportSeconds = $state(30);
-  const VIEWPORT_SECONDS_MIN = 5;
-  const VIEWPORT_SECONDS_MAX = 600;
-  let viewportWidthPx = $state(700);
 
-  let durationMs = $derived.by(() => {
-    const { sessionStart, sessionEnd } = TimeMachine;
-    return Math.max(0, (sessionEnd || 0) - (sessionStart || 0));
-  });
-
-  let pxPerSecond = $derived.by(() => {
-    if (viewportWidthPx <= 0) return 12;
-    return viewportWidthPx / viewportSeconds;
-  });
-
-  // Wheel zoom — preserve the tape position under the cursor so zoom feels
-  // anchored. Native horizontal trackpad scroll still works because we only
-  // hijack the event when deltaY is the dominant axis.
-  function handleViewportWheel(event) {
-    if (!viewportElement) return;
-    if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
-    event.preventDefault();
-    const rect = viewportElement.getBoundingClientRect();
-    const cursorXInViewport = event.clientX - rect.left;
-    const cursorXInScrubber = viewportElement.scrollLeft + cursorXInViewport;
-    const cursorTapeSecond = cursorXInScrubber / pxPerSecond;
-    const factor = event.deltaY > 0 ? 1.2 : 1 / 1.2;
-    const next = Math.max(VIEWPORT_SECONDS_MIN, Math.min(VIEWPORT_SECONDS_MAX, viewportSeconds * factor));
-    if (next === viewportSeconds) return;
-    viewportSeconds = next;
-    // After Svelte re-renders the new width, restore the cursor anchor.
-    queueMicrotask(() => {
-      if (!viewportElement) return;
-      const newPxPerSec = viewportWidthPx / viewportSeconds;
-      const newCursorXInScrubber = cursorTapeSecond * newPxPerSec;
-      viewportElement.scrollLeft = Math.max(0, newCursorXInScrubber - cursorXInViewport);
-    });
-  }
-
-  // Inner scrubber's width. min = viewport (so short tapes don't get squished).
-  let scrubberWidthPx = $derived.by(() => {
-    const tapeSeconds = durationMs / 1000;
-    const px = tapeSeconds * pxPerSecond;
-    return Math.max(viewportWidthPx, px);
-  });
-
-  // Track viewport width with a ResizeObserver so pxPerSecond stays meaningful
-  // when the user opens/closes side panels.
-  let viewportResizeObserver = null;
-
-  function calculateScrubTime(event, element) {
-    const rect = element.getBoundingClientRect();
-    const clientX = event.touches ? event.touches[0].clientX : event.clientX;
-    const offsetX = clientX - rect.left;
-    const percentage = Math.max(0, Math.min(1, offsetX / rect.width));
-
-    const { sessionStart, sessionEnd } = TimeMachine;
-    if (!sessionStart || sessionEnd <= sessionStart) return 0;
-
-    return sessionStart + percentage * (sessionEnd - sessionStart);
-  }
-
-  function handleScrubberMouseDown(event) {
-    isScrubbing = true;
-    TimeMachine.beginScrub();
-    if (scrubberElement) {
-      lastScrubTime = calculateScrubTime(event, scrubberElement);
-      TimeMachine.scrubTo(lastScrubTime);
-    }
-    // Prevent default to avoid text selection or other native browser behaviors
-    event.preventDefault(); 
-  }
-
-  function handleGlobalMouseMove(event) { // Added global handler
-    if (isScrubbing && scrubberElement) {
-      lastScrubTime = calculateScrubTime(event, scrubberElement);
-      TimeMachine.scrubTo(lastScrubTime);
-    }
-  }
-
-  function handleGlobalMouseUp() { // Added global handler
-    if (isScrubbing) TimeMachine.endScrub(lastScrubTime);
-    isScrubbing = false;
-    lastScrubTime = null;
-  }
-
-  function handleScrubberTouchStart(event) {
-    isScrubbing = true;
-    TimeMachine.beginScrub();
-    if (scrubberElement) {
-      lastScrubTime = calculateScrubTime(event, scrubberElement);
-      TimeMachine.scrubTo(lastScrubTime);
-    }
-    event.preventDefault(); // Prevent scrolling
-  }
-
-  function handleGlobalTouchMove(event) { // Added global handler
-    if (isScrubbing && scrubberElement) {
-      lastScrubTime = calculateScrubTime(event, scrubberElement);
-      TimeMachine.scrubTo(lastScrubTime);
-    }
-  }
-
-  function handleGlobalTouchEnd() { // Added global handler
-    if (isScrubbing) TimeMachine.endScrub(lastScrubTime);
-    isScrubbing = false;
-    lastScrubTime = null;
-  }
-
-  onMount(() => { // Added onMount
-    document.addEventListener('mousemove', handleGlobalMouseMove);
-    document.addEventListener('mouseup', handleGlobalMouseUp);
-    document.addEventListener('touchmove', handleGlobalTouchMove);
-    document.addEventListener('touchend', handleGlobalTouchEnd);
-
-    if (viewportElement && typeof ResizeObserver !== 'undefined') {
-      viewportResizeObserver = new ResizeObserver((entries) => {
-        const w = entries[0]?.contentRect?.width;
-        if (w && w > 0) viewportWidthPx = w;
-      });
-      viewportResizeObserver.observe(viewportElement);
-      viewportWidthPx = viewportElement.clientWidth || viewportWidthPx;
-    }
-  });
-
-  onDestroy(() => { // Added onDestroy
-    document.removeEventListener('mousemove', handleGlobalMouseMove);
-    document.removeEventListener('mouseup', handleGlobalMouseUp);
-    document.removeEventListener('touchmove', handleGlobalTouchMove);
-    document.removeEventListener('touchend', handleGlobalTouchEnd);
+  onDestroy(() => {
     document.body.classList.remove('replay-reviewing-mode');
     document.body.classList.remove('replay-preview-mode');
-    viewportResizeObserver?.disconnect?.();
-  });
-
-  // Auto-scroll the viewport during playback so the playhead stays onscreen.
-  // While the user is actively scrubbing we leave their scroll position alone.
-  $effect(() => {
-    if (!viewportElement || isScrubbing) return;
-    const { sessionStart, sessionEnd, currentTime } = TimeMachine;
-    if (!sessionStart || sessionEnd <= sessionStart) return;
-    const headPx = ((currentTime - sessionStart) / 1000) * pxPerSecond;
-    const left = viewportElement.scrollLeft;
-    const right = left + viewportWidthPx;
-    // Anchor playhead at 25% from the left edge once it crosses the right
-    // half — gives the viewer some lead-in on the upcoming content.
-    if (headPx < left + viewportWidthPx * 0.1 || headPx > right - viewportWidthPx * 0.2) {
-      const target = Math.max(0, headPx - viewportWidthPx * 0.25);
-      viewportElement.scrollTo({ left: target, behavior: TimeMachine.isPlaying ? 'auto' : 'smooth' });
-    }
   });
 
   // While showing a cached low-res frame, blur the replay canvas so the upscale
@@ -249,75 +124,6 @@
     sync();
     return () => cancelAnimationFrame(rafId);
   });
-
-  // Calculate percentage for slider background
-  let progressPercent = $derived.by(() => {
-    const { sessionStart, sessionEnd, currentTime } = TimeMachine;
-    if (!sessionStart || sessionEnd <= sessionStart) return 0;
-    return ((currentTime - sessionStart) / (sessionEnd - sessionStart)) * 100;
-  });
-
-  // Checkpoint markers derived from server checkpoint list
-  let markers = $derived.by(() => {
-    const { sessionStart, sessionEnd, checkpoints } = TimeMachine;
-    if (!sessionStart || sessionEnd <= sessionStart || checkpoints.length === 0) return [];
-    const range = sessionEnd - sessionStart;
-    return checkpoints.map((cp, index) => ({
-      position: ((cp.ts - sessionStart) / range) * 100,
-      type: 'snapshot',
-      index,
-      timestamp: cp.ts,
-      id: cp.id
-    }));
-  });
-
-  // Calculate all tick marks and labels for the timeline
-  let allTickMarks = $derived.by(() => {
-    const { sessionStart, sessionEnd } = TimeMachine;
-    if (!sessionStart || sessionEnd <= sessionStart) return [];
-
-    const duration = sessionEnd - sessionStart;
-    const tickMarks = [];
-
-    // Major tick interval depends on duration. Minor ticks are 1/5 of major
-    // — gives the eye a steady cadence between labels without crowding.
-    let majorInterval = 1000 * 5; // 5 s
-    if (duration > 1000 * 60)       majorInterval = 1000 * 10;     // 10 s
-    if (duration > 1000 * 60 * 5)   majorInterval = 1000 * 30;     // 30 s
-    if (duration > 1000 * 60 * 30)  majorInterval = 1000 * 60 * 2; // 2 min
-    const minorInterval = majorInterval / 5;
-
-    for (let time = sessionStart; time <= sessionEnd; time += majorInterval) {
-      tickMarks.push({
-        position: ((time - sessionStart) / duration) * 100,
-        type: 'major',
-        label: formatRelativeTime(time),
-        timestamp: time
-      });
-    }
-
-    for (let time = sessionStart; time <= sessionEnd; time += minorInterval) {
-      const position = ((time - sessionStart) / duration) * 100;
-      // Skip positions that overlap a major tick
-      if (tickMarks.some(t => Math.abs(t.position - position) < 0.05)) continue;
-      tickMarks.push({ position, type: 'minor', timestamp: time });
-    }
-
-    // Merge checkpoint markers with major ticks
-    markers.forEach(marker => {
-      const existingLabelTick = tickMarks.find(
-        (tick) => tick.type === 'major' && Math.abs(tick.position - marker.position) < 0.5
-      );
-      if (existingLabelTick) {
-        existingLabelTick.type = 'major-snapshot';
-      }
-    });
-
-    return tickMarks
-      .filter(t => t.position <= 100)
-      .sort((a, b) => a.position - b.position);
-  });
-
 </script>
 
 {#if TimeMachine.isReviewing && !TimeMachine.isEmbedded}
@@ -361,97 +167,51 @@
 
 <div class="timebar-container" class:hidden={!TimeMachine.isVisible} class:reviewing={TimeMachine.isReviewing}>
   <div class="timebar">
-    <div class="controls">
-      <button class="icon-btn play-pause" onclick={togglePlay} title={TimeMachine.isPlaying ? 'Pause' : 'Play'}>
-        {#if TimeMachine.isPlaying}
-          <svg viewBox="0 0 24 24" width="20" height="20"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" fill="currentColor"/></svg>
+    <!-- Compact "mini-player" style transport -->
+    <div class="rp-controls">
+      <button class="rp-play" onclick={togglePlay} title={tmPlaying ? 'Pause' : 'Play'} aria-label={tmPlaying ? 'Pause' : 'Play'}>
+        {#if tmPlaying}
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
         {:else}
-          <svg viewBox="0 0 24 24" width="20" height="20"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
         {/if}
       </button>
-
-      <div
-        class="scrubber-viewport"
-        bind:this={viewportElement}
-        onwheel={handleViewportWheel}
-      >
-        <div
-          class="custom-scrubber"
-          bind:this={scrubberElement}
-          onmousedown={handleScrubberMouseDown}
-          ontouchstart={handleScrubberTouchStart}
-          role="slider"
-          aria-label="Timeline scrubber"
-          aria-valuemin="0"
-          aria-valuemax="100"
-          aria-valuenow={progressPercent}
-          tabindex="0"
-          style="width: {scrubberWidthPx}px"
-        >
-          <div class="snapshot-marker-row">
-            {#each markers as m}
-              <div
-                class="snapshot-marker"
-                style="left: {m.position}%"
-                title="Snapshot {m.index + 1} • {formatRelativeTime(m.timestamp)}"
-              >◆</div>
-            {/each}
-          </div>
-          <div class="scrubber-track">
-            <div class="scrubber-progress" style="width: {progressPercent}%"></div>
-            {#each markers as m}
-              <div
-                class="snapshot-line"
-                style="left: {m.position}%"
-                title="Snapshot {m.index + 1}"
-              ></div>
-            {/each}
-            {#each allTickMarks as tick}
-              {#if tick.type === 'major' || tick.type === 'major-snapshot'}
-                <div
-                  class="tick-mark major-tick"
-                  style="left: {tick.position}%"
-                  title={formatRelativeTime(tick.timestamp)}
-                ></div>
-              {:else if tick.type === 'minor'}
-                <div class="tick-mark minor-tick" style="left: {tick.position}%"></div>
-              {/if}
-            {/each}
-            <div class="scrubber-thumb" style="left: {progressPercent}%"></div>
-          </div>
-          <div class="time-labels-container">
-            {#each allTickMarks as tick}
-              {#if tick.label && (tick.type === 'major' || tick.type === 'major-snapshot')}
-                <div class="time-label" style="left: {tick.position}%">
-                  {tick.label}
-                </div>
-              {/if}
-            {/each}
-          </div>
-        </div>
-      </div>
-
-      {#if TimeMachine.isReviewing}
-        <div class="review-actions">
-          {#if TimeMachine.isLocalReplay}
-            <button class="save-replay-btn" onclick={() => TimeMachine.exportCurrentRecording()} title="Save this replay as a .ddraw file">
-              Save .ddraw
-            </button>
-            <button class="save-replay-btn" onclick={() => (timeLapseDialogOpen = true)} title="Render time-lapse">
-              Render
-            </button>
-          {/if}
-          {#if TimeMachine.isLocalReplay || appState.isModerator}
-            <button class="mod-undo-btn" onclick={handleUndoToState}>
-              {TimeMachine.isLocalReplay ? 'Undo to here' : 'Restore to here'}
-            </button>
-          {/if}
-          <button class="catch-up-btn" onclick={() => TimeMachine.catchUp()}>
-            Exit
-          </button>
-        </div>
-      {/if}
+      <span class="rp-time">{elapsedLabel}</span>
+      <input
+        class="rp-scrubber"
+        type="range"
+        min={tmStart}
+        max={tmEnd}
+        value={tmCurrent}
+        step="1"
+        oninput={onScrubInput}
+        onchange={onScrubChange}
+        aria-label="Timeline scrubber"
+      />
+      <span class="rp-time rp-time-total">{totalLabel}</span>
     </div>
+
+    {#if tmExporting}
+      <div class="rp-export-progress">
+        <div class="rp-export-bar" style="width: {Math.round(tmExportProgress * 100)}%"></div>
+        <span class="rp-export-label">Rendering... {Math.round(tmExportProgress * 100)}%</span>
+        <button class="rp-action" onclick={cancelVideo}>Cancel</button>
+      </div>
+    {:else if TimeMachine.isReviewing}
+      <div class="rp-actions">
+        {#if TimeMachine.isLocalReplay}
+          <button class="rp-action" onclick={() => TimeMachine.exportCurrentRecording()} title="Save this replay as a .ddraw file">Save .ddraw</button>
+          <button class="rp-action accent" onclick={openRenderDialog} title="Render time-lapse">Render</button>
+        {/if}
+        <span class="rp-actions-spacer"></span>
+        {#if appState.canUndoReplayHistory}
+          <button class="rp-action danger" onclick={handleUndoToState} title={TimeMachine.isLocalReplay ? 'Undo board to here' : 'Restore board to here'}>
+            {TimeMachine.isLocalReplay ? 'Undo to here' : 'Restore to here'}
+          </button>
+        {/if}
+        <button class="rp-action" onclick={() => TimeMachine.catchUp()} title="Exit replay">Exit</button>
+      </div>
+    {/if}
   </div>
 </div>
 {/if}
@@ -640,11 +400,6 @@
     display: none !important;
   }
 
-  @keyframes badge-pulse {
-    0%, 100% { transform: translateX(-50%) scale(1); }
-    50% { transform: translateX(-50%) scale(1.05); }
-  }
-
   @keyframes pulse {
     0% { transform: scale(0.95); opacity: 0.7; }
     50% { transform: scale(1.2); opacity: 1; }
@@ -657,7 +412,7 @@
     left: 50%;
     transform: translateX(-50%);
     width: 92%;
-    max-width: 1100px;
+    max-width: 760px;
     z-index: 10001;
     transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 
@@ -699,7 +454,7 @@
     }
 
     &.bar-visible {
-      bottom: 100px;
+      bottom: 92px;
       opacity: 0.5;
       border: 1px solid rgba(255, 255, 255, 0.1);
     }
@@ -716,229 +471,50 @@
     backdrop-filter: blur(12px);
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 12px;
-    padding: 8px 20px;
+    padding: 12px 18px;
     box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
     transition: all 0.3s ease;
-
-    .controls {
-      display: flex;
-      align-items: center;
-      gap: 20px;
-    }
-
-    .icon-btn {
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      color: white;
-      cursor: pointer;
-      width: 36px;
-      height: 36px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      border-radius: 50%;
-      transition: all 0.2s;
-
-      &:hover {
-        background: rgba(255, 255, 255, 0.15);
-        transform: scale(1.1);
-      }
-    }
-
-    .scrubber-viewport {
-      flex: 1 1 0;
-      /* Without an explicit zero min-width a flex item won't shrink below the
-         intrinsic width of its content. The inner .custom-scrubber carries an
-         inline pixel width that grows as you zoom in, so omitting this lets the
-         viewport balloon and shove .review-actions off to the right. Pinning it
-         to 0 keeps the bar a fixed width and scrolls the scrubber instead. */
-      min-width: 0;
-      position: relative;
-      overflow-x: auto;
-      overflow-y: hidden;
-      padding-top: 2px;
-      padding-bottom: 4px;
-      /* Slim scrollbar so it doesn't dominate at the bottom of the bar. */
-      &::-webkit-scrollbar { height: 6px; }
-      &::-webkit-scrollbar-thumb {
-        background: rgba(160, 174, 192, 0.5);
-        border-radius: 3px;
-      }
-      &::-webkit-scrollbar-thumb:hover { background: rgba(160, 174, 192, 0.8); }
-      &::-webkit-scrollbar-track { background: rgba(255, 255, 255, 0.04); }
-    }
-
-    .custom-scrubber {
-      position: relative;
-      /* width set inline based on duration × pxPerSecond */
-      height: 60px;
-      cursor: grab;
-      display: flex;
-      flex-direction: column;
-
-      .snapshot-marker-row {
-        position: relative;
-        height: 14px;
-        margin-bottom: 1px;
-      }
-
-      .snapshot-marker {
-        position: absolute;
-        top: 0;
-        transform: translateX(-50%);
-        color: #2dd4bf;
-        font-size: 10px;
-        line-height: 14px;
-        text-shadow: 0 0 4px rgba(45, 212, 191, 0.6);
-        pointer-events: none;
-        user-select: none;
-      }
-
-      .scrubber-track {
-        width: 100%;
-        height: 27px;
-        background: rgba(255, 255, 255, 0.1);
-        border-radius: 0;
-        position: relative;
-        overflow: visible;
-      }
-
-      .scrubber-progress {
-        height: 100%;
-        background: rgba(160, 174, 192, 0.3);
-        position: absolute;
-        left: 0;
-        top: 0;
-      }
-
-      .scrubber-thumb {
-        position: absolute;
-        top: -3px;
-        width: 2px;
-        height: 33px;
-        background: #fff;
-        border-radius: 1px;
-        transform: translateX(-50%);
-        box-shadow: 0 0 8px rgba(255, 255, 255, 0.6);
-        z-index: 5;
-        pointer-events: none;
-      }
-
-      .snapshot-line {
-        position: absolute;
-        top: -3px;
-        bottom: -3px;
-        width: 2px;
-        background: #2dd4bf;
-        box-shadow: 0 0 6px rgba(45, 212, 191, 0.5);
-        transform: translateX(-50%);
-        z-index: 3;
-        pointer-events: none;
-      }
-
-      .tick-mark {
-        position: absolute;
-        bottom: 0;
-        width: 1px;
-        background: rgba(255, 255, 255, 0.2);
-        transform: translateX(-50%);
-        pointer-events: none;
-
-        &.major-tick {
-          top: 0;
-          background: rgba(255, 255, 255, 0.45);
-        }
-
-        &.minor-tick {
-          height: 9px;
-          background: rgba(255, 255, 255, 0.35);
-        }
-      }
-    }
-
-    .time-labels-container {
-      position: relative;
-      width: 100%;
-      height: 14px;
-      margin-top: 4px;
-
-      .time-label {
-        position: absolute;
-        top: 0;
-        transform: translateX(-50%);
-        font-size: 9px;
-        color: #94a3b8;
-        white-space: nowrap;
-        pointer-events: none;
-      }
-    }
-
-    .review-actions {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-      align-items: stretch;
-    }
-
-    .catch-up-btn {
-      background: #a0aec0;
-      color: white;
-      border: none;
-      padding: 8px 16px;
-      border-radius: 8px;
-      font-size: 12px;
-      font-weight: 700;
-      cursor: pointer;
-      transition: all 0.2s;
-
-      &:hover {
-        background: #718096;
-        transform: translateY(-1px);
-        box-shadow: 0 4px 12px rgba(113, 128, 150, 0.4);
-      }
-
-    }
-
-    @keyframes btn-pulse {
-      0%, 100% { transform: scale(1); }
-      50% { transform: scale(1.02); }
-    }
-
-    .save-replay-btn {
-      background: #2dd4bf;
-      color: #0f172a;
-      border: none;
-      padding: 8px 16px;
-      border-radius: 8px;
-      font-size: 12px;
-      font-weight: 700;
-      cursor: pointer;
-      transition: all 0.2s;
-
-      &:hover {
-        background: #14b8a6;
-        color: white;
-        transform: translateY(-1px);
-        box-shadow: 0 4px 12px rgba(45, 212, 191, 0.4);
-      }
-    }
-
-    .mod-undo-btn {
-      background: #ef4444;
-      color: white;
-      border: none;
-      padding: 8px 16px;
-      border-radius: 8px;
-      font-size: 12px;
-      font-weight: 700;
-      cursor: pointer;
-      transition: all 0.2s;
-
-      &:hover {
-        background: #dc2626;
-        transform: translateY(-1px);
-        box-shadow: 0 4px 12px rgba(220, 38, 38, 0.4);
-      }
-    }
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
   }
+
+  /* ── Compact mini-player transport (ported from the History rp-player) ───── */
+  .rp-controls { display: flex; align-items: center; gap: 12px; }
+  .rp-play {
+    flex-shrink: 0; width: 38px; height: 38px; display: flex; align-items: center;
+    justify-content: center; border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.08); color: #fff; cursor: pointer;
+    transition: background 0.2s, transform 0.2s;
+  }
+  .rp-play:hover { background: var(--accent-primary, #00d4aa); transform: scale(1.05); }
+  .rp-time {
+    font-size: 12px; color: #aaa; font-variant-numeric: tabular-nums; min-width: 40px;
+  }
+  .rp-time-total { text-align: right; }
+  .rp-scrubber { flex: 1; min-width: 0; accent-color: var(--accent-primary, #00d4aa); cursor: pointer; }
+
+  .rp-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .rp-actions-spacer { flex: 1; }
+  .rp-action {
+    background: transparent; border: 1px solid rgba(255, 255, 255, 0.15); color: #bbb;
+    border-radius: 6px; padding: 6px 12px; font-size: 12px; font-weight: 600;
+    cursor: pointer; white-space: nowrap; transition: all 0.15s;
+  }
+  .rp-action:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
+  .rp-action.accent { background: var(--accent-primary, #00d4aa); border-color: var(--accent-primary, #00d4aa); color: #fff; }
+  .rp-action.accent:hover { filter: brightness(1.1); }
+  .rp-action.danger { border-color: rgba(220, 53, 69, 0.4); color: #ff6b6b; }
+  .rp-action.danger:hover { background: rgba(220, 53, 69, 0.25); color: #fff; }
+
+  .rp-export-progress {
+    position: relative; display: flex; align-items: center; gap: 10px; height: 32px;
+  }
+  .rp-export-bar {
+    position: absolute; left: 0; top: 0; bottom: 0; border-radius: 6px;
+    background: linear-gradient(90deg, var(--accent-primary, #00d4aa), var(--accent-hover, #00e6b8));
+    opacity: 0.35; transition: width 120ms ease-out; pointer-events: none;
+  }
+  .rp-export-label { font-size: 12px; color: #eee; z-index: 1; flex: 1; }
 </style>

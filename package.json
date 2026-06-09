@@ -13,6 +13,8 @@
     "server": "cross-env HOST=127.0.0.1 PORT=8030 node server/index.js",
     "test:sync": "node testing/run-sync.mjs",
     "test:parity": "node testing/devtools/replay_parity_suite.mjs",
+    "test:k6parity": "node testing/devtools/k6_ddraw_parity.mjs",
+    "test:k6edge": "node testing/devtools/replay_multiuser_edge_suite.mjs",
     "test:moderation": "node testing/puppeteer/moderation_suite.js",
     "server:stress": "cross-env HOST=127.0.0.1 PORT=8030 DISABLE_RATE_LIMITS=true node server/index.js",
     "snapshots:cleanup-legacy": "node server/scripts/delete-legacy-snapshots.js",
@@ -75,6 +77,7 @@
     "reinvented-color-wheel": "^0.4.0",
     "sharp": "^0.34.5",
     "stackblur": "^1.0.0",
+    "webm-muxer": "^5.1.4",
     "ws": "^8.14.0"
   },
   "engines": {

@@ -51,7 +51,7 @@ export class ConfettiTool extends Tool {
 
   onPointerDown(user, pos) {
     this._activeUser = user;
-    this._strokeSeed = Number(user._confettiStrokeSeed ?? this.createSeed()) & CONFETTI_SEED_MAX;
+    this._strokeSeed = Number(user._confettiStrokeSeed ?? this.seedFromPos(pos.x, pos.y)) & CONFETTI_SEED_MAX;
     this._emissionIndex = 0;
     this.board.beginStroke(user);
     user._confettiDirtyBounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
@@ -66,7 +66,9 @@ export class ConfettiTool extends Tool {
 
     const lastStamp = this.lastStampPos.get(user.id);
     if (!lastStamp) {
-      this.emit(user, pos, 0);
+      // No seed is buffered/transmitted for this first-move stamp, so derive it
+      // deterministically from position — matches what receivers compute.
+      this.emit(user, pos, 0, this.seedFromPos(pos.x, pos.y));
       this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
       this.board.requestUpdate();
       return;
@@ -88,7 +90,11 @@ export class ConfettiTool extends Tool {
         x: lastStamp.x + dx * t,
         y: lastStamp.y + dy * t
       };
-      const seed = this.createSeed();
+      // Position-derived seed (not Math.random): the local drawer buffers/
+      // transmits it, AND the seedless remote-render path (renderRemoteMove →
+      // onPointerMove) recomputes the same value from the same position — so
+      // confetti converges across all clients even when seeds aren't carried.
+      const seed = this.seedFromPos(interp.x, interp.y);
       this.emit(user, interp, angle, seed);
       this.stampBuffer.push(interp.x, interp.y);
       this.seedBuffer.push(seed);
@@ -156,7 +162,7 @@ export class ConfettiTool extends Tool {
     const strokePoints = this._getStrokePoints(user);
     for (let i = 0; i < ps.length; i += 2) {
       const pos = { x: ps[i], y: ps[i + 1] };
-      const seed = Number(seeds[i / 2] ?? this.createSeed()) & CONFETTI_SEED_MAX;
+      const seed = Number(seeds[i / 2] ?? this.seedFromPos(pos.x, pos.y)) & CONFETTI_SEED_MAX;
       this.emit(user, pos, 0, seed);
       points.push(pos);
       strokePoints.push(pos);
@@ -433,6 +439,30 @@ export class ConfettiTool extends Tool {
 
   createSeed() {
     return Math.floor(Math.random() * (CONFETTI_SEED_MAX + 1));
+  }
+
+  /**
+   * Deterministic per-position seed. Used as the FALLBACK whenever a stamp has
+   * no transmitted seed (stress bots that only send MD/MM/MU, dropped packets,
+   * the first-move stamp before a lastStamp is recorded, a remote pointer-down
+   * without initialSeed). Every client decodes the same quantized position from
+   * the wire, so they all derive the same seed → identical particles, instead of
+   * each rolling its own Math.random scatter. Real strokes still ride their
+   * transmitted random seeds, so interactive confetti keeps its variety.
+   * @param {number} x
+   * @param {number} y
+   * @returns {number} seed in [0, CONFETTI_SEED_MAX]
+   */
+  seedFromPos(x, y) {
+    // FNV-1a over the wire-quantized (×10) integer coordinates.
+    const qx = Math.round(x * 10) | 0;
+    const qy = Math.round(y * 10) | 0;
+    let h = 0x811c9dc5;
+    h = Math.imul(h ^ (qx & 0xffff), 0x01000193);
+    h = Math.imul(h ^ ((qx >>> 16) & 0xffff), 0x01000193);
+    h = Math.imul(h ^ (qy & 0xffff), 0x01000193);
+    h = Math.imul(h ^ ((qy >>> 16) & 0xffff), 0x01000193);
+    return (h >>> 0) & CONFETTI_SEED_MAX;
   }
 
   getNetworkSettings(user, extra = {}) {

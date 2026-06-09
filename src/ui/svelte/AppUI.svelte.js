@@ -14,6 +14,7 @@ import DockablePanel from './DockablePanel.svelte';
 import Chat from './Chat.svelte';
 import Messenger from '../../messenger/Messenger.svelte';
 import Timebar from '../../timebar/Timebar.svelte';
+import RecorderPanel from '../../timebar/RecorderPanel.svelte';
 import FeedbackWidget from './FeedbackWidget.svelte';
 import SnapshotMenu from './SnapshotMenu.svelte';
 import FloatingArtManager from './FloatingArtManager.svelte';
@@ -596,6 +597,14 @@ export function initSvelteUI(app) {
       props: {
         wsClient: app.wsClient
       }
+    });
+  }
+
+  // Mount RecorderPanel (mini session-recorder viewer; gated internally by
+  // appState.recorderPanelVisible). Reuses the timebar mount node.
+  if (timebarTarget) {
+    components.recorderPanel = mount(RecorderPanel, {
+      target: timebarTarget
     });
   }
 

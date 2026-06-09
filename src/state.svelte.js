@@ -68,6 +68,10 @@ class DrawingState {
   toolPreviewVisible = $state(false);
   toolPreviewCollapsed = $state(false);
   toolPreviewMode = $state('pattern');
+  // Image/pattern selection floating window (below the History button).
+  imageSelectorCollapsed = $state(false);
+  fillPatternEnabled = $state(false);
+  selectionPatternEnabled = $state(false);
   toastState = $state({ text: '', visible: false });
   connectionState = $state({ connected: false, roomId: null, text: '' });
 
@@ -76,6 +80,11 @@ class DrawingState {
   snapshotHasMore = $state(true);
   snapshotListVersion = $state(0);
   snapshotMenuVisible = $state(false);
+
+  // Session recorder mini viewer
+  recorderPanelVisible = $state(false);
+  recorderIsRecording = $state(false);
+  recorderElapsedMs = $state(0);
 
   // Derived
   get currentColorRgba() {
@@ -90,6 +99,22 @@ class DrawingState {
 
   get isModerator() {
     return this.selfRole >= 4;
+  }
+
+  /**
+   * Whether the user may rewind the board from a replay/history viewer
+   * ("Undo to here"). A connected restore broadcasts to everyone, so it's
+   * moderator-gated — except when there's no shared board to harm: offline mode,
+   * or a room this browser created via "Create a room!" (temp ownership).
+   * (Reads window.app for the non-reactive offline/ownership bits; re-evaluates
+   * with selfRole since the viewer is re-mounted each time it opens.)
+   */
+  get canUndoReplayHistory() {
+    if (this.isModerator) return true;
+    const app = (typeof window !== 'undefined') ? window.app : null;
+    if (!app) return false;
+    if (app.isOfflineMode) return true;
+    return app.wasCurrentRoomCreatedByThisBrowser?.() ?? false;
   }
 
   get userCount() {
@@ -414,6 +439,18 @@ export function toggleSnapshotMenu() {
   }
 
   openSnapshotMenu();
+}
+
+export function openRecorderPanel() {
+  appState.recorderPanelVisible = true;
+}
+
+export function closeRecorderPanel() {
+  appState.recorderPanelVisible = false;
+}
+
+export function toggleRecorderPanel() {
+  appState.recorderPanelVisible = !appState.recorderPanelVisible;
 }
 
 export function openMessengerWithUser(id, name) {

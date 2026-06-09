@@ -1012,9 +1012,11 @@
                   <button class="rp-action" onclick={clearRegion} title="Clear region">Clear</button>
                 {/if}
                 <span class="rp-actions-spacer"></span>
-                <button class="rp-action danger" onclick={undoRecentToHere} title={regionRect ? 'Undo just this region to here' : 'Undo board to here'}>
-                  {regionRect ? 'Undo region' : 'Undo to here'}
-                </button>
+                {#if appState.canUndoReplayHistory}
+                  <button class="rp-action danger" onclick={undoRecentToHere} title={regionRect ? 'Undo just this region to here' : 'Undo board to here'}>
+                    {regionRect ? 'Undo region' : 'Undo to here'}
+                  </button>
+                {/if}
                 <button class="rp-action" onclick={saveRecentReplay} title="Save this replay as a .ddraw file">Save .ddraw</button>
                 <button class="rp-action accent" onclick={openRenderDialog} title={regionRect ? 'Render this region as a time-lapse' : 'Render time-lapse'}>Render</button>
               </div>

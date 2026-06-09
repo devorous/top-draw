@@ -66,7 +66,7 @@ import * as wasm from './wasm/ddraw_wasm.js';
 
 // Svelte UI Components
 import { initSvelteUI, syncStoresFromApp, showProfile as showProfileDialog } from './ui/svelte/AppUI.svelte.js';
-import { appState, addRecentColor, getCustomPresetKey } from './state.svelte.js';
+import { appState, addRecentColor, getCustomPresetKey, toggleRecorderPanel } from './state.svelte.js';
 import ColorWheel from 'reinvented-color-wheel';
 import 'reinvented-color-wheel/css/reinvented-color-wheel.css';
 
@@ -1472,7 +1472,10 @@ export class DrawingApp {
       elements.recordBtn.addEventListener('click', () => this.handleStartRecording());
     }
     if (elements.tapeRecBtn) {
-      elements.tapeRecBtn.addEventListener('click', () => this.handleToggleTapeRecording());
+      // The record button now opens the mini recorder viewer; the Start/Stop
+      // control lives inside that panel (RecorderPanel.svelte) which calls
+      // handleToggleTapeRecording.
+      elements.tapeRecBtn.addEventListener('click', () => toggleRecorderPanel());
     }
 
     // Disconnection banner buttons
@@ -1852,11 +1855,13 @@ export class DrawingApp {
       if (fillTool) {
         fillPatternCheck.checked = fillTool.patternMode || false;
         if (fillPatternSettings) fillPatternSettings.style.display = fillTool.patternMode ? 'block' : 'none';
+        appState.fillPatternEnabled = !!fillTool.patternMode;
       }
       fillPatternCheck.addEventListener('change', (e) => {
         const fillTool = this.toolManager.getTool('fill');
         if (fillTool) fillTool.patternMode = e.target.checked;
         if (fillPatternSettings) fillPatternSettings.style.display = e.target.checked ? 'block' : 'none';
+        appState.fillPatternEnabled = e.target.checked;
 
         this.self.patternMode = e.target.checked;
         if (this.connected && this.wsClient) {
@@ -1879,11 +1884,13 @@ export class DrawingApp {
       if (selectTool) {
         selectionPatternCheck.checked = selectTool.patternMode || false;
         if (selectionPatternSettings) selectionPatternSettings.style.display = selectTool.patternMode ? 'block' : 'none';
+        appState.selectionPatternEnabled = !!selectTool.patternMode;
       }
       selectionPatternCheck.addEventListener('change', (e) => {
         const selectTool = this.toolManager.getTool('select');
         if (selectTool) selectTool.patternMode = e.target.checked;
         if (selectionPatternSettings) selectionPatternSettings.style.display = e.target.checked ? 'block' : 'none';
+        appState.selectionPatternEnabled = e.target.checked;
 
         // Sync pattern mode to user object and broadcast
         this.self.patternMode = e.target.checked;
@@ -4637,17 +4644,56 @@ export class DrawingApp {
   }
 
   /**
-   * Toggle the local tape recorder. On stop, hands the bundle to
-   * TimeMachine.loadFromRecording so the user lands in the scrubber.
+   * Begin a local tape recording. Returns true on success. The recorder mini
+   * viewer (RecorderPanel.svelte) drives this.
+   */
+  startTapeRecording() {
+    const rec = this.recorder;
+    if (!rec || rec.isRecording()) return false;
+
+    if (!this.currentRoomId) {
+      this.ui?.showToast('Join a room before recording', 2000);
+      return false;
+    }
+
+    try {
+      rec.start(this);
+      this._setTapeRecButtonRecording(true);
+      this._startTapeRecElapsedTick();
+      this.ui?.showToast('Recording…', 1500);
+      return true;
+    } catch (err) {
+      console.error('[App] tape recorder start failed:', err);
+      this.ui?.showToast('Could not start recording', 2500);
+      return false;
+    }
+  }
+
+  /**
+   * Stop the local tape recording and return the captured bundle (or null).
+   * Unlike the old toggle, this does NOT auto-open the full-board replay — the
+   * recorder mini viewer presents the result and offers a fullscreen handoff.
+   * @returns {import('./replay/Recorder.js').ReplayRecording | null}
+   */
+  stopTapeRecording() {
+    const rec = this.recorder;
+    if (!rec || !rec.isRecording()) return null;
+    const bundle = rec.stop();
+    this._stopTapeRecElapsedTick();
+    this._setTapeRecButtonRecording(false);
+    return bundle;
+  }
+
+  /**
+   * Toggle the local tape recorder. Kept for backwards compatibility; the
+   * stop path now opens the full-board replay directly.
    */
   async handleToggleTapeRecording() {
     const rec = this.recorder;
     if (!rec) return;
 
     if (rec.isRecording()) {
-      const bundle = rec.stop();
-      this._stopTapeRecElapsedTick();
-      this._setTapeRecButtonRecording(false);
+      const bundle = this.stopTapeRecording();
       if (bundle && bundle.deltas.length > 0) {
         this.ui?.showToast(`Loading replay... ${bundle.deltas.length} actions`, 60_000);
         try {
@@ -4662,20 +4708,7 @@ export class DrawingApp {
       return;
     }
 
-    if (!this.currentRoomId) {
-      this.ui?.showToast('Join a room before recording', 2000);
-      return;
-    }
-
-    try {
-      rec.start(this);
-      this._setTapeRecButtonRecording(true);
-      this._startTapeRecElapsedTick();
-      this.ui?.showToast('Recording…', 1500);
-    } catch (err) {
-      console.error('[App] tape recorder start failed:', err);
-      this.ui?.showToast('Could not start recording', 2500);
-    }
+    this.startTapeRecording();
   }
 
   _setTapeRecButtonRecording(isOn) {
@@ -5039,6 +5072,10 @@ export class DrawingApp {
     this.applyCursorStyleForTool(tool);
     this.self.setTool(tool);
     appState.currentTool = tool;
+    // Keep the image-selector window's fill/select pattern triggers in sync with
+    // each tool's live patternMode (covers preset restores that bypass the checkbox).
+    appState.fillPatternEnabled = !!this.toolManager.getTool('fill')?.patternMode;
+    appState.selectionPatternEnabled = !!this.toolManager.getTool('select')?.patternMode;
 
     // Restore locked tool values before activation so any activate-time preview
     // uses the new tool's resolved settings instead of the previous tool's state.

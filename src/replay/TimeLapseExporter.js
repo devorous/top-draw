@@ -12,6 +12,7 @@
 
 import { ReplayEngine } from '../timebar/ReplayEngine.js';
 import { drawReplayCursor } from './cursorOverlay.js';
+import { Muxer, ArrayBufferTarget } from 'webm-muxer';
 
 /**
  * @typedef {Object} TimeLapseOptions
@@ -46,10 +47,183 @@ export class TimeLapseExporter {
   }
 
   /**
-   * Run the export. Resolves to a video Blob (WebM) or null if cancelled.
+   * Render the tape to a WebM via WebCodecs VideoEncoder + webm-muxer.
+   *
+   * Unlike the MediaRecorder path, this forces `hardwareAcceleration:
+   * 'prefer-software'`, so it never engages the GPU WebM encoder that traps
+   * (STATUS_BREAKPOINT) on large boards. It also encodes as fast as frames
+   * render — no real-time pacing — so exports are quicker and deterministic.
    * @returns {Promise<{blob: Blob, mimeType: string, durationMs: number}|null>}
    */
-  async _exportVideoLegacy() {
+  async _exportVideoWebCodecs() {
+    const { recording, wsClient, speed, fps, region, backgroundColor, onProgress } = this._opts;
+    const renderCursors = this._opts.renderCursors !== false;
+    if (!recording?.openingSnapshot) throw new Error('Recording missing opening snapshot');
+    if (!(speed > 0)) throw new Error('Speed must be > 0');
+    if (!(fps > 0)) throw new Error('FPS must be > 0');
+
+    const [boardH, boardW] = Array.isArray(recording.openingSnapshot.boardDimensions)
+      ? recording.openingSnapshot.boardDimensions
+      : [1080, 1920];
+
+    const baseRegion = region
+      ? this._clampRegion(region, boardW, boardH)
+      : { x: 0, y: 0, width: boardW, height: boardH };
+    // Most codecs require even frame dimensions.
+    const r = {
+      x: baseRegion.x,
+      y: baseRegion.y,
+      width: Math.max(2, baseRegion.width - (baseRegion.width % 2)),
+      height: Math.max(2, baseRegion.height - (baseRegion.height % 2)),
+    };
+
+    this._engine = new ReplayEngine();
+    this._engine.init(boardW, boardH, wsClient);
+    if (recording.assets) {
+      this._engine.setAssetResolver((source) => {
+        if (!source) return null;
+        if (typeof source === 'string') return source;
+        if (typeof source === 'object' && source.assetRef) return recording.assets[source.assetRef] ?? null;
+        return null;
+      });
+    }
+
+    this._exportCanvas = document.createElement('canvas');
+    this._exportCanvas.width = r.width;
+    this._exportCanvas.height = r.height;
+    this._exportCtx = this._exportCanvas.getContext('2d');
+    this._exportCtx.imageSmoothingEnabled = true;
+
+    const bg = backgroundColor || recording.openingSnapshot.backgroundColor || [255, 255, 255, 1];
+
+    await this._engine.loadSnapshot(recording.openingSnapshot);
+    if (this._cancelled) return null;
+    const startTs = recording.startedAt;
+    await this._engine.processActions([], startTs);
+    if (this._cancelled) return null;
+
+    const bitrate = estimateBitrate(r.width, r.height, fps);
+
+    // VP8 is the most reliable software path; VP9 is a smaller-file fallback.
+    const codecCandidates = [
+      { webcodec: 'vp8', matroska: 'V_VP8' },
+      { webcodec: 'vp09.00.10.08', matroska: 'V_VP9' },
+    ];
+    let chosen = null;
+    for (const c of codecCandidates) {
+      try {
+        const sup = await VideoEncoder.isConfigSupported({
+          codec: c.webcodec, width: r.width, height: r.height,
+          bitrate, framerate: fps, hardwareAcceleration: 'prefer-software',
+        });
+        if (sup.supported) { chosen = c; break; }
+      } catch { /* try next */ }
+    }
+    if (!chosen) throw new Error('No software-encodable video codec available');
+
+    const target = new ArrayBufferTarget();
+    const muxer = new Muxer({
+      target,
+      video: { codec: chosen.matroska, width: r.width, height: r.height, frameRate: fps },
+    });
+
+    let encoderError = null;
+    const encoder = new VideoEncoder({
+      output: (chunk, meta) => { try { muxer.addVideoChunk(chunk, meta); } catch (e) { encoderError = e; } },
+      error: (e) => { encoderError = e; },
+    });
+    encoder.configure({
+      codec: chosen.webcodec, width: r.width, height: r.height,
+      bitrate, framerate: fps, hardwareAcceleration: 'prefer-software', latencyMode: 'quality',
+    });
+
+    const endTs = recording.endedAt ?? (recording.deltas.length > 0
+      ? recording.deltas[recording.deltas.length - 1].ts
+      : startTs);
+    const tapeDuration = Math.max(1, endTs - startTs);
+    const tapePerFrameMs = (1000 / fps) * speed;
+    const frameDurUs = Math.round(1_000_000 / fps);
+    const keyFrameInterval = Math.max(1, Math.round(fps)); // ~1 keyframe per output second
+
+    const deltas = recording.deltas;
+    let deltaIdx = 0;
+    let currentTs = startTs;
+    let frameIndex = 0;
+    const startedAt = performance.now();
+
+    const encodeCurrentFrame = () => {
+      this._drawFrame(r, bg);
+      if (renderCursors) this._drawCursorOverlay(r);
+      const frame = new VideoFrame(this._exportCanvas, {
+        timestamp: frameIndex * frameDurUs,
+        duration: frameDurUs,
+      });
+      encoder.encode(frame, { keyFrame: frameIndex % keyFrameInterval === 0 });
+      frame.close();
+      frameIndex++;
+    };
+
+    // First frame = state at startTs.
+    encodeCurrentFrame();
+
+    while (currentTs < endTs && !this._cancelled && !encoderError) {
+      const targetTs = Math.min(currentTs + tapePerFrameMs, endTs);
+
+      const chunk = [];
+      while (deltaIdx < deltas.length && deltas[deltaIdx].ts <= targetTs) {
+        if (deltas[deltaIdx].ts >= currentTs) chunk.push({ timestamp: deltas[deltaIdx].ts, msg: deltas[deltaIdx].msg });
+        deltaIdx++;
+      }
+      if (chunk.length > 0) {
+        await this._engine.appendActions(chunk, targetTs);
+        if (this._cancelled || encoderError) break;
+      }
+
+      encodeCurrentFrame();
+      if (onProgress) onProgress(Math.min(1, (targetTs - startTs) / tapeDuration));
+
+      // Backpressure: drain the encoder queue so it can't balloon in memory;
+      // otherwise yield occasionally so the progress bar paints.
+      if (encoder.encodeQueueSize > 8) {
+        while (encoder.encodeQueueSize > 2 && !this._cancelled) {
+          await new Promise((res) => setTimeout(res, 0));
+        }
+      } else if (frameIndex % 4 === 0) {
+        await new Promise((res) => setTimeout(res, 0));
+      }
+
+      currentTs = targetTs;
+    }
+
+    if (this._cancelled) {
+      try { encoder.close(); } catch {}
+      this._cleanup();
+      return null;
+    }
+    if (encoderError) {
+      try { encoder.close(); } catch {}
+      this._cleanup();
+      throw encoderError instanceof Error ? encoderError : new Error(String(encoderError));
+    }
+
+    await encoder.flush();
+    muxer.finalize();
+    encoder.close();
+    if (onProgress) onProgress(1);
+
+    const elapsedMs = performance.now() - startedAt;
+    const blob = new Blob([target.buffer], { type: 'video/webm' });
+    this._cleanup();
+    return { blob, mimeType: 'video/webm', durationMs: elapsedMs };
+  }
+
+  /**
+   * Legacy MediaRecorder path. Kept as a fallback for browsers without
+   * WebCodecs. NOTE: this uses the hardware WebM encoder and can crash the
+   * renderer on large boards (>720p) on some GPUs — prefer the WebCodecs path.
+   * @returns {Promise<{blob: Blob, mimeType: string, durationMs: number}|null>}
+   */
+  async _exportVideoMediaRecorder() {
     const { recording, wsClient, speed, fps, region, backgroundColor, onProgress } = this._opts;
     const renderCursors = this._opts.renderCursors !== false;
     if (!recording?.openingSnapshot) throw new Error('Recording missing opening snapshot');
@@ -185,7 +359,13 @@ export class TimeLapseExporter {
    */
   async export() {
     if (this._opts.output !== 'sequence') {
-      const result = await this._exportVideoLegacy();
+      // Prefer WebCodecs (software VideoEncoder) — it sidesteps MediaRecorder's
+      // hardware WebM encoder, which crashes the renderer on large boards
+      // (>720p) on some GPUs. Fall back to MediaRecorder only where WebCodecs
+      // is unavailable (older browsers), accepting its size limits there.
+      const result = typeof VideoEncoder !== 'undefined'
+        ? await this._exportVideoWebCodecs()
+        : await this._exportVideoMediaRecorder();
       return result ? { ...result, kind: 'video' } : null;
     }
 
@@ -399,13 +579,15 @@ export class TimeLapseExporter {
 
 function pickSupportedMimeType() {
   if (typeof MediaRecorder === 'undefined') return null;
-  // VP9 produces smaller files; VP8 is the universal fallback.
+  // VP8 is preferred over VP9 here on purpose: VP9 routes through the GPU
+  // hardware encoder on some driver/GPU combos and traps (renderer crash /
+  // STATUS_BREAKPOINT on Windows) even for tiny clips. VP8 uses the stable
+  // (software) path. Slightly larger files, but it doesn't take the tab down.
+  // The export stream is video-only (canvas.captureStream), so no audio codec.
   const candidates = [
-    'video/webm;codecs=vp9,opus',
-    'video/webm;codecs=vp9',
-    'video/webm;codecs=vp8,opus',
     'video/webm;codecs=vp8',
     'video/webm',
+    'video/webm;codecs=vp9',
   ];
   for (const t of candidates) {
     if (MediaRecorder.isTypeSupported(t)) return t;
