@@ -1,11 +1,11 @@
 {
-  "version": "1.9.2-beta",
-  "notes": "Sync bug fixing WIP",
-  "pub_date": "2026-05-26T05:52:29.611Z",
+  "version": "1.10.0-beta",
+  "notes": "Implemented new smooth replay system to replace existing snapshot system",
+  "pub_date": "2026-06-09T20:04:31.146Z",
   "platforms": {
     "windows-x86_64": {
-      "url": "https://www.ddraw.ca/desktop-updates/windows-x86_64/Ddraw_1.9.2-beta_x64-setup.exe",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQ01XR1piUDlNem1LWWV6NHJnSmk0N2FrbDZLblpDQkZHRE9FZVhpbXhmVjR4WFZ6Z010WmpkUTRudTN1S0lPQVVFT092ZVRhMk80Z3Z2ZGFia0RyUzJSM0FHaFFCVkFJPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc5Nzc0ODg4CWZpbGU6RGRyYXdfMS45LjItYmV0YV94NjQtc2V0dXAuZXhlCi9DVWpzd3NsL3BTMVE0VGk5N3doVnh0Vzhud3NXNlFPdGYrU2NaSmhOb2JSMW9aVHdueDdVWXh4Ni9jaVlPNkxjU2hWNGg1V1ZNLytYeS9ydjBtZUJBPT0K"
+      "url": "https://www.ddraw.ca/desktop-updates/windows-x86_64/Ddraw_1.10.0-beta_x64-setup.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQ01XR1piUDlNem1YcVF5RFQwaUhESG1aV2grdUlqeUZWa2lpc3BTd1NxTmRzQkpCNWJPMExhT3Z5NXhpajI0RWE4Q1dpRGtEVzRTaDZvTHBCeTNUV1lzNXFla25nYUFVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgxMDM1NzQ2CWZpbGU6RGRyYXdfMS4xMC4wLWJldGFfeDY0LXNldHVwLmV4ZQpRZWs4UUM5TVdMRVBCL016VkVHUTU3WUFhK3Q4SVdNVzJKb1M2Y2gzTGFybzJYcTNwc2s0NnBWcnIxTnBuQWdxTmlvbmx6bFBQM1ZLaE43L0V6YjVEdz09Cg=="
     }
   }
 }

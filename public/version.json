@@ -1,7 +1,7 @@
 {
-  "latest": "1.9.2-beta",
-  "minRequired": "1.9.2-beta",
-  "releaseDate": "2026-05-26T05:52:29.611Z",
-  "notes": "Sync bug fixing WIP",
+  "latest": "1.10.0-beta",
+  "minRequired": "1.10.0-beta",
+  "releaseDate": "2026-06-09T20:04:31.146Z",
+  "notes": "Implemented new smooth replay system to replace existing snapshot system",
   "downloadUrl": "https://www.ddraw.ca/download"
 }
