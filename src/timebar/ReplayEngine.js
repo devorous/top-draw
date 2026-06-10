@@ -11,6 +11,7 @@ import { RemoteUserHandler } from '../remote/RemoteUserHandler.js';
 import { LayerManager } from '../canvas/LayerManager.js';
 import { ToolManager } from '../tools/Tools.js';
 import { getPreviewTextLayout, getUserTextLineHeight, paintTextRecord } from '../utils/textLayout.js';
+import { getTextFontDefaults } from '../config/textFonts.js';
 import { drawReplayCursor } from '../replay/cursorOverlay.js';
 import * as wasm from '../wasm/ddraw_wasm.js';
 import { readQoiDimensions } from '../../shared/qoi.js';
@@ -994,6 +995,9 @@ export class ReplayEngine {
     /** @type {boolean} Mirror mode */
     this.mirror = false;
 
+    /** @type {string} Shape draw mode ('corner-to-corner' | 'center-scaling') — app-global in live play */
+    this._shapeDrawMode = 'corner-to-corner';
+
     /** @type {boolean} Whether to draw remote user cursors over the replay */
     this.renderCursors = true;
     /** @type {number} Playhead timestamp of the most recent action batch (ms) */
@@ -1288,6 +1292,10 @@ export class ReplayEngine {
     // sets it when the server sends `m`, so a missing flag must default to OFF
     // here rather than inheriting the previous session's state.
     this.mirror = false;
+    // _initReplaySystem below rebuilds the ToolManager, whose shape tools
+    // default to corner-to-corner — keep the engine flag in agreement. Load
+    // paths re-assert the recorded mode afterwards.
+    this._shapeDrawMode = 'corner-to-corner';
     this.outputCtx?.clearRect(0, 0, this.width, this.height);
     this.topCtx?.clearRect(0, 0, this.width, this.height);
     this._snapshotCtx?.clearRect(0, 0, this.width, this.height);
@@ -1298,6 +1306,20 @@ export class ReplayEngine {
       this._replayBoard._fullComposite = true;
       this._replayBoard._compositeDirtyRects.length = 0;
     }
+  }
+
+  /**
+   * Apply a shape draw mode to the replay's rectangle/circle tool instances.
+   * Mirrors App.applyShapeDrawMode: the mode is app-global in live play, so a
+   * single CSDM from any participant reconfigures the shared tools here too.
+   * @param {string} mode - 'corner-to-corner' or 'center-scaling'
+   * @private
+   */
+  _applyShapeDrawMode(mode) {
+    const normalized = mode === 'center-scaling' ? 'center-scaling' : 'corner-to-corner';
+    this._shapeDrawMode = normalized;
+    this._toolManager?.getTool('rectangle')?.setDrawMode?.(normalized);
+    this._toolManager?.getTool('circle')?.setDrawMode?.(normalized);
   }
 
   /**
@@ -1337,6 +1359,9 @@ export class ReplayEngine {
         patternOffsetX: u.patternOffsetX,
         patternOffsetY: u.patternOffsetY,
         patternColorMode: u.patternColorMode,
+        font: u.font,
+        textPositionMultiplier: u.textPositionMultiplier,
+        textPositionOffset: u.textPositionOffset,
       };
     }
     return {
@@ -1347,7 +1372,8 @@ export class ReplayEngine {
       // any text still mid-fade. bornTs is tape-time, so it stays valid.
       vectorText: this._cloneVectorTextRecords(),
       mirror: this._replayBoard?.mirror ?? this.mirror,
-      mirrorRegions: (this._replayBoard?.mirrorRegions || []).map((region) => ({ ...region }))
+      mirrorRegions: (this._replayBoard?.mirrorRegions || []).map((region) => ({ ...region })),
+      shapeDrawMode: this._shapeDrawMode
     };
   }
 
@@ -1422,6 +1448,7 @@ export class ReplayEngine {
     this.mirror = !!cp.mirror;
     this._replayBoard.setMirror(this.mirror);
     this._replayBoard.setMirrorRegions(cp.mirrorRegions || []);
+    this._applyShapeDrawMode(cp.shapeDrawMode);
     for (const [idStr, state] of Object.entries(cp.botStates || {})) {
       const bot = this._createBotUser(Number(idStr), state);
       this._storePatternState(bot);
@@ -1464,6 +1491,7 @@ export class ReplayEngine {
     this.mirror = !!snapshot?.mirror;
     this._replayBoard.setMirror(this.mirror);
     this._replayBoard.setMirrorRegions(snapshot?.mirrorRegions || []);
+    this._applyShapeDrawMode(snapshot?.shapeDrawMode);
 
     const hasHistory = Array.isArray(snapshot.history) && snapshot.history.some((layerHistory) => Array.isArray(layerHistory) && layerHistory.length > 0);
     const hasRedoHistory = !!snapshot.redoHistory && Object.values(snapshot.redoHistory).some((batches) => Array.isArray(batches) && batches.length > 0);
@@ -2144,7 +2172,10 @@ export class ReplayEngine {
       patternColorMode: state.patternColorMode ?? 'original',
       spacing: state.spacing ?? 0,
       smoothing: state.smoothing ?? 15,
-      hardness: state.hardness ?? 100
+      hardness: state.hardness ?? 100,
+      font: state.font,
+      textPositionMultiplier: state.textPositionMultiplier,
+      textPositionOffset: state.textPositionOffset
     });
 
     // Per-user preview canvas — same as what UI.createUserBoard provides
@@ -2641,6 +2672,15 @@ export class ReplayEngine {
       return;
     }
 
+    // Shape draw mode is app-global in live play (the 'csdm' handler calls
+    // app.applyShapeDrawMode for everyone), so apply it engine-wide. Handled
+    // before the userId guard: the recorder's structuredClone drops proto3
+    // default scalars, so a CSDM from session 0 arrives with msg.u undefined.
+    if (msg.t === T.CSDM) {
+      this._applyShapeDrawMode(msg.sdm);
+      return;
+    }
+
     // Board-level restores ("undo to here" / "undo region to here" / moderator
     // restore) carry no owning user — the wire has no `u`, and the recorder's
     // structuredClone drops proto3 default scalars, so msg.u is `undefined`
@@ -2784,6 +2824,19 @@ export class ReplayEngine {
         case T.CBM:
           if (msg.bm !== undefined) {
             user.setBlendMode(msg.bm);
+            this._syncReplayTextPreview(user);
+          }
+          break;
+
+        case T.CF:
+          if (msg.fo) {
+            user.setFont(msg.fo);
+            // tm/to of 0 are proto3 defaults and get dropped from the tape —
+            // fall back to the font's own layout defaults rather than keeping
+            // a stale multiplier/offset from the previous font.
+            const fontDefaults = getTextFontDefaults(msg.fo);
+            user.setTextPositionMultiplier(msg.tm !== undefined ? msg.tm : fontDefaults.textPositionMultiplier);
+            user.setTextPositionOffset(msg.to !== undefined ? msg.to : fontDefaults.textPositionOffset);
             this._syncReplayTextPreview(user);
           }
           break;

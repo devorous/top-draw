@@ -142,6 +142,18 @@
     else TimeMachine.play();
   }
 
+  // Playback speed — stepped slider over fixed stops (parity with
+  // ReplayMiniViewer). TimeMachine.stop() resets the rate to 1×.
+  const RATE_STOPS = [0.5, 1, 2, 4, 8];
+  let rateIndex = $derived.by(() => {
+    const i = RATE_STOPS.indexOf(TimeMachine.playbackRate);
+    return i >= 0 ? i : 1;
+  });
+
+  function onRateInput(e) {
+    TimeMachine.setPlaybackRate(RATE_STOPS[Number(e.currentTarget.value)]);
+  }
+
   // ── Mini-player actions (parity with the full Timebar review controls) ──────
   let tmExporting = $derived(TimeMachine.isExportingVideo);
   let tmExportProgress = $derived(TimeMachine.videoExportProgress);
@@ -1011,6 +1023,18 @@
                 {#if regionRect}
                   <button class="rp-action" onclick={clearRegion} title="Clear region">Clear</button>
                 {/if}
+                <div class="rp-speed" title="Playback speed">
+                  <input
+                    type="range"
+                    min="0"
+                    max={RATE_STOPS.length - 1}
+                    step="1"
+                    value={rateIndex}
+                    oninput={onRateInput}
+                    aria-label="Playback speed"
+                  />
+                  <span class="rp-speed-label">{RATE_STOPS[rateIndex]}×</span>
+                </div>
                 <span class="rp-actions-spacer"></span>
                 {#if appState.canUndoReplayHistory}
                   <button class="rp-action danger" onclick={undoRecentToHere} title={regionRect ? 'Undo just this region to here' : 'Undo board to here'}>
@@ -1348,6 +1372,12 @@
   /* Action toolbar */
   .rp-actions { display: flex; align-items: center; gap: 8px; padding: 0 4px; flex-wrap: wrap; }
   .rp-actions-spacer { flex: 1; }
+  .rp-speed { display: flex; align-items: center; gap: 6px; }
+  .rp-speed input[type="range"] { width: 84px; accent-color: var(--accent-primary, #00d4aa); cursor: pointer; }
+  .rp-speed-label {
+    font-size: 12px; font-weight: 600; color: var(--text-secondary, #bbb);
+    font-variant-numeric: tabular-nums; min-width: 30px;
+  }
   .rp-action {
     background: transparent; border: 1px solid var(--border-subtle, #333); color: var(--text-secondary, #bbb);
     border-radius: 6px; padding: 6px 12px; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap;

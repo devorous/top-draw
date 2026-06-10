@@ -6,6 +6,12 @@
  * piped to a MediaRecorder via captureStream(fps) so the encoder samples one
  * frame per real-time interval. Wall-clock export time ≈ output video length.
  *
+ * Dead air is collapsed the same way RollingTapeRecorder stamps its tape:
+ * frames are stepped on a compressed "activity clock" where real time flows
+ * for the first IDLE_LEADOUT_MS of any gap between deltas, then the rest of
+ * the gap is dropped. Rolling-tape recordings are already compressed, so this
+ * is a no-op for them; manual recordings lose their idle stretches on render.
+ *
  * Optional region: when provided (board-pixel coords), the export canvas is
  * sized to the region and only that sub-rect of replay output is copied.
  */
@@ -13,6 +19,73 @@
 import { ReplayEngine } from '../timebar/ReplayEngine.js';
 import { drawReplayCursor } from './cursorOverlay.js';
 import { Muxer, ArrayBufferTarget } from 'webm-muxer';
+
+/** Matches RollingTapeRecorder.IDLE_LEADOUT_MS — lead-out beat kept before a gap collapses. */
+const IDLE_LEADOUT_MS = 500;
+
+/**
+ * Hold the fully-applied final state for this long at the end of a video
+ * render, so the finished artwork is visible instead of a single-frame blink.
+ */
+const FINAL_HOLD_MS = 1000;
+
+/** Remaining timeline entries from `fromIdx` on, shaped for engine.appendActions. */
+function remainingChunk(entries, fromIdx) {
+  const chunk = [];
+  for (let i = fromIdx; i < entries.length; i++) {
+    chunk.push({ timestamp: entries[i].ts, msg: entries[i].msg });
+  }
+  return chunk;
+}
+
+/**
+ * Stamp every delta with a virtual timestamp on the compressed activity clock:
+ * the virtual gap between consecutive deltas is the real gap capped at
+ * IDLE_LEADOUT_MS. Within any (possibly capped) gap, virtual time maps 1:1 to
+ * the start of the real gap, so a virtual playhead converts back to a real
+ * timestamp as `lastReal + (vt - lastVirtual)`.
+ *
+ * @param {import('./Recorder.js').ReplayRecording} recording
+ * @returns {{startTs: number, entries: Array<{vts: number, ts: number, msg: Object}>, vEnd: number}}
+ */
+function buildCompressedTimeline(recording) {
+  const startTs = recording.startedAt;
+  const deltas = recording.deltas || [];
+  const realEnd = recording.endedAt ?? (deltas.length > 0 ? deltas[deltas.length - 1].ts : startTs);
+
+  const entries = new Array(deltas.length);
+  let prevReal = startTs;
+  let prevVirtual = startTs;
+  for (let i = 0; i < deltas.length; i++) {
+    const d = deltas[i];
+    const vts = prevVirtual + Math.min(Math.max(d.ts - prevReal, 0), IDLE_LEADOUT_MS);
+    entries[i] = { vts, ts: d.ts, msg: d.msg };
+    prevReal = d.ts;
+    prevVirtual = vts;
+  }
+  const vEnd = prevVirtual + Math.min(Math.max(realEnd - prevReal, 0), IDLE_LEADOUT_MS);
+  return { startTs, entries, vEnd };
+}
+
+/**
+ * Tape duration (ms) after dead-air removal — what a render will actually
+ * cover. Used by the dialog's output-length estimate.
+ * @param {import('./Recorder.js').ReplayRecording} recording
+ */
+export function compressedTapeDurationMs(recording) {
+  if (!recording) return 0;
+  const deltas = recording.deltas || [];
+  const startTs = recording.startedAt;
+  const realEnd = recording.endedAt ?? (deltas.length > 0 ? deltas[deltas.length - 1].ts : startTs);
+  let total = 0;
+  let prev = startTs;
+  for (let i = 0; i < deltas.length; i++) {
+    total += Math.min(Math.max(deltas[i].ts - prev, 0), IDLE_LEADOUT_MS);
+    prev = deltas[i].ts;
+  }
+  total += Math.min(Math.max(realEnd - prev, 0), IDLE_LEADOUT_MS);
+  return total;
+}
 
 /**
  * @typedef {Object} TimeLapseOptions
@@ -23,7 +96,7 @@ import { Muxer, ArrayBufferTarget } from 'webm-muxer';
  * @property {'video'|'sequence'} [output='video'] - Render target format
  * @property {{x: number, y: number, width: number, height: number}|null} region - null = full board
  * @property {[number, number, number, number]} [backgroundColor] - rgba 0-255, alpha 0-1 (defaults to white)
- * @property {boolean} [renderCursors=true]     - paint bot cursor markers on each frame
+ * @property {boolean} [renderCursors=false]    - paint bot cursor markers on each frame
  * @property {(progress: number) => void} [onProgress] - 0..1
  */
 
@@ -57,7 +130,7 @@ export class TimeLapseExporter {
    */
   async _exportVideoWebCodecs() {
     const { recording, wsClient, speed, fps, region, backgroundColor, onProgress } = this._opts;
-    const renderCursors = this._opts.renderCursors !== false;
+    const renderCursors = this._opts.renderCursors === true;
     if (!recording?.openingSnapshot) throw new Error('Recording missing opening snapshot');
     if (!(speed > 0)) throw new Error('Speed must be > 0');
     if (!(fps > 0)) throw new Error('FPS must be > 0');
@@ -137,17 +210,19 @@ export class TimeLapseExporter {
       bitrate, framerate: fps, hardwareAcceleration: 'prefer-software', latencyMode: 'quality',
     });
 
-    const endTs = recording.endedAt ?? (recording.deltas.length > 0
-      ? recording.deltas[recording.deltas.length - 1].ts
-      : startTs);
-    const tapeDuration = Math.max(1, endTs - startTs);
+    // Walk the tape on the compressed activity clock so dead air doesn't
+    // produce stretches of identical frames. The engine still gets real
+    // timestamps (cursor idle-hide and vector-text fades depend on them).
+    const { entries, vEnd } = buildCompressedTimeline(recording);
+    const tapeDuration = Math.max(1, vEnd - startTs);
     const tapePerFrameMs = (1000 / fps) * speed;
     const frameDurUs = Math.round(1_000_000 / fps);
     const keyFrameInterval = Math.max(1, Math.round(fps)); // ~1 keyframe per output second
 
-    const deltas = recording.deltas;
     let deltaIdx = 0;
-    let currentTs = startTs;
+    let currentVts = startTs;
+    let lastReal = startTs;
+    let lastVirtual = startTs;
     let frameIndex = 0;
     const startedAt = performance.now();
 
@@ -166,21 +241,25 @@ export class TimeLapseExporter {
     // First frame = state at startTs.
     encodeCurrentFrame();
 
-    while (currentTs < endTs && !this._cancelled && !encoderError) {
-      const targetTs = Math.min(currentTs + tapePerFrameMs, endTs);
+    while (currentVts < vEnd && !this._cancelled && !encoderError) {
+      const targetVts = Math.min(currentVts + tapePerFrameMs, vEnd);
 
       const chunk = [];
-      while (deltaIdx < deltas.length && deltas[deltaIdx].ts <= targetTs) {
-        if (deltas[deltaIdx].ts >= currentTs) chunk.push({ timestamp: deltas[deltaIdx].ts, msg: deltas[deltaIdx].msg });
+      while (deltaIdx < entries.length && entries[deltaIdx].vts <= targetVts) {
+        const e = entries[deltaIdx];
+        if (e.vts >= currentVts) chunk.push({ timestamp: e.ts, msg: e.msg });
+        lastReal = e.ts;
+        lastVirtual = e.vts;
         deltaIdx++;
       }
       if (chunk.length > 0) {
-        await this._engine.appendActions(chunk, targetTs);
+        // Map the virtual playhead back to a real timestamp for the engine.
+        await this._engine.appendActions(chunk, lastReal + (targetVts - lastVirtual));
         if (this._cancelled || encoderError) break;
       }
 
       encodeCurrentFrame();
-      if (onProgress) onProgress(Math.min(1, (targetTs - startTs) / tapeDuration));
+      if (onProgress) onProgress(Math.min(1, (targetVts - startTs) / tapeDuration));
 
       // Backpressure: drain the encoder queue so it can't balloon in memory;
       // otherwise yield occasionally so the progress bar paints.
@@ -192,7 +271,28 @@ export class TimeLapseExporter {
         await new Promise((res) => setTimeout(res, 0));
       }
 
-      currentTs = targetTs;
+      currentVts = targetVts;
+    }
+
+    // Guarantee the closing state: apply any deltas the stepped walk left
+    // behind (defensive — float drift in the virtual clock), then hold the
+    // final frame for FINAL_HOLD_MS of output so the video ends on the
+    // finished artwork.
+    if (!this._cancelled && !encoderError) {
+      if (deltaIdx < entries.length) {
+        const rest = remainingChunk(entries, deltaIdx);
+        deltaIdx = entries.length;
+        await this._engine.appendActions(rest, rest[rest.length - 1].timestamp);
+      }
+      const holdFrames = Math.max(1, Math.round((FINAL_HOLD_MS / 1000) * fps));
+      for (let i = 0; i < holdFrames && !this._cancelled && !encoderError; i++) {
+        encodeCurrentFrame();
+        if (encoder.encodeQueueSize > 8) {
+          while (encoder.encodeQueueSize > 2 && !this._cancelled) {
+            await new Promise((res) => setTimeout(res, 0));
+          }
+        }
+      }
     }
 
     if (this._cancelled) {
@@ -225,7 +325,7 @@ export class TimeLapseExporter {
    */
   async _exportVideoMediaRecorder() {
     const { recording, wsClient, speed, fps, region, backgroundColor, onProgress } = this._opts;
-    const renderCursors = this._opts.renderCursors !== false;
+    const renderCursors = this._opts.renderCursors === true;
     if (!recording?.openingSnapshot) throw new Error('Recording missing opening snapshot');
     if (!(speed > 0)) throw new Error('Speed must be > 0');
     if (!(fps > 0)) throw new Error('FPS must be > 0');
@@ -292,32 +392,36 @@ export class TimeLapseExporter {
     });
     this._recorder.start();
 
-    const endTs = recording.endedAt ?? (recording.deltas.length > 0
-      ? recording.deltas[recording.deltas.length - 1].ts
-      : startTs);
-    const tapeDuration = Math.max(1, endTs - startTs);
+    // Same compressed activity clock as the WebCodecs path — see
+    // buildCompressedTimeline for the dead-air removal rules.
+    const { entries, vEnd } = buildCompressedTimeline(recording);
+    const tapeDuration = Math.max(1, vEnd - startTs);
 
     const frameIntervalMs = 1000 / fps;
     const tapePerFrameMs = frameIntervalMs * speed;
 
-    const deltas = recording.deltas;
     let deltaIdx = 0;
-    let currentTs = startTs;
+    let currentVts = startTs;
+    let lastReal = startTs;
+    let lastVirtual = startTs;
     const startedAt = performance.now();
 
-    while (currentTs < endTs && !this._cancelled) {
-      const targetTs = Math.min(currentTs + tapePerFrameMs, endTs);
+    while (currentVts < vEnd && !this._cancelled) {
+      const targetVts = Math.min(currentVts + tapePerFrameMs, vEnd);
 
       const chunk = [];
-      while (deltaIdx < deltas.length && deltas[deltaIdx].ts <= targetTs) {
-        if (deltas[deltaIdx].ts >= currentTs) {
-          chunk.push({ timestamp: deltas[deltaIdx].ts, msg: deltas[deltaIdx].msg });
+      while (deltaIdx < entries.length && entries[deltaIdx].vts <= targetVts) {
+        const e = entries[deltaIdx];
+        if (e.vts >= currentVts) {
+          chunk.push({ timestamp: e.ts, msg: e.msg });
         }
+        lastReal = e.ts;
+        lastVirtual = e.vts;
         deltaIdx++;
       }
 
       if (chunk.length > 0) {
-        await this._engine.appendActions(chunk, targetTs);
+        await this._engine.appendActions(chunk, lastReal + (targetVts - lastVirtual));
         if (this._cancelled) break;
       }
 
@@ -325,20 +429,26 @@ export class TimeLapseExporter {
       if (renderCursors) this._drawCursorOverlay(r);
 
       if (onProgress) {
-        onProgress(Math.min(1, (targetTs - startTs) / tapeDuration));
+        onProgress(Math.min(1, (targetVts - startTs) / tapeDuration));
       }
 
       // Pace to real-time so MediaRecorder samples one frame per interval.
       await sleep(frameIntervalMs);
-      currentTs = targetTs;
+      currentVts = targetVts;
     }
 
-    // Hold the final frame for ~250 ms so the video doesn't end mid-stroke
-    // visually. Also lets MediaRecorder flush a clean last frame.
+    // Guarantee the closing state: apply any deltas the stepped walk left
+    // behind, then hold the final frame so the video ends on the finished
+    // artwork (also lets MediaRecorder flush a clean last frame).
     if (!this._cancelled) {
+      if (deltaIdx < entries.length) {
+        const rest = remainingChunk(entries, deltaIdx);
+        deltaIdx = entries.length;
+        await this._engine.appendActions(rest, rest[rest.length - 1].timestamp);
+      }
       this._drawFrame(r, bg);
       if (renderCursors) this._drawCursorOverlay(r);
-      await sleep(250);
+      await sleep(FINAL_HOLD_MS);
     }
 
     try { this._recorder.stop(); } catch {}
@@ -384,7 +494,7 @@ export class TimeLapseExporter {
 
   async _prepareReplay() {
     const { recording, wsClient, speed, fps, region, backgroundColor, onProgress } = this._opts;
-    const renderCursors = this._opts.renderCursors !== false;
+    const renderCursors = this._opts.renderCursors === true;
     if (!recording?.openingSnapshot) throw new Error('Recording missing opening snapshot');
     if (!(speed > 0)) throw new Error('Speed must be > 0');
     if (!(fps > 0)) throw new Error('FPS must be > 0');
@@ -426,10 +536,8 @@ export class TimeLapseExporter {
 
     this._drawFrame(r, bg);
 
-    const endTs = recording.endedAt ?? (recording.deltas.length > 0
-      ? recording.deltas[recording.deltas.length - 1].ts
-      : startTs);
-    const tapeDuration = Math.max(1, endTs - startTs);
+    const { entries, vEnd } = buildCompressedTimeline(recording);
+    const tapeDuration = Math.max(1, vEnd - startTs);
 
     const frameIntervalMs = 1000 / fps;
     const tapePerFrameMs = frameIntervalMs * speed;
@@ -438,26 +546,26 @@ export class TimeLapseExporter {
       r,
       bg,
       startTs,
-      endTs,
+      vEnd,
       tapeDuration,
       tapePerFrameMs,
-      deltas: recording.deltas,
+      entries,
       renderCursors,
       onProgress,
     };
   }
 
   async _exportImageSequence(prepared) {
-    const { r, bg, startTs, endTs, tapeDuration, tapePerFrameMs, deltas, renderCursors, onProgress } = prepared;
+    const { r, bg, startTs, vEnd, tapeDuration, tapePerFrameMs, entries, renderCursors, onProgress } = prepared;
     const startedAt = performance.now();
-    const entries = [];
+    const frames = [];
     const totalFrames = Math.max(1, Math.ceil(tapeDuration / tapePerFrameMs) + 1);
     let frameIndex = 0;
 
     const addFrame = async () => {
       if (renderCursors) this._drawCursorOverlay(r);
       const blob = await canvasToBlob(this._exportCanvas, 'image/png');
-      entries.push({
+      frames.push({
         name: `frame_${String(frameIndex + 1).padStart(6, '0')}.png`,
         blob,
       });
@@ -468,17 +576,28 @@ export class TimeLapseExporter {
 
     await addFrame();
 
-    let deltaIdx = 0;
-    let currentTs = startTs;
-    while (currentTs < endTs && !this._cancelled) {
-      const targetTs = Math.min(currentTs + tapePerFrameMs, endTs);
+    const cursor = { idx: 0, lastReal: startTs, lastVirtual: startTs };
+    let currentVts = startTs;
+    while (currentVts < vEnd && !this._cancelled) {
+      const targetVts = Math.min(currentVts + tapePerFrameMs, vEnd);
 
-      deltaIdx = await this._appendReplayActions(deltas, deltaIdx, currentTs, targetTs);
+      await this._appendReplayActions(entries, cursor, currentVts, targetVts);
       if (this._cancelled) break;
 
       this._drawFrame(r, bg);
       await addFrame();
-      currentTs = targetTs;
+      currentVts = targetVts;
+    }
+
+    // Guarantee the closing state: if the stepped walk left deltas behind
+    // (defensive — float drift in the virtual clock), apply them and emit one
+    // more frame so the sequence always ends on the finished artwork.
+    if (!this._cancelled && cursor.idx < entries.length) {
+      const rest = remainingChunk(entries, cursor.idx);
+      cursor.idx = entries.length;
+      await this._engine.appendActions(rest, rest[rest.length - 1].timestamp);
+      this._drawFrame(r, bg);
+      await addFrame();
     }
 
     if (this._cancelled) {
@@ -487,7 +606,7 @@ export class TimeLapseExporter {
     }
 
     if (onProgress) onProgress(1);
-    const blob = await buildStoredZip(entries);
+    const blob = await buildStoredZip(frames);
     const elapsedMs = performance.now() - startedAt;
     this._cleanup();
     return {
@@ -499,19 +618,26 @@ export class TimeLapseExporter {
     };
   }
 
-  async _appendReplayActions(deltas, deltaIdx, currentTs, targetTs) {
+  /**
+   * Feed the engine every compressed-timeline entry inside (currentVts,
+   * targetVts]. `cursor` ({idx, lastReal, lastVirtual}) is advanced in place
+   * so successive calls walk the tape and can map virtual time back to real.
+   */
+  async _appendReplayActions(entries, cursor, currentVts, targetVts) {
     const chunk = [];
-    while (deltaIdx < deltas.length && deltas[deltaIdx].ts <= targetTs) {
-      if (deltas[deltaIdx].ts >= currentTs) {
-        chunk.push({ timestamp: deltas[deltaIdx].ts, msg: deltas[deltaIdx].msg });
+    while (cursor.idx < entries.length && entries[cursor.idx].vts <= targetVts) {
+      const e = entries[cursor.idx];
+      if (e.vts >= currentVts) {
+        chunk.push({ timestamp: e.ts, msg: e.msg });
       }
-      deltaIdx++;
+      cursor.lastReal = e.ts;
+      cursor.lastVirtual = e.vts;
+      cursor.idx++;
     }
 
     if (chunk.length > 0) {
-      await this._engine.appendActions(chunk, targetTs);
+      await this._engine.appendActions(chunk, cursor.lastReal + (targetVts - cursor.lastVirtual));
     }
-    return deltaIdx;
   }
 
   _drawFrame(r, bg) {

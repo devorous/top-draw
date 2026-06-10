@@ -247,6 +247,9 @@ export function captureOpeningSnapshot(app) {
       ? board.mirrorRegions.map((r) => ({ ...r }))
       : [],
     mirror: !!board.mirror,
+    // App-global shape draw mode at record start; mid-tape changes ride along
+    // as CSDM messages.
+    shapeDrawMode: app.shapeDrawMode === 'center-scaling' ? 'center-scaling' : 'corner-to-corner',
     vectorText: captureVectorTextRecords(board, recordedAt),
   };
 }

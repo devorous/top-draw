@@ -23,6 +23,8 @@
   let speed = $state(30);
   let fps = $state(30);
   let output = $state('video');
+  // Off by default — renders are usually about the artwork, not the cursors.
+  let renderCursors = $state(false);
   let useRegion = $state(false);
   /** Board-pixel coords. Null = full board. */
   let region = $state(null);
@@ -114,8 +116,12 @@
   }
 
   // Estimated wall-clock time for video render = output video duration.
+  // Renders walk the tape on the compressed activity clock (dead air
+  // collapsed), so prefer that duration over the raw session span.
   let outputSecondsEstimate = $derived.by(() => {
-    const tape = Math.max(0, (TimeMachine.sessionEnd || 0) - (TimeMachine.sessionStart || 0));
+    const session = Math.max(0, (TimeMachine.sessionEnd || 0) - (TimeMachine.sessionStart || 0));
+    const compressed = TimeMachine.getRenderTapeDurationMs();
+    const tape = compressed > 0 ? compressed : session;
     if (!tape || !speed) return 0;
     return (tape / 1000) / speed;
   });
@@ -139,6 +145,7 @@
       fps,
       output,
       region: useRegion ? region : null,
+      renderCursors,
     };
     // Don't await — let the dialog stay open so the progress bar updates.
     TimeMachine.exportTimeLapseVideo(opts);
@@ -238,6 +245,14 @@
             <option value={30}>30</option>
             <option value={60}>60</option>
           </select>
+        </label>
+
+        <label class="row cursors-row">
+          <span>Cursors</span>
+          <span class="checkbox-wrap">
+            <input type="checkbox" bind:checked={renderCursors} disabled={TimeMachine.isExportingVideo} />
+            Render cursors
+          </span>
         </label>
 
         <div class="row region-row">
@@ -396,6 +411,19 @@
 
   .region-row {
     grid-template-columns: 70px 1fr;
+  }
+
+  .cursors-row {
+    grid-template-columns: 70px 1fr;
+    cursor: pointer;
+  }
+
+  .checkbox-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    input[type="checkbox"] { accent-color: #4a90e2; margin: 0; }
   }
 
   .output-row {

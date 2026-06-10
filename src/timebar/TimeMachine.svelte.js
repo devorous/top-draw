@@ -9,7 +9,7 @@
 import { ReplayEngine } from './ReplayEngine.js';
 import { T } from '../../shared/MessageTypes.js';
 import { encodeDdraw, suggestDdrawFilename } from '../replay/ddrawCodec.js';
-import { TimeLapseExporter, suggestImageSequenceFilename, suggestVideoFilename } from '../replay/TimeLapseExporter.js';
+import { TimeLapseExporter, compressedTapeDurationMs, suggestImageSequenceFilename, suggestVideoFilename } from '../replay/TimeLapseExporter.js';
 
 const SEEK_TELEMETRY_LOG_INTERVAL_MS = 1500;
 const LOCAL_REVERSE_SCRUB_FRAME_MS = 500;
@@ -68,6 +68,8 @@ class TimeMachineState {
   currentTime = $state(0);
   isReviewing = $state(false);
   isPlaying = $state(false);
+  /** Playback speed multiplier (1 = real time). */
+  playbackRate = $state(1);
   /** true while the user is dragging the replay thumb */
   isScrubbing = $state(false);
   /** true if playback was running when the current scrub began, so we resume on release */
@@ -590,6 +592,7 @@ class TimeMachineState {
     this.isOpen = false;
     this.isReviewing = false;
     this.isPlaying = false;
+    this.playbackRate = 1;
     this.isLoading = false;
     this.checkpoints = [];
     this.currentTime = 0;
@@ -907,6 +910,21 @@ class TimeMachineState {
     this._playbackFrameId = requestAnimationFrame((now) => this._playbackFrame(now));
   }
 
+  /**
+   * Change playback speed. Takes effect immediately — if playing, the clock
+   * is rebased to the current playhead so the rate switch doesn't jump.
+   * @param {number} rate
+   */
+  setPlaybackRate(rate) {
+    const r = Number(rate);
+    if (!Number.isFinite(r) || r <= 0) return;
+    if (this.isPlaying) {
+      this._playbackStartPerf = performance.now();
+      this._playbackStartOffset = this.currentTime;
+    }
+    this.playbackRate = r;
+  }
+
   pause() {
     this.isPlaying = false;
     if (this._playbackFrameId) {
@@ -969,7 +987,7 @@ class TimeMachineState {
    * download. Uses a dedicated ReplayEngine instance so the user's current
    * scrub position is unaffected.
    *
-   * @param {{ speed?: number, fps?: number, output?: 'video'|'sequence', region?: {x:number,y:number,width:number,height:number}|null }} [opts]
+   * @param {{ speed?: number, fps?: number, output?: 'video'|'sequence', region?: {x:number,y:number,width:number,height:number}|null, renderCursors?: boolean }} [opts]
    * @returns {Promise<boolean>}
    */
   async exportTimeLapseVideo(opts = {}) {
@@ -994,6 +1012,7 @@ class TimeMachineState {
       fps,
       output,
       region,
+      renderCursors: opts.renderCursors === true,
       backgroundColor: this._board?.backgroundColor,
       onProgress: (p) => { this.videoExportProgress = p; },
     });
@@ -1031,6 +1050,15 @@ class TimeMachineState {
 
   cancelVideoExport() {
     if (this._activeVideoExporter) this._activeVideoExporter.cancel();
+  }
+
+  /**
+   * Tape length (ms) a render will actually cover — the local recording's
+   * duration after dead-air removal. 0 when no local recording is active.
+   */
+  getRenderTapeDurationMs() {
+    if (this._source !== 'local' || !this._localRecording) return 0;
+    return compressedTapeDurationMs(this._localRecording);
   }
 
   async restoreLocalToCurrentState() {
@@ -1627,7 +1655,7 @@ class TimeMachineState {
   async _playbackFrame(now) {
     if (!this.isPlaying) return;
 
-    const elapsed = now - this._playbackStartPerf;
+    const elapsed = (now - this._playbackStartPerf) * this.playbackRate;
     const targetTime = Math.min(this._playbackStartOffset + elapsed, this.sessionEnd);
 
     if (targetTime >= this.sessionEnd) {
