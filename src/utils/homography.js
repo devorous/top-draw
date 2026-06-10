@@ -1024,7 +1024,7 @@ class Homography {
     
 
 }
-export {Homography}
+export {Homography, calculateTransformMatrix, applyProjectiveTransformToPoint}
 
 /*      ----------------------------------------------- AUXILIAR FUNCTIONS ---------------------------------------------------                   */
 /*      ---------------------------- These functions will be not accessible for the user -------------------------------------                   */

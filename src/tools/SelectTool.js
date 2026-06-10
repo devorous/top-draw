@@ -4,7 +4,7 @@
  */
 
 import { Homography } from '../utils/homography.js';
-import { performHomographyTransform, imageDataToCanvas, calculateCornerBounds } from '../utils/homographyUtils.js';
+import { performHomographyTransform, imageDataToCanvas, calculateCornerBounds, computeWarpOutputBounds } from '../utils/homographyUtils.js';
 import { pointInHull, distanceBasedCulling } from '../utils/drawing.js';
 import { Tool } from './BaseTool.js';
 
@@ -1625,6 +1625,17 @@ export class SelectTool extends Tool {
     return !!(this.corners && this.originalCorners && (this.rotation !== 0 || !this.isAxisAlignedCornerRect()));
   }
 
+  // Output window for the warp when it spills beyond the corner bbox
+  // (concave/crossed quads). Null when the default window already fits.
+  _getWarpOutputBounds() {
+    return computeWarpOutputBounds(this.originalCorners, this.corners, {
+      minX: 0,
+      minY: 0,
+      maxX: this.board.getWidth(),
+      maxY: this.board.getHeight()
+    });
+  }
+
   getRectScaledCanvas(sourceCanvas = this.floatingCanvas) {
     if (!sourceCanvas || !this.selection) return sourceCanvas;
 
@@ -1797,9 +1808,6 @@ export class SelectTool extends Tool {
 
     const ctx = this.board.topCtx;
 
-    // Calculate full output bounds
-    const bounds = calculateCornerBounds(this.corners);
-
     if (!this.needsHomographyTransform()) {
       this._cachedTransform = null;
       ctx.drawImage(
@@ -1817,54 +1825,9 @@ export class SelectTool extends Tool {
       return;
     }
 
-    // Create a key from corner positions to detect when transformation changes
-    const cornersKey = `${(this.corners.tl.x - bounds.minX).toFixed(2)},${(this.corners.tl.y - bounds.minY).toFixed(2)},` +
-                      `${(this.corners.tr.x - bounds.minX).toFixed(2)},${(this.corners.tr.y - bounds.minY).toFixed(2)},` +
-                      `${(this.corners.bl.x - bounds.minX).toFixed(2)},${(this.corners.bl.y - bounds.minY).toFixed(2)},` +
-                      `${(this.corners.br.x - bounds.minX).toFixed(2)},${(this.corners.br.y - bounds.minY).toFixed(2)}`;
-
-    // Check if we can use the cached transform
-    if (this._cachedTransform && this._cachedTransform.cornersKey === cornersKey) {
-      // Use cached transformed image
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = 'medium';
-      ctx.drawImage(this._cachedTransform.canvas, Math.round(bounds.minX), Math.round(bounds.minY), bounds.width, bounds.height);
-    } else {
-      // Need to recalculate transform - use downsampled preview for better performance
-      const srcMaxDim = Math.max(this.floatingCanvas.width, this.floatingCanvas.height);
-      const previewScale = srcMaxDim > this.previewMaxSize ? this.previewMaxSize / srcMaxDim : 1;
-      // Reuse or create preview homography instance
-      if (!this.previewHomography) {
-        this.previewHomography = new Homography('projective');
-      }
-
-      // Perform the transform using shared utility
-      const result = performHomographyTransform({
-        sourceCanvas: this.floatingCanvas,
-        sourceCorners: this.originalCorners,
-        destCorners: this.corners,
-        scale: previewScale,
-        homographyInstance: this.previewHomography
-      });
-
-      if (result) {
-        // Cache the transformed canvas
-        const tempCanvas = imageDataToCanvas(result.imageData);
-        this._cachedTransform = {
-          canvas: tempCanvas,
-          bounds: { width: bounds.width, height: bounds.height },
-          cornersKey
-        };
-
-        // Draw the warped result scaled up to full size
-        ctx.imageSmoothingEnabled = true;
-        ctx.imageSmoothingQuality = 'medium';
-        ctx.drawImage(tempCanvas, Math.round(bounds.minX), Math.round(bounds.minY), bounds.width, bounds.height);
-      } else {
-        // Fallback: just draw the original floating selection
-        this._cachedTransform = null;
-        this.drawFloatingSelection();
-      }
+    if (!this._drawWarpedFloatingSelection(ctx, 'medium')) {
+      // Fallback: just draw the original floating selection
+      this.drawFloatingSelection();
     }
 
     // Draw the quadrilateral outline and handles (on selection overlay so they can extend beyond canvas)
@@ -1872,6 +1835,94 @@ export class SelectTool extends Tool {
     this.drawTransformOutline(handleCtx);
     this.drawTransformHandles(handleCtx);
     this.board.restoreSelectionCtx();
+  }
+
+  // Warp the floating canvas through the current corner homography and draw it,
+  // caching the result. Folded (concave/crossed) quads get an expanded output
+  // window so the warp isn't cut off at the corner bbox.
+  // Returns false if the warp failed and nothing was drawn.
+  _drawWarpedFloatingSelection(ctx, quality) {
+    const bounds = calculateCornerBounds(this.corners);
+    const outputBounds = this._getWarpOutputBounds();
+
+    // Key from corner positions relative to bounds (translation-invariant) so a
+    // pure move reuses the cache. Expanded windows are board-clamped, so the
+    // key must also pin the absolute position.
+    let cornersKey = `${(this.corners.tl.x - bounds.minX).toFixed(2)},${(this.corners.tl.y - bounds.minY).toFixed(2)},` +
+                     `${(this.corners.tr.x - bounds.minX).toFixed(2)},${(this.corners.tr.y - bounds.minY).toFixed(2)},` +
+                     `${(this.corners.bl.x - bounds.minX).toFixed(2)},${(this.corners.bl.y - bounds.minY).toFixed(2)},` +
+                     `${(this.corners.br.x - bounds.minX).toFixed(2)},${(this.corners.br.y - bounds.minY).toFixed(2)}`;
+    if (outputBounds) {
+      cornersKey += `|${outputBounds.minX},${outputBounds.minY},${outputBounds.width},${outputBounds.height},` +
+                    `${Math.round(bounds.minX)},${Math.round(bounds.minY)}`;
+    }
+
+    // Check if we can use the cached transform (corners shape hasn't changed, only position)
+    if (this._cachedTransform && this._cachedTransform.cornersKey === cornersKey) {
+      const dr = this._cachedTransform.drawRect;
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = quality;
+      if (dr) {
+        ctx.drawImage(this._cachedTransform.canvas, dr.x, dr.y, dr.width, dr.height);
+      } else {
+        ctx.drawImage(this._cachedTransform.canvas, Math.round(bounds.minX), Math.round(bounds.minY), bounds.width, bounds.height);
+      }
+      return true;
+    }
+
+    // Need to recalculate transform - use downsampled preview for better performance
+    const srcMaxDim = Math.max(this.floatingCanvas.width, this.floatingCanvas.height);
+    let previewScale = srcMaxDim > this.previewMaxSize ? this.previewMaxSize / srcMaxDim : 1;
+    if (outputBounds) {
+      // Expanded windows can approach board size; cap the rasterized pixel
+      // count so the per-frame warp stays cheap.
+      const MAX_PREVIEW_OUTPUT_PIXELS = 1.5e6;
+      const outPixels = outputBounds.width * outputBounds.height * previewScale * previewScale;
+      if (outPixels > MAX_PREVIEW_OUTPUT_PIXELS) {
+        previewScale *= Math.sqrt(MAX_PREVIEW_OUTPUT_PIXELS / outPixels);
+      }
+    }
+    // Reuse or create preview homography instance
+    if (!this.previewHomography) {
+      this.previewHomography = new Homography('projective');
+    }
+
+    // Perform the transform using shared utility
+    const result = performHomographyTransform({
+      sourceCanvas: this.floatingCanvas,
+      sourceCorners: this.originalCorners,
+      destCorners: this.corners,
+      scale: previewScale,
+      homographyInstance: this.previewHomography,
+      outputBounds
+    });
+
+    if (!result) {
+      this._cachedTransform = null;
+      return false;
+    }
+
+    // Cache the transformed canvas
+    const tempCanvas = imageDataToCanvas(result.imageData);
+    const drawRect = outputBounds
+      ? { x: outputBounds.minX, y: outputBounds.minY, width: outputBounds.width, height: outputBounds.height }
+      : null;
+    this._cachedTransform = {
+      canvas: tempCanvas,
+      bounds: { width: bounds.width, height: bounds.height },
+      cornersKey,
+      drawRect
+    };
+
+    // Draw the warped result scaled up to full size
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = quality;
+    if (drawRect) {
+      ctx.drawImage(tempCanvas, drawRect.x, drawRect.y, drawRect.width, drawRect.height);
+    } else {
+      ctx.drawImage(tempCanvas, Math.round(bounds.minX), Math.round(bounds.minY), bounds.width, bounds.height);
+    }
+    return true;
   }
 
   drawTransformOutline(ctx) {
@@ -2043,7 +2094,8 @@ export class SelectTool extends Tool {
       sourceCorners: this.originalCorners,
       destCorners: this.corners,
       scale: 1, // Full resolution
-      homographyInstance: this.homography
+      homographyInstance: this.homography,
+      outputBounds: this._getWarpOutputBounds()
     });
 
     if (result) {
@@ -2561,57 +2613,7 @@ export class SelectTool extends Tool {
 
     // Check if corners need perspective/rotation handling - if so, use homography
     if (this.needsHomographyTransform()) {
-      // Calculate full output bounds
-      const bounds = calculateCornerBounds(this.corners);
-
-      // Create a key from corner positions to detect when transformation changes
-      // We use relative positions (subtract bounds.minX/minY) to make the key invariant to translation
-      const cornersKey = `${(this.corners.tl.x - bounds.minX).toFixed(2)},${(this.corners.tl.y - bounds.minY).toFixed(2)},` +
-                        `${(this.corners.tr.x - bounds.minX).toFixed(2)},${(this.corners.tr.y - bounds.minY).toFixed(2)},` +
-                        `${(this.corners.bl.x - bounds.minX).toFixed(2)},${(this.corners.bl.y - bounds.minY).toFixed(2)},` +
-                        `${(this.corners.br.x - bounds.minX).toFixed(2)},${(this.corners.br.y - bounds.minY).toFixed(2)}`;
-
-      // Check if we can use the cached transform (corners shape hasn't changed, only position)
-      if (this._cachedTransform && this._cachedTransform.cornersKey === cornersKey) {
-        // Use cached transformed image, just draw at new position
-        ctx.imageSmoothingEnabled = true;
-        ctx.imageSmoothingQuality = 'low';
-        ctx.drawImage(this._cachedTransform.canvas, Math.round(bounds.minX), Math.round(bounds.minY), bounds.width, bounds.height);
-        return;
-      }
-
-      // Need to recalculate transform
-      const srcMaxDim = Math.max(this.floatingCanvas.width, this.floatingCanvas.height);
-      const previewScale = srcMaxDim > this.previewMaxSize ? this.previewMaxSize / srcMaxDim : 1;
-      // Reuse or create preview homography instance
-      if (!this.previewHomography) {
-        this.previewHomography = new Homography('projective');
-      }
-
-      // Perform the transform using shared utility
-      const result = performHomographyTransform({
-        sourceCanvas: this.floatingCanvas,
-        sourceCorners: this.originalCorners,
-        destCorners: this.corners,
-        scale: previewScale,
-        homographyInstance: this.previewHomography
-      });
-
-      if (result) {
-        // Cache the transformed canvas for future frames
-        const tempCanvas = imageDataToCanvas(result.imageData);
-        this._cachedTransform = {
-          canvas: tempCanvas,
-          bounds: { width: bounds.width, height: bounds.height },
-          cornersKey
-        };
-
-        // Draw the warped result scaled up to full size
-        ctx.imageSmoothingEnabled = true;
-        ctx.imageSmoothingQuality = 'low';
-        ctx.drawImage(tempCanvas, Math.round(bounds.minX), Math.round(bounds.minY), bounds.width, bounds.height);
-        return;
-      }
+      if (this._drawWarpedFloatingSelection(ctx, 'low')) return;
     }
 
     // Fallback: simple draw at current position
@@ -2741,8 +2743,10 @@ export class SelectTool extends Tool {
       let dirtyW = this.selection.width;
       let dirtyH = this.selection.height;
 
+      let commitOutputBounds = null;
       if (this.needsHomographyTransform()) {
-        const bounds = calculateCornerBounds(this.corners);
+        commitOutputBounds = this._getWarpOutputBounds();
+        const bounds = commitOutputBounds || calculateCornerBounds(this.corners);
         dirtyX = Math.round(bounds.minX);
         dirtyY = Math.round(bounds.minY);
         dirtyW = Math.ceil(bounds.width);
@@ -2793,7 +2797,8 @@ export class SelectTool extends Tool {
             sourceCorners: this.originalCorners,
             destCorners: this.corners,
             scale: 1,
-            homographyInstance: this.homography
+            homographyInstance: this.homography,
+            outputBounds: commitOutputBounds
           });
           if (result) {
             const tempCanvas = imageDataToCanvas(result.imageData);
@@ -2874,7 +2879,8 @@ export class SelectTool extends Tool {
         sourceCorners: this.originalCorners,
         destCorners: this.corners,
         scale: 1,
-        homographyInstance: this.homography
+        homographyInstance: this.homography,
+        outputBounds: this._getWarpOutputBounds()
       });
 
       if (result) {
@@ -3988,8 +3994,10 @@ export class SelectTool extends Tool {
     let dirtyW = this.selection.width;
     let dirtyH = this.selection.height;
 
+    let stampOutputBounds = null;
     if (hasTransform && this.corners) {
-      const bounds = calculateCornerBounds(this.corners);
+      stampOutputBounds = this._getWarpOutputBounds();
+      const bounds = stampOutputBounds || calculateCornerBounds(this.corners);
       dirtyX = Math.round(bounds.minX);
       dirtyY = Math.round(bounds.minY);
       dirtyW = Math.ceil(bounds.width);
@@ -4033,7 +4041,8 @@ export class SelectTool extends Tool {
           sourceCorners: this.originalCorners,
           destCorners: this.corners,
           scale: 1,
-          homographyInstance: this.homography
+          homographyInstance: this.homography,
+          outputBounds: stampOutputBounds
         });
         if (result) {
           const tempCanvas = imageDataToCanvas(result.imageData);
@@ -4082,48 +4091,52 @@ export class SelectTool extends Tool {
 
     if (!this.floatingCanvas) return false;
 
-    this.floatingCanvas = this._createHorizontallyFlippedCanvas(this.floatingCanvas);
-    this.floatingCtx = this.floatingCanvas.getContext('2d');
+    if (this.needsHomographyTransform()) {
+      this._flipTransformCorners();
+    } else {
+      this.floatingCanvas = this._createHorizontallyFlippedCanvas(this.floatingCanvas);
+      this.floatingCtx = this.floatingCanvas.getContext('2d');
 
-    if (this.floatingLayers && this.floatingLayers.length > 0) {
-      this.floatingLayers = this.floatingLayers.map(({ canvas, groupIdx }) => ({
-        canvas: this._createHorizontallyFlippedCanvas(canvas),
-        groupIdx
-      }));
+      if (this.floatingLayers && this.floatingLayers.length > 0) {
+        this.floatingLayers = this.floatingLayers.map(({ canvas, groupIdx }) => ({
+          canvas: this._createHorizontallyFlippedCanvas(canvas),
+          groupIdx
+        }));
+      }
+
+      this.selectedImageData = this.floatingCtx.getImageData(
+        0,
+        0,
+        this.floatingCanvas.width,
+        this.floatingCanvas.height
+      );
+
+      // If there are original corners (for transforms), flip them horizontally
+      if (this.originalCorners) {
+        const width = this.floatingCanvas.width;
+        // Swap left and right corners and flip their x positions
+        const temp = {
+          tl: { ...this.originalCorners.tl },
+          tr: { ...this.originalCorners.tr },
+          bl: { ...this.originalCorners.bl },
+          br: { ...this.originalCorners.br }
+        };
+
+        // Flip x coordinates and swap left/right
+        this.originalCorners.tl = { x: width - temp.tr.x, y: temp.tr.y };
+        this.originalCorners.tr = { x: width - temp.tl.x, y: temp.tl.y };
+        this.originalCorners.bl = { x: width - temp.br.x, y: temp.br.y };
+        this.originalCorners.br = { x: width - temp.bl.x, y: temp.bl.y };
+      }
+
+      // Broadcast flip to other users
+      if (this.board.app?.wsClient) {
+        this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionFlip());
+      }
     }
 
-    this.selectedImageData = this.floatingCtx.getImageData(
-      0,
-      0,
-      this.floatingCanvas.width,
-      this.floatingCanvas.height
-    );
-
-    // If there are original corners (for transforms), flip them horizontally
-    if (this.originalCorners) {
-      const width = this.floatingCanvas.width;
-      // Swap left and right corners and flip their x positions
-      const temp = {
-        tl: { ...this.originalCorners.tl },
-        tr: { ...this.originalCorners.tr },
-        bl: { ...this.originalCorners.bl },
-        br: { ...this.originalCorners.br }
-      };
-
-      // Flip x coordinates and swap left/right
-      this.originalCorners.tl = { x: width - temp.tr.x, y: temp.tr.y };
-      this.originalCorners.tr = { x: width - temp.tl.x, y: temp.tl.y };
-      this.originalCorners.bl = { x: width - temp.br.x, y: temp.br.y };
-      this.originalCorners.br = { x: width - temp.bl.x, y: temp.bl.y };
-    }
-
-    // Invalidate cached transform since the source image changed
+    // Invalidate cached transform since the flip changed the rendered output
     this._cachedTransform = null;
-
-    // Broadcast flip to other users
-    if (this.board.app?.wsClient) {
-      this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionFlip());
-    }
 
     // Redraw the selection with flipped content
     this.board.clearTop();
@@ -4131,6 +4144,23 @@ export class SelectTool extends Tool {
     this.showContextMenu(true);
 
     return true;
+  }
+
+  // Mirror the destination corner quad about the vertical centerline of its
+  // bounds. Flipping the source pixels would re-warp the mirrored image
+  // through the same quad; reflecting the destination points flips the
+  // rendered result in place instead.
+  _flipTransformCorners() {
+    const bounds = calculateCornerBounds(this.corners);
+    const centerX = (bounds.minX + bounds.maxX) / 2;
+    for (const key of ['tl', 'tr', 'bl', 'br']) {
+      this.corners[key].x = 2 * centerX - this.corners[key].x;
+    }
+    this.updateSelectionFromCorners();
+    this.updateHandles();
+
+    // Remote users pick up the flip from the corner update
+    this.throttledBroadcastSelectionMove(this.corners, true);
   }
 
   _createHorizontallyFlippedCanvas(sourceCanvas) {

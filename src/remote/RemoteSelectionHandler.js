@@ -1,5 +1,5 @@
 import { Homography } from '../utils/homography.js';
-import { performHomographyTransform, calculateCornerBounds, imageDataToCanvas } from '../utils/homographyUtils.js';
+import { performHomographyTransform, calculateCornerBounds, imageDataToCanvas, computeWarpOutputBounds } from '../utils/homographyUtils.js';
 
 /**
  * RemoteSelectionHandler - Handles selection tool rendering and operations for remote users
@@ -793,7 +793,8 @@ export class RemoteSelectionHandler {
           sourceCorners: user.originalCorners,
           destCorners: c,
           scale: 1, // Full resolution for commit
-          homographyInstance: user.homography
+          homographyInstance: user.homography,
+          outputBounds: this._getWarpOutputBounds(user, c)
         });
 
         if (result) {
@@ -1078,7 +1079,8 @@ export class RemoteSelectionHandler {
           sourceCorners: user.originalCorners,
           destCorners: c,
           scale: 1, // Full resolution for stamp
-          homographyInstance: user.homography
+          homographyInstance: user.homography,
+          outputBounds: this._getWarpOutputBounds(user, c)
         });
 
         if (result) {
@@ -1501,6 +1503,17 @@ export class RemoteSelectionHandler {
     user._lastSelectionMovePreviewAt = 0;
   }
 
+  // Output window for the warp when it spills beyond the corner bbox
+  // (concave/crossed quads). Null when the default window already fits.
+  _getWarpOutputBounds(user, destCorners) {
+    return computeWarpOutputBounds(user.originalCorners, destCorners, {
+      minX: 0,
+      minY: 0,
+      maxX: this.board.getWidth(),
+      maxY: this.board.getHeight()
+    });
+  }
+
   hasTransformedCorners(user) {
     if (!user.selectionCorners || !user.selection) return false;
 
@@ -1552,8 +1565,18 @@ export class RemoteSelectionHandler {
       // Calculate preview scale for downsampling input image (max 256px on longest side of source)
       // REMOTE USER: Stay at lower resolution to avoid hitching the observer's frame rate.
       const srcMaxDim = Math.max(user.floatingCanvas.width, user.floatingCanvas.height);
-      const previewScale = srcMaxDim > this.previewMaxSize ? this.previewMaxSize / srcMaxDim : 1;
+      let previewScale = srcMaxDim > this.previewMaxSize ? this.previewMaxSize / srcMaxDim : 1;
       const fullBounds = calculateCornerBounds(user.selectionCorners);
+      const outputBounds = this._getWarpOutputBounds(user, user.selectionCorners);
+      if (outputBounds) {
+        // Expanded windows can approach board size; cap the rasterized pixel
+        // count so the per-move warp stays cheap.
+        const MAX_PREVIEW_OUTPUT_PIXELS = 1.5e6;
+        const outPixels = outputBounds.width * outputBounds.height * previewScale * previewScale;
+        if (outPixels > MAX_PREVIEW_OUTPUT_PIXELS) {
+          previewScale *= Math.sqrt(MAX_PREVIEW_OUTPUT_PIXELS / outPixels);
+        }
+      }
 
       if (!user.previewHomography) {
         user.previewHomography = new Homography('projective');
@@ -1563,7 +1586,8 @@ export class RemoteSelectionHandler {
         sourceCorners: user.originalCorners,
         destCorners: user.selectionCorners,
         scale: previewScale,
-        homographyInstance: user.previewHomography
+        homographyInstance: user.previewHomography,
+        outputBounds
       });
 
       if (result) {
@@ -1578,7 +1602,7 @@ export class RemoteSelectionHandler {
 
         // Calculate FULL SIZE bounds for drawing the preview scaled up
         // Store bounds for drawing
-        user._cachedPreviewBounds = {
+        user._cachedPreviewBounds = outputBounds || {
           minX: fullBounds.minX,
           minY: fullBounds.minY,
           width: fullBounds.width,
