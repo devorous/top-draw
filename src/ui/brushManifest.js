@@ -3,9 +3,9 @@
 const svgRaws = import.meta.glob('../svgs/*.svg', { query: '?raw', import: 'default', eager: true });
 const brushUrls = import.meta.glob('../brushes/*.{gbr,gih}', { query: '?url', import: 'default', eager: true });
 
-function svgEntry(name) {
+function svgEntry(name, extra = {}) {
   const raw = svgRaws[`../svgs/${name}`];
-  return { file: name, svgContent: raw || null, path: raw ? null : `../svgs/${name}`, type: 'svg' };
+  return { file: name, svgContent: raw || null, path: raw ? null : `../svgs/${name}`, type: 'svg', ...extra };
 }
 
 function brushUrl(name) {
@@ -13,6 +13,10 @@ function brushUrl(name) {
 }
 
 export const BRUSH_MANIFEST = [
+  // pinned: shown in the main list (not the Icons folder); the pattern
+  // gallery skips these since it has its own built-in circle/square.
+  svgEntry('dot.svg', { pinned: true }),
+  svgEntry('square.svg', { pinned: true }),
   { file: 'pepper.gbr', path: brushUrl('pepper.gbr'), type: 'gbr' },
   { file: 'rainbowCircles.gih', path: brushUrl('rainbowCircles.gih'), type: 'gih' },
   svgEntry('alien.svg'),

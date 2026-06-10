@@ -109,7 +109,8 @@ export class BrushGallery {
               ...brush,
               id: `builtin:${this.kind}:${entry.file}`,
               source: 'builtin',
-              kind: this.kind
+              kind: this.kind,
+              pinned: !!entry.pinned
             });
           }
         } catch (err) {
@@ -407,6 +408,7 @@ export class BrushGallery {
   }
 
   _isFolderBrush(brush) {
+    if (brush?.pinned) return false;
     return brush?.type === 'svg';
   }
 
@@ -501,6 +503,36 @@ export class BrushGallery {
     }
     img.alt = brush.brushName || brush.name || 'Brush';
     item.appendChild(img);
+
+    const frames = this._getAnimationFrames(brush);
+    if (frames.length > 1) {
+      this._setupAnimatedPreview(item, img, frames);
+    }
+  }
+
+  _getAnimationFrames(brush) {
+    if (brush?.type === 'gih' && Array.isArray(brush.gBrushes)) {
+      return brush.gBrushes.map(frame => frame.gimpUrl).filter(Boolean);
+    }
+    return [];
+  }
+
+  _setupAnimatedPreview(item, img, frames) {
+    let timer = null;
+    let frameIdx = 0;
+    item.addEventListener('mouseenter', () => {
+      if (timer) return;
+      timer = setInterval(() => {
+        frameIdx = (frameIdx + 1) % frames.length;
+        img.src = frames[frameIdx];
+      }, 120);
+    });
+    item.addEventListener('mouseleave', () => {
+      clearInterval(timer);
+      timer = null;
+      frameIdx = 0;
+      img.src = frames[0];
+    });
   }
 
   handleBrushContextMenu(brush, item) {

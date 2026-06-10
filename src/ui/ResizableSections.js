@@ -8,7 +8,7 @@
 export class ResizableSections {
   constructor(containerId, sections, options = {}) {
     this.container = document.getElementById(containerId);
-    this.sections = sections; // Array of { id, minHeight, defaultHeight }
+    this.sections = sections; // Array of { id, minHeight, defaultHeight } — defaultHeight is only a fallback when content can't be measured
     this.handles = [];
     this.activeResize = null;
     this.storageKey = options.storageKey || 'toolOptions_sectionHeights';
@@ -372,11 +372,59 @@ export class ResizableSections {
         element.style.flex = '1 1 auto';
         element.style.height = '';
       } else {
-        const height = savedHeights[section.id] || section.defaultHeight;
+        const height = savedHeights[section.id] || this.getAutoHeight(section, visibleSections);
         element.style.flex = '0 0 auto';
         element.style.height = `${height}px`;
       }
     });
+  }
+
+  /**
+   * Default height for a section with no saved user preference: fit the
+   * section's natural content height, clamped between its minHeight and the
+   * space left over after reserving minHeights for the other visible sections.
+   */
+  getAutoHeight(section, visibleSections) {
+    const natural = this.measureNaturalHeight(section);
+    return Math.min(
+      Math.max(natural, section.minHeight || 50),
+      this.getMaxAutoHeight(section, visibleSections)
+    );
+  }
+
+  measureNaturalHeight(section) {
+    const element = section.element || document.getElementById(section.id);
+    if (!element) return section.defaultHeight;
+
+    const prevHeight = element.style.height;
+    const prevFlex = element.style.flex;
+    element.style.height = '';
+    element.style.flex = '0 0 auto';
+
+    const natural = element.offsetHeight;
+
+    element.style.height = prevHeight;
+    element.style.flex = prevFlex;
+
+    return natural > 0 ? natural : section.defaultHeight;
+  }
+
+  getMaxAutoHeight(section, visibleSections) {
+    const containerHeight = this.container.clientHeight;
+    if (!containerHeight) return Infinity;
+
+    let reserved = 0;
+    visibleSections.forEach(other => {
+      if (other.id === section.id) return;
+      reserved += other.minHeight || 50;
+    });
+    this.handles.forEach(handle => {
+      if (handle.style.display !== 'none') {
+        reserved += handle.offsetHeight;
+      }
+    });
+
+    return Math.max(section.minHeight || 50, containerHeight - reserved);
   }
 
   // Public method to reset to defaults

@@ -72,6 +72,8 @@ export class SyncClient {
     /** @type {number|null} */
     this.syncTimeout = null;
     /** @type {number|null} */
+    this._drainTimer = null;
+    /** @type {number|null} */
     this.currentSyncTargetId = null;
     /** @type {string|null} */
     this.currentSyncTargetUsername = null;
@@ -386,6 +388,10 @@ export class SyncClient {
     if (this.syncTimeout) {
       clearTimeout(this.syncTimeout);
       this.syncTimeout = null;
+    }
+    if (this._drainTimer) {
+      clearTimeout(this._drainTimer);
+      this._drainTimer = null;
     }
     this.syncing = false;
     this.buffering = false;
@@ -1089,20 +1095,19 @@ export class SyncClient {
         this.board.markCompositeFull();
         this.board.compositeAllLayers();
       }
-      this.replayBuffer();
-      this.hideOverlay();
-      this.syncing = false;
+      // Stop re-buffering: the replayed tail and any newly-arriving live events
+      // should flow straight to their handlers so the board can drain to the
+      // present moment.
       this.buffering = false;
-      this.hasCompletedSync = true;
-      this.inactive = false;
-      this.expectedMessages = 0;
-      this.receivedMessages = 0;
-      this.currentSyncTargetId = null;
-      this.currentSyncTargetUsername = null;
-
-      if (this.onSyncComplete) {
-        this.onSyncComplete();
-      }
+      this.replayBuffer();
+      // The buffered command tail is dispatched synchronously above, but it does
+      // not become visible immediately — remote strokes composite on a later
+      // frame and the RemoteUserHandler catch-up loop animates cursors to their
+      // final positions. Keep `syncing` true (the overlay stays up and local
+      // input stays blocked via isSyncing()) until that work settles, so the
+      // user can't draw onto a half-replayed board. _drainReplay() finishes the
+      // teardown once the replay has visibly caught up.
+      this._drainReplay();
     };
 
     if (pending.length > 0) {
@@ -1139,6 +1144,89 @@ export class SyncClient {
         });
     } else {
       finalize();
+    }
+  }
+
+  /**
+   * Holds the sync overlay open while the replayed command tail finishes drawing
+   * onto the visible canvas. replayBuffer() dispatches the buffered events
+   * synchronously, but remote strokes composite over subsequent frames and the
+   * RemoteUserHandler catch-up loop animates cursors to their final positions.
+   * We force a composite and poll until that work is idle (or a safety cap
+   * elapses) before tearing the overlay down and releasing local input — so the
+   * "Syncing..." UI covers the actual replay, not just the data transfer.
+   *
+   * @private
+   * @returns {void}
+   */
+  _drainReplay() {
+    const sessionId = this._syncSessionId;
+    const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    const startedAt = now();
+    const MAX_DRAIN_MS = 5000;      // safety cap so the overlay can never wedge open
+    const REQUIRED_IDLE_TICKS = 3;  // consecutive idle polls before we call replay done
+    const POLL_MS = 48;             // ~3 frames; setTimeout keeps draining in hidden tabs (rAF is paused)
+    let idleTicks = 0;
+
+    this.updateProgress('Catching up...');
+
+    if (this._drainTimer) {
+      clearTimeout(this._drainTimer);
+      this._drainTimer = null;
+    }
+
+    const poll = () => {
+      // A newer sync attempt (or a room change/reset) superseded this drain.
+      if (sessionId !== this._syncSessionId || !this.syncing) {
+        this._drainTimer = null;
+        return;
+      }
+
+      // Push the freshly-replayed strokes onto the composited canvas so they are
+      // visible underneath the overlay before we hide it.
+      this.board?.compositeAllLayers();
+
+      // The catch-up loop self-clears its timer once every remote cursor has
+      // converged to its target, so a null timer means the replay has visibly
+      // settled.
+      const catchupIdle = !this.app?.remoteUserHandler?.catchupTimer;
+      idleTicks = catchupIdle ? idleTicks + 1 : 0;
+
+      if (idleTicks >= REQUIRED_IDLE_TICKS || (now() - startedAt) >= MAX_DRAIN_MS) {
+        this._drainTimer = null;
+        this._completeSync();
+        return;
+      }
+      this._drainTimer = setTimeout(poll, POLL_MS);
+    };
+
+    this._drainTimer = setTimeout(poll, POLL_MS);
+  }
+
+  /**
+   * Finishes sync teardown once the replayed tail has drained. Hides the
+   * overlay, releases local input, and fires the sync-complete callback.
+   *
+   * @private
+   * @returns {void}
+   */
+  _completeSync() {
+    if (this.board) {
+      this.board.markCompositeFull();
+      this.board.compositeAllLayers();
+    }
+    this.hideOverlay();
+    this.syncing = false;
+    this.buffering = false;
+    this.hasCompletedSync = true;
+    this.inactive = false;
+    this.expectedMessages = 0;
+    this.receivedMessages = 0;
+    this.currentSyncTargetId = null;
+    this.currentSyncTargetUsername = null;
+
+    if (this.onSyncComplete) {
+      this.onSyncComplete();
     }
   }
 
@@ -1406,6 +1494,10 @@ export class SyncClient {
    * @returns {void}
    */
   destroy() {
+    if (this._drainTimer) {
+      clearTimeout(this._drainTimer);
+      this._drainTimer = null;
+    }
     this.inactiveControlsEl?.remove();
     if (this.overlayEl) {
       this.overlayEl.classList.remove('active');
@@ -1428,6 +1520,10 @@ export class SyncClient {
     if (this.syncTimeout) {
       clearTimeout(this.syncTimeout);
       this.syncTimeout = null;
+    }
+    if (this._drainTimer) {
+      clearTimeout(this._drainTimer);
+      this._drainTimer = null;
     }
     this.syncing = false;
     this.buffering = false;

@@ -61,6 +61,13 @@ export class PatternBrushGallery extends BrushGallery {
     });
   }
 
+  shouldIncludeManifestEntry(entry) {
+    // Pinned dot/square belong to the image brush gallery; the pattern
+    // gallery already provides its own built-in circle and square.
+    if (entry.pinned) return false;
+    return super.shouldIncludeManifestEntry(entry);
+  }
+
   _createDefaultIcon(shape) {
     const canvas = document.createElement('canvas');
     canvas.width = canvas.height = 800;

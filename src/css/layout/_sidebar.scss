@@ -474,10 +474,11 @@ html[data-sidebar-side='left'] .sidebarToggleBtn.active .sidebarIcon {
 
 .radio-option {
   flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 8px 12px;
+  padding: 8px 6px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-subtle);
   border-radius: 4px;
@@ -507,6 +508,9 @@ html[data-sidebar-side='left'] .sidebarToggleBtn.active .sidebarIcon {
 .radio-option span {
   font-size: 12px;
   color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .pattern-colour-mode {
@@ -938,7 +942,7 @@ html[data-sidebar-side='left'] .sidebarToggleBtn.active .sidebarIcon {
 
 #patternBrushList {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 6px;
 }
 
@@ -960,7 +964,7 @@ html[data-sidebar-side='left'] .sidebarToggleBtn.active .sidebarIcon {
 
 #fillPatternBrushList {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 6px;
 }
 
@@ -1086,7 +1090,7 @@ html[data-sidebar-side='left'] .sidebarToggleBtn.active .sidebarIcon {
 
 #selectionPatternBrushList {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 6px;
 }
 

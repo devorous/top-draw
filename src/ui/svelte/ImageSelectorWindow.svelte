@@ -139,7 +139,7 @@
     transition: color 0.12s ease, background 0.12s ease;
     white-space: nowrap;
     box-sizing: border-box;
-    width: 200px;
+    width: 133px;
     max-width: calc(100vw - 24px);
   }
 
@@ -170,13 +170,18 @@
   .isw-body {
     margin-top: 1px;
     padding: 8px;
-    width: 200px;
+    width: 133px;
     max-width: calc(100vw - 24px);
     background: color-mix(in srgb, var(--surface-glass) 78%, transparent);
     border-radius: 5px;
     box-sizing: border-box;
     max-height: min(360px, calc(100vh - 240px));
     overflow-y: auto;
+    /* Always reserve a thin gutter so the grid doesn't shrink (and clip
+       tile labels) when the folder opens and the body starts scrolling. */
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(128, 128, 128, 0.55) transparent;
   }
 
   .isw-body.collapsed {

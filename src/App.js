@@ -529,7 +529,9 @@ export class DrawingApp {
       onSelect: (brush) => this.handleBrushSelect(brush),
       onUpload: () => this.ui.elements.brushFileInput?.click(),
       shouldShowBrush: (brush) => {
-        if (this.self?.tool === 'confetti') return brush?.type !== 'gih';
+        // Confetti has its own built-in circle/square shapes, so hide the
+        // pinned dot/square SVGs to avoid duplicates.
+        if (this.self?.tool === 'confetti') return brush?.type !== 'gih' && !brush?.pinned;
         return brush?.type !== 'confetti-shape';
       },
       includeDefaultShapes: () => this.self?.tool === 'confetti',

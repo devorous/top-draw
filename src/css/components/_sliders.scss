@@ -167,7 +167,7 @@
 
 #brushList {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 6px;
 }
 
@@ -242,6 +242,7 @@
   flex-direction: column;
   gap: 4px;
   color: var(--text-secondary);
+  padding: 0;
 }
 
 .brushItemUpload span {
@@ -250,11 +251,11 @@
 }
 
 .brushItemUpload small {
-  font-size: 10px;
+  font-size: 9px;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0;
   max-width: 100%;
-  padding: 0 2px;
+  padding: 0;
   text-align: center;
   white-space: nowrap;
   overflow: hidden;
@@ -264,9 +265,11 @@
 /* Collapsible folder for SVG/icon brushes */
 .brushFolder {
   margin-top: 8px;
+}
+
+.brushFolder .brushFolderHeader {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
-  overflow: hidden;
 }
 
 .brushFolderHeader {
@@ -318,9 +321,9 @@
 
 .brushFolderContent {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 6px;
-  padding: 8px;
+  padding: 8px 0 0;
 }
 
 .brushFolder.collapsed .brushFolderContent {
