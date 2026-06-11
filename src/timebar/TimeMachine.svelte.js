@@ -74,6 +74,8 @@ class TimeMachineState {
   isScrubbing = $state(false);
   /** true if playback was running when the current scrub began, so we resume on release */
   _wasPlayingBeforeScrub = false;
+  /** set on scrub release; playback resumes once the released-on frame has been applied */
+  _resumeAfterSeek = false;
   /** true while loading checkpoint list or a replay window */
   isLoading = $state(false);
   /** true once checkpoint list has been loaded for the current room */
@@ -674,6 +676,7 @@ class TimeMachineState {
         this._drawToReplayCanvas();
         this._showReplayCanvas(true);
         this._updateBotCursors();
+        this._maybeResumeAfterScrub();
         return;
       }
 
@@ -695,7 +698,14 @@ class TimeMachineState {
         if (this.isOpen && this.isReviewing && this._pendingSeekTimestamp !== null) {
           const next = this._pendingSeekTimestamp;
           this._pendingSeekTimestamp = null;
-          this.seek(next);
+          // The pause-if-playing decision already ran when this position was
+          // originally requested (and queued). Re-deciding here would pause a
+          // playback that a scrub release just resumed.
+          this.seek(next, { suppressPlaybackPause: true });
+        } else {
+          // Nothing queued behind this seek — the pipeline has settled on the
+          // requested frame, so a scrub release waiting on it can resume now.
+          this._maybeResumeAfterScrub();
         }
       }
     } else {
@@ -715,8 +725,11 @@ class TimeMachineState {
     this._scrubLastRequestedTimestamp = this.currentTime;
     this._scrubLastSeekAt = 0;
     // Remember whether we were mid-playback so we can resume after the scrub
-    // (clicking/dragging the timeline shouldn't stop a running replay).
-    this._wasPlayingBeforeScrub = this.isPlaying;
+    // (clicking/dragging the timeline shouldn't stop a running replay). A
+    // pending deferred resume counts too — grabbing the thumb again before the
+    // previous release's frame finished loading shouldn't lose the intent.
+    this._wasPlayingBeforeScrub = this.isPlaying || this._resumeAfterSeek;
+    this._resumeAfterSeek = false;
     this.pause();
   }
 
@@ -828,12 +841,25 @@ class TimeMachineState {
       : this._clampTimestamp(timestamp);
     this._scrubQueuedTimestamp = null;
     this._scrubLastRequestedTimestamp = null;
-    this.seek(exact);
     // Resume playback if the scrub interrupted a running replay, unless we
-    // landed at the very end of the tape.
-    const resume = this._wasPlayingBeforeScrub;
+    // landed at the very end of the tape. The resume is deferred until the
+    // released-on frame has actually been applied (_maybeResumeAfterScrub) —
+    // starting the playback clock while the seek is still loading would make
+    // it chase a position the engine hasn't rendered yet.
+    this._resumeAfterSeek = this._wasPlayingBeforeScrub && exact < this.sessionEnd;
     this._wasPlayingBeforeScrub = false;
-    if (resume && this.currentTime < this.sessionEnd) {
+    this.seek(exact);
+  }
+
+  /**
+   * Deferred half of endScrub's resume: called by seek() once the released-on
+   * frame has actually been applied (or was already showing), so playback
+   * starts from rendered pixels instead of racing a still-loading seek.
+   */
+  _maybeResumeAfterScrub() {
+    if (!this._resumeAfterSeek) return;
+    this._resumeAfterSeek = false;
+    if (this.isOpen && !this.isScrubbing && this.currentTime < this.sessionEnd) {
       this.play();
     }
   }
@@ -862,6 +888,7 @@ class TimeMachineState {
   _clearScrubState() {
     this.isScrubbing = false;
     this._wasPlayingBeforeScrub = false;
+    this._resumeAfterSeek = false;
     this._cancelScrubSettle();
     if (this._scrubTimer != null) {
       clearTimeout(this._scrubTimer);
@@ -926,6 +953,9 @@ class TimeMachineState {
   }
 
   pause() {
+    // An explicit pause cancels any resume still waiting on a scrub-release
+    // seek to finish loading. (beginScrub reads the flag before calling this.)
+    this._resumeAfterSeek = false;
     this.isPlaying = false;
     if (this._playbackFrameId) {
       cancelAnimationFrame(this._playbackFrameId);

@@ -1,81 +1,13 @@
 <script>
   import { TimeMachine } from './TimeMachine.svelte.js';
-  import { appState } from '../state.svelte.js';
   import { onDestroy } from 'svelte';
-  import TimeLapseDialog from './TimeLapseDialog.svelte';
+  import ReplayControls from './ReplayControls.svelte';
 
   // NOTE: The original full-width tick-marked scrubber lives in
   // Timebar.fullscreen.backup.svelte (kept as a reference, not mounted).
   // This component renders the compact "mini-player" style timeline over the
-  // full-board replay takeover instead.
-
-  let timeLapseDialogOpen = $state(false);
-
-  // Reactive mirrors of TimeMachine playback state for the compact controls.
-  let tmPlaying = $derived(TimeMachine.isPlaying);
-  let tmStart = $derived(TimeMachine.sessionStart);
-  let tmEnd = $derived(TimeMachine.sessionEnd);
-  let tmCurrent = $derived(TimeMachine.currentTime);
-  let tmLoading = $derived(TimeMachine.isLoading);
-  let tmExporting = $derived(TimeMachine.isExportingVideo);
-  let tmExportProgress = $derived(TimeMachine.videoExportProgress);
-
-  let elapsedLabel = $derived(formatClock(Math.max(0, tmCurrent - tmStart)));
-  let totalLabel = $derived(formatClock(Math.max(0, tmEnd - tmStart)));
-
-  function formatClock(ms) {
-    const s = Math.floor((ms || 0) / 1000);
-    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-  }
-
-  function togglePlay() {
-    if (TimeMachine.isPlaying) TimeMachine.pause();
-    else TimeMachine.play();
-  }
-
-  // ── Scrubbing via the range input ───────────────────────────────────────────
-  let scrubbing = false;
-
-  function onScrubInput(e) {
-    const t = Number(e.currentTarget.value);
-    if (!scrubbing) { scrubbing = true; TimeMachine.beginScrub(); }
-    TimeMachine.scrubTo(t);
-  }
-
-  function onScrubChange(e) {
-    const t = Number(e.currentTarget.value);
-    TimeMachine.endScrub(t);
-    scrubbing = false;
-  }
-
-  async function handleUndoToState() {
-    if (TimeMachine.isLocalReplay) {
-      if (await window.showAppConfirm('Replace your current board with this state?', {
-        title: 'Undo to here',
-        confirmLabel: 'Undo',
-        danger: true
-      })) {
-        await TimeMachine.restoreLocalToCurrentState();
-      }
-      return;
-    }
-    if (await window.showAppConfirm('Are you sure you want to revert the board to this state for everyone?', {
-      title: 'Revert board?',
-      confirmLabel: 'Revert',
-      danger: true
-    })) {
-      TimeMachine.requestUndoTo(TimeMachine.currentTime);
-    }
-  }
-
-  function openRenderDialog() {
-    if (TimeMachine.isExportingVideo) return;
-    timeLapseDialogOpen = true;
-  }
-
-  function cancelVideo() {
-    TimeMachine.cancelVideoExport();
-  }
+  // full-board replay takeover instead. The transport + action bar itself is
+  // the shared ReplayControls component (same one as the mini players).
 
   let overlayElement = $state(); // .replay-preview-overlay node (positioned over #boards)
 
@@ -148,8 +80,6 @@
   </div>
 {/if}
 
-<TimeLapseDialog bind:open={timeLapseDialogOpen} onClose={() => (timeLapseDialogOpen = false)} />
-
 {#if (TimeMachine.isOpen || TimeMachine.isLoading) && !TimeMachine.isEmbedded}
 <button
   class="toggle-btn"
@@ -167,51 +97,11 @@
 
 <div class="timebar-container" class:hidden={!TimeMachine.isVisible} class:reviewing={TimeMachine.isReviewing}>
   <div class="timebar">
-    <!-- Compact "mini-player" style transport -->
-    <div class="rp-controls">
-      <button class="rp-play" onclick={togglePlay} title={tmPlaying ? 'Pause' : 'Play'} aria-label={tmPlaying ? 'Pause' : 'Play'}>
-        {#if tmPlaying}
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
-        {:else}
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-        {/if}
-      </button>
-      <span class="rp-time">{elapsedLabel}</span>
-      <input
-        class="rp-scrubber"
-        type="range"
-        min={tmStart}
-        max={tmEnd}
-        value={tmCurrent}
-        step="1"
-        oninput={onScrubInput}
-        onchange={onScrubChange}
-        aria-label="Timeline scrubber"
-      />
-      <span class="rp-time rp-time-total">{totalLabel}</span>
-    </div>
-
-    {#if tmExporting}
-      <div class="rp-export-progress">
-        <div class="rp-export-bar" style="width: {Math.round(tmExportProgress * 100)}%"></div>
-        <span class="rp-export-label">Rendering... {Math.round(tmExportProgress * 100)}%</span>
-        <button class="rp-action" onclick={cancelVideo}>Cancel</button>
-      </div>
-    {:else if TimeMachine.isReviewing}
-      <div class="rp-actions">
-        {#if TimeMachine.isLocalReplay}
-          <button class="rp-action" onclick={() => TimeMachine.exportCurrentRecording()} title="Save this replay as a .ddraw file">Save .ddraw</button>
-          <button class="rp-action accent" onclick={openRenderDialog} title="Render time-lapse">Render</button>
-        {/if}
-        <span class="rp-actions-spacer"></span>
-        {#if appState.canUndoReplayHistory}
-          <button class="rp-action danger" onclick={handleUndoToState} title={TimeMachine.isLocalReplay ? 'Undo board to here' : 'Restore board to here'}>
-            {TimeMachine.isLocalReplay ? 'Undo to here' : 'Restore to here'}
-          </button>
-        {/if}
-        <button class="rp-action" onclick={() => TimeMachine.catchUp()} title="Exit replay">Exit</button>
-      </div>
-    {/if}
+    <!-- Shared transport + action bar (same component as the mini players) -->
+    <ReplayControls
+      getCanvas={() => document.getElementById('replayCanvas')}
+      onExit={() => TimeMachine.catchUp()}
+    />
   </div>
 </div>
 {/if}
@@ -304,6 +194,12 @@
       transform: translateY(-1px);
       box-shadow: 0 6px 20px rgba(160, 174, 192, 0.4);
     }
+  }
+
+  /* The desktop app keeps its custom titlebar (fixed, above everything) during
+     replay review — push the floating Exit button below it so it isn't cut off. */
+  :global(body.desktop-window-chrome) .replay-exit-btn {
+    top: calc(var(--desktop-titlebar-height) + 16px);
   }
 
   .history-badge {
@@ -478,43 +374,4 @@
     flex-direction: column;
     gap: 10px;
   }
-
-  /* ── Compact mini-player transport (ported from the History rp-player) ───── */
-  .rp-controls { display: flex; align-items: center; gap: 12px; }
-  .rp-play {
-    flex-shrink: 0; width: 38px; height: 38px; display: flex; align-items: center;
-    justify-content: center; border-radius: 50%;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    background: rgba(255, 255, 255, 0.08); color: #fff; cursor: pointer;
-    transition: background 0.2s, transform 0.2s;
-  }
-  .rp-play:hover { background: var(--accent-primary, #00d4aa); transform: scale(1.05); }
-  .rp-time {
-    font-size: 12px; color: #aaa; font-variant-numeric: tabular-nums; min-width: 40px;
-  }
-  .rp-time-total { text-align: right; }
-  .rp-scrubber { flex: 1; min-width: 0; accent-color: var(--accent-primary, #00d4aa); cursor: pointer; }
-
-  .rp-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  .rp-actions-spacer { flex: 1; }
-  .rp-action {
-    background: transparent; border: 1px solid rgba(255, 255, 255, 0.15); color: #bbb;
-    border-radius: 6px; padding: 6px 12px; font-size: 12px; font-weight: 600;
-    cursor: pointer; white-space: nowrap; transition: all 0.15s;
-  }
-  .rp-action:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
-  .rp-action.accent { background: var(--accent-primary, #00d4aa); border-color: var(--accent-primary, #00d4aa); color: #fff; }
-  .rp-action.accent:hover { filter: brightness(1.1); }
-  .rp-action.danger { border-color: rgba(220, 53, 69, 0.4); color: #ff6b6b; }
-  .rp-action.danger:hover { background: rgba(220, 53, 69, 0.25); color: #fff; }
-
-  .rp-export-progress {
-    position: relative; display: flex; align-items: center; gap: 10px; height: 32px;
-  }
-  .rp-export-bar {
-    position: absolute; left: 0; top: 0; bottom: 0; border-radius: 6px;
-    background: linear-gradient(90deg, var(--accent-primary, #00d4aa), var(--accent-hover, #00e6b8));
-    opacity: 0.35; transition: width 120ms ease-out; pointer-events: none;
-  }
-  .rp-export-label { font-size: 12px; color: #eee; z-index: 1; flex: 1; }
 </style>

@@ -4,7 +4,7 @@
   import { T } from '../../../shared/MessageTypes.js';
   import * as wasm from '../../wasm/ddraw_wasm.js';
   import { TimeMachine } from '../../timebar/TimeMachine.svelte.js';
-  import TimeLapseDialog from '../../timebar/TimeLapseDialog.svelte';
+  import ReplayControls from '../../timebar/ReplayControls.svelte';
 
   let snapshots = $derived(appState.snapshots || []);
   let snapshotHasMore = $derived(appState.snapshotHasMore);
@@ -53,21 +53,7 @@
   let lastBundle = null;             // the frozen tape currently in the player
   let handoffToFull = false;         // true while handing the tape to the OG full-board replay
 
-  // Reactive mirrors of TimeMachine playback state for the compact controls.
-  let tmPlaying = $derived(TimeMachine.isPlaying);
-  let tmStart = $derived(TimeMachine.sessionStart);
-  let tmEnd = $derived(TimeMachine.sessionEnd);
-  let tmCurrent = $derived(TimeMachine.currentTime);
   let tmLoading = $derived(TimeMachine.isLoading);
-  let scrubbingLocal = false;
-
-  let recentElapsedLabel = $derived(formatClock(Math.max(0, tmCurrent - tmStart)));
-  let recentTotalLabel = $derived(formatClock(Math.max(0, tmEnd - tmStart)));
-
-  function formatClock(ms) {
-    const s = Math.floor((ms || 0) / 1000);
-    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-  }
 
   function switchView(next) {
     if (view === next) return;
@@ -127,137 +113,12 @@
   function stopEmbeddedRecent() {
     // When handing the tape off to the full-board replay, that replay now owns
     // TimeMachine — don't stop it out from under the handoff.
-    clearRegion();
-    regionSelecting = false;
     resetRpView();
     if (handoffToFull) { embedActive = false; return; }
     if (!embedActive && !embedStarting) return;
     embedActive = false;
     try { TimeMachine.stop(); } catch {}
     TimeMachine.detachEmbedTarget?.();
-  }
-
-  function toggleRecentPlay() {
-    if (TimeMachine.isPlaying) TimeMachine.pause();
-    else TimeMachine.play();
-  }
-
-  // Playback speed — stepped slider over fixed stops (parity with
-  // ReplayMiniViewer). TimeMachine.stop() resets the rate to 1×.
-  const RATE_STOPS = [0.5, 1, 2, 4, 8];
-  let rateIndex = $derived.by(() => {
-    const i = RATE_STOPS.indexOf(TimeMachine.playbackRate);
-    return i >= 0 ? i : 1;
-  });
-
-  function onRateInput(e) {
-    TimeMachine.setPlaybackRate(RATE_STOPS[Number(e.currentTarget.value)]);
-  }
-
-  // ── Mini-player actions (parity with the full Timebar review controls) ──────
-  let tmExporting = $derived(TimeMachine.isExportingVideo);
-  let tmExportProgress = $derived(TimeMachine.videoExportProgress);
-
-  // The Render button opens the same time-lapse dialog used by the full-board
-  // replay (Output, Speed, FPS, etc.) rather than rendering with inline
-  // defaults. The dialog runs over the embedded player, so it can't pick a
-  // region on the hidden #replayCanvas — we hand it the region picked here.
-  let timeLapseDialogOpen = $state(false);
-
-  async function saveRecentReplay() {
-    await TimeMachine.exportCurrentRecording();
-  }
-
-  async function undoRecentToHere() {
-    const hasRegion = !!regionRect;
-    const msg = hasRegion
-      ? 'Revert just the selected region of your board to this point in the replay?'
-      : 'Replace your current board with this state?';
-    const ok = await window.showAppConfirm(msg, {
-      title: hasRegion ? 'Undo region to here' : 'Undo to here',
-      confirmLabel: 'Undo',
-      danger: true,
-    });
-    if (!ok) return;
-    if (hasRegion) await TimeMachine.restoreLocalRegionToCurrentState(regionRect);
-    else await TimeMachine.restoreLocalToCurrentState();
-    // restoreLocal* calls catchUp() which stops the (embedded) replay; close.
-    close();
-  }
-
-  function openRenderDialog() {
-    if (TimeMachine.isExportingVideo) return;
-    timeLapseDialogOpen = true;
-  }
-
-  function cancelRecentVideo() {
-    TimeMachine.cancelVideoExport();
-  }
-
-  // ── Region selection on the mini canvas ─────────────────────────────────────
-  // regionRect is in board pixels (what the exporter / region-undo consume).
-  let regionSelecting = $state(false);
-  let regionRect = $state(null);
-  let regionDrag = null;             // { startX, startY } in client px
-  let regionDragRect = $state(null); // live drag feedback, viewport-fixed px
-  let regionOutline = $state(null);  // committed region outline, viewport-fixed px
-
-  function toggleRegionSelect() {
-    if (regionSelecting) { regionSelecting = false; return; }
-    regionSelecting = true;
-    regionRect = null;
-    regionOutline = null;
-  }
-
-  function clearRegion() {
-    regionRect = null;
-    regionOutline = null;
-    regionDragRect = null;
-  }
-
-  /** Convert a client point to board-pixel coords via the embed canvas rect. */
-  function clientToBoard(clientX, clientY) {
-    if (!embedCanvas) return null;
-    const r = embedCanvas.getBoundingClientRect();
-    if (!r.width || !r.height) return null;
-    return {
-      x: ((clientX - r.left) / r.width) * embedCanvas.width,
-      y: ((clientY - r.top) / r.height) * embedCanvas.height,
-    };
-  }
-
-  function onRegionPointerDown(e) {
-    if (!regionSelecting) return;
-    e.preventDefault();
-    e.currentTarget.setPointerCapture?.(e.pointerId);
-    regionDrag = { startX: e.clientX, startY: e.clientY };
-    regionDragRect = { x: e.clientX, y: e.clientY, w: 0, h: 0 };
-  }
-
-  function onRegionPointerMove(e) {
-    if (!regionDrag) return;
-    regionDragRect = {
-      x: Math.min(regionDrag.startX, e.clientX),
-      y: Math.min(regionDrag.startY, e.clientY),
-      w: Math.abs(e.clientX - regionDrag.startX),
-      h: Math.abs(e.clientY - regionDrag.startY),
-    };
-  }
-
-  function onRegionPointerUp(e) {
-    if (!regionDrag) return;
-    const start = clientToBoard(regionDrag.startX, regionDrag.startY);
-    const end = clientToBoard(e.clientX, e.clientY);
-    regionDrag = null;
-    regionDragRect = null;
-    if (!start || !end) { regionSelecting = false; return; }
-    const x = Math.min(start.x, end.x);
-    const y = Math.min(start.y, end.y);
-    const width = Math.abs(end.x - start.x);
-    const height = Math.abs(end.y - start.y);
-    if (width < 8 || height < 8) { regionSelecting = false; return; }
-    regionRect = { x, y, width, height };
-    regionSelecting = false;
   }
 
   // ── Pan / zoom on the mini canvas ───────────────────────────────────────────
@@ -299,7 +160,7 @@
   }
 
   function onRpPointerDown(e) {
-    if (regionSelecting || e.button !== 0) return;
+    if (e.button !== 0) return;
     rpPanning = true;
     rpPanStart = { x: e.clientX - rpPanX, y: e.clientY - rpPanY };
     e.currentTarget.setPointerCapture?.(e.pointerId);
@@ -316,41 +177,6 @@
     rpPanning = false;
     rpPanStart = null;
     e.currentTarget?.releasePointerCapture?.(e.pointerId);
-  }
-
-  // Keep the committed-region outline anchored to the canvas (re-measured each
-  // frame so it survives window resize / the modal reflowing).
-  $effect(() => {
-    if (!embedActive || !regionRect || !embedCanvas) { regionOutline = null; return; }
-    let rafId = 0;
-    const sync = () => {
-      if (embedCanvas && regionRect) {
-        const r = embedCanvas.getBoundingClientRect();
-        const sx = r.width / embedCanvas.width;
-        const sy = r.height / embedCanvas.height;
-        regionOutline = {
-          left: r.left + regionRect.x * sx,
-          top: r.top + regionRect.y * sy,
-          width: regionRect.width * sx,
-          height: regionRect.height * sy,
-        };
-      }
-      rafId = requestAnimationFrame(sync);
-    };
-    sync();
-    return () => cancelAnimationFrame(rafId);
-  });
-
-  function onRecentScrubInput(e) {
-    const t = Number(e.currentTarget.value);
-    if (!scrubbingLocal) { scrubbingLocal = true; TimeMachine.beginScrub(); }
-    TimeMachine.scrubTo(t);
-  }
-
-  function onRecentScrubChange(e) {
-    const t = Number(e.currentTarget.value);
-    TimeMachine.endScrub(t);
-    scrubbingLocal = false;
   }
 
   /** Hand the current recent tape off to the original full-board replay UI. */
@@ -953,18 +779,6 @@
               {#if tmLoading}
                 <div class="rp-overlay"><div class="rp-spinner"></div></div>
               {/if}
-              {#if regionSelecting}
-                <div
-                  class="rp-region-picker"
-                  role="presentation"
-                  onpointerdown={onRegionPointerDown}
-                  onpointermove={onRegionPointerMove}
-                  onpointerup={onRegionPointerUp}
-                  onpointerleave={onRegionPointerUp}
-                >
-                  <span class="rp-region-hint">Drag a rectangle to pick a region</span>
-                </div>
-              {/if}
               <button
                 class="rp-fullscreen"
                 onclick={openFullscreenReplay}
@@ -975,88 +789,14 @@
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
               </button>
             </div>
-            <div class="rp-controls">
-              <button class="rp-play" onclick={toggleRecentPlay} title={tmPlaying ? 'Pause' : 'Play'} aria-label={tmPlaying ? 'Pause' : 'Play'}>
-                {#if tmPlaying}
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
-                {:else}
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-                {/if}
-              </button>
-              <span class="rp-time">{recentElapsedLabel}</span>
-              <input
-                class="rp-scrubber"
-                type="range"
-                min={tmStart}
-                max={tmEnd}
-                value={tmCurrent}
-                step="1"
-                oninput={onRecentScrubInput}
-                onchange={onRecentScrubChange}
-                aria-label="Recent replay scrubber"
-              />
-              <span class="rp-time rp-time-total">{recentTotalLabel}</span>
-            </div>
-
-            {#if tmExporting}
-              <div class="rp-export-progress">
-                <div class="rp-export-bar" style="width: {Math.round(tmExportProgress * 100)}%"></div>
-                <span class="rp-export-label">Rendering... {Math.round(tmExportProgress * 100)}%</span>
-                <button class="rp-action" onclick={cancelRecentVideo}>Cancel</button>
-              </div>
-            {:else}
-              <div class="rp-actions">
-                <button
-                  class="rp-action"
-                  class:active={regionSelecting || !!regionRect}
-                  onclick={toggleRegionSelect}
-                  title="Select a region of the canvas"
-                >
-                  {#if regionRect}
-                    Region: {Math.round(regionRect.width)}×{Math.round(regionRect.height)}
-                  {:else if regionSelecting}
-                    Picking…
-                  {:else}
-                    Select region
-                  {/if}
-                </button>
-                {#if regionRect}
-                  <button class="rp-action" onclick={clearRegion} title="Clear region">Clear</button>
-                {/if}
-                <div class="rp-speed" title="Playback speed">
-                  <input
-                    type="range"
-                    min="0"
-                    max={RATE_STOPS.length - 1}
-                    step="1"
-                    value={rateIndex}
-                    oninput={onRateInput}
-                    aria-label="Playback speed"
-                  />
-                  <span class="rp-speed-label">{RATE_STOPS[rateIndex]}×</span>
-                </div>
-                <span class="rp-actions-spacer"></span>
-                {#if appState.canUndoReplayHistory}
-                  <button class="rp-action danger" onclick={undoRecentToHere} title={regionRect ? 'Undo just this region to here' : 'Undo board to here'}>
-                    {regionRect ? 'Undo region' : 'Undo to here'}
-                  </button>
-                {/if}
-                <button class="rp-action" onclick={saveRecentReplay} title="Save this replay as a .ddraw file">Save .ddraw</button>
-                <button class="rp-action accent" onclick={openRenderDialog} title={regionRect ? 'Render this region as a time-lapse' : 'Render time-lapse'}>Render</button>
-              </div>
-            {/if}
+            <ReplayControls
+              getCanvas={() => embedCanvas}
+              onExit={close}
+              onAfterUndo={close}
+            />
 
             {#if recentStale}
               <div class="snap-recent-warn rp-warn">This tape may be incomplete (you were disconnected or away).</div>
-            {/if}
-
-            {#if regionDragRect}
-              <div class="rp-region-rect" style="left:{regionDragRect.x}px;top:{regionDragRect.y}px;width:{regionDragRect.w}px;height:{regionDragRect.h}px"></div>
-            {/if}
-            {#if regionOutline && !regionSelecting}
-              <div class="rp-region-outline" style="left:{regionOutline.left}px;top:{regionOutline.top}px;width:{regionOutline.width}px;height:{regionOutline.height}px">
-                <span class="rp-region-tag">Region</span>
-              </div>
             {/if}
           </div>
         {:else}
@@ -1242,13 +982,6 @@
   </div>
 </div>
 
-<TimeLapseDialog
-  bind:open={timeLapseDialogOpen}
-  onClose={() => (timeLapseDialogOpen = false)}
-  initialRegion={regionRect}
-  allowRegionPick={false}
-/>
-
 <style>
   .snapshot-overlay {
     position: fixed;
@@ -1305,8 +1038,6 @@
     font-size: 12px; color: #f0b94a; background: rgba(240, 185, 74, 0.1);
     border: 1px solid rgba(240, 185, 74, 0.35); border-radius: 6px; padding: 8px 12px;
   }
-  .snap-recent-play { margin-top: 6px; min-width: 180px; }
-  .snap-recent-play:disabled { opacity: 0.4; cursor: not-allowed; }
 
   /* Embedded Recent player */
   .snap-recent { padding: 16px; }
@@ -1356,75 +1087,7 @@
     border-radius: 6px; color: #eee; cursor: pointer;
   }
   .rp-fullscreen:hover { background: rgba(0, 0, 0, 0.8); color: #fff; }
-
-  .rp-controls { display: flex; align-items: center; gap: 12px; padding: 0 4px; }
-  .rp-play {
-    flex-shrink: 0; width: 38px; height: 38px; display: flex; align-items: center;
-    justify-content: center; border-radius: 50%; border: 1px solid var(--border-subtle, #333);
-    background: var(--bg-elevated, #2a2a2a); color: #fff; cursor: pointer;
-  }
-  .rp-play:hover { background: var(--accent-primary, #7c5cbf); }
-  .rp-time { font-size: 12px; color: var(--text-secondary, #aaa); font-variant-numeric: tabular-nums; min-width: 34px; }
-  .rp-time-total { text-align: right; }
-  .rp-scrubber { flex: 1; accent-color: var(--accent-primary, #7c5cbf); cursor: pointer; }
   .rp-warn { margin: 0; }
-
-  /* Action toolbar */
-  .rp-actions { display: flex; align-items: center; gap: 8px; padding: 0 4px; flex-wrap: wrap; }
-  .rp-actions-spacer { flex: 1; }
-  .rp-speed { display: flex; align-items: center; gap: 6px; }
-  .rp-speed input[type="range"] { width: 84px; accent-color: var(--accent-primary, #00d4aa); cursor: pointer; }
-  .rp-speed-label {
-    font-size: 12px; font-weight: 600; color: var(--text-secondary, #bbb);
-    font-variant-numeric: tabular-nums; min-width: 30px;
-  }
-  .rp-action {
-    background: transparent; border: 1px solid var(--border-subtle, #333); color: var(--text-secondary, #bbb);
-    border-radius: 6px; padding: 6px 12px; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap;
-  }
-  .rp-action:hover { background: var(--bg-elevated, #2a2a2a); color: #fff; }
-  .rp-action.active { border-color: var(--accent-primary, #7c5cbf); color: var(--accent-primary, #7c5cbf); }
-  .rp-action.accent { background: var(--accent-primary, #7c5cbf); border-color: var(--accent-primary, #7c5cbf); color: #fff; }
-  .rp-action.accent:hover { filter: brightness(1.1); }
-  .rp-action.danger { border-color: rgba(220, 53, 69, 0.4); color: #ff6b6b; }
-  .rp-action.danger:hover { background: rgba(220, 53, 69, 0.25); color: #fff; }
-
-  /* Region picker overlay on the canvas */
-  .rp-region-picker {
-    position: absolute; inset: 0; z-index: 5; cursor: crosshair; touch-action: none;
-    background: rgba(0, 0, 0, 0.2);
-  }
-  .rp-region-hint {
-    position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
-    background: rgba(0, 0, 0, 0.8); color: #fff; font-size: 12px; font-weight: 600;
-    padding: 6px 12px; border-radius: 6px; pointer-events: none;
-  }
-  .rp-region-rect {
-    position: fixed; z-index: 2100; pointer-events: none;
-    border: 2px dashed #fff; background: rgba(124, 92, 191, 0.18);
-  }
-  .rp-region-outline {
-    position: fixed; z-index: 2100; pointer-events: none;
-    border: 2px dashed var(--accent-primary, #7c5cbf);
-    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55), inset 0 0 0 1px rgba(0, 0, 0, 0.55);
-  }
-  .rp-region-tag {
-    position: absolute; top: -20px; left: -2px; background: var(--accent-primary, #7c5cbf);
-    color: #fff; font-size: 11px; font-weight: 600; padding: 2px 6px; border-radius: 4px 4px 0 0; white-space: nowrap;
-  }
-
-  /* Video export progress (mirrors TimeLapseDialog, inline) */
-  .rp-export-progress {
-    position: relative; display: flex; align-items: center; gap: 10px; padding: 0 4px;
-    height: 32px;
-  }
-  .rp-export-bar {
-    position: absolute; left: 4px; top: 0; bottom: 0; border-radius: 6px;
-    background: linear-gradient(90deg, var(--accent-primary, #7c5cbf), #a98fe0);
-    opacity: 0.35; transition: width 120ms ease-out; pointer-events: none;
-  }
-  .rp-export-label { font-size: 12px; color: var(--text-primary, #eee); z-index: 1; flex: 1; }
-
 
   .snap-reload-btn {
     background: none; border: none; cursor: pointer; color: var(--text-secondary, #aaa);
