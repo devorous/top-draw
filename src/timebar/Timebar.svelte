@@ -3,11 +3,9 @@
   import { onDestroy } from 'svelte';
   import ReplayControls from './ReplayControls.svelte';
 
-  // NOTE: The original full-width tick-marked scrubber lives in
-  // Timebar.fullscreen.backup.svelte (kept as a reference, not mounted).
-  // This component renders the compact "mini-player" style timeline over the
-  // full-board replay takeover instead. The transport + action bar itself is
-  // the shared ReplayControls component (same one as the mini players).
+  // NOTE: This component renders the compact "mini-player" style timeline over
+  // the full-board replay takeover. The transport + action bar itself is the
+  // shared ReplayControls component (same one as the mini players).
 
   let overlayElement = $state(); // .replay-preview-overlay node (positioned over #boards)
 

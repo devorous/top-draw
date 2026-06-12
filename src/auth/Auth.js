@@ -1,4 +1,5 @@
 import { isTauriDesktop, openDiscordOAuthWindow } from '../platform/desktop.js';
+import { debug } from '../utils/debug.js';
 import { resolveApiUrl } from '../config/serverEndpoints.js';
 
 /**
@@ -172,7 +173,7 @@ export class Auth {
 
     this.els.discordLoginBtn?.addEventListener('click', (e) => {
       e.preventDefault();
-      console.log('[DiscordDebug] discordLoginBtn click fired');
+      debug('[DiscordDebug] discordLoginBtn click fired');
       this.startDiscordOAuth('login');
     });
 
@@ -284,7 +285,7 @@ export class Auth {
     try {
       const res = await fetch(resolveApiUrl('/api/discord/config'), { cache: 'no-store' });
       if (!res.ok) {
-        console.warn('[Auth] Discord config unavailable:', res.status);
+        debug.warn('[Auth] Discord config unavailable:', res.status);
         return;
       }
       const config = await res.json();
@@ -302,7 +303,7 @@ export class Auth {
         }
       });
     } catch (err) {
-      console.warn('[Auth] Failed to load Discord config:', err);
+      debug.warn('[Auth] Failed to load Discord config:', err);
     } finally {
       document.querySelector('.landingSecondaryActions')?.classList.add('ready');
       document.querySelector('.landingDivider')?.classList.add('ready');
@@ -310,7 +311,7 @@ export class Auth {
   }
 
   async startDiscordOAuth(mode = 'login') {
-    console.log('[DiscordDebug] startDiscordOAuth called, mode=', mode);
+    debug('[DiscordDebug] startDiscordOAuth called, mode=', mode);
     const token = this.getStoredToken();
     if (mode === 'link' && !token) {
       if (this.onError) this.onError('Log in before linking Discord');
@@ -328,7 +329,7 @@ export class Auth {
         body: JSON.stringify({ mode })
       });
       const data = await res.json().catch(() => ({}));
-      console.log('[DiscordDebug] /start response', { ok: res.ok, status: res.status, hasUrl: !!data.url, data });
+      debug('[DiscordDebug] /start response', { ok: res.ok, status: res.status, hasUrl: !!data.url, data });
       if (!res.ok || !data.url) {
         throw new Error(data.error || 'Discord login failed to start');
       }
@@ -359,7 +360,7 @@ export class Auth {
         'popup=yes,width=520,height=720,menubar=no,toolbar=no,location=yes,status=no,scrollbars=yes,resizable=yes'
       );
 
-      console.log('[DiscordDebug] popup opened?', !!popup);
+      debug('[DiscordDebug] popup opened?', !!popup);
 
       if (!popup) {
         window.location.href = data.url;
@@ -378,20 +379,20 @@ export class Auth {
       const closePoll = window.setInterval(() => {
         if (!popup.closed) return;
         window.clearInterval(closePoll);
-        console.log('[DiscordDebug] popup closed, _loading=', this._loading);
+        debug('[DiscordDebug] popup closed, _loading=', this._loading);
         try {
-          console.log('[DiscordDebug] popup ENTRY (handler reached?):', localStorage.getItem('__discordDebugPopupEntry'));
-          console.log('[DiscordDebug] popup-side info:', localStorage.getItem('__discordDebugPopup'));
-          console.log('[DiscordDebug] popup posted at:', localStorage.getItem('__discordDebugPopupPosted'));
-          console.log('[DiscordDebug] popup post error:', localStorage.getItem('__discordDebugPopupPostError'));
-          console.log('[DiscordDebug] parent origin:', window.location.origin, 'parent href:', window.location.href);
+          debug('[DiscordDebug] popup ENTRY (handler reached?):', localStorage.getItem('__discordDebugPopupEntry'));
+          debug('[DiscordDebug] popup-side info:', localStorage.getItem('__discordDebugPopup'));
+          debug('[DiscordDebug] popup posted at:', localStorage.getItem('__discordDebugPopupPosted'));
+          debug('[DiscordDebug] popup post error:', localStorage.getItem('__discordDebugPopupPostError'));
+          debug('[DiscordDebug] parent origin:', window.location.origin, 'parent href:', window.location.href);
         } catch {}
         if (this._loading) {
           this.setLoading(false);
         }
       }, 500);
     } catch (err) {
-      console.log('[DiscordDebug] startDiscordOAuth error', err);
+      debug('[DiscordDebug] startDiscordOAuth error', err);
       this.setLoading(false);
       if (this.onError) this.onError(err.message);
     }
@@ -399,18 +400,18 @@ export class Auth {
 
   handleDiscordPopupMessage(event) {
     if (event?.data?.type === 'ddraw:discord-auth' || event?.data?.type?.startsWith?.('ddraw:')) {
-      console.log('[DiscordDebug] postMessage received', { origin: event.origin, expectedOrigin: window.location.origin, data: event.data });
+      debug('[DiscordDebug] postMessage received', { origin: event.origin, expectedOrigin: window.location.origin, data: event.data });
     }
     if (event.origin !== window.location.origin) {
       if (event?.data?.type === 'ddraw:discord-auth') {
-        console.log('[DiscordDebug] postMessage REJECTED on origin mismatch');
+        debug('[DiscordDebug] postMessage REJECTED on origin mismatch');
       }
       return;
     }
     const payload = event.data;
     if (!payload || payload.type !== 'ddraw:discord-auth') return;
 
-    console.log('[DiscordDebug] handleDiscordPopupMessage accepted, payload=', payload);
+    debug('[DiscordDebug] handleDiscordPopupMessage accepted, payload=', payload);
     this.setLoading(false);
     this.applyDiscordAuthPayload(payload);
   }
@@ -491,9 +492,9 @@ export class Auth {
   }
 
   applyDiscordAuthPayload(payload) {
-    console.log('[DiscordDebug] applyDiscordAuthPayload', payload);
+    debug('[DiscordDebug] applyDiscordAuthPayload', payload);
     if (payload.status !== 'success') {
-      console.log('[DiscordDebug] payload.status !== success, bailing');
+      debug('[DiscordDebug] payload.status !== success, bailing');
       if (this.onError) this.onError(payload.error || 'Discord login failed');
       return;
     }
@@ -504,11 +505,11 @@ export class Auth {
     const needsUsernameSetup = !!payload.needsUsernameSetup;
     const suggestedUsername = payload.suggestedUsername || username;
     if (!token || !username) {
-      console.log('[DiscordDebug] missing token/username, bailing');
+      debug('[DiscordDebug] missing token/username, bailing');
       if (this.onError) this.onError('Discord login did not return an account');
       return;
     }
-    console.log('[DiscordDebug] all checks passed, applying token + showLoggedInState');
+    debug('[DiscordDebug] all checks passed, applying token + showLoggedInState');
 
     this.storeToken(token);
     this.storeUsername(username);

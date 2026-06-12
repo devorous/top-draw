@@ -27,3 +27,12 @@ testing/diffs/
 # Generated sync-test output (per-run timestamped dirs)
 testing/sync_results/
 testing/puppeteer/sync_results/
+
+# One-off debug dumps & generated bench/export artifacts (not fixtures).
+# big.ddraw is kept tracked as a shared portability-smoke fixture.
+testing/_*.json
+testing/timelapse/
+testing/mitata/*_results.txt
+testing/ddraw/A_kstress.ddraw
+testing/ddraw/edge_*.ddraw
+testing/ddraw/k6_feed_*.ddraw

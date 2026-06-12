@@ -5,6 +5,7 @@
  */
 
 import { appState } from '../state.svelte.js';
+import { debug } from '../utils/debug.js';
 
 /**
  * SyncClient manages the complex process of synchronizing the canvas state
@@ -286,11 +287,11 @@ export class SyncClient {
    * @returns {void}
    */
   requestSync(targetUserId = null, options = {}) {
-    console.log('[SyncClient] requestSync called, current syncing state:', this.syncing);
-    console.trace('[SyncClient] requestSync call stack');
+    debug('[SyncClient] requestSync called, current syncing state:', this.syncing);
+    debug.trace('[SyncClient] requestSync call stack');
 
     if (!this.wsClient) {
-      console.warn('[SyncClient] Cannot request sync - no wsClient');
+      debug.warn('[SyncClient] Cannot request sync - no wsClient');
       return;
     }
 
@@ -301,14 +302,14 @@ export class SyncClient {
 
     if (this.syncing) {
       if (normalizedTarget === null) {
-        console.warn('[SyncClient] Already syncing, ignoring duplicate auto-sync request');
+        debug.warn('[SyncClient] Already syncing, ignoring duplicate auto-sync request');
         return;
       }
-      console.log(`[SyncClient] Switching sync provider from ${this.currentSyncTargetId ?? 'auto'} to ${normalizedTarget}`);
+      debug(`[SyncClient] Switching sync provider from ${this.currentSyncTargetId ?? 'auto'} to ${normalizedTarget}`);
     }
 
     if (this.hasCompletedSync && normalizedTarget === null && !this.inactive && !force) {
-      console.log('[SyncClient] Already completed initial sync, ignoring duplicate auto-sync request');
+      debug('[SyncClient] Already completed initial sync, ignoring duplicate auto-sync request');
       return;
     }
 
@@ -331,7 +332,7 @@ export class SyncClient {
 
     const preservedActiveStrokes = this._cloneActiveStrokesForUsers(activeRemoteUserIds);
     if (this.board?.layerManager) {
-      console.log('[SyncClient] Clearing existing canvas before sync...');
+      debug('[SyncClient] Clearing existing canvas before sync...');
       this.board.layerManager.clearAll();
       this._restoreActiveStrokes(preservedActiveStrokes);
       this.board.markCompositeFull();
@@ -357,12 +358,12 @@ export class SyncClient {
     this.updateProgress();
 
     if (normalizedTarget !== null) {
-      console.log(`[SyncClient] Requesting canvas sync from user ${normalizedTarget}...`);
+      debug(`[SyncClient] Requesting canvas sync from user ${normalizedTarget}...`);
     } else {
       // The server always serves a checkpoint + post-checkpoint command tail here
       // (SyncCoordinator._serveCheckpointJoin); there is no live-peer provider
       // election on the join path anymore.
-      console.log('[SyncClient] Requesting checkpoint-based canvas sync...');
+      debug('[SyncClient] Requesting checkpoint-based canvas sync...');
     }
 
     this.wsClient.requestSync(normalizedTarget);
@@ -417,7 +418,7 @@ export class SyncClient {
 
     this.syncTimeout = setTimeout(() => {
       if (!this.syncing) return;
-      console.warn('[SyncClient] Sync timeout - completing anyway');
+      debug.warn('[SyncClient] Sync timeout - completing anyway');
       this.handleSyncComplete();
     }, timeoutMs);
   }
@@ -476,7 +477,7 @@ export class SyncClient {
     const { markCompleted = true } = options;
     if (!this.syncing && !this.buffering) return;
 
-    console.warn('[SyncClient] Aborting sync:', reason);
+    debug.warn('[SyncClient] Aborting sync:', reason);
     this._resetSyncAttempt();
     this.hideOverlay();
     this.inactive = false;
@@ -500,17 +501,17 @@ export class SyncClient {
    */
   async handleSyncProvide(data) {
     const { targetUser } = data;
-    console.log('[SyncClient] Asked to provide layer state for user', targetUser);
+    debug('[SyncClient] Asked to provide layer state for user', targetUser);
 
     // History-menu region restores are applied asynchronously. Wait until they
     // finish so the provider does not export a partial pre-restore state.
     const pendingRegionRestore = this.app?._pendingSnapshotRegionRestorePromise;
     if (pendingRegionRestore) {
       try {
-        console.log('[SyncClient] Waiting for pending snapshot region restore before providing sync');
+        debug('[SyncClient] Waiting for pending snapshot region restore before providing sync');
         await pendingRegionRestore;
       } catch (err) {
-        console.warn('[SyncClient] Pending snapshot region restore failed before sync provide', err);
+        debug.warn('[SyncClient] Pending snapshot region restore failed before sync provide', err);
       }
     }
 
@@ -525,7 +526,7 @@ export class SyncClient {
     this.app?.inputBufferManager?.drainBroadcastQueue?.();
 
     if (!this.board?.layerManager) {
-      console.warn('[SyncClient] No layer manager to provide');
+      debug.warn('[SyncClient] No layer manager to provide');
       return;
     }
 
@@ -587,7 +588,7 @@ export class SyncClient {
         totalCount += batches.length;
       }
 
-      console.log(`[SyncClient] Sending sync metadata: ${totalCount} total messages (batched)`);
+      debug(`[SyncClient] Sending sync metadata: ${totalCount} total messages (batched)`);
       this.wsClient.sendSyncMetadata(totalCount, targetUser, this.board.dimensions);
 
       await new Promise(resolve => setTimeout(resolve, 100));
@@ -600,7 +601,7 @@ export class SyncClient {
         if (snap.flatCanvas) {
           const img = await this._captureLayerCanvasForSync(snap.flatCanvas, gi, layerTimeoutMs);
           if (img === null) {
-            console.warn(`[SyncClient] Skipping flatCanvas for layer ${gi} (timeout)`);
+            debug.warn(`[SyncClient] Skipping flatCanvas for layer ${gi} (timeout)`);
           } else {
             this.wsClient.sendSyncLayerBase(img, gi, 'source-over', targetUser);
           }
@@ -609,7 +610,7 @@ export class SyncClient {
         for (const seq of snap.binSequences) {
           const img = await this._captureCanvasElement(seq.canvas, layerTimeoutMs);
           if (img === null) {
-            console.warn(`[SyncClient] Skipping baked sequence for layer ${gi} (timeout)`);
+            debug.warn(`[SyncClient] Skipping baked sequence for layer ${gi} (timeout)`);
           } else {
             this.wsClient.sendSyncLayerBase(img, gi, seq.blendMode, targetUser);
           }
@@ -657,7 +658,7 @@ export class SyncClient {
             });
           }
           if (skippedCount > 0) {
-            console.warn(`[SyncClient] Skipped ${skippedCount}/${snap.strokes.length} strokes for layer ${gi} (timeouts)`);
+            debug.warn(`[SyncClient] Skipped ${skippedCount}/${snap.strokes.length} strokes for layer ${gi} (timeouts)`);
           }
           if (strokeRecords.length > 0) {
             this.wsClient.sendSyncStrokeBatch(strokeRecords, gi, targetUser);
@@ -700,7 +701,7 @@ export class SyncClient {
             });
           }
           if (skippedCount > 0) {
-            console.warn(`[SyncClient] Skipped ${skippedCount}/${snap.activeStrokes.length} active strokes for layer ${gi} (timeouts)`);
+            debug.warn(`[SyncClient] Skipped ${skippedCount}/${snap.activeStrokes.length} active strokes for layer ${gi} (timeouts)`);
           }
           if (strokeRecords.length > 0) {
             this.wsClient.sendSyncStrokeBatch(strokeRecords, gi, targetUser);
@@ -746,7 +747,7 @@ export class SyncClient {
             });
           }
           if (skippedCount > 0) {
-            console.warn(`[SyncClient] Skipped ${skippedCount}/${batches[batchIdx].length} redo strokes in batch ${batchIdx} (timeouts)`);
+            debug.warn(`[SyncClient] Skipped ${skippedCount}/${batches[batchIdx].length} redo strokes in batch ${batchIdx} (timeouts)`);
           }
           // The first record's groupIdx can be used as a representative layerIdx for the batch
           const batchLayerIdx = batches[batchIdx][0]?.groupIdx ?? 0;
@@ -758,7 +759,7 @@ export class SyncClient {
 
       // Tile ownership is now sent by the server (authoritative) after SYNC_STROKES_DONE
       this.wsClient.sendSyncStrokesDone(targetUser);
-      console.log('[SyncClient] Finished sending layer state to user', targetUser);
+      debug('[SyncClient] Finished sending layer state to user', targetUser);
     } catch (error) {
       console.error('[SyncClient] Failed to provide layer state', error);
       // Send done anyway so the joiner doesn't hang on the 15s idle timeout.
@@ -981,7 +982,7 @@ export class SyncClient {
         timeout
       ]);
     } catch (error) {
-      console.warn(`[SyncClient] Skipping stroke (User: ${data.userId}, Layer: ${data.layerIdx}):`, error.message || error);
+      debug.warn(`[SyncClient] Skipping stroke (User: ${data.userId}, Layer: ${data.layerIdx}):`, error.message || error);
     }
   }
 
@@ -1064,7 +1065,7 @@ export class SyncClient {
     if (!this.board?.tileTracker || !tiles) return;
 
     const tt = this.board.tileTracker;
-    console.log(`[SyncClient] Applying ${tiles.length} dirty tile entries`);
+    debug(`[SyncClient] Applying ${tiles.length} dirty tile entries`);
 
     for (const tileIdx of tiles) {
       // Handle both formats: simple index or legacy {idx, users}
@@ -1132,7 +1133,7 @@ export class SyncClient {
           // Composite main layers immediately
           if (this.board) {
             this.board.compositeAllLayers();
-            console.log('[SyncClient] Main layers loaded and composited');
+            debug('[SyncClient] Main layers loaded and composited');
           }
           // Now load other layers
           return Promise.all(otherLayerImports);

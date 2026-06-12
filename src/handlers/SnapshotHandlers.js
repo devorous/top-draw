@@ -1,6 +1,7 @@
 /** @fileoverview WebSocket handlers for board snapshots (saving, listing, restoring). */
 
 import { T } from '../../shared/MessageTypes.js';
+import { debug } from '../utils/debug.js';
 import { appState } from '../state.svelte.js';
 import * as wasm from '../wasm/ddraw_wasm.js';
 import { readQoiDimensions } from '../../shared/qoi.js';
@@ -39,7 +40,7 @@ export function setupSnapshotHandlers(wsClient, app) {
     appState.snapshotHasMore = app.snapshotManager.hasMoreSnapshots;
     appState.snapshotListVersion += 1;
 
-    console.log(`[Snapshot] Received ${data.snapshotList.length} snapshot(s) (${append ? 'append' : 'replace'})`);
+    debug(`[Snapshot] Received ${data.snapshotList.length} snapshot(s) (${append ? 'append' : 'replace'})`);
   });
 
   // Handle server requesting us to capture a snapshot
@@ -57,7 +58,7 @@ export function setupSnapshotHandlers(wsClient, app) {
     const restorePromise = applyRegionRestore(app.board, data.snapshotLayers, data.isLasso, {
       sx: data.sx, sy: data.sy, sw: data.sw, sh: data.sh
     }, data.cr || []).catch((err) => {
-      console.warn('[Snapshot] Failed to apply region restore', err);
+      debug.warn('[Snapshot] Failed to apply region restore', err);
     });
 
     // Expose in-flight region restores so sync providers can wait for stable state.
@@ -82,7 +83,7 @@ export function setupSnapshotHandlers(wsClient, app) {
     // Count users excluding self
     const otherUserCount = app.users ? Array.from(app.users.values()).filter(u => u.id !== app.sessionIndex).length : 0;
     if (otherUserCount > 0) {
-      console.log('[Snapshot] Ignoring join notify - other users present in room');
+      debug('[Snapshot] Ignoring join notify - other users present in room');
       return;
     }
 

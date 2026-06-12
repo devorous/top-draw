@@ -1,6 +1,7 @@
 /** @fileoverview Handles chat-related WebSocket events including public messages, DMs, and images. */
 
 import { broadcastChatPopoutEvent } from '../platform/chatPopoutBridge.js';
+import { debug } from '../utils/debug.js';
 
 function chatNameColor(color) {
   if (!Array.isArray(color)) return color || '#8ba3c7';
@@ -98,7 +99,7 @@ export function setupChatHandlers(wsClient, app) {
 
   wsClient.on('chat_img', (data) => {
     if (data.sessionIndex === app.sessionIndex) return;
-    console.log('[CHAT_IMG] Received image from user', data.sessionIndex);
+    debug('[CHAT_IMG] Received image from user', data.sessionIndex);
 
     const user = users.get(data.sessionIndex);
     if (user) {
@@ -110,7 +111,7 @@ export function setupChatHandlers(wsClient, app) {
         broadcastChatPopoutEvent('addChatImage', [data.imageData, chatPopoutUser(user, data.sessionIndex), data.messageId]);
       }
     } else {
-      console.warn('[CHAT_IMG] User not found for sessionIndex:', data.sessionIndex);
+      debug.warn('[CHAT_IMG] User not found for sessionIndex:', data.sessionIndex);
     }
   });
 

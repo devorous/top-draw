@@ -1,6 +1,7 @@
 /** @fileoverview Main entry point for the WebSocket server, handling connections, message routing, and room management. */
 
 import { WebSocketServer, WebSocket } from 'ws';
+import { debug } from './debug.js';
 import { createServer } from 'http';
 import protobuf from 'protobufjs';
 import { ObjectId } from 'mongodb';
@@ -401,7 +402,7 @@ async function getMessengerHistory(roomId, limit = 50) {
         .limit(limit)
         .toArray();
     } catch (err) {
-      console.warn('[Messenger] History query failed for one collection:', err.message);
+      debug.warn('[Messenger] History query failed for one collection:', err.message);
       return [];
     }
   }));
@@ -421,7 +422,7 @@ async function getMessengerInbox(username) {
         { $group: { _id: '$room_id', latestMessage: { $first: '$$ROOT' } } }
       ]).toArray();
     } catch (err) {
-      console.warn('[Messenger] Inbox query failed for one collection:', err.message);
+      debug.warn('[Messenger] Inbox query failed for one collection:', err.message);
       return [];
     }
   }));
@@ -1510,16 +1511,16 @@ function logVpnAutoMuteContext(client, room, contextLabel) {
 
   const status = getAsnCheckStatus();
   if (!client.clientAsn) {
-    console.warn(`[ASN] ${contextLabel}: no ASN resolved for ${client.clientIp} in room ${room.id}; VPN auto-mute cannot evaluate this connection.`);
+    debug.warn(`[ASN] ${contextLabel}: no ASN resolved for ${client.clientIp} in room ${room.id}; VPN auto-mute cannot evaluate this connection.`);
     return;
   }
 
   if (!status.ready) {
-    console.warn(`[ASN] ${contextLabel}: ASN list not ready yet for ASN ${client.clientAsn} in room ${room.id}.`);
+    debug.warn(`[ASN] ${contextLabel}: ASN list not ready yet for ASN ${client.clientAsn} in room ${room.id}.`);
     return;
   }
 
-  console.log(`[ASN] ${contextLabel}: ASN ${client.clientAsn} for ${client.clientIp} in room ${room.id} flagged=${isVpnAsn(client.clientAsn)}`);
+  debug(`[ASN] ${contextLabel}: ASN ${client.clientAsn} for ${client.clientIp} in room ${room.id} flagged=${isVpnAsn(client.clientAsn)}`);
 }
 
 async function applyShadowBanStateToClient(client, room, {
@@ -1547,19 +1548,19 @@ function logAsnHandshakeContext(client, roomId = '') {
 
   if (!client.clientAsn) {
     if (status.dbLoaded) {
-      console.warn(`[ASN] WS handshake: no ASN resolved for ${client.clientIp} (room=${roomLabel}). IP may not be in the MaxMind database.`);
+      debug.warn(`[ASN] WS handshake: no ASN resolved for ${client.clientIp} (room=${roomLabel}). IP may not be in the MaxMind database.`);
     } else {
-      console.warn(`[ASN] WS handshake: MaxMind database not loaded; cannot resolve ASN for ${client.clientIp} (room=${roomLabel}).`);
+      debug.warn(`[ASN] WS handshake: MaxMind database not loaded; cannot resolve ASN for ${client.clientIp} (room=${roomLabel}).`);
     }
     return;
   }
 
   if (!status.ready) {
-    console.warn(`[ASN] WS handshake: ASN ${client.clientAsn} resolved for ${client.clientIp} (room=${roomLabel}) but VPN blocklist is not ready yet.`);
+    debug.warn(`[ASN] WS handshake: ASN ${client.clientAsn} resolved for ${client.clientIp} (room=${roomLabel}) but VPN blocklist is not ready yet.`);
     return;
   }
 
-  console.log(`[ASN] WS handshake: ASN ${client.clientAsn} for ${client.clientIp} (room=${roomLabel}) flagged=${isVpnAsn(client.clientAsn)}`);
+  debug(`[ASN] WS handshake: ASN ${client.clientAsn} for ${client.clientIp} (room=${roomLabel}) flagged=${isVpnAsn(client.clientAsn)}`);
 }
 
 async function applyMuteStateToClient(client, room, options = {}) {
@@ -1586,7 +1587,7 @@ async function init() {
   const root = await protobuf.load(protoPath);
   Msg = root.lookupType('Msg');
   POOLED_MSG = Msg.create();
-  console.log('[PROTO DEBUG] room_board_size field in server Msg?',
+  debug('[PROTO DEBUG] room_board_size field in server Msg?',
     Object.keys(Msg.fields).filter(k => k.toLowerCase().includes('board')),
     'total fields:', Object.keys(Msg.fields).length);
 
@@ -1594,7 +1595,7 @@ async function init() {
     await connectDB();
   } catch (err) {
     console.warn('[Server] Starting without database — auth/moderation disabled');
-    console.log(err);
+    debug(err);
   }
 
   roomManager = new RoomManager(wss, sendTo);
@@ -2094,7 +2095,7 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
       const uniqueName = getUniqueVisibleName(room, data.n, sessionIndex);
       user.name = uniqueName;
 
-      console.log(`[CN] Session ${sessionIndex} changing name to "${data.n}" (unique: "${uniqueName}")`);
+      debug(`[CN] Session ${sessionIndex} changing name to "${data.n}" (unique: "${uniqueName}")`);
 
       const allUsers = getVisibleJoinedUsers(room);
       const cnBroadcaster = createRoomBroadcaster(room);
@@ -2137,7 +2138,7 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
     case T.MIRROR_REGION: {
       try {
         if (data.mirrorRegionsJson && data.mirrorRegionsJson.length > 10000) {
-          console.warn('[MirrorRegion] Payload too large');
+          debug.warn('[MirrorRegion] Payload too large');
           break;
         }
         const payload = data.mirrorRegionsJson ? JSON.parse(data.mirrorRegionsJson) : null;
@@ -2185,7 +2186,7 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
           room.settings.mirrorRegions = (room.settings.mirrorRegions || []).filter(region => region.id !== payload.id);
         }
       } catch (err) {
-        console.warn('[MirrorRegion] Invalid payload', err);
+        debug.warn('[MirrorRegion] Invalid payload', err);
       }
       break;
     }
@@ -2275,7 +2276,7 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
       try {
         payload = JSON.parse(data.g || '{}');
       } catch (err) {
-        console.warn('[ObscureRegion] Invalid payload', err);
+        debug.warn('[ObscureRegion] Invalid payload', err);
         return;
       }
       const id = typeof payload.id === 'string' ? payload.id.slice(0, 80) : '';
@@ -2428,7 +2429,7 @@ function closeSlowConsumer(ws, source) {
   discardClientOutbox(ws);
 
   const label = ws.sessionIndex !== undefined ? `session ${ws.sessionIndex}` : 'unassigned session';
-  console.warn(`[WS] Closing slow consumer (${label}, source=${source}, buffered=${getBufferedAmount(ws)})`);
+  debug.warn(`[WS] Closing slow consumer (${label}, source=${source}, buffered=${getBufferedAmount(ws)})`);
   try {
     ws.close(1013, 'slow-consumer');
   } catch {
@@ -2452,7 +2453,7 @@ function sendEncodedBuffer(ws, buffer, source = 'direct') {
     return true;
   } catch (error) {
     wsBackpressureStats.sendErrors++;
-    console.warn(`[WS] Send failed (${source}):`, error?.message || error);
+    debug.warn(`[WS] Send failed (${source}):`, error?.message || error);
     return closeSlowConsumer(ws, `${source}-error`);
   }
 }
@@ -2787,7 +2788,7 @@ wss.on('connection', async (ws, req) => {
     ws.username = authUser.username;
 
     messengerClients.set(ws.username, ws);
-    console.log(`[Messenger] ${ws.username} connected`);
+    debug(`[Messenger] ${ws.username} connected`);
 
     ws.on('message', async (data) => {
       try {
@@ -2850,7 +2851,7 @@ wss.on('connection', async (ws, req) => {
 
     ws.on('close', () => {
       messengerClients.delete(ws.username);
-      console.log(`[Messenger] ${ws.username} disconnected`);
+      debug(`[Messenger] ${ws.username} disconnected`);
     });
 
     if (ws.readyState === WebSocket.OPEN) {
@@ -2865,12 +2866,12 @@ wss.on('connection', async (ws, req) => {
     // Rate limit new connections per IP
     const connIp = getClientIp(req);
     if (!DISABLE_RATE_LIMITS && !wsConnectionLimiter.check(connIp)) {
-      console.warn(`[WS] Connection rate limited: ${connIp}`);
+      debug.warn(`[WS] Connection rate limited: ${connIp}`);
       ws.close(1008, 'Too many connections');
       return;
     }
 
-    console.log(`[WS] New connection attempt from ${req.socket.remoteAddress}`);
+    debug(`[WS] New connection attempt from ${req.socket.remoteAddress}`);
 
     ws.clientIp = connIp;
     ws.skipUploadBps = isLocalhostRequest(req, connIp);
@@ -2906,10 +2907,10 @@ wss.on('connection', async (ws, req) => {
           ws.identitySummary = parsedIdentity;
         }
       } catch (error) {
-        console.warn('[IdentityDebug][server] Failed to parse identity query payload:', error.message);
+        debug.warn('[IdentityDebug][server] Failed to parse identity query payload:', error.message);
       }
     }
-    console.log('[IdentityDebug][server] ws handshake identity', {
+    debug('[IdentityDebug][server] ws handshake identity', {
       roomId: sanitizeRoomId(url.searchParams.get('room')),
       deviceId: ws.deviceId || null,
       fingerprintId: ws.fingerprintId || null,
@@ -2918,13 +2919,13 @@ wss.on('connection', async (ws, req) => {
 
     const roomId = sanitizeRoomId(url.searchParams.get('room'));
     logAsnHandshakeContext(ws, roomId);
-    console.log(`[Room] Parsed room ID: ${roomId}`);
+    debug(`[Room] Parsed room ID: ${roomId}`);
 
     if (!isLocalhostRequest(req, connIp) && roomId !== '_discovery') {
       const versionPolicy = await readVersionPolicy();
       if (isClientVersionMismatch(ws.clientAppVersion, versionPolicy)) {
         const latest = versionPolicy?.latest || versionPolicy?.minRequired || 'current server version';
-        console.warn(`[Version] Rejecting client version "${ws.clientAppVersion || 'missing'}"; server requires "${latest}"`);
+        debug.warn(`[Version] Rejecting client version "${ws.clientAppVersion || 'missing'}"; server requires "${latest}"`);
         ws.close(4009, `version-mismatch:${latest}`);
         return;
       }
@@ -2937,10 +2938,10 @@ wss.on('connection', async (ws, req) => {
     if (!room.broadcastSequencedRestore) {
       room.broadcastSequencedRestore = (payload) => broadcastSequencedRestore(room, payload);
     }
-    console.log(`[Room.Connection] About to add client to room: ${roomId}, current client count: ${room.getClientCount()}`);
+    debug(`[Room.Connection] About to add client to room: ${roomId}, current client count: ${room.getClientCount()}`);
     room.addClient(ws);
 
-    console.log(`[Room.Connection] Client joined room: ${roomId}, total clients after addClient: ${room.getClientCount()}`);
+    debug(`[Room.Connection] Client joined room: ${roomId}, total clients after addClient: ${room.getClientCount()}`);
 
     ws.pingRtt = null;
     ws.lowPowerMode = false;
@@ -2958,7 +2959,7 @@ wss.on('connection', async (ws, req) => {
         // Previous ping never got a PONG response.
         ws.missedPongs++;
         if (ws.missedPongs >= MAX_MISSED_PONGS) {
-          console.warn(`[WS] Reaping half-open socket (session ${ws.sessionIndex ?? 'unassigned'}, ${ws.missedPongs} missed pongs)`);
+          debug.warn(`[WS] Reaping half-open socket (session ${ws.sessionIndex ?? 'unassigned'}, ${ws.missedPongs} missed pongs)`);
           clearInterval(ws.pingInterval);
           try { ws.terminate(); } catch (_) {}
           return;
@@ -2980,7 +2981,7 @@ wss.on('connection', async (ws, req) => {
 
     const room = roomManager.getRoomByClient(ws);
     if (!room) {
-      console.warn('[WS] Message from client not in any room');
+      debug.warn('[WS] Message from client not in any room');
       return;
     }
 
@@ -2994,7 +2995,7 @@ wss.on('connection', async (ws, req) => {
       } else if (firstByte === 0x08) {
         data = Msg.decode(new Uint8Array(rawData));
       } else {
-        console.warn(`[WS] Dropping unknown message from session ${ws.sessionIndex ?? 'unassigned'}`);
+        debug.warn(`[WS] Dropping unknown message from session ${ws.sessionIndex ?? 'unassigned'}`);
         return;
       }
 
@@ -3014,7 +3015,7 @@ wss.on('connection', async (ws, req) => {
       const inboundMessage = data;
       data = await sanitizeMessage(inboundMessage);
       if (!data) {
-        console.warn(
+        debug.warn(
           `[WS] Rejected invalid message from session ${ws.sessionIndex ?? 'unassigned'} `
           + `(room=${room?.id || 'unknown'}, type=${Number.isFinite(requestedType) ? requestedType : 'invalid'}): `
           + summarizeRejectedMessage(inboundMessage)
@@ -3032,7 +3033,7 @@ wss.on('connection', async (ws, req) => {
       }
 
       if (!DISABLE_RATE_LIMITS && !shouldAllowWsMessage(ws, data)) {
-        console.warn(`[WS] Rate limited message from ${ws.clientIp} (type=${data.t})`);
+        debug.warn(`[WS] Rate limited message from ${ws.clientIp} (type=${data.t})`);
         if (data.t === T.CHAT_IMG || data.t === T.STAFF_CHAT_IMG) {
           sendTo(ws, {
             t: T.MOD_RESULT,
@@ -3083,7 +3084,7 @@ wss.on('connection', async (ws, req) => {
               room.pendingDisconnects.delete(incomingResumeKey);
               ws.sessionIndex = pending.sessionIndex;
               ws.resumeKey = incomingResumeKey;
-              console.log(`[CONNECT] Resumed sessionIndex=${pending.sessionIndex} as "${resumedUser.name}" via resumeKey`);
+              debug(`[CONNECT] Resumed sessionIndex=${pending.sessionIndex} as "${resumedUser.name}" via resumeKey`);
               sendTo(ws, initialSettingsPayload);
               sendTo(ws, {
                 t: T.CONNECT_RESUMED,
@@ -3163,7 +3164,7 @@ wss.on('connection', async (ws, req) => {
           const sessionIndex = room.sessionManager.allocateSessionIndex(isIndexReusable);
           ws.sessionIndex = sessionIndex;
 
-          console.log('[IdentityDebug][server] JOIN message data fields:', {
+          debug('[IdentityDebug][server] JOIN message data fields:', {
             client_device_id: data.client_device_id,
             client_fingerprint_id: data.client_fingerprint_id,
             client_identity_json: data.client_identity_json,
@@ -3173,8 +3174,8 @@ wss.on('connection', async (ws, req) => {
           });
 
           const identity = normalizeIdentityPayload(data);
-          console.log('[IdentityDebug][server] Normalized identity:', identity);
-          console.log('[IdentityDebug][server] Existing ws values:', {
+          debug('[IdentityDebug][server] Normalized identity:', identity);
+          debug('[IdentityDebug][server] Existing ws values:', {
             deviceId: ws.deviceId,
             fingerprintId: ws.fingerprintId,
             identitySummary: ws.identitySummary
@@ -3189,7 +3190,7 @@ wss.on('connection', async (ws, req) => {
           }
           const requestedUsername = normalizeUsername(data.n || '');
           const username = getUniqueVisibleName(room, requestedUsername || 'Guest');
-          console.log(`[CONNECT] Session ${sessionIndex} joining room ${room.id} as "${username}"`);
+          debug(`[CONNECT] Session ${sessionIndex} joining room ${room.id} as "${username}"`);
 
           room.sessionManager.createUser(
             sessionIndex,
@@ -3281,7 +3282,7 @@ wss.on('connection', async (ws, req) => {
           }
 
           // Notify joining user of the most recent snapshot (if any)
-          console.log(`[Room.CONNECT] Before handleSnapshotJoinNotify: room client count = ${room.getClientCount()}`);
+          debug(`[Room.CONNECT] Before handleSnapshotJoinNotify: room client count = ${room.getClientCount()}`);
           handleSnapshotJoinNotify(ws, room).catch(() => {});
 
           // Start/continue election when first user joins (auto mode only)
@@ -3545,7 +3546,7 @@ wss.on('connection', async (ws, req) => {
           ];
           const requiredAction = MOD_ACTION_MAP[modActionType];
           if (!requiredAction || !authorize(ws, requiredAction, sendTo, T.MOD_RESULT)) {
-            console.log(`[MOD] REJECTED - insufficient role (role=${ws.userRole}, actionType=${modActionType})`);
+            debug(`[MOD] REJECTED - insufficient role (role=${ws.userRole}, actionType=${modActionType})`);
             break;
           }
           const modTargetIndex = data.modTarget;
@@ -3585,14 +3586,14 @@ wss.on('connection', async (ws, req) => {
           try {
             const roomBroadcaster = createRoomBroadcaster(room);
 
-            console.log(`[Mod] MOD_ACTION received: type=${modActionType}, target=${modTargetIndex}, targetWs=${!!targetWs}`);
+            debug(`[Mod] MOD_ACTION received: type=${modActionType}, target=${modTargetIndex}, targetWs=${!!targetWs}`);
             switch (modActionType) {
               case 0: // Kick
                 if (targetRole > issuerAuthority) {
                   rejectProtectedTarget('Cannot kick a user with a higher role than your own');
                   break;
                 }
-                console.log(`[MOD] KICKING sessionIndex=${modTargetIndex}, targetWs=${!!targetWs}`);
+                debug(`[MOD] KICKING sessionIndex=${modTargetIndex}, targetWs=${!!targetWs}`);
                 roomBroadcaster({
                   t: T.MOD_NOTIFY,
                   modActionType: 0,
@@ -3602,11 +3603,11 @@ wss.on('connection', async (ws, req) => {
                   modReason: modReason
                 });
                 if (targetWs) {
-                  console.log(`[MOD] CLOSING ws for sessionIndex=${modTargetIndex}`);
+                  debug(`[MOD] CLOSING ws for sessionIndex=${modTargetIndex}`);
                   targetWs.close(4002, 'Kicked');
                 } else {
-                  console.log(`[MOD] TARGET NOT FOUND for sessionIndex=${modTargetIndex}`);
-                  console.log(`[MOD] All client sessionIndexes:`, [...wss.clients].map(c => c.sessionIndex));
+                  debug(`[MOD] TARGET NOT FOUND for sessionIndex=${modTargetIndex}`);
+                  debug(`[MOD] All client sessionIndexes:`, [...wss.clients].map(c => c.sessionIndex));
                 }
                 break;
 
@@ -4142,7 +4143,7 @@ wss.on('connection', async (ws, req) => {
             });
 
             sendTo(ws, { t: T.MOD_RESULT, a: true });
-            console.log(`[Room] ${ws.username} registered as owner of room "${room.id}"`);
+            debug(`[Room] ${ws.username} registered as owner of room "${room.id}"`);
           } catch (err) {
             console.error('[Room] Register error:', err);
             sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Failed to register room' });
@@ -4204,7 +4205,7 @@ wss.on('connection', async (ws, req) => {
             room.updateSnapshotTimer();
 
             sendTo(ws, { t: T.MOD_RESULT, a: true });
-            console.log(`[Room] ${ws.username} unregistered room "${room.id}" (previous owner: ${previousOwnerId})`);
+            debug(`[Room] ${ws.username} unregistered room "${room.id}" (previous owner: ${previousOwnerId})`);
           } catch (err) {
             console.error('[Room] Unregister error:', err);
             sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Failed to unregister room' });
@@ -4735,10 +4736,10 @@ wss.on('connection', async (ws, req) => {
         }
 
         case T.AUTH_LOGIN: {
-          console.log(`[Auth] AUTH_LOGIN from session ${ws.sessionIndex} in room ${room.id} (token: ${!!data.authToken}, user/pass: ${!!data.authUsername})`);
+          debug(`[Auth] AUTH_LOGIN from session ${ws.sessionIndex} in room ${room.id} (token: ${!!data.authToken}, user/pass: ${!!data.authUsername})`);
           const db = getDB();
           if (!db) {
-            console.log('[Auth] DB not available, rejecting');
+            debug('[Auth] DB not available, rejecting');
             sendTo(ws, { t: T.AUTH_RESULT, a: false, authError: 'Database not available' });
             break;
           }
@@ -4755,7 +4756,7 @@ wss.on('connection', async (ws, req) => {
             if (data.authToken) {
               const decoded = verifyToken(data.authToken);
               if (!decoded?.userId || !ObjectId.isValid(decoded.userId)) {
-                console.log('[Auth] Token invalid/expired');
+                debug('[Auth] Token invalid/expired');
                 sendTo(ws, { t: T.AUTH_RESULT, a: false, authError: 'Invalid or expired token' });
                 break;
               }
@@ -4881,7 +4882,7 @@ wss.on('connection', async (ws, req) => {
               userId: userDoc._id.toString(),
               effectiveRole
             });
-            console.log(`[Auth] Login success: ${userDoc.username} (global=${userDoc.role}, room=${roomRoleVal}, effective=${effectiveRole}) in room ${room.id}`);
+            debug(`[Auth] Login success: ${userDoc.username} (global=${userDoc.role}, room=${roomRoleVal}, effective=${effectiveRole}) in room ${room.id}`);
             if (room.settings.autoMuteVpnUsers && ws.isVpnNetwork && !isVpnAutoMuteExempt(effectiveRole) && shouldMute) {
               console.warn(`[Security] Auto-muted user ${userDoc.username} on VPN ASN ${ws.clientAsn || 'unknown'} in room ${room.id}`);
             }
@@ -5159,13 +5160,13 @@ wss.on('connection', async (ws, req) => {
         const entry = room.pendingDisconnects?.get(ws.resumeKey);
         if (!entry || entry.timer !== timer) return;
         room.pendingDisconnects.delete(ws.resumeKey);
-        console.log(`[WS] Grace expired for sessionIndex=${sessionIndex}; finalizing disconnect`);
+        debug(`[WS] Grace expired for sessionIndex=${sessionIndex}; finalizing disconnect`);
         finalizeSessionRemoval(room, sessionIndex, ws);
       }, RESUME_GRACE_MS);
 
       room.pendingDisconnects.set(ws.resumeKey, { sessionIndex, timer });
       broadcastUsersForRoom(room);
-      console.log(`[WS] Holding session ${sessionIndex} for ${RESUME_GRACE_MS}ms (resumeKey=${ws.resumeKey.slice(0, 8)}…)`);
+      debug(`[WS] Holding session ${sessionIndex} for ${RESUME_GRACE_MS}ms (resumeKey=${ws.resumeKey.slice(0, 8)}…)`);
       return;
     }
 

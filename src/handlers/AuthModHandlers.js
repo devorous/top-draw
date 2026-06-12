@@ -1,6 +1,7 @@
 /** @fileoverview Handles authentication and moderation events from the WebSocket client. */
 
 import { appState } from '../state.svelte.js';
+import { debug } from '../utils/debug.js';
 
 const ROLE_NAMES = ['Guest', 'User', 'Trusted', 'Helper', 'Mod', 'Admin', 'Owner', 'Noble', 'Holy', 'Deity'];
 
@@ -206,7 +207,7 @@ export function setupAuthModHandlers(wsClient, app) {
   });
 
   wsClient.on('room_ownership', (data) => {
-    console.log('[room_ownership] received:', data);
+    debug('[room_ownership] received:', data);
     // Update local room data when ownership changes
     if (app.currentRoomData) {
       app.currentRoomData.ownerId = data.ownerId || null;

@@ -3,6 +3,7 @@
  */
 
 import { mount, unmount } from 'svelte';
+import { debug } from '../../utils/debug.js';
 import BoardMenu from './BoardMenu.svelte';
 import ProfileDialog from './ProfileDialog.svelte';
 import GalleryItemDialog from './GalleryItemDialog.svelte';
@@ -87,7 +88,7 @@ const MessengerWrapper = (function() {
             }
           } else {
             if (this.instance) {
-              console.log('Unmounting Messenger');
+              debug('Unmounting Messenger');
               unmount(this.instance);
               this.instance = null;
             }
@@ -211,7 +212,7 @@ export function initSvelteUI(app) {
 
         lastDiscordPresenceKey = key;
         void updateDiscordRichPresence(payload).catch((error) => {
-          console.warn('[Discord] Failed to update Rich Presence:', error);
+          debug.warn('[Discord] Failed to update Rich Presence:', error);
         });
       });
     });

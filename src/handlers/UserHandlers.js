@@ -1,6 +1,7 @@
 /** @fileoverview Handles user-related events including lifecycle, AFK status, and cursor visibility. */
 
 import { User } from '../User.js';
+import { debug } from '../utils/debug.js';
 import { appState } from '../state.svelte.js';
 import { BOARD_SIZE_PRESETS, applyRoomBoardSize } from '../config/BoardSizes.js';
 
@@ -224,7 +225,7 @@ export function setupUserHandlers(wsClient, app) {
     const remoteIndices = new Set(data.users.map(u => u.sessionIndex));
     users.forEach((user, sessionIndex) => {
       if (sessionIndex !== app.sessionIndex && !remoteIndices.has(sessionIndex)) {
-        console.log(`[USERS] Removing ghost user ${user.username}(${sessionIndex})`);
+        debug(`[USERS] Removing ghost user ${user.username}(${sessionIndex})`);
         rememberRemovedUser(sessionIndex, user);
         clearJoinTracking(sessionIndex);
         app.cleanupRemoteUserState(sessionIndex, { preserveVisuals: true });
@@ -294,7 +295,7 @@ export function setupUserHandlers(wsClient, app) {
       // Detect session index reuse with different instanceId and trigger cleanup
       const previousIid = vacatedSlots.get(userData.sessionIndex);
       if (previousIid && previousIid !== userData.iid) {
-        console.log(`[Ghost User Prevention] Session ${userData.sessionIndex} reused: old iid=${previousIid} → new iid=${userData.iid}`);
+        debug(`[Ghost User Prevention] Session ${userData.sessionIndex} reused: old iid=${previousIid} → new iid=${userData.iid}`);
         app.forceCleanupResidualState?.(userData.sessionIndex);
         vacatedSlots.delete(userData.sessionIndex);
       }
@@ -657,7 +658,7 @@ export function setupUserHandlers(wsClient, app) {
       const user = users.get(data.sessionIndex);
       if (!user) return;
       userId = user.id;
-      console.log(`[AFK] Compressing strokes for ${user.username} (${data.sessionIndex})`);
+      debug(`[AFK] Compressing strokes for ${user.username} (${data.sessionIndex})`);
     }
     if (userId !== undefined) {
       await app.board?.commitAllUserStrokesForAFKUser?.(userId);
@@ -673,7 +674,7 @@ export function setupUserHandlers(wsClient, app) {
     const wasKnown = !!user;
     const hadNameBefore = !!user?.username;
     const action = !user ? 'joined (new)' : (!hadNameBefore ? 'joined (was nameless)' : 'changed name');
-    console.log(`[CN] User ${data.name}(${data.sessionIndex}) ${action}`);
+    debug(`[CN] User ${data.name}(${data.sessionIndex}) ${action}`);
     if (!user) {
       const userOptions = {
         username: data.name,

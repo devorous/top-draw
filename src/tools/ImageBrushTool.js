@@ -4,6 +4,7 @@
  */
 
 import { parseGbr, parseGih } from '../utils/parseGimp.js';
+import { debug } from '../utils/debug.js';
 import {
   buildPreviewStrokePoints,
   drawPreviewStrokeGuide,
@@ -224,7 +225,7 @@ export class ImageBrushTool extends Tool {
     const hasActiveStroke = this.board.layerManager?.getActiveStroke(strokeLayer, user.id);
 
     if (!hasActiveStroke) {
-        console.warn(`ImageBrushTool: User ${user.id} has no active stroke on layer ${strokeLayer}. Initiating new stroke.`);
+        debug.warn(`ImageBrushTool: User ${user.id} has no active stroke on layer ${strokeLayer}. Initiating new stroke.`);
         this.board.beginStroke(user); 
     }
     

@@ -4,6 +4,7 @@
  */
 
 import { Homography } from '../utils/homography.js';
+import { debug } from '../utils/debug.js';
 import { performHomographyTransform, imageDataToCanvas, calculateCornerBounds, computeWarpOutputBounds } from '../utils/homographyUtils.js';
 import { pointInHull, distanceBasedCulling } from '../utils/drawing.js';
 import { Tool } from './BaseTool.js';
@@ -393,7 +394,7 @@ export class SelectTool extends Tool {
     // Ensure corners data is valid and has all required numerical properties before broadcasting
     // Check if 'corners' is a valid object
     if (!corners || typeof corners !== 'object') {
-      console.warn('[SelectTool] Attempted to broadcast invalid corners: "corners" is null or not an object.');
+      debug.warn('[SelectTool] Attempted to broadcast invalid corners: "corners" is null or not an object.');
       return;
     }
 
@@ -401,7 +402,7 @@ export class SelectTool extends Tool {
     if (!corners.tl || !corners.tr || !corners.bl || !corners.br ||
         typeof corners.tl !== 'object' || typeof corners.tr !== 'object' ||
         typeof corners.bl !== 'object' || typeof corners.br !== 'object') {
-      console.warn('[SelectTool] Attempted to broadcast invalid corners: missing or invalid corner points (tl, tr, bl, br).');
+      debug.warn('[SelectTool] Attempted to broadcast invalid corners: missing or invalid corner points (tl, tr, bl, br).');
       return;
     }
 
@@ -410,7 +411,7 @@ export class SelectTool extends Tool {
         typeof corners.tr.x !== 'number' || typeof corners.tr.y !== 'number' ||
         typeof corners.bl.x !== 'number' || typeof corners.bl.y !== 'number' ||
         typeof corners.br.x !== 'number' || typeof corners.br.y !== 'number') {
-      console.warn('[SelectTool] Attempted to broadcast invalid corners: missing or non-numeric x/y coordinates on corner points.');
+      debug.warn('[SelectTool] Attempted to broadcast invalid corners: missing or non-numeric x/y coordinates on corner points.');
       return;
     }
 
@@ -442,7 +443,7 @@ export class SelectTool extends Tool {
         this.pendingSelectionBroadcast = null;
         this.lastSelectionBroadcastTime = performance.now();
       } else {
-        console.warn('[SelectTool] Attempted to flush pending broadcast with invalid corners data.');
+        debug.warn('[SelectTool] Attempted to flush pending broadcast with invalid corners data.');
         this.pendingSelectionBroadcast = null; // Clear invalid data
       }
     }
