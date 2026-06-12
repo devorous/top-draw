@@ -451,53 +451,49 @@ export class SelectTool extends Tool {
    * @param {CanvasRenderingContext2D} ctx
    * @param {Array<{x: number, y: number}>} points
    */
-  drawLassoPreview(ctx, points) {
-    if (points.length < 2) return;
-    const livePreviewOffset = this.livePreviewDashOffset;
-
-    ctx.strokeStyle = '#000';
+  /**
+   * Strokes a marching-ants outline: two dashed passes (black, then white offset
+   * by half a dash) sharing one path, animated via `offset`. The `strokeOnce`
+   * callback traces + strokes the path and is invoked once per color pass.
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {number} offset - Animation offset (this.marchingAntsOffset / livePreviewDashOffset).
+   * @param {() => void} strokeOnce
+   */
+  _strokeMarchingAnts(ctx, offset, strokeOnce) {
     ctx.lineWidth = 1;
     ctx.setLineDash([4, 4]);
-    ctx.lineDashOffset = -livePreviewOffset;
-
-    ctx.beginPath();
-    ctx.moveTo(points[0].x, points[0].y);
-    for (let i = 1; i < points.length; i++) {
-      ctx.lineTo(points[i].x, points[i].y);
-    }
-    ctx.stroke();
-
+    ctx.strokeStyle = '#000';
+    ctx.lineDashOffset = -offset;
+    strokeOnce();
     ctx.strokeStyle = '#fff';
-    ctx.lineDashOffset = -livePreviewOffset + 4;
-
-    ctx.beginPath();
-    ctx.moveTo(points[0].x, points[0].y);
-    for (let i = 1; i < points.length; i++) {
-      ctx.lineTo(points[i].x, points[i].y);
-    }
-    ctx.stroke();
-
+    ctx.lineDashOffset = -offset + 4;
+    strokeOnce();
     ctx.setLineDash([]);
+  }
+
+  drawLassoPreview(ctx, points) {
+    if (points.length < 2) return;
+
+    this._strokeMarchingAnts(ctx, this.livePreviewDashOffset, () => {
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y);
+      for (let i = 1; i < points.length; i++) {
+        ctx.lineTo(points[i].x, points[i].y);
+      }
+      ctx.stroke();
+    });
 
     if (this.board.mirror && points.length >= 2) {
       const bw = this.board.getWidth();
       const mPoints = points.map(p => ({ x: bw - p.x, y: p.y }));
       ctx.save();
       ctx.globalAlpha = 0.4;
-      ctx.lineWidth = 1;
-      ctx.setLineDash([4, 4]);
-      ctx.strokeStyle = '#000';
-      ctx.lineDashOffset = -livePreviewOffset;
-      ctx.beginPath();
-      ctx.moveTo(mPoints[0].x, mPoints[0].y);
-      for (let i = 1; i < mPoints.length; i++) ctx.lineTo(mPoints[i].x, mPoints[i].y);
-      ctx.stroke();
-      ctx.strokeStyle = '#fff';
-      ctx.lineDashOffset = -livePreviewOffset + 4;
-      ctx.beginPath();
-      ctx.moveTo(mPoints[0].x, mPoints[0].y);
-      for (let i = 1; i < mPoints.length; i++) ctx.lineTo(mPoints[i].x, mPoints[i].y);
-      ctx.stroke();
+      this._strokeMarchingAnts(ctx, this.livePreviewDashOffset, () => {
+        ctx.beginPath();
+        ctx.moveTo(mPoints[0].x, mPoints[0].y);
+        for (let i = 1; i < mPoints.length; i++) ctx.lineTo(mPoints[i].x, mPoints[i].y);
+        ctx.stroke();
+      });
       ctx.restore();
     }
   }
@@ -802,28 +798,14 @@ export class SelectTool extends Tool {
       this.drawTransformOutline(overlayCtx);
       this.drawTransformHandles(overlayCtx);
     } else if (this.mode === 'lasso' && this.lassoSimplified && this.lassoSimplified.length > 0 && !this.floatingCanvas) {
-      overlayCtx.strokeStyle = '#000';
-      overlayCtx.lineWidth = 1;
-      overlayCtx.setLineDash([4, 4]);
-      overlayCtx.lineDashOffset = -this.marchingAntsOffset;
-      overlayCtx.beginPath();
-      overlayCtx.moveTo(this.lassoSimplified[0].x, this.lassoSimplified[0].y);
-      for (let i = 1; i < this.lassoSimplified.length; i++) {
-        overlayCtx.lineTo(this.lassoSimplified[i].x, this.lassoSimplified[i].y);
-      }
-      overlayCtx.closePath();
-      overlayCtx.stroke();
-
-      overlayCtx.strokeStyle = '#fff';
-      overlayCtx.lineDashOffset = -this.marchingAntsOffset + 4;
-      overlayCtx.beginPath();
-      overlayCtx.moveTo(this.lassoSimplified[0].x, this.lassoSimplified[0].y);
-      for (let i = 1; i < this.lassoSimplified.length; i++) {
-        overlayCtx.lineTo(this.lassoSimplified[i].x, this.lassoSimplified[i].y);
-      }
-      overlayCtx.closePath();
-      overlayCtx.stroke();
-      overlayCtx.setLineDash([]);
+      const lasso = this.lassoSimplified;
+      this._strokeMarchingAnts(overlayCtx, this.marchingAntsOffset, () => {
+        overlayCtx.beginPath();
+        overlayCtx.moveTo(lasso[0].x, lasso[0].y);
+        for (let i = 1; i < lasso.length; i++) overlayCtx.lineTo(lasso[i].x, lasso[i].y);
+        overlayCtx.closePath();
+        overlayCtx.stroke();
+      });
 
       const s = this.selection;
       overlayCtx.strokeStyle = 'rgba(128, 128, 128, 0.5)';
@@ -834,16 +816,7 @@ export class SelectTool extends Tool {
       this._drawHandles(overlayCtx);
     } else {
       const s = this.selection;
-      overlayCtx.strokeStyle = '#000';
-      overlayCtx.lineWidth = 1;
-      overlayCtx.setLineDash([4, 4]);
-      overlayCtx.lineDashOffset = -this.marchingAntsOffset;
-      overlayCtx.strokeRect(s.x, s.y, s.width, s.height);
-
-      overlayCtx.strokeStyle = '#fff';
-      overlayCtx.lineDashOffset = -this.marchingAntsOffset + 4;
-      overlayCtx.strokeRect(s.x, s.y, s.width, s.height);
-      overlayCtx.setLineDash([]);
+      this._strokeMarchingAnts(overlayCtx, this.marchingAntsOffset, () => overlayCtx.strokeRect(s.x, s.y, s.width, s.height));
 
       this.updateHandles();
       this._drawHandles(overlayCtx);
@@ -857,63 +830,13 @@ export class SelectTool extends Tool {
    * Draws all handles on the given context.
    * @param {CanvasRenderingContext2D} ctx
    */
+  /**
+   * Draws the selection handles. Delegates to {@link _drawSelectionUIHandles},
+   * which renders the identical handle set in correct z-order (perspective
+   * lines → perspective circles → corner squares → rotation handle on top).
+   */
   _drawHandles() {
-    const ctx = this.board.getHandleCtx();
-    if (!ctx) return;
-    const { squareSize, circleRadius } = this._getHandleMetrics();
-    const toC = (p) => this.board.boardToContainerPos(p.x, p.y);
-
-    for (const handle of this.handles) {
-      const h = toC(handle);
-      if (handle.isRotation) {
-        const tm = this.handles.find(hd => hd.id === 'tm');
-        if (tm) {
-          const t = toC(tm);
-          ctx.strokeStyle = '#000';
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.moveTo(t.x, t.y);
-          ctx.lineTo(h.x, h.y);
-          ctx.stroke();
-        }
-
-        ctx.fillStyle = '#fff';
-        ctx.strokeStyle = '#000';
-        ctx.beginPath();
-        ctx.arc(h.x, h.y, circleRadius, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
-      } else if (handle.isPerspective) {
-        const cornerMap = { ptl: 'tl', ptr: 'tr', pbl: 'bl', pbr: 'br' };
-        const cornerId = cornerMap[handle.id];
-        const corner = this.corners[cornerId];
-
-        if (corner) {
-          const c = toC(corner);
-          ctx.strokeStyle = '#222';
-          ctx.lineWidth = 0.75;
-          ctx.setLineDash([]);
-          ctx.beginPath();
-          ctx.moveTo(c.x, c.y);
-          ctx.lineTo(h.x, h.y);
-          ctx.stroke();
-
-          ctx.fillStyle = '#88CCCC';
-          ctx.strokeStyle = '#000';
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.arc(h.x, h.y, circleRadius, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.stroke();
-        }
-      } else {
-        ctx.fillStyle = '#fff';
-        ctx.strokeStyle = '#000';
-        ctx.lineWidth = 1;
-        ctx.fillRect(h.x - squareSize / 2, h.y - squareSize / 2, squareSize, squareSize);
-        ctx.strokeRect(h.x - squareSize / 2, h.y - squareSize / 2, squareSize, squareSize);
-      }
-    }
+    this._drawSelectionUIHandles();
   }
 
   /**
@@ -928,8 +851,6 @@ export class SelectTool extends Tool {
 
     ctx.save();
     ctx.globalAlpha = 0.4;
-    ctx.lineWidth = 1;
-    ctx.setLineDash([4, 4]);
 
     if (this.corners && this.hasTransformedCorners()) {
       const c = this.corners;
@@ -939,48 +860,27 @@ export class SelectTool extends Tool {
         bl: { x: bw - c.br.x, y: c.br.y },
         br: { x: bw - c.bl.x, y: c.bl.y }
       };
-      ctx.strokeStyle = '#000';
-      ctx.lineDashOffset = -this.marchingAntsOffset;
-      ctx.beginPath();
-      ctx.moveTo(mc.tl.x, mc.tl.y);
-      ctx.lineTo(mc.tr.x, mc.tr.y);
-      ctx.lineTo(mc.br.x, mc.br.y);
-      ctx.lineTo(mc.bl.x, mc.bl.y);
-      ctx.closePath();
-      ctx.stroke();
-      ctx.strokeStyle = '#fff';
-      ctx.lineDashOffset = -this.marchingAntsOffset + 4;
-      ctx.beginPath();
-      ctx.moveTo(mc.tl.x, mc.tl.y);
-      ctx.lineTo(mc.tr.x, mc.tr.y);
-      ctx.lineTo(mc.br.x, mc.br.y);
-      ctx.lineTo(mc.bl.x, mc.bl.y);
-      ctx.closePath();
-      ctx.stroke();
+      this._strokeMarchingAnts(ctx, this.marchingAntsOffset, () => {
+        ctx.beginPath();
+        ctx.moveTo(mc.tl.x, mc.tl.y);
+        ctx.lineTo(mc.tr.x, mc.tr.y);
+        ctx.lineTo(mc.br.x, mc.br.y);
+        ctx.lineTo(mc.bl.x, mc.bl.y);
+        ctx.closePath();
+        ctx.stroke();
+      });
     } else if (this.mode === 'lasso' && this.lassoSimplified && this.lassoSimplified.length > 0 && !this.floatingCanvas) {
       const mLasso = this.lassoSimplified.map(p => ({ x: bw - p.x, y: p.y }));
-      ctx.strokeStyle = '#000';
-      ctx.lineDashOffset = -this.marchingAntsOffset;
-      ctx.beginPath();
-      ctx.moveTo(mLasso[0].x, mLasso[0].y);
-      for (let i = 1; i < mLasso.length; i++) ctx.lineTo(mLasso[i].x, mLasso[i].y);
-      ctx.closePath();
-      ctx.stroke();
-      ctx.strokeStyle = '#fff';
-      ctx.lineDashOffset = -this.marchingAntsOffset + 4;
-      ctx.beginPath();
-      ctx.moveTo(mLasso[0].x, mLasso[0].y);
-      for (let i = 1; i < mLasso.length; i++) ctx.lineTo(mLasso[i].x, mLasso[i].y);
-      ctx.closePath();
-      ctx.stroke();
+      this._strokeMarchingAnts(ctx, this.marchingAntsOffset, () => {
+        ctx.beginPath();
+        ctx.moveTo(mLasso[0].x, mLasso[0].y);
+        for (let i = 1; i < mLasso.length; i++) ctx.lineTo(mLasso[i].x, mLasso[i].y);
+        ctx.closePath();
+        ctx.stroke();
+      });
     } else {
       const mx = bw - s.x - s.width;
-      ctx.strokeStyle = '#000';
-      ctx.lineDashOffset = -this.marchingAntsOffset;
-      ctx.strokeRect(mx, s.y, s.width, s.height);
-      ctx.strokeStyle = '#fff';
-      ctx.lineDashOffset = -this.marchingAntsOffset + 4;
-      ctx.strokeRect(mx, s.y, s.width, s.height);
+      this._strokeMarchingAnts(ctx, this.marchingAntsOffset, () => ctx.strokeRect(mx, s.y, s.width, s.height));
     }
 
     ctx.restore();
@@ -1857,32 +1757,15 @@ export class SelectTool extends Tool {
     if (!this.corners) return;
 
     const c = this.corners;
-
-    ctx.strokeStyle = '#000';
-    ctx.lineWidth = 1;
-    ctx.setLineDash([4, 4]);
-    ctx.lineDashOffset = -this.marchingAntsOffset;
-
-    ctx.beginPath();
-    ctx.moveTo(c.tl.x, c.tl.y);
-    ctx.lineTo(c.tr.x, c.tr.y);
-    ctx.lineTo(c.br.x, c.br.y);
-    ctx.lineTo(c.bl.x, c.bl.y);
-    ctx.closePath();
-    ctx.stroke();
-
-    ctx.strokeStyle = '#fff';
-    ctx.lineDashOffset = -this.marchingAntsOffset + 4;
-
-    ctx.beginPath();
-    ctx.moveTo(c.tl.x, c.tl.y);
-    ctx.lineTo(c.tr.x, c.tr.y);
-    ctx.lineTo(c.br.x, c.br.y);
-    ctx.lineTo(c.bl.x, c.bl.y);
-    ctx.closePath();
-    ctx.stroke();
-
-    ctx.setLineDash([]);
+    this._strokeMarchingAnts(ctx, this.marchingAntsOffset, () => {
+      ctx.beginPath();
+      ctx.moveTo(c.tl.x, c.tl.y);
+      ctx.lineTo(c.tr.x, c.tr.y);
+      ctx.lineTo(c.br.x, c.br.y);
+      ctx.lineTo(c.bl.x, c.bl.y);
+      ctx.closePath();
+      ctx.stroke();
+    });
   }
 
   drawTransformHandles(ctx) {
@@ -2324,22 +2207,7 @@ export class SelectTool extends Tool {
     const y = Math.min(startPos.y, endPos.y);
     const width = Math.abs(endPos.x - startPos.x);
     const height = Math.abs(endPos.y - startPos.y);
-    const livePreviewOffset = this.livePreviewDashOffset;
-
-    ctx.lineWidth = 1;
-    ctx.setLineDash([4, 4]);
-
-    // Black dashes
-    ctx.strokeStyle = '#000';
-    ctx.lineDashOffset = -livePreviewOffset;
-    ctx.strokeRect(x, y, width, height);
-
-    // White dashes (offset to create "marching ants" effect)
-    ctx.strokeStyle = '#fff';
-    ctx.lineDashOffset = -livePreviewOffset + 4;
-    ctx.strokeRect(x, y, width, height);
-
-    ctx.setLineDash([]);
+    this._strokeMarchingAnts(ctx, this.livePreviewDashOffset, () => ctx.strokeRect(x, y, width, height));
   }
 
   drawSelectionUI() {
@@ -2362,30 +2230,17 @@ export class SelectTool extends Tool {
       const overlayCtx = this.board.getSelectionCtx() || ctx;
       const c = this.corners;
 
-      overlayCtx.lineWidth = 1;
-      overlayCtx.setLineDash([4, 4]);
-      overlayCtx.strokeStyle = '#000';
-      overlayCtx.lineDashOffset = -this.marchingAntsOffset;
-      overlayCtx.beginPath();
-      overlayCtx.moveTo(c.tl.x, c.tl.y);
-      overlayCtx.lineTo(c.tr.x, c.tr.y);
-      overlayCtx.lineTo(c.br.x, c.br.y);
-      overlayCtx.lineTo(c.bl.x, c.bl.y);
-      overlayCtx.closePath();
-      overlayCtx.stroke();
-
-      overlayCtx.strokeStyle = '#fff';
-      overlayCtx.lineDashOffset = -this.marchingAntsOffset + 4;
-      overlayCtx.beginPath();
-      overlayCtx.moveTo(c.tl.x, c.tl.y);
-      overlayCtx.lineTo(c.tr.x, c.tr.y);
-      overlayCtx.lineTo(c.br.x, c.br.y);
-      overlayCtx.lineTo(c.bl.x, c.bl.y);
-      overlayCtx.closePath();
-      overlayCtx.stroke();
+      this._strokeMarchingAnts(overlayCtx, this.marchingAntsOffset, () => {
+        overlayCtx.beginPath();
+        overlayCtx.moveTo(c.tl.x, c.tl.y);
+        overlayCtx.lineTo(c.tr.x, c.tr.y);
+        overlayCtx.lineTo(c.br.x, c.br.y);
+        overlayCtx.lineTo(c.bl.x, c.bl.y);
+        overlayCtx.closePath();
+        overlayCtx.stroke();
+      });
 
       // Draw bounding box
-      overlayCtx.setLineDash([]);
       const minX = Math.min(c.tl.x, c.tr.x, c.bl.x, c.br.x);
       const maxX = Math.max(c.tl.x, c.tr.x, c.bl.x, c.br.x);
       const minY = Math.min(c.tl.y, c.tr.y, c.bl.y, c.br.y);
@@ -2403,42 +2258,21 @@ export class SelectTool extends Tool {
     } else {
       // Lasso or Rectangle mode - draw on overlay so it can extend beyond canvas
       const overlayCtx = this.board.getSelectionCtx() || ctx;
-      overlayCtx.lineWidth = 1;
-      overlayCtx.setLineDash([4, 4]);
 
       if (this.mode === 'lasso' && this.lassoSimplified && this.lassoSimplified.length > 0 && !this.floatingCanvas) {
         // Lasso mode - draw simplified polygon (only if not lifted)
-        overlayCtx.strokeStyle = '#000';
-        overlayCtx.lineDashOffset = -this.marchingAntsOffset;
-        overlayCtx.beginPath();
-        overlayCtx.moveTo(this.lassoSimplified[0].x, this.lassoSimplified[0].y);
-        for (let i = 1; i < this.lassoSimplified.length; i++) {
-          overlayCtx.lineTo(this.lassoSimplified[i].x, this.lassoSimplified[i].y);
-        }
-        overlayCtx.closePath();
-        overlayCtx.stroke();
-
-        overlayCtx.strokeStyle = '#fff';
-        overlayCtx.lineDashOffset = -this.marchingAntsOffset + 4;
-        overlayCtx.beginPath();
-        overlayCtx.moveTo(this.lassoSimplified[0].x, this.lassoSimplified[0].y);
-        for (let i = 1; i < this.lassoSimplified.length; i++) {
-          overlayCtx.lineTo(this.lassoSimplified[i].x, this.lassoSimplified[i].y);
-        }
-        overlayCtx.closePath();
-        overlayCtx.stroke();
+        const lasso = this.lassoSimplified;
+        this._strokeMarchingAnts(overlayCtx, this.marchingAntsOffset, () => {
+          overlayCtx.beginPath();
+          overlayCtx.moveTo(lasso[0].x, lasso[0].y);
+          for (let i = 1; i < lasso.length; i++) overlayCtx.lineTo(lasso[i].x, lasso[i].y);
+          overlayCtx.closePath();
+          overlayCtx.stroke();
+        });
       } else {
         // Rectangle mode OR lasso after lifting - draw bounding box
-        overlayCtx.strokeStyle = '#000';
-        overlayCtx.lineDashOffset = -this.marchingAntsOffset;
-        overlayCtx.strokeRect(s.x, s.y, s.width, s.height);
-
-        overlayCtx.strokeStyle = '#fff';
-        overlayCtx.lineDashOffset = -this.marchingAntsOffset + 4;
-        overlayCtx.strokeRect(s.x, s.y, s.width, s.height);
+        this._strokeMarchingAnts(overlayCtx, this.marchingAntsOffset, () => overlayCtx.strokeRect(s.x, s.y, s.width, s.height));
       }
-
-      overlayCtx.setLineDash([]);
 
       // Draw handles on the same overlay context
       this.updateHandles();
@@ -2657,6 +2491,94 @@ export class SelectTool extends Tool {
     app.inputBufferManager.flushPendingNetwork?.();
   }
 
+  /**
+   * Draws a floating selection canvas into a layer's active stroke context,
+   * applying the homography (perspective) warp when the selection is transformed
+   * or a plain scaled blit otherwise. Returns the warp output bounds when a
+   * transform was applied (so callers can size their dirty rect), else null.
+   * Shared by commitSelection (both branches) and stamp().
+   * @private
+   */
+  _drawFloatingToActiveStroke(active, sourceCanvas, hasTransform, outputBounds) {
+    if (hasTransform) {
+      if (!this.homography) this.homography = new Homography('projective');
+      const result = performHomographyTransform({
+        sourceCanvas,
+        sourceCorners: this.originalCorners,
+        destCorners: this.corners,
+        scale: 1,
+        homographyInstance: this.homography,
+        outputBounds
+      });
+      if (result) {
+        const tempCanvas = imageDataToCanvas(result.imageData);
+        active.ctx.drawImage(tempCanvas, Math.round(result.bounds.minX), Math.round(result.bounds.minY));
+        return result.bounds;
+      }
+    }
+    active.ctx.drawImage(
+      sourceCanvas,
+      Math.round(this.selection.x),
+      Math.round(this.selection.y),
+      this.selection.width,
+      this.selection.height
+    );
+    return null;
+  }
+
+  /**
+   * Paints the current selection shape — the lasso polygon when in lasso mode,
+   * otherwise the selection rectangle — into ctx using its current fillStyle, in
+   * board coordinates. Shared by the selection-erase paths.
+   * @private
+   */
+  _fillSelectionShape(ctx, s, lassoPath) {
+    if (lassoPath && lassoPath.length >= 3) {
+      ctx.beginPath();
+      ctx.moveTo(lassoPath[0].x, lassoPath[0].y);
+      for (let i = 1; i < lassoPath.length; i++) {
+        ctx.lineTo(lassoPath[i].x, lassoPath[i].y);
+      }
+      ctx.closePath();
+      ctx.fill();
+    } else {
+      ctx.fillRect(s.x, s.y, s.width, s.height);
+    }
+  }
+
+  /**
+   * Erases the selection region from a single layer as a destination-out stroke:
+   * begins the stroke, pins its dirty rect to the selection bounds, fills the
+   * shape, expands the board dirty rect, and commits with the given props.
+   * Shared by _eraseSelectionDirectly (per-layer) and _eraseSingleLayerSelection.
+   * @private
+   */
+  _eraseRegionStroke(layerIdx, s, lassoPath, userId, commitProps) {
+    const lm = this.board.layerManager;
+    if (!lm) return false;
+
+    lm.beginUserStroke(layerIdx, userId, 'destination-out');
+    const active = lm.layerGroups[layerIdx]?.activeStrokeByUser.get(userId);
+    if (!active) return false;
+
+    // Pin dirty rect to the selection bounds so commitUserStroke doesn't drop it
+    if (active.dirtyRect) {
+      active.dirtyRect.minX = s.x;
+      active.dirtyRect.minY = s.y;
+      active.dirtyRect.maxX = s.x + s.width;
+      active.dirtyRect.maxY = s.y + s.height;
+    }
+
+    active.ctx.fillStyle = 'white';
+    this._fillSelectionShape(active.ctx, s, lassoPath);
+
+    const user = this.board.app?.self;
+    if (user) this.board.expandDirtyRect(user, s.x, s.y, s.width, s.height, layerIdx);
+
+    lm.commitUserStroke(layerIdx, userId, commitProps);
+    return true;
+  }
+
   commitSelection() {
     if (!this.floatingCanvas || !this.selection) return;
 
@@ -2718,25 +2640,7 @@ export class SelectTool extends Tool {
           }
         }
 
-        if (this.needsHomographyTransform()) {
-          if (!this.homography) this.homography = new Homography('projective');
-          const result = performHomographyTransform({
-            sourceCanvas: canvas,
-            sourceCorners: this.originalCorners,
-            destCorners: this.corners,
-            scale: 1,
-            homographyInstance: this.homography,
-            outputBounds: commitOutputBounds
-          });
-          if (result) {
-            const tempCanvas = imageDataToCanvas(result.imageData);
-            active.ctx.drawImage(tempCanvas, Math.round(result.bounds.minX), Math.round(result.bounds.minY));
-          } else {
-            active.ctx.drawImage(canvas, Math.round(this.selection.x), Math.round(this.selection.y), this.selection.width, this.selection.height);
-          }
-        } else {
-          active.ctx.drawImage(canvas, Math.round(this.selection.x), Math.round(this.selection.y), this.selection.width, this.selection.height);
-        }
+        this._drawFloatingToActiveStroke(active, canvas, this.needsHomographyTransform(), commitOutputBounds);
 
         const commitExtraProps = { timestamp: commitBatchTimestamp };
         if (!attachedSelectionRestoreData && this._restoreData) {
@@ -2799,42 +2703,21 @@ export class SelectTool extends Tool {
     let dirtyX, dirtyY, dirtyWidth, dirtyHeight;
 
     // Draw the floating selection (with optional transform) into the stroke canvas
-    if (this.needsHomographyTransform()) {
-      if (!this.homography) this.homography = new Homography('projective');
-
-      const result = performHomographyTransform({
-        sourceCanvas: this.floatingCanvas,
-        sourceCorners: this.originalCorners,
-        destCorners: this.corners,
-        scale: 1,
-        homographyInstance: this.homography,
-        outputBounds: this._getWarpOutputBounds()
-      });
-
-      if (result) {
-        const tempCanvas = imageDataToCanvas(result.imageData);
-        const drawX = Math.round(result.bounds.minX);
-        const drawY = Math.round(result.bounds.minY);
-        active.ctx.drawImage(tempCanvas, drawX, drawY);
-        dirtyX = drawX;
-        dirtyY = drawY;
-        dirtyWidth = Math.ceil(result.bounds.width);
-        dirtyHeight = Math.ceil(result.bounds.height);
-      } else {
-        const drawX = Math.round(this.selection.x);
-        const drawY = Math.round(this.selection.y);
-        active.ctx.drawImage(this.floatingCanvas, drawX, drawY, this.selection.width, this.selection.height);
-        dirtyX = drawX;
-        dirtyY = drawY;
-        dirtyWidth = this.selection.width;
-        dirtyHeight = this.selection.height;
-      }
+    const hasTransform = this.needsHomographyTransform();
+    const warpBounds = this._drawFloatingToActiveStroke(
+      active,
+      this.floatingCanvas,
+      hasTransform,
+      hasTransform ? this._getWarpOutputBounds() : null
+    );
+    if (warpBounds) {
+      dirtyX = Math.round(warpBounds.minX);
+      dirtyY = Math.round(warpBounds.minY);
+      dirtyWidth = Math.ceil(warpBounds.width);
+      dirtyHeight = Math.ceil(warpBounds.height);
     } else {
-      const drawX = Math.round(this.selection.x);
-      const drawY = Math.round(this.selection.y);
-      active.ctx.drawImage(this.floatingCanvas, drawX, drawY, this.selection.width, this.selection.height);
-      dirtyX = drawX;
-      dirtyY = drawY;
+      dirtyX = Math.round(this.selection.x);
+      dirtyY = Math.round(this.selection.y);
       dirtyWidth = this.selection.width;
       dirtyHeight = this.selection.height;
     }
@@ -3150,40 +3033,7 @@ export class SelectTool extends Tool {
 
       snapshots.push({ groupIdx, canvas: snap, x: s.x, y: s.y });
 
-      lm.beginUserStroke(groupIdx, userId, 'destination-out');
-      const ctx = lm.getUserStrokeContext(groupIdx, userId);
-
-      // Expand dirty rect directly on this layer's stroke so commitUserStroke doesn't drop it
-      const eraseStroke = lm.layerGroups[groupIdx]?.activeStrokeByUser.get(userId);
-      if (eraseStroke && eraseStroke.dirtyRect) {
-        eraseStroke.dirtyRect.minX = s.x;
-        eraseStroke.dirtyRect.minY = s.y;
-        eraseStroke.dirtyRect.maxX = s.x + s.width;
-        eraseStroke.dirtyRect.maxY = s.y + s.height;
-      }
-
-      if (lassoPath && lassoPath.length >= 3) {
-        ctx.fillStyle = 'white';
-        ctx.beginPath();
-        ctx.moveTo(lassoPath[0].x, lassoPath[0].y);
-        for (let i = 1; i < lassoPath.length; i++) {
-          ctx.lineTo(lassoPath[i].x, lassoPath[i].y);
-        }
-        ctx.closePath();
-        ctx.fill();
-      } else {
-        ctx.fillStyle = 'white';
-        ctx.fillRect(s.x, s.y, s.width, s.height);
-      }
-
-      // Track the dirty region so the erase stroke is properly saved
-      const user = this.board.app?.self;
-      if (user) {
-        this.board.expandDirtyRect(user, s.x, s.y, s.width, s.height, groupIdx);
-      }
-
-      // Commit the stroke with the shared batch timestamp and original selection data
-      lm.commitUserStroke(groupIdx, userId, {
+      this._eraseRegionStroke(groupIdx, s, lassoPath, userId, {
         eraseAll: isMultiLayer,
         timestamp: batchTimestamp,
         isSelectionErase: true // Flag to distinguish from normal erasers if needed
@@ -3259,6 +3109,33 @@ export class SelectTool extends Tool {
   }
 
   // Paste from clipboard
+  /**
+   * Shared tail for paste/clone/pasteImage: marks the floating content as
+   * "moved", builds transform handles, repaints the selection UI + context menu,
+   * and broadcasts the paste to other users. Each caller sets up `this.selection`
+   * and `this.floatingCanvas` first.
+   * @param {number} x - Broadcast/paste X.
+   * @param {number} y - Broadcast/paste Y.
+   * @param {number} width
+   * @param {number} height
+   */
+  _finalizeFloatingSelection(x, y, width, height) {
+    // Pasted/cloned content is considered already "moved" (no source to erase).
+    this.originalSelectionPos = { x: -1, y: -1 };
+
+    this.initializeCorners();
+    this.updateHandles();
+    this.board.clearTop();
+    this.drawSelectionUI();
+    this.showContextMenu();
+
+    if (this.board.app?.wsClient) {
+      const dataUrl = this.floatingCanvas.toDataURL('image/png');
+      this.board.app.inputBufferManager.queueBroadcast(() =>
+        this.board.app.wsClient.broadcastImagePaste(x, y, width, height, dataUrl));
+    }
+  }
+
   paste() {
     if (!this.clipboard) return false;
 
@@ -3290,22 +3167,7 @@ export class SelectTool extends Tool {
     this.floatingCtx.putImageData(this.clipboard.imageData, 0, 0);
     this._sourceCropForRemote = null;
 
-    // Store original position - pasted content is considered "moved"
-    this.originalSelectionPos = { x: -1, y: -1 };
-
-    // Initialize corners for transform handles
-    this.initializeCorners();
-    this.updateHandles();
-    this.board.clearTop();
-    this.drawSelectionUI();
-    this.showContextMenu();
-
-    // Broadcast paste to other users
-    if (this.board.app?.wsClient) {
-      // Convert floating canvas to data URL for transmission
-      const dataUrl = this.floatingCanvas.toDataURL('image/png');
-      this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastImagePaste(pasteX, pasteY, this.clipboard.width, this.clipboard.height, dataUrl));
-    }
+    this._finalizeFloatingSelection(pasteX, pasteY, this.clipboard.width, this.clipboard.height);
 
     return true;
   }
@@ -3329,19 +3191,7 @@ export class SelectTool extends Tool {
     this.floatingCtx.putImageData(this.clipboard.imageData, 0, 0);
     this._sourceCropForRemote = null;
 
-    // Mark as "moved" so committing drops the clone without erasing the source.
-    this.originalSelectionPos = { x: -1, y: -1 };
-
-    this.initializeCorners();
-    this.updateHandles();
-    this.board.clearTop();
-    this.drawSelectionUI();
-    this.showContextMenu();
-
-    if (this.board.app?.wsClient) {
-      const dataUrl = this.floatingCanvas.toDataURL('image/png');
-      this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastImagePaste(cloneX, cloneY, this.clipboard.width, this.clipboard.height, dataUrl));
-    }
+    this._finalizeFloatingSelection(cloneX, cloneY, this.clipboard.width, this.clipboard.height);
 
     return true;
   }
@@ -3357,14 +3207,8 @@ export class SelectTool extends Tool {
     this.commitSelection();
     this.clearSelection();
 
-    let origWidth, origHeight;
-    if (imageSource instanceof ImageData) {
-      origWidth = imageSource.width;
-      origHeight = imageSource.height;
-    } else {
-      origWidth = imageSource.width;
-      origHeight = imageSource.height;
-    }
+    const origWidth = imageSource.width;
+    const origHeight = imageSource.height;
 
     // Calculate the visible viewport in canvas coordinates
     const container = this.board.container;
@@ -3429,21 +3273,7 @@ export class SelectTool extends Tool {
       this.floatingCtx.drawImage(imageSource, 0, 0, origWidth, origHeight, 0, 0, width, height);
     }
 
-    // Store original position - pasted content is considered "moved"
-    this.originalSelectionPos = { x: -1, y: -1 };
-
-    // Initialize corners for transform handles
-    this.initializeCorners();
-    this.updateHandles();
-    this.board.clearTop();
-    this.drawSelectionUI();
-    this.showContextMenu();
-
-    // Broadcast paste to other users
-    if (this.board.app?.wsClient) {
-      const dataUrl = this.floatingCanvas.toDataURL('image/png');
-      this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastImagePaste(pasteX, pasteY, width, height, dataUrl));
-    }
+    this._finalizeFloatingSelection(pasteX, pasteY, width, height);
 
     // Switch to select tool if not already active
     if (this.board.app?.self?.tool !== 'select') {
@@ -3696,39 +3526,7 @@ export class SelectTool extends Tool {
    * @private
    */
   _eraseSingleLayerSelection(layerIdx, s, lassoPath, userId, batchTimestamp) {
-    const lm = this.board.layerManager;
-    if (!lm) return;
-
-    lm.beginUserStroke(layerIdx, userId, 'destination-out');
-    const active = lm.layerGroups[layerIdx]?.activeStrokeByUser.get(userId);
-    if (!active) return;
-
-    const ctx = active.ctx;
-    if (active.dirtyRect) {
-      active.dirtyRect.minX = s.x;
-      active.dirtyRect.minY = s.y;
-      active.dirtyRect.maxX = s.x + s.width;
-      active.dirtyRect.maxY = s.y + s.height;
-    }
-
-    if (lassoPath && lassoPath.length >= 3) {
-      ctx.fillStyle = 'white';
-      ctx.beginPath();
-      ctx.moveTo(lassoPath[0].x, lassoPath[0].y);
-      for (let i = 1; i < lassoPath.length; i++) {
-        ctx.lineTo(lassoPath[i].x, lassoPath[i].y);
-      }
-      ctx.closePath();
-      ctx.fill();
-    } else {
-      ctx.fillStyle = 'white';
-      ctx.fillRect(s.x, s.y, s.width, s.height);
-    }
-
-    const user = this.board.app?.self;
-    if (user) this.board.expandDirtyRect(user, s.x, s.y, s.width, s.height, layerIdx);
-
-    lm.commitUserStroke(layerIdx, userId, {
+    this._eraseRegionStroke(layerIdx, s, lassoPath, userId, {
       timestamp: batchTimestamp,
       isSelectionMerge: true,
       isSelectionErase: true
@@ -3962,25 +3760,7 @@ export class SelectTool extends Tool {
         }
       }
 
-      if (hasTransform) {
-        if (!this.homography) this.homography = new Homography('projective');
-        const result = performHomographyTransform({
-          sourceCanvas: canvas,
-          sourceCorners: this.originalCorners,
-          destCorners: this.corners,
-          scale: 1,
-          homographyInstance: this.homography,
-          outputBounds: stampOutputBounds
-        });
-        if (result) {
-          const tempCanvas = imageDataToCanvas(result.imageData);
-          active.ctx.drawImage(tempCanvas, Math.round(result.bounds.minX), Math.round(result.bounds.minY));
-        } else {
-          active.ctx.drawImage(canvas, Math.round(this.selection.x), Math.round(this.selection.y), this.selection.width, this.selection.height);
-        }
-      } else {
-        active.ctx.drawImage(canvas, Math.round(this.selection.x), Math.round(this.selection.y), this.selection.width, this.selection.height);
-      }
+      this._drawFloatingToActiveStroke(active, canvas, hasTransform, stampOutputBounds);
 
       lm.commitUserStroke(groupIdx, userId, { timestamp: stampBatchTimestamp });
     }

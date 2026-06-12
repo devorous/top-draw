@@ -12,7 +12,8 @@ const LOCAL_MONGODB_URIS = new Set([
 
 const devFallbacks = {
   jwtSecret: crypto.randomBytes(32).toString('hex'),
-  ipSalt: crypto.randomBytes(32).toString('hex')
+  ipSalt: crypto.randomBytes(32).toString('hex'),
+  dmSecret: crypto.randomBytes(32).toString('hex')
 };
 
 const warned = new Set();
@@ -72,6 +73,16 @@ export function getIpSalt() {
   return devFallbacks.ipSalt;
 }
 
+export function getDmSecret() {
+  const value = getEnv('SERVER_DM_SECRET');
+  if (value) return value;
+  if (isProduction()) {
+    throw new Error('SERVER_DM_SECRET is required when NODE_ENV=production');
+  }
+  warnOnce('SERVER_DM_SECRET', '[SECURITY] SERVER_DM_SECRET not set - direct messages will be unreadable across server restarts');
+  return devFallbacks.dmSecret;
+}
+
 export function getMongoUri() {
   return getEnv('MONGODB_URI') || DEFAULT_LOCAL_MONGODB_URI;
 }
@@ -114,6 +125,7 @@ export function validateProductionConfig() {
 
   if (!getEnv('JWT_SECRET')) errors.push('JWT_SECRET is required');
   if (!getEnv('IP_SALT')) errors.push('IP_SALT is required');
+  if (!getEnv('SERVER_DM_SECRET')) errors.push('SERVER_DM_SECRET is required');
   if (!mongoUri) {
     errors.push('MONGODB_URI is required');
   } else if (isLocalMongoUri(mongoUri)) {

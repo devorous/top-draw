@@ -1130,6 +1130,57 @@ export class Board {
   }
 
   /**
+   * Computes the affine transform that reflects/rotates content into a mirror
+   * region for the region's current mode, as a canvas matrix `[a, b, c, d, e, f]`
+   * (point → `a*x + c*y + e`, `b*x + d*y + f`). Single source of truth shared by
+   * `mirrorPointToRegion` (point math) and `withMirroredRegionTransform` (ctx
+   * matrix), so the per-mode geometry can't drift between the two paths.
+   * @param {Object} region
+   * @returns {number[]|null} `[a, b, c, d, e, f]`, or null for an invalid region.
+   */
+  _mirrorRegionMatrix(region) {
+    if (!region) return null;
+    const centerX = region.x + (region.width / 2);
+    const centerY = region.y + (region.height / 2);
+    const transform = region.transform || region.mode || region.axis;
+
+    // Linear part [la, lb, lc, ld] applied about pivot (px, py).
+    let la, lb, lc, ld, px = centerX, py = centerY;
+
+    if (transform === 'rotateCustom') {
+      const angle = Number(region.rotationAngle || 0);
+      const cos = Math.cos(angle), sin = Math.sin(angle);
+      la = cos; lb = sin; lc = -sin; ld = cos;
+    } else if (transform === 'fibStep') {
+      const invPHI = 0.6180339887;
+      const step = region.fibStep || 1;
+      const angle = step * (Math.PI / 2);       // 90° clockwise per step
+      const scale = Math.pow(invPHI, step);
+      const cos = Math.cos(angle), sin = Math.sin(angle);
+      la = scale * cos; lb = scale * sin; lc = -scale * sin; ld = scale * cos;
+      // Pivot at the golden-spiral eye, not the region center.
+      px = region.x + region.width * invPHI;
+      py = region.y + region.height * invPHI;
+    } else {
+      switch (transform) {
+        case 'horizontal':
+        case 'flipY':     la = 1;  lb = 0;  lc = 0;  ld = -1; break;
+        case 'flipXY':
+        case 'rotate180': la = -1; lb = 0;  lc = 0;  ld = -1; break;
+        case 'rotate90':  la = 0;  lb = 1;  lc = -1; ld = 0;  break;
+        case 'rotate270': la = 0;  lb = -1; lc = 1;  ld = 0;  break;
+        case 'vertical':
+        case 'flipX':
+        default:          la = -1; lb = 0;  lc = 0;  ld = 1;  break;
+      }
+    }
+
+    const e = px - (la * px + lc * py);
+    const f = py - (lb * px + ld * py);
+    return [la, lb, lc, ld, e, f];
+  }
+
+  /**
    * Mirrors a single point inside a region.
    * @param {{x:number,y:number}} point
    * @param {Object} region
@@ -1137,66 +1188,10 @@ export class Board {
    */
   mirrorPointToRegion(point, region) {
     if (!region || !point) return point;
-    const centerX = region.x + (region.width / 2);
-    const centerY = region.y + (region.height / 2);
-    const dx = point.x - centerX;
-    const dy = point.y - centerY;
-    const transform = region.transform || region.mode || region.axis;
-
-    if (transform === 'rotateCustom') {
-      const angle = Number(region.rotationAngle || 0);
-      const cos = Math.cos(angle);
-      const sin = Math.sin(angle);
-      return {
-        x: centerX + (dx * cos) - (dy * sin),
-        y: centerY + (dx * sin) + (dy * cos)
-      };
-    }
-
-    if (transform === 'fibStep') {
-      const invPHI = 0.6180339887;
-      const step = region.fibStep || 1;
-      
-      // Fixed point (eye) of the golden spiral in a rectangle [0, w]x[0, h]
-      // with the first square on the left and the second on top-right.
-      const eyeX = region.x + region.width * invPHI;
-      const eyeY = region.y + region.height * invPHI;
-      
-      const angle = step * (Math.PI / 2); // 90 degrees clockwise per step
-      const scale = Math.pow(invPHI, step);
-      
-      const cos = Math.cos(angle);
-      const sin = Math.sin(angle);
-      const dx = point.x - eyeX;
-      const dy = point.y - eyeY;
-      
-      const rdx = dx * cos - dy * sin;
-      const rdy = dx * sin + dy * cos;
-      
-      return {
-        x: eyeX + rdx * scale,
-        y: eyeY + rdy * scale
-      };
-    }
-
-    switch (transform) {
-      case 'horizontal':
-      case 'flipY':
-        return { x: point.x, y: (centerY * 2) - point.y };
-      case 'vertical':
-      case 'flipX':
-        return { x: (centerX * 2) - point.x, y: point.y };
-      case 'flipXY':
-        return { x: (centerX * 2) - point.x, y: (centerY * 2) - point.y };
-      case 'rotate90':
-        return { x: centerX - dy, y: centerY + dx };
-      case 'rotate180':
-        return { x: (centerX * 2) - point.x, y: (centerY * 2) - point.y };
-      case 'rotate270':
-        return { x: centerX + dy, y: centerY - dx };
-      default:
-        return { x: (centerX * 2) - point.x, y: point.y };
-    }
+    const m = this._mirrorRegionMatrix(region);
+    if (!m) return point;
+    const [a, b, c, d, e, f] = m;
+    return { x: a * point.x + c * point.y + e, y: b * point.x + d * point.y + f };
   }
 
   /**
@@ -1420,59 +1415,11 @@ export class Board {
    */
   withMirroredRegionTransform(ctx, region, drawFn) {
     if (!ctx || !region || typeof drawFn !== 'function') return;
+    const m = this._mirrorRegionMatrix(region);
+    if (!m) return;
     this.withMirrorRegionClip(ctx, region, () => {
       ctx.save();
-      const centerX = region.x + (region.width / 2);
-      const centerY = region.y + (region.height / 2);
-      const transform = region.transform || region.mode || region.axis;
-      switch (transform) {
-        case 'horizontal':
-        case 'flipY':
-          ctx.translate(0, centerY * 2);
-          ctx.scale(1, -1);
-          break;
-        case 'vertical':
-        case 'flipX':
-          ctx.translate(centerX * 2, 0);
-          ctx.scale(-1, 1);
-          break;
-        case 'flipXY':
-        case 'rotate180':
-          ctx.translate(centerX * 2, centerY * 2);
-          ctx.scale(-1, -1);
-          break;
-        case 'rotate90':
-          ctx.translate(centerX, centerY);
-          ctx.rotate(Math.PI / 2);
-          ctx.translate(-centerX, -centerY);
-          break;
-        case 'rotate270':
-          ctx.translate(centerX, centerY);
-          ctx.rotate(-Math.PI / 2);
-          ctx.translate(-centerX, -centerY);
-          break;
-        case 'rotateCustom':
-          ctx.translate(centerX, centerY);
-          ctx.rotate(Number(region.rotationAngle || 0));
-          ctx.translate(-centerX, -centerY);
-          break;
-        case 'fibStep':
-          const invPHI = 0.6180339887;
-          const step = region.fibStep || 1;
-          const eyeX = region.x + region.width * invPHI;
-          const eyeY = region.y + region.height * invPHI;
-          const angle = step * (Math.PI / 2);
-          const scale = Math.pow(invPHI, step);
-          ctx.translate(eyeX, eyeY);
-          ctx.rotate(angle);
-          ctx.scale(scale, scale);
-          ctx.translate(-eyeX, -eyeY);
-          break;
-        default:
-          ctx.translate(centerX * 2, 0);
-          ctx.scale(-1, 1);
-          break;
-      }
+      ctx.transform(m[0], m[1], m[2], m[3], m[4], m[5]);
       drawFn();
       ctx.restore();
     });

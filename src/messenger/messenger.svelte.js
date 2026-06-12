@@ -1,4 +1,4 @@
-import { getRoomId, encryptMessage, decryptMessage, getMessageKey } from '../utils/crypto.js';
+import { getRoomId } from '../utils/crypto.js';
 import { appState } from '../state.svelte.js';
 import { playSfx } from '../utils/sfx.js';
 
@@ -52,7 +52,6 @@ class MessengerState {
   isConnected = $state(false);
   activeChat = $state(null); // User object { id, name }
   ws = null;
-  key = null;
   currentUserId = null;
   view = $state('inbox'); // 'inbox' or 'chat'
   _pendingInboxRefresh = false;
@@ -135,35 +134,15 @@ class MessengerState {
           this.openChat(pendingTarget);
         }
       } else if (type === 'inbox') {
-        const decryptedInbox = await Promise.all(payload.map(async m => {
-          const roomId = m.room_id;
-          const key = await getMessageKey(roomId);
-          try {
-            return {
-              ...m,
-              content: await decryptMessage(m.encrypted_content, m.iv, key)
-            };
-          } catch (e) {
-            return { ...m, content: "[Decryption Failed]" };
-          }
-        }));
-        this.inbox = decryptedInbox;
+        // Server decrypts at rest and sends plaintext `content`.
+        this.inbox = payload;
       } else if (type === 'history') {
-        const decryptedHistory = await Promise.all(payload.map(async m => ({
-          ...m,
-          content: await decryptMessage(m.encrypted_content, m.iv, this.key)
-        })));
-        this.messages = decryptedHistory;
+        this.messages = payload;
       } else if (type === 'new_message') {
         const isIncoming = payload.sender_id !== this.currentUserId;
-        // If it belongs to active chat, decrypt and add
         const roomId = getRoomId(this.currentUserId, this.activeChat?.id);
         if (payload.room_id === roomId) {
-          const decrypted = {
-            ...payload,
-            content: await decryptMessage(payload.encrypted_content, payload.iv, this.key)
-          };
-          this.messages.push(decrypted);
+          this.messages.push(payload);
         } else if (isIncoming) {
           // Incoming message from a different conversation — increment unread
           this.unreadCounts = {
@@ -206,7 +185,6 @@ class MessengerState {
     this.activeChat = user;
     this.view = 'chat';
     const roomId = getRoomId(this.currentUserId, user.id);
-    this.key = await getMessageKey(roomId);
     // Clear unread count for this conversation
     if (this.unreadCounts[roomId]) {
       const { [roomId]: _, ...rest } = this.unreadCounts;
@@ -231,16 +209,15 @@ class MessengerState {
     if (!this.ws || !this.isConnected || !this.activeChat) return;
 
     const roomId = getRoomId(this.currentUserId, this.activeChat.id);
-    const { encrypted_content, iv } = await encryptMessage(text, this.key);
 
+    // Plaintext over TLS; the server encrypts at rest.
     this.ws.send(JSON.stringify({
       type: 'send_message',
       payload: {
         room_id: roomId,
         sender_id: this.currentUserId,
         receiver_id: this.activeChat.id,
-        encrypted_content,
-        iv
+        content: text
       }
     }));
   }

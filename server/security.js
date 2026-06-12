@@ -102,14 +102,47 @@ export function getClientIp(req) {
 /**
  * Simple fixed-window limiter suitable for a single-process beta deployment.
  * For multi-instance deployments, move these counters to Redis or similar shared storage.
+ *
+ * Pass a `defaultConfig` to bake in a window/cap so callers can use the boolean
+ * `check(key)` convenience; richer callers can still call `consume(key, config)`
+ * directly with a per-call config.
  */
 export class FixedWindowRateLimiter {
   /**
    * @param {string} name
+   * @param {{ max: number, windowMs: number, blockMs?: number, cost?: number }} [defaultConfig]
    */
-  constructor(name) {
+  constructor(name, defaultConfig = null) {
     this.name = name;
     this.entries = new Map();
+    this.defaultConfig = defaultConfig;
+
+    // Eagerly purge expired/unblocked entries so per-key state (often keyed by
+    // connection UUID) does not accumulate between abuse bursts.
+    const sweepMs = Math.max(30 * 1000, (defaultConfig?.windowMs || 60 * 1000) * 2);
+    const sweep = setInterval(() => this._purgeExpired(), sweepMs);
+    sweep.unref();
+  }
+
+  _purgeExpired() {
+    const now = Date.now();
+    for (const [entryKey, existing] of this.entries) {
+      if (existing.resetAt <= now && existing.blockedUntil <= now) {
+        this.entries.delete(entryKey);
+      }
+    }
+  }
+
+  /**
+   * Boolean convenience over {@link consume} using the baked-in default config.
+   *
+   * @param {string} key
+   * @param {{ max: number, windowMs: number, blockMs?: number, cost?: number }} [config]
+   * @returns {boolean} true if allowed, false if rate limited
+   */
+  check(key, config = this.defaultConfig) {
+    if (!config) throw new Error(`Rate limiter "${this.name}" has no config for check()`);
+    return this.consume(key, config).allowed;
   }
 
   /**
@@ -122,11 +155,7 @@ export class FixedWindowRateLimiter {
   consume(key, { max, windowMs, blockMs = 0, cost = 1 }) {
     const now = Date.now();
     if (this.entries.size > 5000) {
-      for (const [entryKey, existing] of this.entries) {
-        if (existing.resetAt <= now && existing.blockedUntil <= now) {
-          this.entries.delete(entryKey);
-        }
-      }
+      this._purgeExpired();
     }
 
     let entry = this.entries.get(key);
@@ -210,3 +239,23 @@ export class FixedWindowRateLimiter {
 export const httpRateLimiter = new FixedWindowRateLimiter('http');
 export const wsRateLimiter = new FixedWindowRateLimiter('ws');
 export const messengerRateLimiter = new FixedWindowRateLimiter('messenger');
+
+// --- Pre-configured limiters (baked-in config; used via check(key)) ---
+
+/** Auth endpoints: 10 attempts per 15 minutes */
+export const authLimiter = new FixedWindowRateLimiter('auth', { windowMs: 15 * 60 * 1000, max: 10 });
+
+/** Gallery uploads: 10 per hour */
+export const uploadLimiter = new FixedWindowRateLimiter('upload', { windowMs: 60 * 60 * 1000, max: 10 });
+
+/** WebSocket messages: coarse burst guard, keyed per connection by caller */
+export const wsMessageLimiter = new FixedWindowRateLimiter('wsMessage', { windowMs: 1000, max: 1200 });
+
+/** WebSocket sync messages: high throughput during sync operations (much more generous) */
+export const wsSyncMessageLimiter = new FixedWindowRateLimiter('wsSync', { windowMs: 1000, max: 10000 });
+
+/** WebSocket connections: 60 per minute per IP (tolerant of shared-NAT users) */
+export const wsConnectionLimiter = new FixedWindowRateLimiter('wsConnection', { windowMs: 60 * 1000, max: 60 });
+
+/** Feedback submissions: 3 per 10 minutes per IP */
+export const feedbackLimiter = new FixedWindowRateLimiter('feedback', { windowMs: 10 * 60 * 1000, max: 3 });

@@ -36,11 +36,14 @@ import { SyncCoordinator } from './SyncCoordinator.js';
 import { RoomManager } from './RoomManager.js';
 import { sanitizeMessage, hasOwnField } from './validation.js';
 import { writeJson, readRequestBody } from './httpUtils.js';
+import { encryptMessageContent, decryptMessageContent } from './messageCrypto.js';
 import { authorize, Action } from './permissions.js';
 import { getRoomRole, setRoomRole, computeEffectiveRole, getRoomRoleRoster } from './roomRoles.js';
-import { getClientIp, httpRateLimiter, isLocalhostRequest, messengerRateLimiter, wsRateLimiter } from './security.js';
+import {
+  getClientIp, httpRateLimiter, isLocalhostRequest, messengerRateLimiter, wsRateLimiter,
+  authLimiter, uploadLimiter, wsMessageLimiter, wsSyncMessageLimiter, wsConnectionLimiter, feedbackLimiter
+} from './security.js';
 import { getAsnCheckStatus, lookupAsnForIp, initAsnCheck, isVpnAsn } from './asnCheck.js';
-import { authLimiter, uploadLimiter, wsMessageLimiter, wsSyncMessageLimiter, wsConnectionLimiter, feedbackLimiter } from './rateLimit.js';
 import { getUsernameValidationMessage, isValidUsername, normalizeUsername } from '../shared/identity.js';
 import { getIpSubnet, mergeHistory, normalizeIdentityPayload, recordConnectionEvent } from './identityTracking.js';
 import { generateFloatingGalleryVoronoi, getFloatingGalleryVoronoiJson } from './floatingVoronoi.js';
@@ -385,6 +388,19 @@ function dedupeMessengerMessages(messages) {
   return deduped;
 }
 
+/**
+ * Maps a stored message doc to its client-facing form: replaces the at-rest
+ * `encrypted_content`/`iv` with a decrypted plaintext `content` field.
+ */
+function decryptMessengerDoc(doc) {
+  if (!doc) return doc;
+  const { encrypted_content, iv, ...rest } = doc;
+  const content = encrypted_content
+    ? decryptMessageContent(encrypted_content, iv, doc.room_id)
+    : '';
+  return { ...rest, content: content == null ? '[Unable to decrypt]' : content };
+}
+
 async function getMessengerHistory(roomId, limit = 50) {
   const collections = getMessengerMessageCollections();
   const results = await Promise.all(collections.map(async (collection) => {
@@ -402,7 +418,8 @@ async function getMessengerHistory(roomId, limit = 50) {
 
   return dedupeMessengerMessages(results.flat())
     .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
-    .slice(-limit);
+    .slice(-limit)
+    .map(decryptMessengerDoc);
 }
 
 async function getMessengerInbox(username) {
@@ -430,7 +447,9 @@ async function getMessengerInbox(username) {
     }
   }
 
-  return [...latestByRoom.values()].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+  return [...latestByRoom.values()]
+    .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+    .map(decryptMessengerDoc);
 }
 
 function json(res, status, payload) {
@@ -2799,27 +2818,31 @@ wss.on('connection', async (ws, req) => {
         } else if (type === 'send_message') {
           const receiverId = String(payload.receiver_id || '').trim();
           const roomId = String(payload.room_id || '').trim();
-          const encryptedContent = String(payload.encrypted_content || '').trim();
-          const iv = String(payload.iv || '').trim();
+          const content = String(payload.content || '');
 
-          if (!receiverId || !roomId || !encryptedContent || !iv) return;
-          if (receiverId.length > 32 || encryptedContent.length > 16384 || iv.length > 256) return;
+          if (!receiverId || !roomId || !content.trim()) return;
+          if (receiverId.length > 32 || content.length > 8192) return;
           if (!isValidMessengerRoomId(roomId, ws.username, receiverId)) return;
 
-          const msgDoc = {
+          // Encrypt at rest with the server-held secret; clients exchange plaintext over TLS.
+          const { encrypted_content, iv } = encryptMessageContent(content, roomId);
+          const storedDoc = {
             room_id: roomId,
             sender_id: ws.username,
             receiver_id: receiverId,
-            encrypted_content: encryptedContent,
+            encrypted_content,
             iv,
             timestamp: Date.now()
           };
-          await db.collection('messages').insertOne(msgDoc);
+          await db.collection('messages').insertOne(storedDoc);
+
+          const { encrypted_content: _ec, iv: _iv, ...rest } = storedDoc;
+          const relayDoc = { ...rest, content };
 
           if (messengerClients.has(receiverId)) {
-            sendEncodedBuffer(messengerClients.get(receiverId), JSON.stringify({ type: 'new_message', payload: msgDoc }), 'messenger:new_message');
+            sendEncodedBuffer(messengerClients.get(receiverId), JSON.stringify({ type: 'new_message', payload: relayDoc }), 'messenger:new_message');
           }
-          sendEncodedBuffer(ws, JSON.stringify({ type: 'new_message', payload: msgDoc }), 'messenger:new_message');
+          sendEncodedBuffer(ws, JSON.stringify({ type: 'new_message', payload: relayDoc }), 'messenger:new_message');
         }
       } catch (err) {
         console.error('[Messenger] Message error:', err);

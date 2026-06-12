@@ -447,7 +447,7 @@ export class RemoteUserHandler {
         break;
 
       case 'line':
-        this.toolManager.getTool('line').drawPreview(user.context, user, user.startPos, pos);
+        this.toolManager.getTool('line').drawPreviewOnContext(user.context, user, user.startPos, pos);
         break;
 
       case 'rectangle':
@@ -768,10 +768,10 @@ export class RemoteUserHandler {
 
       case 'line':
         if (activeStrokeCtx) {
-          this.toolManager.getTool('line').drawPreview(activeStrokeCtx, user, user.startPos, pos);
+          this.toolManager.getTool('line').drawPreviewOnContext(activeStrokeCtx, user, user.startPos, pos);
           this.board.forEachMirrorRegion({ points: [user.startPos, pos] }, (region) => {
             this.board.withMirrorRegionClip(activeStrokeCtx, region, () => {
-              this.toolManager.getTool('line').drawPreview(
+              this.toolManager.getTool('line').drawPreviewOnContext(
                 activeStrokeCtx,
                 user,
                 this.board.mirrorPointToRegion(user.startPos, region),

@@ -331,7 +331,8 @@ export class DrawingApp {
     this._previewInterval = null;
     this._previewIntervalMs = 30000;
 
-    // Checkpoint interval (dedicated user sends full board every 60s)
+    // Timer period (30s): snapshots save every tick; the dedicated user's
+    // full-board replay checkpoint sends every other tick (60s). See startCheckpointLoop.
     this._checkpointInterval = null;
     this._checkpointIntervalMs = 30000;
     this._memoryCompactionTimer = null;
