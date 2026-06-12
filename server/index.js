@@ -309,10 +309,6 @@ function shouldAllowWsMessage(ws, data) {
     case T.IMAGE_TOOL:
     case T.SEL_LIFT:
     case T.ROOM_PREVIEW:
-    case T.SYNC_CANVAS:
-    case T.SYNC_LAYER_BASE:
-    case T.SYNC_STROKE:
-    case T.SYNC_STROKE_BATCH:
     case T.BOARD_SNAPSHOT_SAVE:
     case T.BOARD_SNAPSHOT_RESTORE:
     case T.CHECKPOINT_UPLOAD:
@@ -1778,9 +1774,8 @@ const MUTED_BLOCKED = new Set([
 const NON_USER_ACTIVITY_TYPES = new Set([
   T.CONNECT, T.USERS, T.SETTINGS, T.LEFT, T.AFK,
   T.PING, T.PONG,
-  T.SYNC_REQUEST, T.SYNC_PROVIDE, T.SYNC_CANVAS, T.SYNC_COMPLETE,
-  T.SYNC_LAYER_BASE, T.SYNC_STROKE, T.SYNC_STROKES_DONE, T.SYNC_METADATA,
-  T.SYNC_STROKE_BATCH, T.SYNC_TILE_OWNERSHIP, T.TILE_UPDATE, T.TILE_CLEAR,
+  T.SYNC_REQUEST, T.SYNC_COMPLETE,
+  T.TILE_UPDATE, T.TILE_CLEAR,
   T.AUTH_RESULT, T.MOD_RESULT, T.MOD_NOTIFY,
   T.ROOM_LIST_REQUEST, T.ROOM_LIST_RESPONSE, T.ROOM_ROLE_LIST_RESPONSE,
   T.BW_PROBE_START, T.BW_PROBE_CHUNK, T.BW_REPORT, T.METRICS_UPDATE,
@@ -2744,7 +2739,6 @@ function finalizeSessionRemoval(room, sessionIndex, ws) {
     room.becameEmptyAt = Date.now();
     room.settings.mirror = false;
     room.settings.mirrorRegions = [];
-    room.syncCoordinator.clearPendingRequests();
     room.setPreview(null);
     room.clearAllTiles();
     stopElection(room);
@@ -3319,30 +3313,6 @@ wss.on('connection', async (ws, req) => {
           room.syncCoordinator.handleSyncRequest(ws, data);
           break;
 
-        case T.SYNC_CANVAS:
-          room.syncCoordinator.handleSyncCanvas(ws, data);
-          break;
-
-        case T.SYNC_METADATA:
-          room.syncCoordinator.handleSyncMetadata(ws, data);
-          break;
-
-        case T.SYNC_LAYER_BASE:
-          room.syncCoordinator.handleSyncLayerBase(ws, data);
-          break;
-
-        case T.SYNC_STROKE:
-          room.syncCoordinator.handleSyncStroke(ws, data);
-          break;
-
-        case T.SYNC_STROKE_BATCH:
-          room.syncCoordinator.handleSyncStrokeBatch(ws, data);
-          break;
-
-        case T.SYNC_STROKES_DONE:
-          room.syncCoordinator.handleSyncStrokesDone(ws, data);
-          break;
-
         case T.SYNC_PARITY_CHECK:
           room.parityCoordinator.handleCheck(ws, data);
           break;
@@ -3357,10 +3327,6 @@ wss.on('connection', async (ws, req) => {
 
         case T.SYNC_PARITY_MISMATCH_REPORT:
           room.parityCoordinator.handleReport(ws, data);
-          break;
-
-        case T.SYNC_TILE_OWNERSHIP:
-          room.syncCoordinator.handleSyncDirtyTiles(ws, data);
           break;
 
         case T.TILE_UPDATE:

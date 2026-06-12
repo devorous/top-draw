@@ -1386,19 +1386,6 @@ export class WebSocketClient {
         });
         break;
 
-      case T.SYNC_PROVIDE:
-        this.emit('sync_provide', {
-          targetUser: data.tu
-        });
-        break;
-
-      case T.SYNC_CANVAS:
-        this.emit('sync_canvas', {
-          sessionIndex: data.u,
-          imageData: data.img
-        });
-        break;
-
       case T.SYNC_COMPLETE:
         this.emit('sync_complete', {});
         break;
@@ -2499,92 +2486,6 @@ export class WebSocketClient {
       msg.tu = targetUserId;
     }
     this.send(msg);
-  }
-
-  /**
-   * Sends a layer group's base canvas bin during sync.
-   * @param {Uint8Array} imageData - PNG binary data.
-   * @param {number} layerIdx - Layer group index.
-   * @param {string} blendMode - Target blend mode.
-   * @param {number} targetUser - Recipient session index.
-   * @returns {void}
-   */
-  sendSyncLayerBase(imageData, layerIdx, blendMode, targetUser) {
-    this.send({ t: T.SYNC_LAYER_BASE, ly: layerIdx, bm: blendMode, img: imageData, tu: targetUser });
-  }
-
-  /**
-   * Sends batched stroke records during sync.
-   * @param {Array<Object>} strokeRecords - Array of serialized stroke data.
-   * @param {number} layerIdx - Target layer index.
-   * @param {number} targetUser - Recipient session index.
-   * @returns {void}
-   */
-  sendSyncStrokeBatch(strokeRecords, layerIdx, targetUser) {
-    const strokes = strokeRecords.map(s => ({
-      img: s.img,
-      userId: s.userId,
-      x: s.x,
-      y: s.y,
-      width: s.width,
-      height: s.height,
-      blendMode: s.blendMode,
-      blendBakeMode: s.blendBakeMode || 'existing',
-      timestamp: s.timestamp,
-      // Carry the authoritative global seq. Without it, synced strokes land at
-      // seq=0, which _sortStrokeStack parks ABOVE every later live stroke — so a
-      // joiner bakes/orders subsequent strokes beneath the synced ones, inverting
-      // z-order (erases and blend modes then diverge from the rest of the room).
-      seq: s.seq || 0,
-      isRedo: s.isRedo || false,
-      activeStroke: s.activeStroke || false,
-      redoBatch: s.redoBatch || 0,
-      layerIdx: s.layerIdx,
-      affectedTiles: s.affectedTiles || [],
-      eraseAll: s.eraseAll || false
-    }));
-
-    this.send({
-      t: T.SYNC_STROKE_BATCH,
-      strokes,
-      layerIdx,
-      tu: targetUser
-    });
-  }
-
-  /**
-   * Sends sync metadata (total count) to the joining user.
-   * @param {number} totalCount - Expected message count.
-   * @param {number} targetUser - Recipient session index.
-   * @returns {void}
-   */
-  sendSyncMetadata(totalCount, targetUser, dimensions = null) {
-    const msg = { t: T.SYNC_METADATA, syncTotal: totalCount, tu: targetUser };
-    if (dimensions) {
-      const [height, width] = dimensions;
-      msg.boardWidth = width;
-      msg.boardHeight = height;
-    }
-    this.send(msg);
-  }
-
-  /**
-   * Signals that synchronization message dispatch is complete.
-   * @param {number} targetUser - Recipient session index.
-   * @returns {void}
-   */
-  sendSyncStrokesDone(targetUser) {
-    this.send({ t: T.SYNC_STROKES_DONE, tu: targetUser });
-  }
-
-  /**
-   * Sends tile ownership data during sync.
-   * @param {Array} tiles - Array of {idx, users} objects.
-   * @param {number} targetUser - Recipient session index.
-   * @returns {void}
-   */
-  sendSyncTileOwnership(tiles, targetUser) {
-    this.send({ t: T.SYNC_TILE_OWNERSHIP, tiles, tu: targetUser });
   }
 
   /**

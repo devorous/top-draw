@@ -36,10 +36,6 @@ function isNsfw(item) {
   return Array.isArray(item?.tags) && item.tags.includes('nsfw');
 }
 
-export function buildGalleryShareUrl(id, req) {
-  return `${getPublicBaseUrl(req)}/gallery/${encodeURIComponent(id)}`;
-}
-
 export function renderGalleryPreviewHtml(item, req) {
   const baseUrl = getPublicBaseUrl(req);
   const id = item?._id?.toString?.() || '';

@@ -79,19 +79,3 @@ export function isRecentlyActive(user) {
   return !!lastActivity && (Date.now() - lastActivity) < ACTIVE_WINDOW_MS;
 }
 
-/**
- * Activity tier for provider ranking.
- * Higher is better. This is intentionally separate from raw score so sync
- * provider selection can prefer the highest-scoring active user before trying
- * inactive but high-bandwidth clients.
- *
- * @param {Object|null|undefined} user
- * @returns {number}
- */
-export function getProviderActivityTier(user) {
-  if (!user || user.afk) return 0;
-  const recentlyActive = isRecentlyActive(user);
-  if (user.mousedown && recentlyActive) return 2;
-  return recentlyActive ? 1 : 0;
-}
-

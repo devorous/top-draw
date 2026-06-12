@@ -12,12 +12,6 @@
  * @returns {void}
  */
 export function setupSyncHandlers(wsClient, app) {
-  wsClient.on('sync_provide', (data) => {
-    if (app.syncClient) {
-      app.syncClient.handleSyncProvide(data);
-    }
-  });
-
   wsClient.on('sync_metadata', (data) => {
     if (app.syncClient) {
       app.syncClient.handleSyncMetadata(data);

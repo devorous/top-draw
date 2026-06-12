@@ -805,7 +805,6 @@ export class RoomManager {
       // Tear down sub-managers so their timers/intervals don't keep the
       // Room object alive after it's been dropped from the registry.
       room.sessionManager?.destroy?.();
-      room.syncCoordinator?.clearPendingRequests?.();
       this.rooms.delete(id);
       console.log(`[RoomManager] Cleaned up empty room: ${id}`);
     }

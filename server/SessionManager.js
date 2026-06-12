@@ -81,34 +81,6 @@ export class SessionManager {
   }
 
   /**
-   * Returns a unique name by appending a suffix if the name is already taken.
-   * @param {string} name - The desired name.
-   * @param {number|null} [excludeSessionIndex=null] - The session index to exclude from the check.
-   * @returns {string} - A unique name.
-   */
-  getUniqueName(name, excludeSessionIndex = null) {
-    if (!name) return '';
-    
-    const joinedUsers = this.getJoinedUsers();
-    let uniqueName = name;
-    let suffix = 1;
-
-    const isNameTaken = (n) => {
-      return joinedUsers.some(u => 
-        u.sessionIndex !== excludeSessionIndex && 
-        u.name.toLowerCase() === n.toLowerCase()
-      );
-    };
-
-    while (isNameTaken(uniqueName)) {
-      uniqueName = `${name}-${suffix}`;
-      suffix++;
-    }
-
-    return uniqueName;
-  }
-
-  /**
    * Allocates a session index for a new user, reusing freed indices if available.
    *
    * A just-departed index is normally the most attractive to reuse (LIFO), but
