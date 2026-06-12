@@ -11,20 +11,10 @@ import { getDB } from './db.js';
 import { scoreProvider } from './providerScoring.js';
 import { getSnapshotBundle } from './r2.js';
 import { generateFloatingGalleryVoronoi } from './floatingVoronoi.js';
-import { snapshotLayerDimensions } from '../shared/qoi.js';
-import { getBoardDimensionsForSize } from '../shared/boardSizes.js';
+import { snapshotCoversRoomBoard } from '../shared/qoi.js';
 
 function createFloatingGallerySeed() {
   return Math.floor(Math.random() * 0x7fffffff);
-}
-
-function snapshotCoversRoomBoard(snapshotLayers, room) {
-  const snapshotDimensions = snapshotLayerDimensions(snapshotLayers);
-  const [boardHeight, boardWidth] = getBoardDimensionsForSize(room?.settings?.boardSize);
-
-  return !!snapshotDimensions &&
-    snapshotDimensions.width >= boardWidth &&
-    snapshotDimensions.height >= boardHeight;
 }
 
 /**

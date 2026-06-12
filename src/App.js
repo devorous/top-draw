@@ -1059,7 +1059,7 @@ export class DrawingApp {
             syncHexInput(rgba);
             this.ui.updateSelfColor(rgba);
             this.ui.updateSelfTextStyle(this.self.size, rgba, this.self.font);
-            this.ui.updateopacityValue(opacity);
+            this.ui.updateOpacityValue(opacity);
 
             const { elements } = this.ui;
             if (elements.opacitySlider) {
@@ -1721,7 +1721,7 @@ export class DrawingApp {
     elements.spacingSlider.addEventListener('input', (e) => this.handleSpacingChange(e));
     elements.smoothingSlider.addEventListener('input', (e) => this.handleSmoothingChange(e));
     elements.hardnessSlider.addEventListener('input', (e) => this.handleHardnessChange(e));
-    elements.opacitySlider.addEventListener('input', (e) => this.handleopacityChange(e));
+    elements.opacitySlider.addEventListener('input', (e) => this.handleOpacityChange(e));
     if (elements.blurRadiusSlider) {
       elements.blurRadiusSlider.addEventListener('input', (e) => this.handleBlurRadiusChange(e));
     }
@@ -5702,7 +5702,7 @@ export class DrawingApp {
     this.updateActiveToolPreview();
   }
 
-  handleopacityChange(e) {
+  handleOpacityChange(e) {
     this.clearActiveCustomPreset();
     const opacity = Number(e.target.value) / 100; // Convert to 0-1 range
     this.commitSelfEraserSegment(this.self.pressure, this.self.size, opacity);
@@ -5717,7 +5717,7 @@ export class DrawingApp {
     }
 
     this.self.setOpacity(opacity);
-    this.ui.updateopacityValue(opacity);
+    this.ui.updateOpacityValue(opacity);
 
     // Update color picker to match
     this.self.setColor(currentColor);
@@ -6027,7 +6027,7 @@ export class DrawingApp {
     this._syncActiveColorSlot(color);
     this.ui.updateSelfColor(color);
     this.ui.updateSelfTextStyle(this.self.size, color, this.self.font);
-    this.ui.updateopacityValue(color[3]);
+    this.ui.updateOpacityValue(color[3]);
 
     // Update the color picker to match
     this._setColorPickersColor(`rgba(${color.join(',')})`);
@@ -6122,7 +6122,7 @@ export class DrawingApp {
       else if (property === 'spacing') this.handleSpacingChange({ target: { value } });
       else if (property === 'smoothing') this.handleSmoothingChange({ target: { value } });
       else if (property === 'hardness') this.handleHardnessChange({ target: { value } });
-      else if (property === 'opacity') this.handleopacityChange({ target: { value: value * 100 } });
+      else if (property === 'opacity') this.handleOpacityChange({ target: { value: value * 100 } });
       else if (property === 'blurRadius') this.handleBlurRadiusChange({ target: { value } });
       else if (property === 'thinning') this.handleThinningChange({ target: { value: value * 100 } });
       else if (property === 'pressureMin' && this.ui.elements.pressureMinSlider) {
@@ -6146,7 +6146,7 @@ export class DrawingApp {
     this.self.setOpacity(rgba[3]);
     this.ui.updateSelfColor(rgba);
     this.ui.updateSelfTextStyle(this.self.size, rgba, this.self.font);
-    this.ui.updateopacityValue(rgba[3]);
+    this.ui.updateOpacityValue(rgba[3]);
 
     // Update the color picker to match
     this._setColorPickersColor(rgba);

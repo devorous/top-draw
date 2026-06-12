@@ -32,7 +32,7 @@ export const Action = Object.freeze({
   ROOM_UPDATE:      'room_update',      // ADMIN+ (or room owner, checked separately)
 
   // Room management
-  ROOM_ROLE_SET:    'room_role_set',    // Room owner, room ADMIN(5)+, or DEITY(8)
+  ROOM_ROLE_SET:    'room_role_set',    // Room owner, room ADMIN(5)+, or DEITY(9)
 
   // Deity-exclusive abilities
   VIEW_REAL_IPS:    'view_real_ips',    // DEITY only — unobfuscated IPs in mod list
@@ -58,8 +58,8 @@ const ACTION_MIN_ROLE = Object.freeze({
   [Action.ROOM_UPDATE]:    Role.ADMIN,   // 5
   [Action.ROOM_ROLE_SET]:  Role.ADMIN,   // 5 (also allowed for room owner, checked separately)
 
-  [Action.VIEW_REAL_IPS]:  Role.DEITY,   // 8
-  [Action.PROMOTE_USER]:   Role.DEITY,   // 8
+  [Action.VIEW_REAL_IPS]:  Role.DEITY,   // 9
+  [Action.PROMOTE_USER]:   Role.DEITY,   // 9
 });
 
 const GLOBAL_ACTION_MIN_ROLE = Object.freeze({
@@ -86,7 +86,7 @@ const GLOBAL_ACTION_MIN_ROLE = Object.freeze({
 
 /**
  * Check whether a role level is allowed to perform an action.
- * @param {number} role - The user's role level (0–8).
+ * @param {number} role - The user's role level (0–9).
  * @param {string} action - An Action constant.
  * @returns {boolean}
  */

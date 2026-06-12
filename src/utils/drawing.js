@@ -461,7 +461,7 @@ export function bridgeGap(ctx, from, to, fromRadius, toRadius, user, blendMode =
   const dy = to.y - from.y;
   const distance = Math.sqrt(dx * dx + dy * dy);
 
-  // Spacing: 20% of average radius
+  // Spacing: 10% of average radius (see getStampSpacing)
   const spacing = getStampSpacing(fromRadius, toRadius);
   const steps = Math.ceil(distance / spacing);
 
@@ -493,6 +493,41 @@ export function bridgeGap(ctx, from, to, fromRadius, toRadius, user, blendMode =
 export function getStampSpacing(fromRadius, toRadius = fromRadius) {
   const avgRadius = Math.max(0, (fromRadius + toRadius) / 2);
   return Math.max(0.05, avgRadius * 0.1);
+}
+
+/**
+ * Clamps a rectangle to a canvas's bounds, snapping to integer pixels
+ * (floor the top-left, ceil the bottom-right).
+ * @param {{x:number, y:number, width:number, height:number}} rect
+ * @param {{width:number, height:number}} canvas
+ * @returns {{x:number, y:number, width:number, height:number}|null} The clamped
+ *   rect, or null if it falls entirely outside the canvas.
+ */
+export function clampRectToCanvas(rect, canvas) {
+  const x = Math.max(0, Math.floor(rect.x));
+  const y = Math.max(0, Math.floor(rect.y));
+  const right = Math.min(canvas.width, Math.ceil(rect.x + rect.width));
+  const bottom = Math.min(canvas.height, Math.ceil(rect.y + rect.height));
+  if (right <= x || bottom <= y) return null;
+  return { x, y, width: right - x, height: bottom - y };
+}
+
+/**
+ * Returns a canvas (and its 2D context) sized to the given dimensions, reusing
+ * `existing` if it already matches and allocating a fresh one otherwise.
+ * @param {HTMLCanvasElement|null} existing - The current offscreen canvas, if any.
+ * @param {number} width
+ * @param {number} height
+ * @returns {{canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D}}
+ */
+export function ensureSizedCanvas(existing, width, height) {
+  if (existing && existing.width === width && existing.height === height) {
+    return { canvas: existing, ctx: existing.getContext('2d') };
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  return { canvas, ctx: canvas.getContext('2d') };
 }
 
 /**

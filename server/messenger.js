@@ -9,6 +9,7 @@ import {
   isValidUsername,
   normalizeUsername
 } from '../shared/identity.js';
+import { corsHeaders, writeJson } from './httpUtils.js';
 
 const PORT = process.env.PORT || 3001;
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017';
@@ -28,13 +29,7 @@ function rateLimitKey(prefix, ip, suffix = '') {
 }
 
 function json(res, status, body) {
-  res.writeHead(status, {
-    'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization'
-  });
-  res.end(JSON.stringify(body));
+  writeJson(res, status, body, corsHeaders('GET, OPTIONS'));
 }
 
 function isValidMessengerRoomId(roomId, currentUserId, otherUserId) {

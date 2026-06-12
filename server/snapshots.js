@@ -5,8 +5,7 @@ import { T } from '../shared/MessageTypes.js';
 import { authorize, Action } from './permissions.js';
 import { getRecorder } from './deltaRecorder.js';
 import { uploadSnapshotBundle, getSnapshotBundle, deleteSnapshotBundle } from './r2.js';
-import { snapshotLayerDimensions } from '../shared/qoi.js';
-import { getBoardDimensionsForSize } from '../shared/boardSizes.js';
+import { snapshotCoversRoomBoard } from '../shared/qoi.js';
 
 const DEFAULT_SNAPSHOT_MAX_PER_ROOM = 100;
 const SNAPSHOT_LIST_PAGE_SIZE = 20;
@@ -30,15 +29,6 @@ function canManualSaveSnapshot(ws, room) {
 function canRestoreWholeBoard(ws) {
   // Full-board restore is Trusted+ only (no solo-user bypass).
   return authorize(ws, Action.MOD_MUTE, null);
-}
-
-function snapshotCoversRoomBoard(snapshotLayers, room) {
-  const snapshotDimensions = snapshotLayerDimensions(snapshotLayers);
-  const [boardHeight, boardWidth] = getBoardDimensionsForSize(room?.settings?.boardSize);
-
-  return !!snapshotDimensions &&
-    snapshotDimensions.width >= boardWidth &&
-    snapshotDimensions.height >= boardHeight;
 }
 
 function getSnapshotMaxPerRoom() {

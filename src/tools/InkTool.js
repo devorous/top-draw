@@ -10,6 +10,7 @@ import {
   prepareStrokePreviewCanvas
 } from '../ui/StrokePreviewRenderer.js';
 import { Tool } from './BaseTool.js';
+import { clampRectToCanvas, ensureSizedCanvas } from '../utils/drawing.js';
 
 /**
  * Convert perfect-freehand outline points to an SVG path string for Path2D.
@@ -68,17 +69,10 @@ export class InkTool extends Tool {
    * Ensures the offscreen canvas matches the main canvas dimensions.
    */
   ensureOffscreenCanvas() {
-    const width = this.board.mainCanvas.width;
-    const height = this.board.mainCanvas.height;
-
-    if (!this.offscreenCanvas ||
-        this.offscreenCanvas.width !== width ||
-        this.offscreenCanvas.height !== height) {
-      this.offscreenCanvas = document.createElement('canvas');
-      this.offscreenCanvas.width = width;
-      this.offscreenCanvas.height = height;
-      this.offscreenCtx = this.offscreenCanvas.getContext('2d');
-    }
+    const { canvas, ctx } = ensureSizedCanvas(
+      this.offscreenCanvas, this.board.mainCanvas.width, this.board.mainCanvas.height);
+    this.offscreenCanvas = canvas;
+    this.offscreenCtx = ctx;
   }
 
   /**
@@ -377,7 +371,7 @@ export class InkTool extends Tool {
     const ctx = this.board.topCtx;
     ctx.globalAlpha = this.userAlpha;
     const hardnessCanvas = this.getHardnessCanvas(this.offscreenCanvas, this._strokeSize, rect);
-    const sourceRect = rect ? this._clampRectToCanvas(rect, hardnessCanvas) : null;
+    const sourceRect = rect ? clampRectToCanvas(rect, hardnessCanvas) : null;
     this.board.withSelectionMaskClip(ctx, user.id, () => {
       if (sourceRect) {
         ctx.drawImage(
@@ -470,7 +464,7 @@ export class InkTool extends Tool {
     }
 
     if (rect) {
-      const clearRect = this._clampRectToCanvas(rect, this.hardnessCanvas);
+      const clearRect = clampRectToCanvas(rect, this.hardnessCanvas);
       if (clearRect) {
         this.hardnessCtx.clearRect(clearRect.x, clearRect.y, clearRect.width, clearRect.height);
       }
@@ -491,7 +485,7 @@ export class InkTool extends Tool {
    */
   compositeWithHardness(ctx, sourceCanvas, size, x, y, rect = null) {
     const blurAmount = (1 - this.userHardness / 100) * (20 + size * 0.2);
-    const sourceRect = rect ? this._clampRectToCanvas(rect, sourceCanvas) : null;
+    const sourceRect = rect ? clampRectToCanvas(rect, sourceCanvas) : null;
 
     if (blurAmount > 0) {
       const offset = 100000;
@@ -550,15 +544,6 @@ export class InkTool extends Tool {
       width: Math.ceil(bounds.maxX - bounds.minX + margin * 2),
       height: Math.ceil(bounds.maxY - bounds.minY + margin * 2)
     };
-  }
-
-  _clampRectToCanvas(rect, canvas) {
-    const x = Math.max(0, Math.floor(rect.x));
-    const y = Math.max(0, Math.floor(rect.y));
-    const right = Math.min(canvas.width, Math.ceil(rect.x + rect.width));
-    const bottom = Math.min(canvas.height, Math.ceil(rect.y + rect.height));
-    if (right <= x || bottom <= y) return null;
-    return { x, y, width: right - x, height: bottom - y };
   }
 
   /**

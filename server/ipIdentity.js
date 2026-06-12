@@ -59,6 +59,23 @@ function normalizeIp(ip) {
 }
 
 /**
+ * Expands an IPv6 `::` abbreviation into its explicit hextet groups.
+ * Groups are returned as-is (not zero-padded or leading-zero-stripped).
+ * @param {string} ip - IPv6 address (caller lowercases if needed).
+ * @returns {string[]} The hextet groups.
+ */
+function expandIpv6ToGroups(ip) {
+  const parts = ip.split('::');
+  if (parts.length === 2) {
+    const left = parts[0] ? parts[0].split(':') : [];
+    const right = parts[1] ? parts[1].split(':') : [];
+    const missing = 8 - left.length - right.length;
+    return [...left, ...Array(missing).fill('0'), ...right];
+  }
+  return ip.split(':');
+}
+
+/**
  * Normalizes an IPv6 address to a canonical compressed form.
  * Expands :: notation and ensures consistent formatting.
  * @param {string} ip - IPv6 address
@@ -66,17 +83,7 @@ function normalizeIp(ip) {
  */
 function normalizeIpv6(ip) {
   // Expand :: notation
-  const parts = ip.toLowerCase().split('::');
-  let groups;
-
-  if (parts.length === 2) {
-    const left = parts[0] ? parts[0].split(':') : [];
-    const right = parts[1] ? parts[1].split(':') : [];
-    const missing = 8 - left.length - right.length;
-    groups = [...left, ...Array(missing).fill('0'), ...right];
-  } else {
-    groups = ip.toLowerCase().split(':');
-  }
+  let groups = expandIpv6ToGroups(ip.toLowerCase());
 
   // Pad each group to 4 hex digits for normalization
   groups = groups.map(g => g.padStart(4, '0'));
@@ -148,17 +155,7 @@ function getIpv4Network24(ip) {
  */
 function getIpv6Network64(ip) {
   // Expand to full form for easier manipulation
-  const parts = ip.split('::');
-  let groups;
-
-  if (parts.length === 2) {
-    const left = parts[0] ? parts[0].split(':') : [];
-    const right = parts[1] ? parts[1].split(':') : [];
-    const missing = 8 - left.length - right.length;
-    groups = [...left, ...Array(missing).fill('0'), ...right];
-  } else {
-    groups = ip.split(':');
-  }
+  const groups = expandIpv6ToGroups(ip);
 
   // Pad to 8 groups
   while (groups.length < 8) groups.push('0');
@@ -176,17 +173,7 @@ function getIpv6Network64(ip) {
  * @returns {string} - /48 network prefix
  */
 function getIpv6Network48(ip) {
-  const parts = ip.split('::');
-  let groups;
-
-  if (parts.length === 2) {
-    const left = parts[0] ? parts[0].split(':') : [];
-    const right = parts[1] ? parts[1].split(':') : [];
-    const missing = 8 - left.length - right.length;
-    groups = [...left, ...Array(missing).fill('0'), ...right];
-  } else {
-    groups = ip.split(':');
-  }
+  const groups = expandIpv6ToGroups(ip);
 
   while (groups.length < 8) groups.push('0');
 
@@ -197,18 +184,7 @@ function getIpv6Network48(ip) {
 }
 
 function expandIpv6Groups(ip) {
-  const parts = ip.split('::');
-  let groups;
-
-  if (parts.length === 2) {
-    const left = parts[0] ? parts[0].split(':') : [];
-    const right = parts[1] ? parts[1].split(':') : [];
-    const missing = 8 - left.length - right.length;
-    groups = [...left, ...Array(missing).fill('0'), ...right];
-  } else {
-    groups = ip.split(':');
-  }
-
+  const groups = expandIpv6ToGroups(ip);
   while (groups.length < 8) groups.push('0');
   return groups.slice(0, 8).map(g => (g.replace(/^0+/, '') || '0').toLowerCase());
 }

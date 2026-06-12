@@ -4,7 +4,9 @@
  */
 export class Moderation {
   constructor() {
-    // Numeric role: 0=guest, 1=user, 2=mod, 3=admin
+    // Numeric role (10-tier; see server/SessionManager.js Role):
+    //   Room-scoped: GUEST(0) USER(1) TRUSTED(2) HELPER(3) MOD(4) ADMIN(5) OWNER(6)
+    //   Global:      NOBLE(7) HOLY(8) DEITY(9)
     this.localRole = 0;
     this.globalRole = 0;
     this.roomRole = 0;

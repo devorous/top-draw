@@ -5,6 +5,7 @@ import {
   prepareStrokePreviewCanvas
 } from '../ui/StrokePreviewRenderer.js';
 import { Tool } from './BaseTool.js';
+import { ensureSizedCanvas } from '../utils/drawing.js';
 
 /**
  * @fileoverview Flow Pen tool for pressure-sensitive strokes using circle stamping.
@@ -44,17 +45,10 @@ export class FlowPenTool extends Tool {
    * Ensures the offscreen canvas matches the main canvas dimensions.
    */
   ensureOffscreenCanvas() {
-    const width = this.board.mainCanvas.width;
-    const height = this.board.mainCanvas.height;
-
-    if (!this.offscreenCanvas ||
-        this.offscreenCanvas.width !== width ||
-        this.offscreenCanvas.height !== height) {
-      this.offscreenCanvas = document.createElement('canvas');
-      this.offscreenCanvas.width = width;
-      this.offscreenCanvas.height = height;
-      this.offscreenCtx = this.offscreenCanvas.getContext('2d');
-    }
+    const { canvas, ctx } = ensureSizedCanvas(
+      this.offscreenCanvas, this.board.mainCanvas.width, this.board.mainCanvas.height);
+    this.offscreenCanvas = canvas;
+    this.offscreenCtx = ctx;
   }
 
   /**

@@ -28,8 +28,7 @@ const MISSING_UPLOAD_BPS_PENALTY = 60; // Haven't measured throughput yet — pr
 export function scoreProvider(ws, user) {
   if (!ws) return -Infinity;
   if (ws.lowPowerMode) return -Infinity;
-  // AFK clients have a stale canvas (see AFK_PENALTY note) — never a valid data
-  // source.
+  // AFK clients have a stale canvas — never a valid data source.
   if (user?.afk) return -Infinity;
 
   let score = 0;

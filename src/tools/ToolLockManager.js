@@ -5,6 +5,22 @@
 import { appState } from '../state.svelte.js';
 
 /**
+ * Default values for every lockable tool property. Single source of truth for
+ * both the global unlocked-values seed and per-tool lock defaults.
+ */
+const PROPERTY_DEFAULTS = {
+  size: 10,
+  smoothing: 15,
+  hardness: 100,
+  opacity: 1.0,
+  spacing: 0,
+  blurRadius: 5,
+  thinning: 0.5,
+  blendMode: 'source-over',
+  pressure: { min: 0, max: 100, enabled: true }
+};
+
+/**
  * Manages tool properties (size, smoothing, opacity, etc.) and allows locking
  * values for specific tools or sharing unlocked values globally.
  */
@@ -23,17 +39,7 @@ export class ToolLockManager {
    * @returns {Object} Unlocked values mapping
    */
   loadGlobalUnlockedValues() {
-    const defaults = {
-      size: 10,
-      smoothing: 15,
-      hardness: 100,
-      opacity: 1.0,
-      spacing: 0,
-      blurRadius: 5,
-      thinning: 0.5,
-      blendMode: 'source-over',
-      pressure: { min: 0, max: 100, enabled: true }
-    };
+    const defaults = { ...PROPERTY_DEFAULTS, pressure: { ...PROPERTY_DEFAULTS.pressure } };
 
     try {
       const saved = localStorage.getItem('topDrawGlobalUnlockedValues');
@@ -179,15 +185,7 @@ export class ToolLockManager {
             lockedValue: { min: 0, max: 100, enabled: true }
           };
         } else {
-          let defaultValue = 0;
-          if (prop === 'size') defaultValue = 10;
-          if (prop === 'smoothing') defaultValue = 15;
-          if (prop === 'hardness') defaultValue = 100;
-          if (prop === 'opacity') defaultValue = 1.0;
-          if (prop === 'blurRadius') defaultValue = 5;
-          if (prop === 'spacing') defaultValue = 0;
-          if (prop === 'thinning') defaultValue = 0.5;
-          if (prop === 'blendMode') defaultValue = 'source-over';
+          const defaultValue = PROPERTY_DEFAULTS[prop] ?? 0;
 
           locks[tool][prop] = {
             locked: prop === 'blendMode' && ['select', 'blur', 'circleBlur', 'glitchBlur', 'text'].includes(tool),
@@ -219,45 +217,12 @@ export class ToolLockManager {
     const locks = this.toolLocks[toolName];
     if (!locks) return;
 
-    const { self, ui, pressureEnabled } = this.app;
-
     for (const [prop, state] of Object.entries(locks)) {
+      const value = this.getCurrentPropertyValue(prop);
       if (state.locked) {
-        if (prop === 'size') {
-          state.lockedValue = self.size;
-        }
-        else if (prop === 'pressure') {
-          state.lockedValue = {
-            min: Number(ui.elements.pressureMinSlider.value),
-            max: Number(ui.elements.pressureMaxSlider.value),
-            enabled: pressureEnabled
-          };
-        }
-        else if (prop === 'smoothing') state.lockedValue = self.smoothing;
-        else if (prop === 'spacing') state.lockedValue = self.spacing;
-        else if (prop === 'hardness') state.lockedValue = self.hardness;
-        else if (prop === 'opacity') state.lockedValue = self.opacity;
-        else if (prop === 'blurRadius') state.lockedValue = self.blurRadius;
-        else if (prop === 'thinning') state.lockedValue = self.thinning;
-        else if (prop === 'blendMode') state.lockedValue = self.blendMode || 'source-over';
+        state.lockedValue = value;
       } else {
-        if (prop === 'size') {
-          this.globalUnlockedValues.size = self.size;
-        }
-        else if (prop === 'pressure') {
-          this.globalUnlockedValues.pressure = {
-            min: Number(ui.elements.pressureMinSlider.value),
-            max: Number(ui.elements.pressureMaxSlider.value),
-            enabled: pressureEnabled
-          };
-        }
-        else if (prop === 'smoothing') this.globalUnlockedValues.smoothing = self.smoothing;
-        else if (prop === 'spacing') this.globalUnlockedValues.spacing = self.spacing;
-        else if (prop === 'hardness') this.globalUnlockedValues.hardness = self.hardness;
-        else if (prop === 'opacity') this.globalUnlockedValues.opacity = self.opacity;
-        else if (prop === 'blurRadius') this.globalUnlockedValues.blurRadius = self.blurRadius;
-        else if (prop === 'thinning') this.globalUnlockedValues.thinning = self.thinning;
-        else if (prop === 'blendMode') this.globalUnlockedValues.blendMode = self.blendMode || 'source-over';
+        this.globalUnlockedValues[prop] = value;
       }
     }
 
@@ -329,7 +294,7 @@ export class ToolLockManager {
         currentColor[3] = value;
         self.setColor(currentColor);
         self.setOpacity(value);
-        ui.updateopacityValue(value);
+        ui.updateOpacityValue(value);
         if (elements.opacitySlider) elements.opacitySlider.value = value * 100;
         if (colorPicker) {
           colorPicker.setColor(`rgba(${currentColor.join(',')})`, true);
@@ -390,7 +355,7 @@ export class ToolLockManager {
    * @param {string} property - Property name to toggle
    */
   toggleLock(property) {
-    const { self, ui, pressureEnabled } = this.app;
+    const { self, ui } = this.app;
     const tool = self.tool;
 
     if (!this.toolLocks[tool]) {
@@ -408,33 +373,9 @@ export class ToolLockManager {
     lock.locked = !lock.locked;
 
     if (lock.locked) {
-      if (property === 'pressure') {
-        lock.lockedValue = {
-          min: Number(ui.elements.pressureMinSlider.value),
-          max: Number(ui.elements.pressureMaxSlider.value),
-          enabled: pressureEnabled
-        };
-      } else if (property === 'opacity') {
-        lock.lockedValue = self.opacity;
-      } else if (property === 'blendMode') {
-        lock.lockedValue = self.blendMode || 'source-over';
-      } else {
-        lock.lockedValue = self[property];
-      }
+      lock.lockedValue = this.getCurrentPropertyValue(property);
     } else {
-      if (property === 'pressure') {
-        this.globalUnlockedValues.pressure = {
-          min: Number(ui.elements.pressureMinSlider.value),
-          max: Number(ui.elements.pressureMaxSlider.value),
-          enabled: pressureEnabled
-        };
-      } else if (property === 'opacity') {
-        this.globalUnlockedValues.opacity = self.opacity;
-      } else if (property === 'blendMode') {
-        this.globalUnlockedValues.blendMode = self.blendMode || 'source-over';
-      } else {
-        this.globalUnlockedValues[property] = self[property];
-      }
+      this.saveUnlockedPropertyValue(property);
     }
 
     ui.updateLockButton(property, lock.locked, true);

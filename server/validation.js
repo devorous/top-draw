@@ -3,7 +3,7 @@
 import { T, Tool } from '../shared/MessageTypes.js';
 import { CHAT_IMAGE_MIME_TYPES, INLINE_IMAGE_MIME_TYPES, validateDataUrlImage, validateImageBytes } from './imageValidation.js';
 
-function hasOwnField(message, key) {
+export function hasOwnField(message, key) {
   return !!message && Object.prototype.hasOwnProperty.call(message, key);
 }
 

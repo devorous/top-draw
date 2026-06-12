@@ -8,13 +8,10 @@ import { getClientIp, httpRateLimiter } from './security.js';
 import { getUsernameValidationMessage, isValidUsername, normalizeUsername } from '../shared/identity.js';
 import { Role } from './SessionManager.js';
 import { getIpSubnet, mergeHistory, normalizeIdentityPayload, recordConnectionEvent } from './identityTracking.js';
+import { corsHeaders, writeJson, readRequestBody } from './httpUtils.js';
 import crypto from 'crypto';
 
-const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-};
+const CORS_HEADERS = corsHeaders('GET, POST, OPTIONS');
 
 const AUTH_BODY_LIMIT = 16 * 1024;
 const LOGIN_RATE_LIMIT = { max: 10, windowMs: 5 * 60 * 1000, blockMs: 15 * 60 * 1000 };
@@ -27,25 +24,11 @@ const DISCORD_OAUTH_SCOPE = 'identify';
 const USERNAME_CHANGE_INTERVAL_MS = 90 * 24 * 60 * 60 * 1000;
 
 function json(res, status, body) {
-  res.writeHead(status, { 'Content-Type': 'application/json', ...CORS_HEADERS });
-  res.end(JSON.stringify(body));
+  writeJson(res, status, body, CORS_HEADERS);
 }
 
-async function readBody(req, maxBytes = AUTH_BODY_LIMIT) {
-  return new Promise((resolve, reject) => {
-    let data = '';
-    let size = 0;
-    req.on('data', chunk => {
-      size += chunk.length;
-      if (size > maxBytes) {
-        reject(new Error('Payload too large'));
-        return;
-      }
-      data += chunk.toString();
-    });
-    req.on('end', () => resolve(data));
-    req.on('error', reject);
-  });
+function readBody(req, maxBytes = AUTH_BODY_LIMIT) {
+  return readRequestBody(req, maxBytes);
 }
 
 function normalizeEmail(value) {

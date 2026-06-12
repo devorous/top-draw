@@ -1,5 +1,7 @@
 import { resetPreviewContext } from '../ui/StrokePreviewRenderer.js';
 import { Tool } from './BaseTool.js';
+import { getPatternTile } from '../utils/patternTile.js';
+import { ensureSizedCanvas } from '../utils/drawing.js';
 
 /**
  * @fileoverview Pattern tool - Reveals a grid of images through a brush stroke.
@@ -34,16 +36,10 @@ export class PatternTool extends Tool {
   }
 
   ensureOffscreenCanvas() {
-    const width = this.board.mainCanvas.width;
-    const height = this.board.mainCanvas.height;
-    if (!this.offscreenCanvas ||
-        this.offscreenCanvas.width !== width ||
-        this.offscreenCanvas.height !== height) {
-      this.offscreenCanvas = document.createElement('canvas');
-      this.offscreenCanvas.width = width;
-      this.offscreenCanvas.height = height;
-      this.offscreenCtx = this.offscreenCanvas.getContext('2d');
-    }
+    const { canvas, ctx } = ensureSizedCanvas(
+      this.offscreenCanvas, this.board.mainCanvas.width, this.board.mainCanvas.height);
+    this.offscreenCanvas = canvas;
+    this.offscreenCtx = ctx;
   }
 
   onPointerDown(user, pos) {
@@ -251,103 +247,8 @@ export class PatternTool extends Tool {
    * Standardizes size and adds user-defined padding (spacing).
    */
   _getPatternTile(user) {
-    const brush = user.patternBrush;
-    if (!brush) return null;
-
-    let img = brush.image;
-    if (brush.type === 'gih' && brush.images) img = brush.images[0];
-
-    if (!img) return null;
-
-    const colorMode = user.patternColorMode || 'original';
-    const colorKey = colorMode === 'tinted' ? user.color.join(',') : 'original';
-    const spacing = user.patternSpacing || 0;
-    const key = `${brush.brushName || brush.fileName}_${colorKey}_${spacing}_${colorMode}`;
-
-    if (this._tileCache.has(key)) {
-      return this._tileCache.get(key);
-    }
-
-    // Preserve aspect ratio
-    // SVGs render at higher resolution (200px) to avoid pixelation when scaled
-    // Regular images use 1024px max to preserve detail from high-res textures
-    const maxDim = (brush.type === 'svg') ? 200 : 1024;
-    const imgWidth = img.width || img.naturalWidth;
-    const imgHeight = img.height || img.naturalHeight;
-
-    // Image not loaded yet
-    if (!imgWidth || !imgHeight) return null;
-
-    const aspectRatio = imgWidth / imgHeight;
-
-    let tileWidth, tileHeight;
-    if (aspectRatio > 1) {
-      // Wider than tall
-      tileWidth = maxDim;
-      tileHeight = maxDim / aspectRatio;
-    } else {
-      // Taller than wide or square
-      tileWidth = maxDim * aspectRatio;
-      tileHeight = maxDim;
-    }
-
-    const padding = spacing;
-    const tileCanvas = document.createElement('canvas');
-    tileCanvas.width = tileWidth + padding;
-    tileCanvas.height = tileHeight + padding;
-
-    const tctx = tileCanvas.getContext('2d');
-
-    // Enable image smoothing for SVGs to render them smoothly without pixelation
-    if (brush.type === 'svg') {
-      tctx.imageSmoothingEnabled = true;
-    }
-
-    // Create an intermediate canvas to handle greyscale transparency
-    const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = tileWidth;
-    tempCanvas.height = tileHeight;
-    const tempCtx = tempCanvas.getContext('2d');
-
-    if (brush.type === 'svg') {
-      tempCtx.imageSmoothingEnabled = true;
-    }
-
-    tempCtx.drawImage(img, 0, 0, tileWidth, tileHeight);
-
-    // If it's a GIMP greyscale brush, it's often black-on-white.
-    // We want white to be transparent.
-    if (brush.type === 'gbr' && brush.colorDepth === 1) {
-        const imageData = tempCtx.getImageData(0, 0, tileWidth, tileHeight);
-        const data = imageData.data;
-        for (let i = 0; i < data.length; i += 4) {
-            const r = data[i];
-            const g = data[i+1];
-            const b = data[i+2];
-            // Use lightness as the inverse alpha (black = opaque, white = transparent)
-            const brightness = (r + g + b) / 3;
-            data[i+3] = 255 - brightness;
-            // Set RGB to black so source-in works correctly
-            data[i] = data[i+1] = data[i+2] = 0;
-        }
-        tempCtx.putImageData(imageData, 0, 0);
-    }
-
-    // Draw centered and optionally tinted
-    tctx.save();
-    tctx.drawImage(tempCanvas, padding/2, padding/2, tileWidth, tileHeight);
-
-    // Only apply color tinting if colorMode is 'tinted'
-    if (colorMode === 'tinted') {
-      tctx.globalCompositeOperation = 'source-in';
-      tctx.fillStyle = `rgba(${user.color[0]}, ${user.color[1]}, ${user.color[2]}, 1.0)`;
-      tctx.fillRect(0, 0, tileCanvas.width, tileCanvas.height);
-    }
-
-    tctx.restore();
-
-    this._tileCache.set(key, tileCanvas);
-    return tileCanvas;
+    if (!this._tileCache) this._tileCache = new Map();
+    return getPatternTile(user, this._tileCache);
   }
 
   drawStamp(user, pos) {

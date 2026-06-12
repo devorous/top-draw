@@ -4,6 +4,7 @@
  */
 
 import { Tool } from './BaseTool.js';
+import { clampRectToCanvas } from '../utils/drawing.js';
 
 /**
  * Eraser tool for removing content from layers.
@@ -309,7 +310,7 @@ export class EraserTool extends Tool {
     const state = this._getStrokeState(user);
     if (!state || !this._hasDirtyBounds(state)) return;
     this._renderPreviewMask(state, `rgb(${r}, ${g}, ${b})`, rect);
-    const sourceRect = rect ? this._clampRectToCanvas(rect, state.previewCanvas) : null;
+    const sourceRect = rect ? clampRectToCanvas(rect, state.previewCanvas) : null;
     if (sourceRect) {
       ctx.drawImage(
         state.previewCanvas,
@@ -362,10 +363,10 @@ export class EraserTool extends Tool {
   /**
    * Draw an eraser path into a user's active stroke group.
    * @param {Object} group - The layer group.
-   * @param {Array<Object>} points - Buffered path points.
-   * @param {number} size - Eraser size.
+   * @param {Object} state - Per-user eraser state (buffered points, size, last position).
    * @param {number} opacity - Eraser opacity.
    * @param {string} userId - ID of the user erasing.
+   * @param {Object|null} [mirrorRegion=null] - Mirror region to reflect the stroke into, if any.
    */
   eraseMaskOnGroup(group, state, opacity, userId, mirrorRegion = null) {
     const active = group.activeStrokeByUser?.get(userId);
@@ -494,7 +495,7 @@ export class EraserTool extends Tool {
 
   _renderPreviewMask(state, fillStyle, rect = null) {
     const { previewCtx, previewCanvas, maskCanvas } = state;
-    const sourceRect = rect ? this._clampRectToCanvas(rect, previewCanvas) : null;
+    const sourceRect = rect ? clampRectToCanvas(rect, previewCanvas) : null;
 
     if (sourceRect) {
       previewCtx.clearRect(sourceRect.x, sourceRect.y, sourceRect.width, sourceRect.height);
@@ -612,15 +613,6 @@ export class EraserTool extends Tool {
     const width = Math.ceil(bounds.maxX - bounds.minX + margin * 2);
     const height = Math.ceil(bounds.maxY - bounds.minY + margin * 2);
     return { x, y, width, height };
-  }
-
-  _clampRectToCanvas(rect, canvas) {
-    const x = Math.max(0, Math.floor(rect.x));
-    const y = Math.max(0, Math.floor(rect.y));
-    const right = Math.min(canvas.width, Math.ceil(rect.x + rect.width));
-    const bottom = Math.min(canvas.height, Math.ceil(rect.y + rect.height));
-    if (right <= x || bottom <= y) return null;
-    return { x, y, width: right - x, height: bottom - y };
   }
 
   _mirrorRect(rect, region) {

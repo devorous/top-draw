@@ -1,3 +1,5 @@
+import { getBoardDimensionsForSize } from './boardSizes.js';
+
 const QOI_HEADER_SIZE = 14;
 const QOI_MAGIC_Q = 0x71;
 const QOI_MAGIC_O = 0x6f;
@@ -44,4 +46,20 @@ export function snapshotLayerDimensions(layerDatas) {
   }
 
   return null;
+}
+
+/**
+ * Whether a snapshot's layers are at least as large as the room's board,
+ * i.e. the snapshot fully covers the board area.
+ * @param {Array} snapshotLayers - Encoded QOI layer buffers.
+ * @param {{settings?: {boardSize?: string}}} room
+ * @returns {boolean}
+ */
+export function snapshotCoversRoomBoard(snapshotLayers, room) {
+  const snapshotDimensions = snapshotLayerDimensions(snapshotLayers);
+  const [boardHeight, boardWidth] = getBoardDimensionsForSize(room?.settings?.boardSize);
+
+  return !!snapshotDimensions &&
+    snapshotDimensions.width >= boardWidth &&
+    snapshotDimensions.height >= boardHeight;
 }

@@ -109,6 +109,30 @@ export class InkdropperTool {
   }
 
   /**
+   * Samples the pixel under `pos` from the composited main canvas, flattening
+   * any transparency over the board background and normalizing the result.
+   * @private
+   * @param {Object} pos - {x, y} position on canvas.
+   * @returns {{r:number, g:number, b:number, a:number}} Opaque RGB (a is 255 once flattened).
+   */
+  _sampleCompositedColor(pos) {
+    const { x, y } = this._getSamplePixel(pos);
+    let [r, g, b, a] = this.board.mainCtx.getImageData(x, y, 1, 1).data;
+
+    if (a < 255) {
+      const bg = this.board.backgroundColor;
+      const alpha = a / 255;
+      r = Math.round(r * alpha + bg[0] * (1 - alpha));
+      g = Math.round(g * alpha + bg[1] * (1 - alpha));
+      b = Math.round(b * alpha + bg[2] * (1 - alpha));
+      a = 255;
+    }
+
+    [r, g, b] = this._normalizeSampledRgb(r, g, b);
+    return { r, g, b, a };
+  }
+
+  /**
    * Draw a small color swatch showing the color under the cursor.
    * @private
    * @param {Object} pos - {x, y} position on canvas.
@@ -118,20 +142,7 @@ export class InkdropperTool {
 
     if (!Number.isFinite(pos?.x) || !Number.isFinite(pos?.y)) return;
 
-    const { x, y } = this._getSamplePixel(pos);
-
-    const imageData = this.board.mainCtx.getImageData(x, y, 1, 1);
-    let [r, g, b, a] = imageData.data;
-
-    if (a < 255) {
-      const bg = this.board.backgroundColor;
-      const alpha = a / 255;
-      r = Math.round(r * alpha + bg[0] * (1 - alpha));
-      g = Math.round(g * alpha + bg[1] * (1 - alpha));
-      b = Math.round(b * alpha + bg[2] * (1 - alpha));
-    }
-
-    [r, g, b] = this._normalizeSampledRgb(r, g, b);
+    const { r, g, b } = this._sampleCompositedColor(pos);
 
     const ctx = this.board.topCtx;
     const size = 22;
@@ -155,26 +166,10 @@ export class InkdropperTool {
    * @param {Object} pos - {x, y} position on canvas.
    */
   sampleColor(pos) {
-    const ctx = this.board.mainCtx;
     if (!Number.isFinite(pos?.x) || !Number.isFinite(pos?.y)) return;
 
-    const { x, y } = this._getSamplePixel(pos);
-
-    const imageData = ctx.getImageData(x, y, 1, 1);
-    let [r, g, b, a] = imageData.data;
-
+    const { r, g, b, a } = this._sampleCompositedColor(pos);
     const app = this.board.app;
-
-    if (a < 255) {
-      const bgColor = this.board.backgroundColor;
-      const alpha = a / 255;
-      r = Math.round(r * alpha + bgColor[0] * (1 - alpha));
-      g = Math.round(g * alpha + bgColor[1] * (1 - alpha));
-      b = Math.round(b * alpha + bgColor[2] * (1 - alpha));
-      a = 255;
-    }
-
-    [r, g, b] = this._normalizeSampledRgb(r, g, b);
 
     const rgba = [r, g, b, a / 255];
 
@@ -183,7 +178,7 @@ export class InkdropperTool {
 
     app.ui.updateSelfColor(rgba);
     app.ui.updateSelfTextStyle(app.self.size, rgba, app.self.font);
-    app.ui.updateopacityValue(rgba[3]);
+    app.ui.updateOpacityValue(rgba[3]);
 
     if (app.colorPicker) {
       app.colorPicker.setColor([r, g, b, rgba[3]], true);

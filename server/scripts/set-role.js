@@ -14,8 +14,7 @@
 
 import 'dotenv/config';
 import { connectDB } from '../db.js';
-
-const ROLE_NAMES = ['GUEST', 'USER', 'TRUSTED', 'HELPER', 'MOD', 'ADMIN', 'OWNER', 'NOBLE', 'HOLY', 'DEITY'];
+import { RoleNames } from '../SessionManager.js';
 
 const [,, username, roleArg] = process.argv;
 
@@ -41,5 +40,5 @@ if (result.matchedCount === 0) {
   process.exit(1);
 }
 
-console.log(`✓ Set ${username} → ${ROLE_NAMES[role]} (${role})`);
+console.log(`✓ Set ${username} → ${RoleNames[role]} (${role})`);
 process.exit(0);

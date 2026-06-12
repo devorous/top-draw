@@ -91,12 +91,6 @@ export class BrushTool extends Tool {
   }
 
   /**
-   * Finalizes the stroke and commits it to the active layer.
-   *
-   * @param {User} user - The user finishing the stroke.
-   * @override
-   */
-  /**
    * Continue drawing (no-op for batching, redraw happens in InputBufferManager tick)
    * @param {Object} user - User object
    * @param {Object} pos - Position {x, y}

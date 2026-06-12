@@ -69,34 +69,29 @@ export class TextTool extends Tool {
         user.text = '';
       }
     } else if (key === 'Backspace') {
-      if (ctrlKey) {
-        // Ctrl+Backspace: delete word backwards
-        const text = user.text;
-        let i = text.length - 1;
-        // Skip trailing whitespace backwards
-        while (i >= 0 && /\s/.test(text[i])) i--;
-        // Skip word characters backwards
-        while (i >= 0 && /\S/.test(text[i])) i--;
-        user.text = text.slice(0, i + 1);
-      } else {
-        user.text = user.text.slice(0, -1);
-      }
+      // Ctrl+Backspace deletes a word backwards; plain Backspace deletes one char.
+      user.text = ctrlKey ? TextTool._deleteWordBackward(user.text) : user.text.slice(0, -1);
     } else if (key === 'Delete') {
-      if (ctrlKey) {
-        // Ctrl+Delete: same as Ctrl+Backspace since cursor is at end
-        const text = user.text;
-        let i = text.length - 1;
-        // Skip trailing whitespace backwards
-        while (i >= 0 && /\s/.test(text[i])) i--;
-        // Skip word characters backwards
-        while (i >= 0 && /\S/.test(text[i])) i--;
-        user.text = text.slice(0, i + 1);
-      }
+      // Cursor is always at the end, so Ctrl+Delete matches Ctrl+Backspace.
+      if (ctrlKey) user.text = TextTool._deleteWordBackward(user.text);
     } else if (key === 'a' && ctrlKey) {
       // Ctrl+A: select all (for now, just mark that all text is conceptually selected)
       return user.text; // Just return current text, visual feedback not needed
     }
     return user.text;
+  }
+
+  /**
+   * Deletes the trailing word from `text` (trailing whitespace, then the word
+   * characters before it) — the shared body of Ctrl+Backspace / Ctrl+Delete.
+   * @param {string} text
+   * @returns {string}
+   */
+  static _deleteWordBackward(text) {
+    let i = text.length - 1;
+    while (i >= 0 && /\s/.test(text[i])) i--;   // skip trailing whitespace
+    while (i >= 0 && /\S/.test(text[i])) i--;   // skip the word
+    return text.slice(0, i + 1);
   }
 
   /**

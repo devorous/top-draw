@@ -7,6 +7,7 @@ import { getDB } from './db.js';
 import { getBearerToken, getRequestUser, getUserFromToken } from './authUser.js';
 import { INLINE_IMAGE_MIME_TYPES, validateDataUrlImage } from './imageValidation.js';
 import { getClientIp, httpRateLimiter } from './security.js';
+import { corsHeaders, writeJson, readRequestBody } from './httpUtils.js';
 
 // Lazy-load sharp to avoid startup issues if not installed
 let sharp = null;
@@ -71,11 +72,7 @@ const r2 = process.env.R2_ENDPOINT
 const BUCKET = process.env.R2_BUCKET_NAME || 'gallery';
 const PUBLIC_URL = (process.env.R2_PUBLIC_URL || 'https://gallery.ddraw.ca').replace(/\/$/, '');
 
-const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-};
+const CORS_HEADERS = corsHeaders('GET, POST, PATCH, DELETE, OPTIONS');
 
 const RESERVED_TAGS = ['nsfw'];
 const MAX_TAGS = 12;
@@ -102,8 +99,7 @@ export function setGalleryDiscordPoster(callback) {
 }
 
 function json(res, status, body) {
-  res.writeHead(status, { 'Content-Type': 'application/json', ...CORS_HEADERS });
-  res.end(JSON.stringify(body));
+  writeJson(res, status, body, CORS_HEADERS);
 }
 
 async function requireAuthenticatedUser(req, res, options = {}) {
@@ -122,21 +118,8 @@ async function requireAuthenticatedUser(req, res, options = {}) {
   return user;
 }
 
-async function readBody(req, maxBytes = JSON_BODY_LIMIT) {
-  return new Promise((resolve, reject) => {
-    let data = '';
-    let size = 0;
-    req.on('data', chunk => {
-      size += chunk.length;
-      if (size > maxBytes) {
-        reject(new Error('Payload too large'));
-        return;
-      }
-      data += chunk.toString();
-    });
-    req.on('end', () => resolve(data));
-    req.on('error', reject);
-  });
+function readBody(req, maxBytes = JSON_BODY_LIMIT) {
+  return readRequestBody(req, maxBytes);
 }
 
 function normalizeTags(input) {

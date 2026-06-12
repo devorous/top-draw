@@ -1997,7 +1997,7 @@ menuBtn: document.getElementById('menuBtn'),
    * Updates the tool opacity value display.
    * @param {number} opacity - Opacity (0-1)
    */
-  updateopacityValue(opacity) {
+  updateOpacityValue(opacity) {
     if (this.elements.opacityValue) {
       this.elements.opacityValue.textContent = Math.round(opacity * 100);
     }

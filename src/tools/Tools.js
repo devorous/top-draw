@@ -90,4 +90,5 @@ export class ToolManager {
   }
 }
 
-export { BrushTool, FlowPenTool, InkTool, ImageBrushTool, ConfettiTool, LineTool, RectangleTool, CircleTool, EraserTool, TextTool, SelectToolLoader, InkdropperTool, BlurTool };
+// Re-exported for App.js's tool wiring; ToolManager (above) is the primary export.
+export { BrushTool };

@@ -141,9 +141,6 @@ class ReplayBoard {
     return (this.mirrorRegions || []).flatMap((region) => this._expandMirrorRegionTransforms(region));
   }
   renderMirrorRegions() {}
-  clearTop() {
-    if (this.topCtx) this.topCtx.clearRect(0, 0, this.getWidth(), this.getHeight());
-  }
 
   // Stroke lifecycle — delegates to real LayerManager
   beginStroke(user, blendModeOverride) {

@@ -34,7 +34,8 @@ import { BOARD_SIZE_PRESETS } from '../shared/boardSizes.js';
 import { SessionManager, Role, RoleNames } from './SessionManager.js';
 import { SyncCoordinator } from './SyncCoordinator.js';
 import { RoomManager } from './RoomManager.js';
-import { sanitizeMessage } from './validation.js';
+import { sanitizeMessage, hasOwnField } from './validation.js';
+import { writeJson, readRequestBody } from './httpUtils.js';
 import { authorize, Action } from './permissions.js';
 import { getRoomRole, setRoomRole, computeEffectiveRole, getRoomRoleRoster } from './roomRoles.js';
 import { getClientIp, httpRateLimiter, isLocalhostRequest, messengerRateLimiter, wsRateLimiter } from './security.js';
@@ -43,10 +44,6 @@ import { authLimiter, uploadLimiter, wsMessageLimiter, wsSyncMessageLimiter, wsC
 import { getUsernameValidationMessage, isValidUsername, normalizeUsername } from '../shared/identity.js';
 import { getIpSubnet, mergeHistory, normalizeIdentityPayload, recordConnectionEvent } from './identityTracking.js';
 import { generateFloatingGalleryVoronoi, getFloatingGalleryVoronoiJson } from './floatingVoronoi.js';
-
-function hasOwnField(message, key) {
-  return !!message && Object.prototype.hasOwnProperty.call(message, key);
-}
 
 const WS_REJECT_LOG_VALUE_LIMIT = 512;
 const WS_REJECT_LOG_PAYLOAD_LIMIT = 2048;
@@ -437,25 +434,11 @@ async function getMessengerInbox(username) {
 }
 
 function json(res, status, payload) {
-  res.writeHead(status, {
-    'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*'
-  });
-  res.end(JSON.stringify(payload));
+  writeJson(res, status, payload, { 'Access-Control-Allow-Origin': '*' });
 }
 
-async function readBody(req, maxBytes = 65536) {
-  return new Promise((resolve, reject) => {
-    let data = '';
-    let size = 0;
-    req.on('data', chunk => {
-      size += chunk.length;
-      if (size > maxBytes) { reject(new Error('Payload too large')); return; }
-      data += chunk.toString();
-    });
-    req.on('end', () => resolve(data));
-    req.on('error', reject);
-  });
+function readBody(req, maxBytes = 65536) {
+  return readRequestBody(req, maxBytes);
 }
 
 async function getAdminHttpUser(req) {
@@ -1352,7 +1335,7 @@ function mapUsersForBroadcast(users, viewer = null, room = null) {
         globalRole: client?.globalRole || Role.GUEST,
         roomRole: client?.roomRole || Role.GUEST,
         ch: isCursorEffectivelyHidden(u, now),
-        br: u.blurRadius || 500,
+        br: u.blurRadius || 5,
         ly: u.activeLayer || 0,
         bm: u.blendMode || 'source-over',
         bbm: u.blendBakeMode === 'background' ? 'background' : 'existing',

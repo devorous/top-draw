@@ -36,8 +36,16 @@ export class BrushModeManager {
     this.currentMode = mode;
     this.saveBrushMode();
 
-    const toolName = mode === 'pixel' ? 'pixel' : mode === 'fluid' ? 'flowPen' : mode === 'ink' ? 'ink' : 'brush';
-    this.app.selectTool(toolName);
+    this.app.selectTool(BrushModeManager._modeToToolName(mode));
+  }
+
+  /**
+   * Maps a brush mode to its corresponding tool name.
+   * @param {string} mode - 'classic', 'pixel', 'fluid', or 'ink'.
+   * @returns {string} - 'brush', 'pixel', 'flowPen', or 'ink'.
+   */
+  static _modeToToolName(mode) {
+    return mode === 'pixel' ? 'pixel' : mode === 'fluid' ? 'flowPen' : mode === 'ink' ? 'ink' : 'brush';
   }
 
   /**
@@ -57,12 +65,12 @@ export class BrushModeManager {
    * @returns {string} - 'brush', 'pixel', 'flowPen', or 'ink'.
    */
   getCurrentToolName() {
-    return this.currentMode === 'pixel' ? 'pixel' : this.currentMode === 'fluid' ? 'flowPen' : this.currentMode === 'ink' ? 'ink' : 'brush';
+    return BrushModeManager._modeToToolName(this.currentMode);
   }
 
   /**
    * Load brush mode from localStorage.
-   * @returns {string} - 'classic', 'fluid', or 'ink'.
+   * @returns {string} - 'classic', 'pixel', 'fluid', or 'ink'.
    */
   loadBrushMode() {
     try {

@@ -139,7 +139,7 @@ export async function getRoomRoleRoster(room) {
 /**
  * Compute the effective role for a user in a room.
  * Global role sets a floor; room role can only raise it, never lower.
- * @param {number} globalRole - 0-8
+ * @param {number} globalRole - 0-9
  * @param {number} roomRole   - 0-5 (or 0 if none)
  * @returns {number}
  */

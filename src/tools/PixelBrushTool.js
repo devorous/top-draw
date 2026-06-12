@@ -3,6 +3,7 @@ import {
   drawPreviewStrokeGuide,
   prepareStrokePreviewCanvas
 } from '../ui/StrokePreviewRenderer.js';
+import { clampRectToCanvas } from '../utils/drawing.js';
 
 /**
  * @fileoverview Pixel brush tool - draws filled square stamps
@@ -300,7 +301,7 @@ export class PixelBrushTool {
     ctx.globalAlpha = finalAlpha;
     this.board.withSelectionMaskClip(ctx, user.id, () => {
       if (rect) {
-        const sourceRect = this._clampRectToCanvas(rect, tempCanvas);
+        const sourceRect = clampRectToCanvas(rect, tempCanvas);
         if (sourceRect) {
           ctx.drawImage(
             tempCanvas,
@@ -458,15 +459,6 @@ export class PixelBrushTool {
       width: Math.ceil(bounds.maxX - bounds.minX),
       height: Math.ceil(bounds.maxY - bounds.minY)
     };
-  }
-
-  _clampRectToCanvas(rect, canvas) {
-    const x = Math.max(0, Math.floor(rect.x));
-    const y = Math.max(0, Math.floor(rect.y));
-    const right = Math.min(canvas.width, Math.ceil(rect.x + rect.width));
-    const bottom = Math.min(canvas.height, Math.ceil(rect.y + rect.height));
-    if (right <= x || bottom <= y) return null;
-    return { x, y, width: right - x, height: bottom - y };
   }
 
   clearUserState(userId) {

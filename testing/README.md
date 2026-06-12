@@ -4,12 +4,19 @@ This directory contains k6 load testing scripts for the Top Draw WebSocket serve
 
 ## Test Files
 
-| File | Description | VUs | Duration |
-|------|-------------|-----|----------|
-| `stress_test.js` | Basic stress test | 20 | 30s |
-| `stress_test2.js` | Staged ramp-up test | 0→40→0 | 30s total |
-| `medium_stress_test.js` | Medium load with realistic drawing | 8 | 1m |
-| `hard_stress_test.js` | Heavy load with realistic drawing | 20 | 1m |
+Load tiers come in a plain variant (independent VUs) and an `_ordered` variant
+(VUs draw in a coordinated sequence, useful for ordering/sync checks):
+
+| File | Description |
+|------|-------------|
+| `low_stress_test.js` / `low_ordered_stress_test.js` | Light load |
+| `medium_stress_test.js` / `medium_ordered_stress_test.js` | Medium load with realistic drawing |
+| `high_stress_test.js` / `high_ordered_stress_test.js` | Heavy load with realistic drawing |
+| `multiroom_stress_test.js` | Load spread across multiple rooms |
+| `selection_stress_test.js` | Selection/transform-focused load |
+
+Older one-off harnesses (`stress_test.js`, `stress_test2.js`, `hard_stress_test.js`, etc.)
+have been retired to `testing/legacy/` and are no longer maintained.
 
 ## Running Tests Locally
 
@@ -35,10 +42,10 @@ k6 run -e TARGET_URL=wss://top-draw.koyeb.app testing/medium_stress_test.js
 1. Go to the **Actions** tab in your GitHub repository
 2. Select **k6 Stress Tests** from the workflow list
 3. Click **Run workflow**
-4. Choose the test type:
-   - **medium** - Runs only the medium stress test (8 VUs)
-   - **hard** - Runs only the hard stress test (20 VUs)
-   - **all** - Runs all four test files
+4. Choose the test file from the dropdown (`.github/workflows/k6-stress.yml`):
+   `multiroom_stress_test` (default), `low_stress_test`, `low_ordered_stress_test`,
+   `medium_stress_test`, `medium_ordered_stress_test`, `high_stress_test`,
+   `high_ordered_stress_test`.
 
 The workflow will automatically target your Koyeb server (`wss://top-draw.koyeb.app`).
 

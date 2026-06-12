@@ -3,19 +3,15 @@
 import { ObjectId } from 'mongodb';
 import { getDB } from './db.js';
 import { getRequestUser, getBearerToken, getUserFromToken } from './authUser.js';
+import { corsHeaders, writeJson, readRequestBody } from './httpUtils.js';
 
-const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, PATCH, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-};
+const CORS_HEADERS = corsHeaders('GET, POST, PATCH, OPTIONS');
 
 const AVATAR_MAX_BYTES = 64 * 1024; // ~64KB after base64 encoding
 const PROFILE_BODY_LIMIT = 128 * 1024;
 
 function json(res, status, body) {
-  res.writeHead(status, { 'Content-Type': 'application/json', ...CORS_HEADERS });
-  res.end(JSON.stringify(body));
+  writeJson(res, status, body, CORS_HEADERS);
 }
 
 function stripSessionSuffix(username) {
@@ -23,21 +19,8 @@ function stripSessionSuffix(username) {
   return username.trim().replace(/-\d+$/, '');
 }
 
-async function readBody(req, maxBytes = PROFILE_BODY_LIMIT) {
-  return new Promise((resolve, reject) => {
-    let data = '';
-    let size = 0;
-    req.on('data', chunk => {
-      size += chunk.length;
-      if (size > maxBytes) {
-        reject(new Error('Payload too large'));
-        return;
-      }
-      data += chunk.toString();
-    });
-    req.on('end', () => resolve(data));
-    req.on('error', reject);
-  });
+function readBody(req, maxBytes = PROFILE_BODY_LIMIT) {
+  return readRequestBody(req, maxBytes);
 }
 
 /**
