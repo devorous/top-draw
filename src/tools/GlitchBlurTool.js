@@ -251,7 +251,17 @@ export class GlitchBlurTool extends Tool {
         .getContext('2d')
         .drawImage(sourceCanvas, bounds.x, bounds.y, bounds.width, bounds.height, 0, 0, bounds.width, bounds.height);
 
-      strokeImages.push({ layerIdx, bounds, cropCanvas });
+      // Carry the stroke's draw-time blend with the result. The receiver commits
+      // the glitch image asynchronously (after the PNG decodes), by which point
+      // the sender's live blendMode may already point at a later stroke — so the
+      // blend can't be re-read at commit time, it has to travel with the image.
+      strokeImages.push({
+        layerIdx,
+        bounds,
+        cropCanvas,
+        blendMode: active.blendMode || 'source-over',
+        blendBakeMode: active.blendBakeMode === 'existing' ? 'existing' : 'background'
+      });
     }
 
     return strokeImages;
@@ -304,7 +314,7 @@ export class GlitchBlurTool extends Tool {
     if (!strokeImages?.length || !this.board.app?.wsClient || !this.board.app?.connected) return;
     const maxDataUrlLength = 3 * 1024 * 1024;
 
-    for (const { layerIdx, bounds, cropCanvas } of strokeImages) {
+    for (const { layerIdx, bounds, cropCanvas, blendMode, blendBakeMode } of strokeImages) {
       // Validate bounds before broadcasting
       if (!Number.isFinite(bounds.x) || !Number.isFinite(bounds.y) ||
           !Number.isFinite(bounds.width) || !Number.isFinite(bounds.height) ||
@@ -336,7 +346,9 @@ export class GlitchBlurTool extends Tool {
           bounds.width,
           bounds.height,
           dataUrl,
-          layerIdx
+          layerIdx,
+          blendMode,
+          blendBakeMode
         );
       };
 

@@ -2750,6 +2750,22 @@ export class ReplayEngine {
         case T.CT:
           if (msg.l !== undefined) {
             const newTool = ToolNames[msg.l] || 'brush';
+
+            // Mirror the live `ct` handler (DrawingHandlers.js): switching away
+            // from select while a floating/pending selection is still dangling
+            // (no SEL_COMMIT/SEL_CANCEL was recorded) must clean it up, exactly
+            // as remote users do. Otherwise the stale selection stays stuck on
+            // the replay and flickers under subsequent drawing.
+            if (newTool !== 'select' && !user.isMaskMode && (user.floatingCanvas || user.pendingSelection)) {
+              if (user.floatingCanvas) {
+                this._remoteHandler.selectionHandler.handleSelectionCancel(user);
+              } else {
+                user.pendingSelection = null;
+                user.pendingLassoPath = null;
+                user.context?.clearRect(0, 0, this.width, this.height);
+              }
+            }
+
             user.setTool(newTool);
             if (newTool === 'blur' && user.context) {
               user.context.clearRect(0, 0, this.width, this.height);
@@ -2829,6 +2845,14 @@ export class ReplayEngine {
           if (msg.bm !== undefined) {
             user.setBlendMode(msg.bm);
             this._syncReplayTextPreview(user);
+          }
+          // Match the live `cbm` handler — it sets the bake mode too. Dropping it
+          // here leaves the bot on its default ('background'), so any later
+          // blend stroke (notably glitch, which begins its stroke late at
+          // GLITCH_RESULT) composites against nothing instead of overlaying the
+          // board content.
+          if (msg.bbm !== undefined) {
+            user.setBlendBakeMode(msg.bbm === 'background' ? 'background' : 'existing');
           }
           break;
 
@@ -2998,7 +3022,7 @@ export class ReplayEngine {
               // only attaches to an already-committed glitch stroke (which never
               // exists in replay), so it would buffer the result forever and the
               // glitch would never render.
-              const token = this._remoteHandler.queueRemoteGlitchImage(user, bounds, msg.ly, msg.seq);
+              const token = this._remoteHandler.queueRemoteGlitchImage(user, bounds, msg.ly, msg.seq, msg.bm || null, msg.bbm || null);
               if (token) this._remoteHandler.resolveRemoteGlitchImage(token, cached);
             }
           }

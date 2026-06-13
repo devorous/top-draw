@@ -907,8 +907,19 @@ export async function sanitizeMessage(data) {
 
   if (IMAGE_MESSAGE_TYPES.has(type)) {
     Object.assign(sanitized, sanitizeImageRect(data));
-    if (type === T.GLITCH_RESULT && data.ly !== undefined) {
-      sanitized.ly = clampInt(data.ly, 0, MAX_LAYER_INDEX, 0);
+    if (type === T.GLITCH_RESULT) {
+      if (data.ly !== undefined) {
+        sanitized.ly = clampInt(data.ly, 0, MAX_LAYER_INDEX, 0);
+      }
+      // The glitch stroke's draw-time blend travels with the result: it commits
+      // asynchronously on receivers (after the PNG decodes), so the blend can't
+      // be re-read from live user state at commit time. Mirror the CBM/MD blend
+      // sanitization. Without copying these here the whitelist drops them, and
+      // every receiver — live observer, replay recording, join catch-up tail —
+      // falls back to stale live blend (glitch renders raw over white instead of
+      // overlaying only existing pixels).
+      if (data.bm !== undefined) sanitized.bm = sanitizeBlendMode(data.bm);
+      if (data.bbm !== undefined) sanitized.bbm = sanitizeBlendBakeMode(data.bbm);
     }
     if (Array.isArray(data.cr)) {
       sanitized.cr = sanitizeFloatArray(data.cr, {

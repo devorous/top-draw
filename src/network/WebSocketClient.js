@@ -1378,6 +1378,11 @@ export class WebSocketClient {
           height: data.sh,
           layerIndex: data.ly,
           imageData: data.g,
+          // Draw-time blend of the glitch stroke (absent when source-over /
+          // background). Committing with this instead of the receiver's live
+          // blendMode keeps the blend correct despite the async image decode.
+          blendMode: data.bm,
+          blendBakeMode: data.bbm,
           // Authoritative global seq for this glitch layer's stroke. Without it,
           // observers commit the glitch at seq=0 (sorts above later strokes →
           // z-order/bake divergence). The drawer reconciles its matching local
@@ -2462,7 +2467,7 @@ export class WebSocketClient {
    * @param {number} height - Height of the blur region.
    * @param {string} dataUrl - Base64 PNG data URL of the blur result.
    */
-  broadcastGlitchResult(x, y, width, height, dataUrl, layerIndex) {
+  broadcastGlitchResult(x, y, width, height, dataUrl, layerIndex, blendMode, blendBakeMode) {
     const msg = {
       t: T.GLITCH_RESULT,
       sx: Math.round(x),
@@ -2472,6 +2477,15 @@ export class WebSocketClient {
       g: dataUrl
     };
     if (layerIndex !== undefined) msg.ly = layerIndex;
+    // Carry the stroke's draw-time blend. The result commits asynchronously on
+    // the receiver (after the image decodes), so its blend can't be re-derived
+    // from the sender's live blend state — it must travel with the result. Sent
+    // together (bm+bbm) only for non-trivial blends to keep the common case off
+    // the wire.
+    if (blendMode && blendMode !== 'source-over') {
+      msg.bm = blendMode;
+      msg.bbm = blendBakeMode === 'existing' ? 'existing' : 'background';
+    }
     this.send(msg);
   }
 

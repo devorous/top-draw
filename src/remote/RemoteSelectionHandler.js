@@ -686,19 +686,26 @@ export class RemoteSelectionHandler {
   handleSelectionMove(user, corners, sourceCrop = null) {
     if (!user.floatingCanvas || !user.selection) return;
 
-    // Signal animation loop: skip drawing while moves are arriving
-    // (mirrors local SelectTool's isDragging guard in startMarchingAnts)
-    user._selectionMoving = true;
+    // The `_selectionMoving` flag + wall-clock idle timer only exist to
+    // coordinate with the live marching-ants rAF loop (which skips redraws while
+    // moves stream in). That loop is disabled during replay, and replay draws
+    // each move preview synchronously, so the timer would just do off-clock work
+    // (and could clear the overlay at an arbitrary wall-clock moment mid-export).
+    if (!this._isReplayMode()) {
+      // Signal animation loop: skip drawing while moves are arriving
+      // (mirrors local SelectTool's isDragging guard in startMarchingAnts)
+      user._selectionMoving = true;
 
-    // Reset idle timer — after 100ms of no SEL_MOVE, resume animation loop
-    if (user._selectionIdleTimer) {
-      clearTimeout(user._selectionIdleTimer);
+      // Reset idle timer — after 100ms of no SEL_MOVE, resume animation loop
+      if (user._selectionIdleTimer) {
+        clearTimeout(user._selectionIdleTimer);
+      }
+      user._selectionIdleTimer = setTimeout(() => {
+        user._selectionMoving = false;
+        user._selectionIdleTimer = null;
+        this._scheduleRemoteSelectionMovePreview(user, true);
+      }, 100);
     }
-    user._selectionIdleTimer = setTimeout(() => {
-      user._selectionMoving = false;
-      user._selectionIdleTimer = null;
-      this._scheduleRemoteSelectionMovePreview(user, true);
-    }, 100);
 
     // Calculate movement delta before updating selection
     const oldX = user.selection.x;

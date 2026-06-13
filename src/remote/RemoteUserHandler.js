@@ -1003,9 +1003,9 @@ export class RemoteUserHandler {
     }
   }
 
-  queueRemoteGlitchImage(user, bounds, layerIndex = null, seq = 0) {
+  queueRemoteGlitchImage(user, bounds, layerIndex = null, seq = 0, blendMode = null, blendBakeMode = null) {
     if (!user || !bounds || bounds.width <= 0 || bounds.height <= 0) return null;
-    const token = { user, bounds, layerIndex, seq, resultCanvas: null, canceled: false };
+    const token = { user, bounds, layerIndex, seq, blendMode, blendBakeMode, resultCanvas: null, canceled: false };
     const queue = this.pendingGlitchImagesByUser.get(user.id) || [];
     queue.push(token);
     this.pendingGlitchImagesByUser.set(user.id, queue);
@@ -1049,7 +1049,7 @@ export class RemoteUserHandler {
       }
       if (!token.resultCanvas) break;
       queue.shift();
-      this.commitRemoteGlitchImage(token.user, token.resultCanvas, token.bounds, token.layerIndex, token.seq);
+      this.commitRemoteGlitchImage(token.user, token.resultCanvas, token.bounds, token.layerIndex, token.seq, token.blendMode, token.blendBakeMode);
     }
 
     if (queue.length === 0) {
@@ -1057,7 +1057,7 @@ export class RemoteUserHandler {
     }
   }
 
-  commitRemoteGlitchImage(user, resultCanvas, bounds, layerIndex = null, seq = 0) {
+  commitRemoteGlitchImage(user, resultCanvas, bounds, layerIndex = null, seq = 0, blendModeOverride = null, blendBakeModeOverride = null) {
     if (!user || !resultCanvas || !bounds || bounds.width <= 0 || bounds.height <= 0) return;
     const pendingUndoCount = this.pendingGlitchUndoByUser.get(user.id) || 0;
     if (pendingUndoCount > 0) {
@@ -1071,12 +1071,25 @@ export class RemoteUserHandler {
 
     const targetLayer = Number.isFinite(Number(layerIndex)) ? Number(layerIndex) : this.getStrokeLayer(user);
     const group = this.board.layerManager?.getLayerGroup(targetLayer);
+    // A glitch result authoritatively defines its own blend. Prefer the blend
+    // that travelled with the result (draw-time) over the user's live blendMode —
+    // the image decode is async, so by now the live blend may belong to a later
+    // stroke.
+    const blendMode = blendModeOverride || user.blendMode || 'source-over';
+    const blendBakeMode = blendBakeModeOverride || user.blendBakeMode;
+
     let active = group?.activeStrokeByUser?.get(user.id);
     if (!active) {
-      const blendMode = user.blendMode || 'source-over';
-      this.board.layerManager.beginUserStroke(targetLayer, user.id, blendMode, user.blendBakeMode);
+      this.board.layerManager.beginUserStroke(targetLayer, user.id, blendMode, blendBakeMode);
       this.board.applySelectionMaskClipForStroke(targetLayer, user.id);
       active = group?.activeStrokeByUser?.get(user.id);
+    } else {
+      // A stale/foreign active stroke is being reused — the begin branch (which
+      // sets blend) was skipped, so the glitch would inherit whatever blend that
+      // stroke had (usually source-over → opaque squares). Force the glitch's
+      // blend onto it so the commit composites correctly.
+      active.blendMode = blendMode;
+      active.blendBakeMode = blendBakeMode === 'background' ? 'background' : 'existing';
     }
     if (!active?.ctx) return;
 

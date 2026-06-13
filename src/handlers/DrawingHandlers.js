@@ -360,7 +360,7 @@ export function setupDrawingHandlers(wrapHandler, app) {
     }
 
     const bounds = { x: data.x, y: data.y, width: data.width, height: data.height };
-    const pendingGlitch = remoteUserHandler.queueRemoteGlitchImage(user, bounds, data.layerIndex, data.seq || 0);
+    const pendingGlitch = remoteUserHandler.queueRemoteGlitchImage(user, bounds, data.layerIndex, data.seq || 0, data.blendMode || null, data.blendBakeMode || null);
     if (!pendingGlitch) return;
 
     const img = new Image();
