@@ -85,6 +85,13 @@ class TimeMachineState {
   previewData = $state(null);
   /** true when the visible replay canvas is showing a low-res cached frame rather than full replay output */
   isPreviewMode = $state(false);
+  /**
+   * Playback trim range (absolute timestamps). null = untrimmed edge.
+   * Playback starts at the trim start and pauses at the trim end; scrubbing
+   * stays free so the user can still inspect outside the trimmed window.
+   */
+  trimStart = $state(null);
+  trimEnd = $state(null);
   /** true while a time-lapse video export is in progress */
   isExportingVideo = $state(false);
   /** 0..1 export progress */
@@ -488,6 +495,7 @@ class TimeMachineState {
     this.sessionStart = rec.startedAt;
     this.sessionEnd = rec.endedAt ?? Date.now();
     this.currentTime = this.sessionEnd;
+    this.clearTrimRange();
 
     // Asset resolver wires the recording's asset pool into the replay engine.
     // ReplayEngine pipes EVERY image source through this resolver — including
@@ -595,6 +603,7 @@ class TimeMachineState {
     this.isReviewing = false;
     this.isPlaying = false;
     this.playbackRate = 1;
+    this.clearTrimRange();
     this.isLoading = false;
     this.checkpoints = [];
     this.currentTime = 0;
@@ -872,6 +881,48 @@ class TimeMachineState {
     this.seek(target);
   }
 
+  // ── playback trim range ─────────────────────────────────────────────────────
+
+  /** Trim start clamped into the session (sessionStart when untrimmed). */
+  get effectiveTrimStart() {
+    const start = this.sessionStart || 0;
+    if (this.trimStart == null) return start;
+    return Math.max(start, Math.min(this.trimStart, this.sessionEnd));
+  }
+
+  /** Trim end clamped into the session (sessionEnd when untrimmed). */
+  get effectiveTrimEnd() {
+    if (this.trimEnd == null) return this.sessionEnd;
+    return Math.max(this.sessionStart || 0, Math.min(this.trimEnd, this.sessionEnd));
+  }
+
+  get hasTrimRange() {
+    return this.trimStart != null || this.trimEnd != null;
+  }
+
+  /**
+   * Set the playback trim range. Either edge may be null to mean "untrimmed".
+   * Edges at (or past) the session bounds collapse back to null so the live
+   * tick can keep extending sessionEnd without dragging a stale trim along.
+   * @param {number|null} start
+   * @param {number|null} end
+   */
+  setTrimRange(start, end) {
+    const sStart = this.sessionStart || 0;
+    let s = Number.isFinite(start) ? this._clampTimestamp(start) : null;
+    let e = Number.isFinite(end) ? this._clampTimestamp(end) : null;
+    if (s != null && e != null && s > e) [s, e] = [e, s];
+    if (s != null && s <= sStart) s = null;
+    if (e != null && e >= this.sessionEnd) e = null;
+    this.trimStart = s;
+    this.trimEnd = e;
+  }
+
+  clearTrimRange() {
+    this.trimStart = null;
+    this.trimEnd = null;
+  }
+
   _clampTimestamp(timestamp) {
     return Math.max(
       this.sessionStart || 0,
@@ -930,7 +981,17 @@ class TimeMachineState {
   }
 
   play() {
-    if (!this.isOpen || this.isPlaying || this.currentTime >= this.sessionEnd) return;
+    if (!this.isOpen || this.isPlaying) return;
+    const trimStart = this.effectiveTrimStart;
+    const trimEnd = this.effectiveTrimEnd;
+    if (this.currentTime >= trimEnd) {
+      // At the true tape end with no trim there's nothing to play. With a trim,
+      // pressing play again restarts the trimmed section from its start.
+      if (!this.hasTrimRange) return;
+      this.currentTime = trimStart;
+    } else if (this.hasTrimRange && this.currentTime < trimStart) {
+      this.currentTime = trimStart;
+    }
     this.isPlaying = true;
     this._playbackStartPerf = performance.now();
     this._playbackStartOffset = this.currentTime;
@@ -1198,6 +1259,7 @@ class TimeMachineState {
     }
 
     this.currentTime = this.sessionEnd;
+    this.clearTrimRange();
     this.isOpen = true;
     this._startLiveTick();
 
@@ -1686,10 +1748,12 @@ class TimeMachineState {
     if (!this.isPlaying) return;
 
     const elapsed = (now - this._playbackStartPerf) * this.playbackRate;
-    const targetTime = Math.min(this._playbackStartOffset + elapsed, this.sessionEnd);
+    // Playback is bounded by the trim range; an untrimmed tape ends at sessionEnd.
+    const playEnd = this.effectiveTrimEnd;
+    const targetTime = Math.min(this._playbackStartOffset + elapsed, playEnd);
 
-    if (targetTime >= this.sessionEnd) {
-      await this.seek(this.sessionEnd, { suppressPlaybackPause: true });
+    if (targetTime >= playEnd) {
+      await this.seek(playEnd, { suppressPlaybackPause: true });
       this.pause();
       return;
     }

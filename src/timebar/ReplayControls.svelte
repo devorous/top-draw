@@ -4,13 +4,15 @@
   // mini viewer modal (ReplayMiniViewer) and the History → Recent embedded
   // player (SnapshotMenu). Styled after the full-board player.
   //
-  // Layout: play / elapsed / scrubber / total on the first row, then
-  // [Save .ddraw] [Render] [speed] [Select region] … [Undo to here] [Exit].
+  // Layout: play / elapsed / timeline (playhead + trim brackets) / total on
+  // the first row, then [speed] [trim chip] | [Save .ddraw] [Render]
+  // [Select region] … [Undo to here] [Exit].
   // Region selection, the time-lapse Render dialog and the undo-to-here flow
   // all live here so hosts only provide the canvas + exit/close behavior.
   import { TimeMachine } from './TimeMachine.svelte.js';
   import { appState } from '../state.svelte.js';
   import TimeLapseDialog from './TimeLapseDialog.svelte';
+  import ReplayTimeline from './ReplayTimeline.svelte';
 
   /**
    * @type {{
@@ -40,6 +42,11 @@
   let tmExporting = $derived(TimeMachine.isExportingVideo);
   let tmExportProgress = $derived(TimeMachine.videoExportProgress);
 
+  let tmTrimStart = $derived(TimeMachine.effectiveTrimStart);
+  let tmTrimEnd = $derived(TimeMachine.effectiveTrimEnd);
+  let tmTrimmed = $derived(TimeMachine.hasTrimRange);
+  let tmRate = $derived(TimeMachine.playbackRate);
+
   let elapsedLabel = $derived(formatClock(Math.max(0, tmCurrent - tmStart)));
   let totalLabel = $derived(formatClock(Math.max(0, tmEnd - tmStart)));
 
@@ -53,33 +60,10 @@
     else TimeMachine.play();
   }
 
-  // ── Scrubbing via the range input ───────────────────────────────────────────
-  let scrubbing = false;
-
-  function onScrubInput(e) {
-    const t = Number(e.currentTarget.value);
-    if (!scrubbing) { scrubbing = true; TimeMachine.beginScrub(); }
-    TimeMachine.scrubTo(t);
-  }
-
-  function onScrubChange(e) {
-    const t = Number(e.currentTarget.value);
-    TimeMachine.endScrub(t);
-    scrubbing = false;
-  }
-
   // ── Playback speed ──────────────────────────────────────────────────────────
-  // Stepped slider over fixed stops; TimeMachine.stop() resets the rate to 1×
-  // so every new replay session starts at real time.
+  // Segmented control over fixed stops; TimeMachine.stop() resets the rate to
+  // 1× so every new replay session starts at real time.
   const RATE_STOPS = [0.5, 1, 2, 4, 8];
-  let rateIndex = $derived.by(() => {
-    const i = RATE_STOPS.indexOf(TimeMachine.playbackRate);
-    return i >= 0 ? i : 1;
-  });
-
-  function onRateInput(e) {
-    TimeMachine.setPlaybackRate(RATE_STOPS[Number(e.currentTarget.value)]);
-  }
 
   // ── Actions ─────────────────────────────────────────────────────────────────
   let timeLapseDialogOpen = $state(false);
@@ -236,16 +220,17 @@
     {/if}
   </button>
   <span class="rp-time">{elapsedLabel}</span>
-  <input
-    class="rp-scrubber"
-    type="range"
+  <ReplayTimeline
     min={tmStart}
     max={tmEnd}
     value={tmCurrent}
-    step="1"
-    oninput={onScrubInput}
-    onchange={onScrubChange}
-    aria-label="Replay scrubber"
+    trimStart={tmTrimStart}
+    trimEnd={tmTrimEnd}
+    trimmed={tmTrimmed}
+    onScrubStart={() => TimeMachine.beginScrub()}
+    onScrub={(t) => TimeMachine.scrubTo(t)}
+    onScrubEnd={(t) => TimeMachine.endScrub(t)}
+    onTrimChange={(s, e) => TimeMachine.setTrimRange(s, e)}
   />
   <span class="rp-time rp-time-total">{totalLabel}</span>
 </div>
@@ -260,23 +245,26 @@
   <!-- Local replays are always "reviewing"; server replays hide the actions
        while caught up to the live edge (transport-only, as before). -->
   <div class="rp-actions">
+    <div class="rp-speed" role="group" aria-label="Playback speed" title="Playback speed">
+      {#each RATE_STOPS as rate}
+        <button
+          class="rp-speed-stop"
+          class:active={tmRate === rate}
+          onclick={() => TimeMachine.setPlaybackRate(rate)}
+          aria-pressed={tmRate === rate}
+        >{rate}×</button>
+      {/each}
+    </div>
+    {#if tmTrimmed}
+      <button class="rp-action rp-trim-chip" onclick={() => TimeMachine.clearTrimRange()} title="Playback trimmed to this window — click to clear">
+        {formatClock(tmTrimStart - tmStart)}–{formatClock(tmTrimEnd - tmStart)}
+        <span class="rp-trim-x">✕</span>
+      </button>
+    {/if}
     {#if TimeMachine.isLocalReplay}
+      <span class="rp-divider"></span>
       <button class="rp-action" onclick={saveReplay} title="Save this replay as a .ddraw file">Save .ddraw</button>
       <button class="rp-action accent" onclick={openRenderDialog} title={regionRect ? 'Render this region as a time-lapse' : 'Render time-lapse'}>Render</button>
-    {/if}
-    <div class="rp-speed" title="Playback speed">
-      <input
-        type="range"
-        min="0"
-        max={RATE_STOPS.length - 1}
-        step="1"
-        value={rateIndex}
-        oninput={onRateInput}
-        aria-label="Playback speed"
-      />
-      <span class="rp-speed-label">{RATE_STOPS[rateIndex]}×</span>
-    </div>
-    {#if TimeMachine.isLocalReplay}
       <button
         class="rp-action"
         class:active={regionSelecting || !!regionRect}
@@ -362,7 +350,6 @@
     font-size: 12px; color: #aaa; font-variant-numeric: tabular-nums; min-width: 40px;
   }
   .rp-time-total { text-align: right; }
-  .rp-scrubber { flex: 1; min-width: 0; accent-color: var(--accent-primary, #00d4aa); cursor: pointer; }
 
   /* ── Actions ────────────────────────────────────────────────────────────── */
   .rp-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -379,12 +366,35 @@
   .rp-action.danger { border-color: rgba(220, 53, 69, 0.4); color: #ff6b6b; }
   .rp-action.danger:hover { background: rgba(220, 53, 69, 0.25); color: #fff; }
 
-  .rp-speed { display: flex; align-items: center; gap: 6px; }
-  .rp-speed input[type="range"] { width: 84px; accent-color: var(--accent-primary, #00d4aa); cursor: pointer; }
-  .rp-speed-label {
-    font-size: 12px; font-weight: 600; color: #bbb;
-    font-variant-numeric: tabular-nums; min-width: 30px;
+  /* Segmented playback-speed control. */
+  .rp-speed {
+    display: flex; align-items: center; gap: 2px; padding: 2px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 7px;
   }
+  .rp-speed-stop {
+    background: transparent; border: none; color: #999; cursor: pointer;
+    font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums;
+    padding: 4px 7px; border-radius: 5px; transition: all 0.15s; white-space: nowrap;
+  }
+  .rp-speed-stop:hover { color: #fff; background: rgba(255, 255, 255, 0.1); }
+  .rp-speed-stop.active {
+    background: var(--accent-primary, #00d4aa); color: #fff;
+  }
+
+  .rp-divider {
+    width: 1px; height: 20px; background: rgba(255, 255, 255, 0.12); flex-shrink: 0;
+  }
+
+  .rp-trim-chip {
+    border-color: var(--accent-primary, #00d4aa);
+    color: var(--accent-primary, #00d4aa);
+    font-variant-numeric: tabular-nums;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .rp-trim-chip:hover { color: #fff; border-color: rgba(220, 53, 69, 0.6); }
+  .rp-trim-x { font-size: 10px; opacity: 0.8; }
 
   /* ── Export progress ────────────────────────────────────────────────────── */
   .rp-export-progress {
