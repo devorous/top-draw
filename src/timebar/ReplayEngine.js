@@ -2494,12 +2494,15 @@ export class ReplayEngine {
 
   /**
    * Internal helper for replay action execution.
+   * `onProgress(i)` reports the index of the last fully-applied action at each
+   * yield point (and once after the loop), so a caller whose batch gets
+   * cancelled mid-way knows exactly how far the engine state advanced.
    * @param {Array<{timestamp: number, msg: Object}>} actions
    * @param {number} upToTimestamp
-   * @param {{rebaseSnapshot: boolean, shouldCancel?: () => boolean}} options
+   * @param {{rebaseSnapshot: boolean, shouldCancel?: () => boolean, onProgress?: (lastAppliedIndex: number) => void}} options
    * @private
    */
-  async _runActionBatch(actions, upToTimestamp, { rebaseSnapshot, shouldCancel }) {
+  async _runActionBatch(actions, upToTimestamp, { rebaseSnapshot, shouldCancel, onProgress }) {
     if (shouldCancel?.()) return false;
     if (rebaseSnapshot) {
       // Whole canvas changes — discard any in-flight dirty rects and force a
@@ -2532,8 +2535,10 @@ export class ReplayEngine {
     ]);
     if (shouldCancel?.()) return false;
 
+    let lastProcessed = -1;
     for (let i = 0; i < actions.length; i++) {
       if ((i & 63) === 0) {
+        if (lastProcessed >= 0) onProgress?.(lastProcessed);
         await new Promise((resolve) => setTimeout(resolve, 0));
         if (shouldCancel?.()) return false;
       }
@@ -2552,8 +2557,10 @@ export class ReplayEngine {
       }
 
       await this._processAction(action.msg, action.timestamp);
+      lastProcessed = i;
     }
     this._currentReplayTs = upToTimestamp;
+    if (lastProcessed >= 0) onProgress?.(lastProcessed);
     if (shouldCancel?.()) return false;
 
     this._compositeOutput();

@@ -29,6 +29,18 @@ const VISUAL_CHECKPOINT_MAX_EDGE = 320;
 const VISUAL_CHECKPOINT_QUALITY = 0.6;
 /** Decoded ImageBitmap LRU size. Recent scrub frames stay hot; rest live as compressed blobs. */
 const VISUAL_CHECKPOINT_DECODED_CACHE = 12;
+/**
+ * A forward seek rebuilds from a checkpoint (instead of incrementally replaying
+ * every delta from the current position) when doing so skips at least this much
+ * tape — the snapshot reload has a fixed cost, so tiny hops stay incremental.
+ */
+const FORWARD_SEEK_REBUILD_GAIN_MS = 5000;
+/**
+ * Forward scrubs farther than this from the applied position show the cached
+ * low-res thumbnail (with the settle upgrade) instead of replaying live, same
+ * as backward scrubs — keeps long forward drags responsive.
+ */
+const FORWARD_SCRUB_PREVIEW_MIN_MS = 5000;
 const DYN_CHECKPOINT_DEFAULT_INTERVAL_MS = 3000;
 const DYN_CHECKPOINT_SCRUB_INTERVAL_MS = 500;
 const DYN_CHECKPOINT_MAX_COUNT = 24;
@@ -135,6 +147,15 @@ class TimeMachineState {
   _seekGeneration = 0;
   _pendingSeekTimestamp = null;
   _lastAppliedTimestamp = null;
+  /**
+   * Index into rec.deltas of the last applied delta, paired with the timestamp
+   * below. Only trusted while `_lastAppliedDeltaIdxTs === _lastAppliedTimestamp`
+   * — code that assigns `_lastAppliedTimestamp` directly (resets, build paths)
+   * automatically invalidates it. Lets incremental seeks slice the delta array
+   * exactly (no O(n) rescan, no double-apply on timestamp collisions).
+   */
+  _lastAppliedDeltaIdx = null;
+  _lastAppliedDeltaIdxTs = null;
   _lastSeekLogAt = 0;
   _scrubLastRequestedTimestamp = null;
   _scrubLastSeekAt = 0;
@@ -755,16 +776,20 @@ class TimeMachineState {
     const isReverse = clamped < previous;
     this._scrubLastRequestedTimestamp = clamped;
 
-    // Forward scrubs from the engine's current applied state take the
+    // Short forward scrubs from the engine's current applied state take the
     // incremental appendActions path (no snapshot reload, no re-replay from a
-    // checkpoint) — crisp and usually fast enough to keep up with the drag.
-    // Skip the blurred cached preview so the user sees real frames as they
-    // move forward instead of a "Loading…" overlay.
+    // checkpoint) — crisp and fast enough to keep up with the drag. Skip the
+    // blurred cached preview so the user sees real frames as they move
+    // forward. Long forward jumps fall through to the thumbnail path like
+    // backward scrubs do: a live replay of a multi-minute jump can't keep up
+    // with a drag, so show the cached frame and let the settle upgrade (or
+    // the release seek) render the crisp frame.
     const canIncrementForward =
       this._source === 'local' &&
       !isReverse &&
       this._lastAppliedTimestamp != null &&
-      clamped >= this._lastAppliedTimestamp;
+      clamped >= this._lastAppliedTimestamp &&
+      clamped - this._lastAppliedTimestamp <= FORWARD_SCRUB_PREVIEW_MIN_MS;
 
     if (
       this._source === 'local' &&
@@ -1353,7 +1378,7 @@ class TimeMachineState {
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
 
-    this._lastAppliedTimestamp = end;
+    this._setLastApplied(end, deltaIdx === deltas.length ? deltas.length - 1 : null);
   }
 
   async _captureVisualCheckpoint(timestamp) {
@@ -1433,31 +1458,43 @@ class TimeMachineState {
     const rec = this._localRecording;
     if (!rec || !this._replayEngine) return false;
     const seekStart = performance.now();
+    const deltas = rec.deltas ?? [];
     const isStale = () =>
       seekGeneration != null &&
       (seekGeneration !== this._seekGeneration || !this.isOpen || !this.isReviewing);
 
-    // Fast path: forward seek within the same session — the engine is already
-    // at _lastAppliedTimestamp, so we only need to push the new deltas through
-    // appendActions (no snapshot reload, no re-replay from the checkpoint).
-    // Anything else (first seek, backward scrub, source change) falls through
-    // to the full rebuild below.
+    // Candidate starting points for replay: the engine's current state
+    // (incremental append) vs the best checkpoint at or before the target.
+    // Forward seeks must consider checkpoints too — incrementally replaying a
+    // +10min jump means pushing minutes of deltas through the engine even
+    // though an intra-checkpoint sits ≤30s before the target.
+    const staticCp = this._findCheckpointBefore(timestamp);
+    const dynCp = this._findDynCheckpointBefore(timestamp);
+    const useDyn = dynCp && (!staticCp || dynCp.ts > staticCp.ts);
+    const cpTs = useDyn ? dynCp.ts : (staticCp?.ts ?? rec.startedAt);
+
     const canIncrement =
       this._lastAppliedTimestamp != null &&
-      timestamp >= this._lastAppliedTimestamp;
+      timestamp >= this._lastAppliedTimestamp &&
+      cpTs - this._lastAppliedTimestamp <= FORWARD_SEEK_REBUILD_GAIN_MS;
 
     if (canIncrement) {
       const lastTs = this._lastAppliedTimestamp;
-      const actions = [];
-      for (const d of rec.deltas) {
-        if (d.ts <= lastTs) continue;
-        if (d.ts > timestamp) break;
-        actions.push({ timestamp: d.ts, msg: d.msg });
-      }
-      const applied = await this._replayEngine.appendActions(actions, timestamp, { shouldCancel: isStale });
+      const trustedIdx = this._trustedDeltaIdx();
+      const startIdx = trustedIdx != null
+        ? trustedIdx + 1
+        : this._lowerBoundDelta(deltas, lastTs + 1);
+      const actions = this._sliceDeltaActions(deltas, startIdx, timestamp);
+      const applied = await this._replayEngine.appendActions(actions, timestamp, {
+        shouldCancel: isStale,
+        // On cancellation the engine keeps whatever it already applied, so
+        // record progress as it lands — the retry then continues from there
+        // instead of double-applying the whole batch from a stale position.
+        onProgress: (k) => this._recordSeekProgress(actions, k),
+      });
       if (!applied || isStale()) return false;
 
-      this._lastAppliedTimestamp = timestamp;
+      this._setLastApplied(timestamp, actions.length > 0 ? actions[actions.length - 1]._idx : startIdx - 1);
       this._drawToReplayCanvas();
       this.previewData = true;
 
@@ -1473,35 +1510,39 @@ class TimeMachineState {
       return true;
     }
 
-    // Backward-scrub path. Prefer a dynamic in-engine checkpoint over the
-    // static intra-checkpoint when one exists later in the tape — that's the
-    // whole reason the cache exists. Falls back gracefully if none is closer.
-    const staticCp = this._findCheckpointBefore(timestamp);
-    const dynCp = this._findDynCheckpointBefore(timestamp);
-    const useDyn = dynCp && (!staticCp || dynCp.ts > staticCp.ts);
-
-    let cpTs;
+    // Rebuild path. Prefer a dynamic in-engine checkpoint over the static
+    // intra-checkpoint when one exists later in the tape — that's the whole
+    // reason the cache exists. Falls back gracefully if none is closer.
+    //
+    // Invalidate the position tracker before loading: if this rebuild gets
+    // cancelled the engine no longer matches the old position, and a stale
+    // tracker would let a later incremental seek append onto wrong state.
+    // onProgress below re-establishes it as soon as actions start landing.
+    this._setLastApplied(null, null);
     let usedDyn = false;
+    let startIdx;
     if (useDyn) {
       await this._replayEngine.loadDynamicCheckpoint(dynCp);
-      cpTs = dynCp.ts;
       usedDyn = true;
+      // Dyn checkpoints were captured right after applying a known delta, so
+      // resume exactly after it; fall back to "first delta later than cpTs"
+      // (those at cpTs were applied before capture).
+      startIdx = Number.isInteger(dynCp.deltaIdx)
+        ? dynCp.deltaIdx + 1
+        : this._lowerBoundDelta(deltas, cpTs + 1);
     } else {
-      cpTs = staticCp?.ts ?? rec.startedAt;
       const snapshot = staticCp?.id === 'opening' || !staticCp
         ? rec.openingSnapshot
         : rec.intraCheckpoints[Number(staticCp.id.slice('intra_'.length))]?.snapshot
           ?? rec.openingSnapshot;
       await this._replayEngine.loadSnapshot(snapshot);
+      // Static snapshots are captured on a wall-clock timer; a delta at
+      // exactly cpTs is ambiguous, so re-apply it (matches prior behavior).
+      startIdx = this._lowerBoundDelta(deltas, cpTs);
     }
     if (isStale()) return false;
 
-    const actions = [];
-    for (const d of rec.deltas) {
-      if (d.ts < cpTs) continue;
-      if (d.ts > timestamp) break;
-      actions.push({ timestamp: d.ts, msg: d.msg });
-    }
+    const actions = this._sliceDeltaActions(deltas, startIdx, timestamp);
 
     // Always call processActions — even with no actions, the rebase-snapshot
     // path inside _runActionBatch paints the loaded snapshot pixels into
@@ -1509,10 +1550,13 @@ class TimeMachineState {
     // actions is empty (e.g. seeking to a position right at an intra
     // checkpoint with nothing after it) leaves the replay engine's
     // LayerManager blank.
-    const applied = await this._replayEngine.processActions(actions, timestamp, { shouldCancel: isStale });
+    const applied = await this._replayEngine.processActions(actions, timestamp, {
+      shouldCancel: isStale,
+      onProgress: (k) => this._recordSeekProgress(actions, k),
+    });
     if (!applied || isStale()) return false;
 
-    this._lastAppliedTimestamp = timestamp;
+    this._setLastApplied(timestamp, actions.length > 0 ? actions[actions.length - 1]._idx : startIdx - 1);
     this._drawToReplayCanvas();
     this.previewData = true;
 
@@ -1526,6 +1570,56 @@ class TimeMachineState {
     this._maybeLogSeekTelemetry();
     this._maybeCaptureDynCheckpoint(timestamp);
     return true;
+  }
+
+  /**
+   * Build the engine action list for deltas[startIdx..] with ts <= timestamp.
+   * Each action carries its source index (`_idx`) so progress reporting can
+   * track the applied position exactly.
+   * @private
+   */
+  _sliceDeltaActions(deltas, startIdx, timestamp) {
+    const actions = [];
+    for (let i = Math.max(0, startIdx); i < deltas.length; i++) {
+      const d = deltas[i];
+      if (d.ts > timestamp) break;
+      actions.push({ timestamp: d.ts, msg: d.msg, _idx: i });
+    }
+    return actions;
+  }
+
+  /** First index in deltas (sorted ascending by ts) with ts >= target. @private */
+  _lowerBoundDelta(deltas, target) {
+    let lo = 0;
+    let hi = deltas.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (deltas[mid].ts < target) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
+  }
+
+  /** Record both halves of the applied-position tracker atomically. @private */
+  _setLastApplied(ts, idx = null) {
+    this._lastAppliedTimestamp = ts;
+    this._lastAppliedDeltaIdx = idx;
+    this._lastAppliedDeltaIdxTs = idx != null ? ts : null;
+  }
+
+  /** The applied delta index, or null when it can't be trusted. @private */
+  _trustedDeltaIdx() {
+    return this._lastAppliedDeltaIdx != null &&
+      this._lastAppliedTimestamp != null &&
+      this._lastAppliedDeltaIdxTs === this._lastAppliedTimestamp
+      ? this._lastAppliedDeltaIdx
+      : null;
+  }
+
+  /** onProgress handler: mark actions[k] as the last applied delta. @private */
+  _recordSeekProgress(actions, k) {
+    const a = actions[k];
+    if (a) this._setLastApplied(a.timestamp, a._idx);
   }
 
   /**
@@ -1551,6 +1645,10 @@ class TimeMachineState {
       if (u?.mousedown) return;
     }
 
+    // The delta index the engine is parked on right now — read synchronously
+    // so the async capture below can't pair it with a different state.
+    const deltaIdx = this._lastAppliedTimestamp === timestamp ? this._trustedDeltaIdx() : null;
+
     this._dynCheckpointInFlight = true;
     this._replayEngine.captureDynamicCheckpoint()
       .then((cp) => {
@@ -1564,9 +1662,9 @@ class TimeMachineState {
         const existingIdx = this._dynCheckpoints.findIndex((e) => e.ts === timestamp);
         if (existingIdx >= 0) {
           this._dynCheckpoints[existingIdx].bitmap?.close?.();
-          this._dynCheckpoints[existingIdx] = { ts: timestamp, ...cp };
+          this._dynCheckpoints[existingIdx] = { ts: timestamp, deltaIdx, ...cp };
         } else {
-          this._dynCheckpoints.push({ ts: timestamp, ...cp });
+          this._dynCheckpoints.push({ ts: timestamp, deltaIdx, ...cp });
           this._dynCheckpoints.sort((a, b) => a.ts - b.ts);
         }
         this._evictDynCheckpointsAround(timestamp);

@@ -735,14 +735,7 @@
     <!-- Header -->
     <div class="snap-header">
       <div class="snap-header-left">
-        <span class="snap-title">History</span>
-        <!-- Server-history tab removed: server-side replay is gated off
-             (ENABLE_SERVER_REPLAY_DB) and returns an empty timeline. Recent
-             (local rolling tape) is the only live history view. -->
-        <div class="snap-tabs" role="tablist">
-          <button class="snap-tab" class:active={view === 'recent'} role="tab" aria-selected={view === 'recent'}
-            onclick={() => switchView('recent')} onpointerup={(e) => e.pointerType !== 'mouse' && switchView('recent')}>Recent</button>
-        </div>
+        <span class="snap-title">Time Machine</span>
       </div>
       <div class="snap-header-right">
         {#if view === 'snapshots'}
