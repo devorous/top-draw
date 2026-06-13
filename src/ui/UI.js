@@ -584,6 +584,8 @@ menuBtn: document.getElementById('menuBtn'),
       cursorStyleContainer: document.getElementById('cursor-style-container'),
       cursorStyleSelect: document.getElementById('cursorStyleSelect'),
       blurRadiusContainer: document.getElementById('blur-radius'),
+      glitchFastPreviewContainer: document.getElementById('glitch-fast-preview'),
+      glitchFastPreview: document.getElementById('glitchFastPreview'),
       confettiParticlesContainer: document.getElementById('confetti-particles'),
       confettiParticleSizeContainer: document.getElementById('confetti-particle-size'),
       confettiSizeVariationContainer: document.getElementById('confetti-size-variation'),
@@ -1285,6 +1287,7 @@ menuBtn: document.getElementById('menuBtn'),
     opacityContainer.style.display = 'block';
 
     if (blurRadiusContainer) blurRadiusContainer.style.display = 'none';
+    if (this.elements.glitchFastPreviewContainer) this.elements.glitchFastPreviewContainer.style.display = 'none';
     if (selectionModeOptions) selectionModeOptions.style.display = 'none';
     if (eraserModeOptions) eraserModeOptions.style.display = 'none';
     if (inkdropperModeOptions) inkdropperModeOptions.style.display = 'none';
@@ -1385,6 +1388,7 @@ menuBtn: document.getElementById('menuBtn'),
         brushSpacing.style.display = 'block';
         smoothingContainer.style.display = 'none';
         if (blurRadiusContainer) blurRadiusContainer.style.display = 'block';
+        if (this.elements.glitchFastPreviewContainer) this.elements.glitchFastPreviewContainer.style.display = 'block';
         break;
 
       case 'blur':

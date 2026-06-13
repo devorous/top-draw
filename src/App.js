@@ -270,6 +270,10 @@ export class DrawingApp {
     };
 
     this.pressureEnabled = true;
+    // When true, the glitch-blur tool skips the per-stamp WASM render while
+    // drawing (showing only a grey placeholder) and renders the full result on
+    // pointerUp. Local-only preference; reduces lag on large/long strokes.
+    this.glitchFastPreview = false;
     this.tabletDetected = false;
     this.tabletThinningWarningShown = false;
 
@@ -1762,6 +1766,13 @@ export class DrawingApp {
       this.clearActiveCustomPreset();
       this.updateCurrentToolPresetSettings();
     });
+
+    // Glitch-blur "Fast preview" toggle — defer the heavy WASM render to release.
+    if (elements.glitchFastPreview) {
+      elements.glitchFastPreview.addEventListener('change', () => {
+        this.glitchFastPreview = elements.glitchFastPreview.checked;
+      });
+    }
 
     // Thinning enable/disable checkbox
     if (elements.thinningEnabled) {

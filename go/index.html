@@ -1104,6 +1104,15 @@
                   <input autocomplete="off" type="range" min="1" max="25" value="5" step="1" class="slider blurRadius" aria-label="Blur radius">
                 </div>
 
+                <div class="sliderContainer" id="glitch-fast-preview" style="display: none;">
+                  <div class="sliderLabel">
+                    <label class="pressureToggle" title="Skip the live glitch render while drawing — show a light placeholder and only render the result on release. Reduces lag on large brushes.">
+                      <span>Fast preview</span>
+                      <input type="checkbox" id="glitchFastPreview">
+                    </label>
+                  </div>
+                </div>
+
                 <div class="sliderContainer" id="brush-opacity" style="display: none;">
                   <div class="sliderLabel">Opacity <span class="sliderValue" id="opacityValue">100%</span><button class="lock-btn" id="opacityLock" title="Lock opacity for current tool"><img src="/images/lock-open.svg" alt="unlock"></button></div>
                   <input autocomplete="off" type="range" min="0" max="100" value="100" class="slider opacity" aria-label="Opacity">

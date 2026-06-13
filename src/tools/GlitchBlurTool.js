@@ -12,6 +12,7 @@ export class GlitchBlurTool extends Tool {
     this.lastStampPos = new Map();
     this.strokePoints = new Map(); // userId -> [{x, y}, ...]
     this.snapshotCanvases = new Map(); // userId -> canvas
+    this.deferredJobs = new Map();    // userId -> [job, ...] (fast-preview worker queue)
     this._prevGlitchSetting = false;
   }
 
@@ -39,7 +40,7 @@ export class GlitchBlurTool extends Tool {
     }
   }
 
-  _endTargetLayerStrokes(user, userId) {
+  _endTargetLayerStrokes(user, userId, contentLayers = null) {
     const timestamp = Date.now();
     // When we're the local connected drawer, each committed glitch stroke is
     // optimistic (seq=0) and will be reconciled by its layer's GLITCH_RESULT
@@ -50,6 +51,19 @@ export class GlitchBlurTool extends Tool {
     const tagGlitch = user === this.board.app?.self && !!this.board.app?.connected;
     for (const layerIdx of this._getTargetLayers()) {
       this.board.releaseSelectionMaskClipForStroke?.(layerIdx, userId);
+
+      // A glitch stroke begins on every target layer, but layers with nothing
+      // under the brush produce an empty (fully transparent) stroke. Committing
+      // those would push phantom undo records — so one glitch stroke would take
+      // several undo presses to remove. Discard the empty layers instead; only
+      // layers that actually received glitch pixels (and were broadcast) become
+      // undoable. contentLayers is null only when we couldn't scan (non-self),
+      // in which case we keep the original commit-all behaviour.
+      if (contentLayers && !contentLayers.has(layerIdx)) {
+        this.board.layerManager?.cancelUserStroke(layerIdx, userId);
+        continue;
+      }
+
       const extra = tagGlitch ? { timestamp, pendingCommitEcho: 'glitch' } : { timestamp };
       this.board.layerManager?.commitUserStroke(layerIdx, userId, extra);
     }
@@ -85,11 +99,20 @@ export class GlitchBlurTool extends Tool {
     }
     this.lastStampPos.clear();
     this.snapshotCanvases.clear();
+    this._cancelAllDeferredJobs();
     // Clear any lingering preview
     if (this.board.topCtx) {
       this.board.topCtx.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
     }
     this._activeUser = null;
+  }
+
+  /** Marks every queued worker job cancelled so late results are ignored. */
+  _cancelAllDeferredJobs() {
+    for (const jobs of this.deferredJobs.values()) {
+      for (const job of jobs) job.cancelled = true;
+    }
+    this.deferredJobs.clear();
   }
 
   _getTargetLayer(user) {
@@ -131,7 +154,6 @@ export class GlitchBlurTool extends Tool {
 
   onPointerDown(user, pos) {
     this._activeUser = user;
-    const targetLayers = this._getTargetLayers();
     const userId = user.id ?? this.board.app?.self?.id ?? 0;
     const rawBlurRadius = Number(user.blurRadius);
     user.blurRadius = Math.max(1, Math.min(25, Number.isFinite(rawBlurRadius) ? rawBlurRadius : 10));
@@ -156,19 +178,15 @@ export class GlitchBlurTool extends Tool {
     this.lastStampPos.set(userId, { x: pos.x, y: pos.y });
     this.strokePoints.set(userId, [{ x: pos.x, y: pos.y }]);
 
-    for (const layerIdx of targetLayers) {
-      const maskCtx = this.board.layerManager?.getUserStrokeContext(layerIdx, userId);
-      const stamp = this._computeGlitchStamp(pos.x, pos.y, user.size, user, layerIdx);
-      if (!maskCtx || !stamp) continue;
-
-      this._applyStampToCtx(maskCtx, stamp, pos.x, pos.y, user.size, this._getStampAlpha(user));
-
-      // Apply to mirror regions using transforms (compute once, mirror the result)
-      this.board.forEachMirrorRegion({ point: pos }, (region) => {
-        this.board.withMirroredRegionTransform(maskCtx, region, () => {
-          this._applyStampToCtx(maskCtx, stamp, pos.x, pos.y, user.size, this._getStampAlpha(user));
-        });
-      });
+    // In fast-preview mode the expensive WASM glitch is offloaded to the pixels
+    // worker (see _enqueueDeferredStamp) so it never blocks the main thread.
+    // The glitch samples a snapshot frozen at pointerDown, so computing stamps
+    // off-thread (and finishing any stragglers on release) is equivalent to
+    // stamping them synchronously here.
+    if (this._isDeferRender(user)) {
+      this._enqueueDeferredStamp(user, pos.x, pos.y);
+    } else {
+      this._stampGlitchAtPoint(user, pos.x, pos.y);
     }
 
     this._expandBounds(user, pos.x, pos.y, user.size, user.blurRadius);
@@ -207,7 +225,15 @@ export class GlitchBlurTool extends Tool {
       const minSpacing = Math.max(user.size * spacingPercent, 5);
 
       if (distance >= minSpacing) {
-        const previewCtx = shouldRender ? (user === this.board.app?.self ? this.board.topCtx : user.context) : null;
+        const isSelf = user === this.board.app?.self;
+        // In fast-preview (defer) mode the local stroke arrives via the batch
+        // renderer with shouldRender=false, and that renderer skips its own
+        // preview pass for glitch (see getPreviewDirtyRect). So paint the grey
+        // placeholder here regardless of shouldRender — it accumulates on topCtx
+        // and is cleared on pointerUp.
+        const previewCtx = (shouldRender || this._isDeferRender(user))
+          ? (isSelf ? this.board.topCtx : user.context)
+          : null;
         this._stampAlongPath(user, prevStamp, pos, minSpacing, previewCtx);
         if (shouldRender) this.board.requestUpdate();
       }
@@ -221,13 +247,27 @@ export class GlitchBlurTool extends Tool {
 
     // Track tile ownership
     const points = this.strokePoints.get(userId);
+
+    // Fast-preview mode offloaded each stamp to the worker during the stroke.
+    // Finish any jobs still in flight (synchronously — there are usually only a
+    // few) so the stroke layer is complete before we capture/commit it.
+    if (this._isDeferRender(user)) {
+      this._finalizeDeferredJobs(user, userId);
+    }
+
     if (points && points.length > 0) {
       this._markDirtyPathOnTargetLayers(user, points);
     }
     this.strokePoints.delete(userId);
 
     const strokeImages = this._captureLocalStrokeImages(user, userId);
-    this._endTargetLayerStrokes(user, userId);
+    // Commit only the layers that actually got glitch content (the same set we
+    // broadcast); empty layers are discarded so the stroke is a single undo.
+    // null for non-self (no scan available) keeps the original commit-all path.
+    const contentLayers = user === this.board.app?.self
+      ? new Set(strokeImages.map((img) => img.layerIdx))
+      : null;
+    this._endTargetLayerStrokes(user, userId, contentLayers);
     this._broadcastLocalStrokeImages(strokeImages);
 
     this.lastStampPos.delete(userId);
@@ -251,14 +291,12 @@ export class GlitchBlurTool extends Tool {
       const sourceCanvas = active?.canvas;
       if (!sourceCanvas) continue;
 
-      let bounds = this._findStrokeContentBounds(sourceCanvas, active.dirtyRect);
-      if (!bounds && user.blurBounds) {
-        const x = Math.floor(Math.max(0, user.blurBounds.minX));
-        const y = Math.floor(Math.max(0, user.blurBounds.minY));
-        const width = Math.ceil(Math.min(sourceCanvas.width, user.blurBounds.maxX)) - x;
-        const height = Math.ceil(Math.min(sourceCanvas.height, user.blurBounds.maxY)) - y;
-        if (width > 0 && height > 0) bounds = { x, y, width, height };
-      }
+      // Content scan is authoritative: a glitch stamp only deposits pixels where
+      // its layer's snapshot had something to smear, so layers that come back
+      // empty here truly produced nothing. (Previously a user.blurBounds fallback
+      // captured these empty overlay layers too, which broadcast blank images and
+      // — paired with the commit of every layer — created phantom undo steps.)
+      const bounds = this._findStrokeContentBounds(sourceCanvas, active.dirtyRect);
       if (!bounds) continue;
 
       const cropCanvas = document.createElement('canvas');
@@ -379,7 +417,12 @@ export class GlitchBlurTool extends Tool {
     }
   }
 
-  _computeGlitchStamp(x, y, size, user, layerIdx = this._getTargetLayer(user)) {
+  /**
+   * Crops the frozen pointerDown snapshot to the region the glitch stamp at
+   * (x, y) needs, returning the cropped canvas + its ImageData and placement.
+   * Shared by the synchronous WASM path and the fast-preview worker pipeline.
+   */
+  _cropSnapshotRegion(x, y, size, user, layerIdx) {
     const radius = size;
     const blurRadius = user.blurRadius || 10;
     const userId = user.id ?? this.board.app?.self?.id ?? 0;
@@ -395,27 +438,38 @@ export class GlitchBlurTool extends Tool {
 
     if (cropW <= 0 || cropH <= 0) return null;
 
-    const stampCanvas = document.createElement('canvas');
-    stampCanvas.width = cropW;
-    stampCanvas.height = cropH;
-    const stampCtx = stampCanvas.getContext('2d');
+    const canvas = document.createElement('canvas');
+    canvas.width = cropW;
+    canvas.height = cropH;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(sourceCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
 
-    stampCtx.drawImage(sourceCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+    return {
+      canvas,
+      ctx,
+      imageData: ctx.getImageData(0, 0, cropW, cropH),
+      cropX, cropY, cropW, cropH,
+      blurRadius: Math.max(1, Math.round(blurRadius))
+    };
+  }
+
+  _computeGlitchStamp(x, y, size, user, layerIdx = this._getTargetLayer(user)) {
+    const crop = this._cropSnapshotRegion(x, y, size, user, layerIdx);
+    if (!crop) return null;
 
     try {
-      const imageData = stampCtx.getImageData(0, 0, cropW, cropH);
       const blurred = wasm.stackblur_rgba_glitch(
-        new Uint8Array(imageData.data.buffer.slice(0)),
-        cropW,
-        cropH,
-        Math.max(1, Math.round(blurRadius))
+        new Uint8Array(crop.imageData.data.buffer.slice(0)),
+        crop.cropW,
+        crop.cropH,
+        crop.blurRadius
       );
-      stampCtx.putImageData(new ImageData(new Uint8ClampedArray(blurred), cropW, cropH), 0, 0);
+      crop.ctx.putImageData(new ImageData(new Uint8ClampedArray(blurred), crop.cropW, crop.cropH), 0, 0);
     } catch (err) {
       console.warn('Glitch blur WASM failed:', err);
     }
 
-    return { stampCanvas, cropX, cropY };
+    return { stampCanvas: crop.canvas, cropX: crop.cropX, cropY: crop.cropY };
   }
 
   _applyStampToCtx(ctx, stamp, x, y, radius, intensity) {
@@ -429,6 +483,167 @@ export class GlitchBlurTool extends Tool {
     ctx.clip();
     ctx.drawImage(stamp.stampCanvas, stamp.cropX, stamp.cropY);
     ctx.restore();
+  }
+
+  /**
+   * True when this user's glitch render should be deferred to pointerUp and
+   * only a lightweight placeholder shown during the stroke. Local-only,
+   * controlled by the "Fast preview" toggle (App.glitchFastPreview).
+   */
+  _isDeferRender(user) {
+    return user === this.board.app?.self && !!this.board.app?.glitchFastPreview;
+  }
+
+  /**
+   * Hook for the batch renderer (InputBufferManager._renderBatchTool). Returning
+   * false tells it there is "no preview work", so it skips its per-frame
+   * clearTop()+drawPreview() pass. In fast-preview mode we paint the grey
+   * placeholder onto topCtx ourselves (incrementally, in _moveStroke) and must
+   * NOT let the batch renderer wipe it each frame. In normal mode we return null
+   * so the default clear runs (the real glitch lives on the stroke layer, so
+   * topCtx carries nothing we need to keep).
+   */
+  getPreviewDirtyRect(user) {
+    return this._isDeferRender(user) ? false : null;
+  }
+
+  /**
+   * Applies the real (WASM) glitch stamp at a single point across all target
+   * layers, including any mirror regions. Shared by the live progressive path
+   * and the deferred fast-preview batch (onPointerUp). Returns true if at least
+   * one layer received a stamp.
+   */
+  _stampGlitchAtPoint(user, x, y) {
+    let stamped = false;
+    for (const layerIdx of this._getTargetLayers()) {
+      if (this._stampGlitchAtPointLayer(user, x, y, layerIdx)) stamped = true;
+    }
+    return stamped;
+  }
+
+  /**
+   * Synchronously computes + composites the glitch stamp for a single layer at
+   * (x, y), including mirror regions. Returns true if a stamp was applied.
+   */
+  _stampGlitchAtPointLayer(user, x, y, layerIdx) {
+    const userId = user.id ?? this.board.app?.self?.id ?? 0;
+    const alpha = this._getStampAlpha(user);
+    const maskCtx = this.board.layerManager?.getUserStrokeContext(layerIdx, userId);
+    const stamp = this._computeGlitchStamp(x, y, user.size, user, layerIdx);
+    if (!maskCtx || !stamp) return false;
+    this._compositeStampWithMirrors(user, maskCtx, stamp, x, y, alpha);
+    return true;
+  }
+
+  /** Draws a prepared glitch stamp into maskCtx at (x, y) plus all mirrors. */
+  _compositeStampWithMirrors(user, maskCtx, stamp, x, y, alpha) {
+    this._applyStampToCtx(maskCtx, stamp, x, y, user.size, alpha);
+    this.board.forEachMirrorRegion({ point: { x, y } }, (region) => {
+      this.board.withMirroredRegionTransform(maskCtx, region, () => {
+        this._applyStampToCtx(maskCtx, stamp, x, y, user.size, alpha);
+      });
+    });
+  }
+
+  /**
+   * Fast-preview pipeline: offload one stamp's glitch blur to the pixels worker
+   * (off the main thread) for every target layer. When a result returns it is
+   * composited into the live stroke layer — hidden under the opaque placeholder
+   * until pointerUp clears it. Any job still in flight at pointerUp is finished
+   * synchronously by _finalizeDeferredJobs, so the heavy WASM never lands as one
+   * blocking batch on release.
+   */
+  _enqueueDeferredStamp(user, x, y) {
+    const userId = user.id ?? this.board.app?.self?.id ?? 0;
+    const worker = this.board.layerManager?._pixelsWorker;
+
+    // No worker available → fall back to the synchronous stamp.
+    if (!worker?.blur) {
+      this._stampGlitchAtPoint(user, x, y);
+      return;
+    }
+
+    let jobs = this.deferredJobs.get(userId);
+    if (!jobs) { jobs = []; this.deferredJobs.set(userId, jobs); }
+
+    const alpha = this._getStampAlpha(user);
+
+    for (const layerIdx of this._getTargetLayers()) {
+      const crop = this._cropSnapshotRegion(x, y, user.size, user, layerIdx);
+      if (!crop) continue;
+
+      const job = { layerIdx, x, y, alpha, radius: user.size, cropX: crop.cropX, cropY: crop.cropY, cropW: crop.cropW, cropH: crop.cropH, composited: false, cancelled: false };
+      jobs.push(job);
+
+      worker.blur(crop.imageData.data, crop.cropW, crop.cropH, crop.blurRadius, true)
+        .then((blurred) => {
+          if (job.cancelled || job.composited) return;
+          job.composited = true;
+          this._compositeDeferredJob(user, userId, job, blurred);
+          this.board.requestUpdate();
+        })
+        .catch(() => { /* leave uncomposited → synchronous fallback at pointerUp */ });
+    }
+  }
+
+  _compositeDeferredJob(user, userId, job, blurred) {
+    const maskCtx = this.board.layerManager?.getUserStrokeContext(job.layerIdx, userId);
+    if (!maskCtx || !blurred) return;
+
+    const stampCanvas = document.createElement('canvas');
+    stampCanvas.width = job.cropW;
+    stampCanvas.height = job.cropH;
+    stampCanvas.getContext('2d').putImageData(
+      new ImageData(new Uint8ClampedArray(blurred.buffer), job.cropW, job.cropH),
+      0, 0
+    );
+
+    this._compositeStampWithMirrors(user, maskCtx, { stampCanvas, cropX: job.cropX, cropY: job.cropY }, job.x, job.y, job.alpha);
+  }
+
+  /**
+   * Completes the fast-preview stroke: any worker jobs that haven't returned yet
+   * are computed synchronously (there are usually only a handful), then the
+   * queue is cleared. Late worker results are ignored via the cancelled flag.
+   */
+  _finalizeDeferredJobs(user, userId) {
+    const jobs = this.deferredJobs.get(userId);
+    if (!jobs) return;
+    for (const job of jobs) {
+      if (job.composited || job.cancelled) continue;
+      job.cancelled = true;
+      this._stampGlitchAtPointLayer(user, job.x, job.y, job.layerIdx);
+    }
+    this.deferredJobs.delete(userId);
+  }
+
+  /**
+   * Paints the cheap grey-square placeholder along a segment onto the given
+   * context. Used for remote users and replay, where the full per-stamp glitch
+   * is never recomputed — the authoritative pixels arrive later via
+   * GLITCH_RESULT. Mirrors the stamp spacing of the live stroke so the trail
+   * roughly tracks where the finished smear will land.
+   */
+  drawPlaceholderAlong(user, ctx, from, to) {
+    if (!ctx || !from || !to) return;
+
+    const alpha = this._getStampAlpha(user);
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    const spacingPercent = user.spacing === 0 ? 0.1 : (user.spacing * 0.05);
+    const spacing = Math.max(user.size * spacingPercent, 5);
+
+    if (!Number.isFinite(distance) || distance < spacing) {
+      this._drawStampPreview(ctx, to.x, to.y, user.size, alpha);
+      return;
+    }
+
+    const steps = Math.floor(distance / spacing);
+    for (let i = 1; i <= steps; i++) {
+      const t = (i * spacing) / distance;
+      this._drawStampPreview(ctx, from.x + dx * t, from.y + dy * t, user.size, alpha);
+    }
   }
 
   _expandBounds(user, x, y, radius, blurRadius) {
@@ -457,6 +672,7 @@ export class GlitchBlurTool extends Tool {
     const steps = Math.floor(distance / spacing);
     const userId = user.id ?? this.board.app?.self?.id ?? 0;
     const points = this.strokePoints.get(userId);
+    const defer = this._isDeferRender(user);
     let lastStamp = from;
 
     for (let i = 1; i <= steps; i++) {
@@ -464,22 +680,13 @@ export class GlitchBlurTool extends Tool {
       const x = from.x + dx * t;
       const y = from.y + dy * t;
 
-      let stamped = false;
-      for (const layerIdx of this._getTargetLayers()) {
-        const userId = user.id ?? this.board.app?.self?.id ?? 0;
-        const maskCtx = this.board.layerManager?.getUserStrokeContext(layerIdx, userId);
-        const stamp = this._computeGlitchStamp(x, y, user.size, user, layerIdx);
-        if (!maskCtx || !stamp) continue;
-
-        this._applyStampToCtx(maskCtx, stamp, x, y, user.size, this._getStampAlpha(user));
-        stamped = true;
-
-        // Apply to mirror regions using transforms
-        this.board.forEachMirrorRegion({ point: { x, y } }, (region) => {
-          this.board.withMirroredRegionTransform(maskCtx, region, () => {
-            this._applyStampToCtx(maskCtx, stamp, x, y, user.size, this._getStampAlpha(user));
-          });
-        });
+      // In fast-preview mode offload to the worker; still record/preview each
+      // stamp so bounds, the point trail, and the placeholder stay accurate.
+      let stamped = true;
+      if (defer) {
+        this._enqueueDeferredStamp(user, x, y);
+      } else {
+        stamped = this._stampGlitchAtPoint(user, x, y);
       }
 
       if (stamped) {
@@ -501,21 +708,16 @@ export class GlitchBlurTool extends Tool {
     this.lastStampPos.set(userId, lastStamp);
   }
 
-  _drawStampPreview(ctx, x, y, size, pressure) {
-    const alpha = pressure * 0.3;
-
+  _drawStampPreview(ctx, x, y, size /*, pressure */) {
+    // Solid grey placeholder square. Intentionally near-opaque and independent
+    // of the user's opacity setting: it reads as a clear "stamp" and masks the
+    // real glitch filling in underneath during the stroke (revealed on release).
     ctx.save();
-
-    const gradient = ctx.createLinearGradient(x - size, y, x + size, y);
-    gradient.addColorStop(0, `rgba(128, 128, 128, 0)`);
-    gradient.addColorStop(0.3, `rgba(128, 128, 128, ${alpha})`);
-    gradient.addColorStop(0.7, `rgba(128, 128, 128, ${alpha})`);
-    gradient.addColorStop(1, `rgba(128, 128, 128, 0)`);
-
-    ctx.fillStyle = gradient;
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = 'rgba(136, 136, 136, 0.95)';
     ctx.fillRect(x - size, y - size, size * 2, size * 2);
 
-    ctx.strokeStyle = `rgba(100, 100, 100, ${alpha * 0.5})`;
+    ctx.strokeStyle = 'rgba(92, 92, 92, 1)';
     ctx.lineWidth = 1;
     ctx.strokeRect(x - size, y - size, size * 2, size * 2);
 

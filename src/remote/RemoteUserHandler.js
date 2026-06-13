@@ -360,10 +360,18 @@ export class RemoteUserHandler {
         }
         break;
 
-      case 'glitchBlur':
+      case 'glitchBlur': {
         // Glitch blur is non-deterministic, so remote clients wait for the
-        // sender's rendered stamp image instead of recomputing the stroke.
+        // sender's rendered stamp image (GLITCH_RESULT) instead of recomputing
+        // the (expensive) WASM stroke. To avoid a blank canvas in the meantime,
+        // paint a cheap grey-square placeholder trail onto the user's preview
+        // canvas; it's cleared on mouseUp when the real result lands.
+        const glitchTool = this.toolManager.getTool('glitchBlur');
+        if (glitchTool && user.context) {
+          glitchTool.drawPlaceholderAlong(user, user.context, lastPos, pos);
+        }
         break;
+      }
 
       case 'pixel': {
         const pixelTool = this.toolManager.getTool('pixel');
@@ -605,9 +613,23 @@ export class RemoteUserHandler {
         }
         break;
 
-      case 'glitchBlur':
+      case 'glitchBlur': {
         // The drawing client sends the rendered glitch stamps via GLITCH_RESULT.
+        // Until then, show a cheap grey-square placeholder on the user's preview
+        // canvas so the in-progress stroke is visible (live remote + replay).
+        const glitchTool = this.toolManager.getTool('glitchBlur');
+        if (glitchTool && user.context) {
+          user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+          // Keep the preview canvas neutral + visible: the placeholder is plain
+          // grey and the baked result travels source-over, so no blend here.
+          if (user.board) {
+            user.board.style.opacity = '';
+            user.board.style.mixBlendMode = 'normal';
+          }
+          glitchTool.drawPlaceholderAlong(user, user.context, pos, pos);
+        }
         break;
+      }
 
       case 'pixel':
         if (!user.panning) {
