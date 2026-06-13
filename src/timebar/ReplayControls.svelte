@@ -74,6 +74,9 @@
 
   function openRenderDialog() {
     if (TimeMachine.isExportingVideo) return;
+    // Pause playback the moment Render is pressed so the replay isn't still
+    // advancing underneath the time-lapse dialog.
+    if (TimeMachine.isPlaying) TimeMachine.pause();
     timeLapseDialogOpen = true;
   }
 

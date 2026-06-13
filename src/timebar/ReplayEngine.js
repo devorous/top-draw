@@ -1329,7 +1329,13 @@ export class ReplayEngine {
   async captureDynamicCheckpoint() {
     const mainCanvas = this._replayBoard?.mainCanvas;
     if (!mainCanvas) return null;
-    const bitmap = await createImageBitmap(mainCanvas);
+    // Capture the bot states SYNCHRONOUSLY, before any await. createImageBitmap
+    // snapshots mainCanvas at call time and the caller reads its deltaIdx
+    // synchronously too — but if we read botStates after awaiting the bitmap, a
+    // scrub/seek that lands during that async gap mutates botUsers, pairing this
+    // checkpoint's pixels + deltaIdx with blend/tool state from a DIFFERENT tape
+    // position. A later rebuild then restores the wrong blend and replays the
+    // tail from a mismatched baseline → strokes render with no blend mode.
     const botStates = {};
     for (const [id, u] of this.botUsers) {
       botStates[id] = {
@@ -1342,6 +1348,10 @@ export class ReplayEngine {
         tool: u.tool,
         text: u.text || '',
         blendMode: u.blendMode,
+        // Carry the bake mode alongside blendMode — _createBotUser restores it
+        // and the 'existing' content-mask depends on it. Dropping it would make
+        // a rebuild from this checkpoint render complex-blend strokes unmasked.
+        blendBakeMode: u.blendBakeMode,
         activeLayer: u.activeLayer,
         spacing: u.spacing,
         smoothing: u.smoothing,
@@ -1361,6 +1371,17 @@ export class ReplayEngine {
         textPositionOffset: u.textPositionOffset,
       };
     }
+    // Snapshot the pixels last, from a BACKGROUND-LESS composite — matching the
+    // static snapshot's getCompositedCanvas path. mainCanvas has the background
+    // colour filled in, and this bitmap gets rebased into layer0.flatCanvas. An
+    // opaque background there breaks the 'existing' blend mask (destination-in
+    // vs flatCanvas): it sees content everywhere, so a complex-blend stroke that
+    // should be masked to nothing over an empty area renders as a raw, blend-less
+    // line. getCompositedCanvas leaves empty areas transparent, so the mask
+    // behaves exactly as it did live. (Doing this last also keeps the bitmap
+    // consistent with the bot states read above even if the await yields.)
+    const compositeCanvas = this._replayBoard.layerManager?.getCompositedCanvas?.() ?? mainCanvas;
+    const bitmap = await createImageBitmap(compositeCanvas);
     return {
       bitmap,
       botStates,
@@ -2159,6 +2180,13 @@ export class ReplayEngine {
       thinning: state.thinning ?? 0.5,
       simulatePressure: state.simulatePressure ?? true,
       blendMode: state.blendMode || 'source-over',
+      // Restore the blend BAKE mode too. Without it the User constructor falls
+      // back to 'background', which disables the 'existing' content-mask in
+      // commitUserStroke — so every complex-blend stroke committed in a rebuilt
+      // tail (scrub / catch-up) renders unmasked/raw, unlike incremental
+      // playback where the cbm handler keeps it in sync. Pre-checkpoint CBMs
+      // aren't replayed, so this restore is the only way the bot learns it.
+      blendBakeMode: state.blendBakeMode,
       activeLayer: state.activeLayer ?? 2,
       patternMode: state.patternMode ?? false,
       patternScale: state.patternScale ?? 100,

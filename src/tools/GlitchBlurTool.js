@@ -29,7 +29,12 @@ export class GlitchBlurTool extends Tool {
   _beginTargetLayerStrokes(user, userId) {
     for (const layerIdx of this._getTargetLayers()) {
       this.captureSnapshot(userId, layerIdx);
-      this.board.layerManager?.beginUserStroke(layerIdx, userId, user?.blendMode ?? 'source-over', user?.blendBakeMode);
+      // The snapshot the glitch samples is the DISPLAYED appearance (blend
+      // already resolved against the background — see captureSnapshot). So the
+      // glitch result must be deposited source-over: re-applying the live blend
+      // here would composite the already-blended colour a second time (e.g.
+      // white 'difference' over white → black) and undo the whole point.
+      this.board.layerManager?.beginUserStroke(layerIdx, userId, 'source-over', 'background');
       this.board.applySelectionMaskClipForStroke?.(layerIdx, userId);
     }
   }
@@ -103,7 +108,19 @@ export class GlitchBlurTool extends Tool {
     const ctx = canvas.getContext('2d');
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    this.board.layerManager.compositeLayerRange(ctx, layerIdx, layerIdx + 1, null);
+    // The glitch algorithm smears whatever is in this snapshot, so it must see
+    // the layer as it's DISPLAYED — not the raw stroke pixels. Complex blend
+    // modes are layer-0-only and resolve against the background (e.g. a black
+    // 'difference' stroke displays white over a white board). Compositing layer
+    // 0 WITH the background backdrop makes the glitch operate on that displayed
+    // colour; without it the glitch would smear raw black and come out far too
+    // harsh. Overlay layers (1+) have no complex blends, so their raw pixels are
+    // already their displayed colour — keep them transparent so the glitch
+    // doesn't flood empty regions with an opaque background.
+    const bgColor = layerIdx === 0
+      ? (this.board.getCompositeBackgroundColor?.() ?? this.board.backgroundColor ?? null)
+      : null;
+    this.board.layerManager.compositeLayerRange(ctx, layerIdx, layerIdx + 1, bgColor);
   }
 
   clearSnapshot(userId) {
@@ -251,16 +268,17 @@ export class GlitchBlurTool extends Tool {
         .getContext('2d')
         .drawImage(sourceCanvas, bounds.x, bounds.y, bounds.width, bounds.height, 0, 0, bounds.width, bounds.height);
 
-      // Carry the stroke's draw-time blend with the result. The receiver commits
-      // the glitch image asynchronously (after the PNG decodes), by which point
-      // the sender's live blendMode may already point at a later stroke — so the
-      // blend can't be re-read at commit time, it has to travel with the image.
+      // The captured pixels are the already-displayed (blend-resolved) glitch
+      // result, so they travel and commit as source-over on every peer and in
+      // replay. No blend re-application — the colour in the image IS the final
+      // colour. (This supersedes the earlier blend-travel path: the glitch no
+      // longer carries a live blend mode because it bakes the appearance in.)
       strokeImages.push({
         layerIdx,
         bounds,
         cropCanvas,
-        blendMode: active.blendMode || 'source-over',
-        blendBakeMode: active.blendBakeMode === 'existing' ? 'existing' : 'background'
+        blendMode: 'source-over',
+        blendBakeMode: 'background'
       });
     }
 

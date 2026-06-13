@@ -569,7 +569,14 @@ class TimeMachineState {
         // Kick off full-resolution catch-up to the end of the tape. When it
         // resolves, `_drawToReplayCanvas` will clear isPreviewMode and the
         // overlay disappears. Errors fall back to staying in preview mode.
-        this.seek(this.sessionEnd).catch((err) => {
+        //
+        // forceFromOpening: replay the WHOLE tape from the opening snapshot
+        // rather than rebuilding from the nearest checkpoint. Checkpoint images
+        // bake unbaked complex-blend strokes with a transparent backdrop (raw
+        // black instead of the displayed blended colour), so a checkpoint
+        // rebuild shows wrong pixels on open. A full replay reconstructs every
+        // stroke through the live composite path and matches the preview blob.
+        this.seek(this.sessionEnd, { forceFromOpening: true }).catch((err) => {
           console.warn('[TimeMachine] background catch-up failed:', err);
         });
 
@@ -670,7 +677,7 @@ class TimeMachineState {
    */
   async seek(timestamp, options = {}) {
     if (!this.isOpen) return;
-    const { suppressPlaybackPause = false } = options;
+    const { suppressPlaybackPause = false, forceFromOpening = false } = options;
 
     this.currentTime = this._clampTimestamp(timestamp);
 
@@ -719,7 +726,7 @@ class TimeMachineState {
       this._isSeeking = true;
       const seekGeneration = ++this._seekGeneration;
       try {
-        const applied = await this._applyStateAt(this.currentTime, seekGeneration);
+        const applied = await this._applyStateAt(this.currentTime, seekGeneration, { forceFromOpening });
         if (!applied || seekGeneration !== this._seekGeneration || !this.isReviewing) return;
         this._showReplayCanvas(true);
         this._updateBotCursors();
@@ -1144,7 +1151,9 @@ class TimeMachineState {
       const url = URL.createObjectURL(result.blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = isSequence ? suggestImageSequenceFilename(rec) : suggestVideoFilename(rec, ext);
+      a.download = isSequence
+        ? suggestImageSequenceFilename(rec, { speed, fps })
+        : suggestVideoFilename(rec, ext, { speed, fps });
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -1310,9 +1319,9 @@ class TimeMachineState {
    * @param {number} timestamp
    * @private
    */
-  async _applyStateAt(timestamp, seekGeneration = null) {
+  async _applyStateAt(timestamp, seekGeneration = null, options = {}) {
     if (this._source === 'local') {
-      return await this._applyStateAtLocal(timestamp, seekGeneration);
+      return await this._applyStateAtLocal(timestamp, seekGeneration, options);
     } else {
       return await this._fetchAndApplyServerReplay(timestamp, seekGeneration);
     }
@@ -1454,9 +1463,20 @@ class TimeMachineState {
    * @param {number} timestamp
    * @private
    */
-  async _applyStateAtLocal(timestamp, seekGeneration = null) {
+  async _applyStateAtLocal(timestamp, seekGeneration = null, options = {}) {
     const rec = this._localRecording;
     if (!rec || !this._replayEngine) return false;
+    // forceFromOpening: ignore all checkpoints (static intra + dynamic) and the
+    // incremental fast path, and rebuild by replaying the ENTIRE tape from the
+    // opening snapshot. Checkpoint images are baked via getCompositedCanvas with
+    // a transparent backdrop, so any still-unbaked complex-blend stroke (e.g.
+    // 'difference') is frozen as its raw colour in the checkpoint instead of its
+    // displayed, blended-against-background colour. The opening snapshot is the
+    // one capture that predates those strokes, so a full replay reconstructs
+    // them through the live composite path (which applies the background) and
+    // they render correctly. Used on initial open; normal scrubs keep the fast
+    // checkpoint path.
+    const forceFromOpening = options.forceFromOpening === true;
     const seekStart = performance.now();
     const deltas = rec.deltas ?? [];
     const isStale = () =>
@@ -1468,12 +1488,13 @@ class TimeMachineState {
     // Forward seeks must consider checkpoints too — incrementally replaying a
     // +10min jump means pushing minutes of deltas through the engine even
     // though an intra-checkpoint sits ≤30s before the target.
-    const staticCp = this._findCheckpointBefore(timestamp);
-    const dynCp = this._findDynCheckpointBefore(timestamp);
+    const staticCp = forceFromOpening ? null : this._findCheckpointBefore(timestamp);
+    const dynCp = forceFromOpening ? null : this._findDynCheckpointBefore(timestamp);
     const useDyn = dynCp && (!staticCp || dynCp.ts > staticCp.ts);
     const cpTs = useDyn ? dynCp.ts : (staticCp?.ts ?? rec.startedAt);
 
     const canIncrement =
+      !forceFromOpening &&
       this._lastAppliedTimestamp != null &&
       timestamp >= this._lastAppliedTimestamp &&
       cpTs - this._lastAppliedTimestamp <= FORWARD_SEEK_REBUILD_GAIN_MS;

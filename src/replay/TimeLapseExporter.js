@@ -853,18 +853,26 @@ function crc32(bytes) {
  * @param {import('./Recorder.js').ReplayRecording} rec
  * @param {string} ext - e.g. 'webm'
  */
-export function suggestVideoFilename(rec, ext = 'webm') {
-  return `${suggestBaseFilename(rec)}.${ext}`;
+export function suggestVideoFilename(rec, ext = 'webm', settings = {}) {
+  return `${suggestBaseFilename(rec, settings)}.${ext}`;
 }
 
-export function suggestImageSequenceFilename(rec) {
-  return `${suggestBaseFilename(rec)}_frames.zip`;
+export function suggestImageSequenceFilename(rec, settings = {}) {
+  return `${suggestBaseFilename(rec, settings)}_frames.zip`;
 }
 
-function suggestBaseFilename(rec) {
+function suggestBaseFilename(rec, settings = {}) {
   const d = new Date(rec.startedAt || Date.now());
   const pad = (n) => String(n).padStart(2, '0');
   const stamp = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}`;
   const room = (rec.roomId || 'replay').replace(/[^a-z0-9_-]/gi, '_');
-  return `ddraw_${room}_${stamp}`;
+  // Embed the render settings so different speed/fps passes are distinguishable.
+  const parts = [];
+  if (settings.speed) parts.push(`${settings.speed}x`);
+  if (settings.fps) parts.push(`${settings.fps}fps`);
+  const settingsTag = parts.length ? `_${parts.join('_')}` : '';
+  // Unique-per-render suffix keyed off the current time so re-rendering the
+  // same recording doesn't collide (browser would otherwise append " (1)").
+  const uniq = Date.now().toString(36).slice(-5);
+  return `ddraw_${room}_${stamp}${settingsTag}_${uniq}`;
 }

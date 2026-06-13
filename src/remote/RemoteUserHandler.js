@@ -1075,8 +1075,15 @@ export class RemoteUserHandler {
     // that travelled with the result (draw-time) over the user's live blendMode —
     // the image decode is async, so by now the live blend may belong to a later
     // stroke.
-    const blendMode = blendModeOverride || user.blendMode || 'source-over';
-    const blendBakeMode = blendBakeModeOverride || user.blendBakeMode;
+    // Glitch results now bake their displayed (blend-resolved) appearance into
+    // the image and travel as source-over (see GlitchBlurTool). So default to
+    // source-over here rather than the user's LIVE blend: the broadcast omits
+    // bm/bbm for source-over, and falling back to user.blendMode would re-blend
+    // an already-blended image (e.g. white 'difference' over white → black).
+    // An explicit override (older recordings that carried a real blend) still
+    // wins for backward compatibility.
+    const blendMode = blendModeOverride || 'source-over';
+    const blendBakeMode = blendBakeModeOverride || 'background';
 
     let active = group?.activeStrokeByUser?.get(user.id);
     if (!active) {
