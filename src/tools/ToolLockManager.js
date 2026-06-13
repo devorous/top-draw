@@ -166,6 +166,7 @@ export class ToolLockManager {
       glitchBlur: ['size', 'pressure', 'spacing', 'blurRadius', 'opacity', 'blendMode'],
       imageBrush: ['size', 'pressure', 'spacing', 'opacity', 'blendMode'],
       pattern: ['size', 'pressure', 'opacity', 'blendMode'],
+      confetti: ['size', 'opacity', 'blendMode'],
       fill: ['opacity', 'blendMode'],
       text: ['size', 'opacity', 'blendMode'],
       select: ['opacity', 'blendMode'],
