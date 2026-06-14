@@ -12,6 +12,8 @@
  * in `history`/`activeStrokes` for full stroke-record fidelity.
  */
 
+import { exportLayerState } from './layerStateCodec.js';
+
 /**
  * Snapshot the per-user transient/tool/selection state in the shape
  * ReplayEngine._restoreBotTransientState consumes.
@@ -215,10 +217,26 @@ export function captureOpeningSnapshot(app) {
 
   const recordedAt = Date.now();
 
+  // Capture the full undoable layer state (baked base + live strokeStack + redo
+  // stacks, QOI-encoded) so a rebuild from this checkpoint has genuine undoable
+  // records — without it, any UNDO/REDO replayed after the checkpoint has
+  // nothing to pop and unbaked complex-blend strokes freeze wrong. Returns null
+  // when nothing is live/undoable (a fully-baked board), in which case the cheap
+  // flat composite below reproduces it exactly.
+  let layerState = null;
+  try {
+    layerState = exportLayerState(lm);
+  } catch (err) {
+    console.warn('[captureOpeningSnapshot] layer-state export failed, using flat composite:', err);
+  }
+
   // Composite the whole board to a single PNG dataURL. ReplayEngine.loadSnapshot
-  // uses `canvasData` as the base image when no `history` is present.
-  const compositeCanvas = lm.getCompositedCanvas();
-  const canvasData = compositeCanvas.toDataURL('image/png');
+  // uses `canvasData` as the base image when no layer state is present. Skip this
+  // (and its full-board encode) when we captured layer state, which supersedes it.
+  let canvasData = null;
+  if (!layerState) {
+    canvasData = lm.getCompositedCanvas().toDataURL('image/png');
+  }
 
   // Top canvas (active previews drawn by other users at snapshot time)
   const topCanvasData = board.topCanvas?.toDataURL?.('image/png') ?? null;
@@ -251,5 +269,8 @@ export function captureOpeningSnapshot(app) {
     // as CSDM messages.
     shapeDrawMode: app.shapeDrawMode === 'center-scaling' ? 'center-scaling' : 'corner-to-corner',
     vectorText: captureVectorTextRecords(board, recordedAt),
+    // Full undoable layer state (baked base + live strokeStack + redo), when
+    // present. ReplayEngine.loadSnapshot prefers this over canvasData.
+    ...(layerState || {}),
   };
 }

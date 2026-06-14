@@ -15,6 +15,7 @@ import { getTextFontDefaults } from '../config/textFonts.js';
 import { drawReplayCursor } from '../replay/cursorOverlay.js';
 import * as wasm from '../wasm/ddraw_wasm.js';
 import { readQoiDimensions } from '../../shared/qoi.js';
+import { qoiToCanvas } from '../replay/layerStateCodec.js';
 import {
   TEXT_OVERLAY_DEFAULT_LIFETIME_MS,
   TEXT_OVERLAY_DEFAULT_MIN_OPACITY,
@@ -1514,13 +1515,26 @@ export class ReplayEngine {
     const hasHistory = Array.isArray(snapshot.history) && snapshot.history.some((layerHistory) => Array.isArray(layerHistory) && layerHistory.length > 0);
     const hasRedoHistory = !!snapshot.redoHistory && Object.values(snapshot.redoHistory).some((batches) => Array.isArray(batches) && batches.length > 0);
     const hasActiveStrokes = Array.isArray(snapshot.activeStrokes) && snapshot.activeStrokes.length > 0;
-    this._snapshotHasLayerState = hasHistory || hasRedoHistory || hasActiveStrokes;
+    const hasLayerBaked = Array.isArray(snapshot.layerBaked) && snapshot.layerBaked.some(Boolean);
+    this._snapshotHasLayerState = hasHistory || hasRedoHistory || hasActiveStrokes || hasLayerBaked;
 
     // Load the snapshot's composited canvas image only when we are not also
     // reconstructing the canvas from stroke/layer state. Otherwise the replay
     // would draw the same historical strokes twice.
     if (snapshot.canvasData && !this._snapshotHasLayerState) {
       await this._loadImageToCanvas(this._snapshotCtx, snapshot.canvasData);
+    }
+
+    // Seed each layer's permanently-baked base (QOI from layerStateCodec) before
+    // importing the live strokeStack on top of it. This is the "baked content"
+    // half of a full layer-state checkpoint; the history loop below restores the
+    // undoable half. Done before history so z-order is base → strokes.
+    if (hasLayerBaked) {
+      const lm = this._replayBoard.layerManager;
+      for (let gi = 0; gi < snapshot.layerBaked.length; gi++) {
+        const bakedCanvas = qoiToCanvas(snapshot.layerBaked[gi]);
+        if (bakedCanvas) lm.importSequence(gi, 'source-over', bakedCanvas);
+      }
     }
 
     // Also load the top canvas (active strokes at snapshot time)
@@ -1574,14 +1588,27 @@ export class ReplayEngine {
    * Internal helper to import a stroke from a snapshot data object.
    * @private
    */
-  async _importStrokeData(groupIdx, data) {
+  /**
+   * Rebuild a live stroke record from serialized snapshot data. Handles both the
+   * lossless QOI form (layerStateCodec — full layer-state checkpoints) and the
+   * legacy dataURL form (`imageData`/`maskCanvasData`). Returns null when the
+   * stroke canvas can't be decoded.
+   * @param {Object} data
+   * @returns {Promise<Object|null>}
+   * @private
+   */
+  async _buildImportedStrokeRecord(data) {
     const canvasWidth = data.canvasWidth ?? data.width;
     const canvasHeight = data.canvasHeight ?? data.height;
-    const canvas = await this._loadImageToNewCanvas(data.imageData, canvasWidth, canvasHeight);
-    if (!canvas) return;
+    const canvas = data.qoi
+      ? qoiToCanvas(data.qoi)
+      : await this._loadImageToNewCanvas(data.imageData, canvasWidth, canvasHeight);
+    if (!canvas) return null;
 
     let maskCanvas = null;
-    if (data.maskCanvasData) {
+    if (data.maskQoi) {
+      maskCanvas = qoiToCanvas(data.maskQoi);
+    } else if (data.maskCanvasData) {
       const maskCanvasWidth = data.maskCanvasWidth ?? canvasWidth;
       const maskCanvasHeight = data.maskCanvasHeight ?? canvasHeight;
       maskCanvas = await this._loadImageToNewCanvas(data.maskCanvasData, maskCanvasWidth, maskCanvasHeight);
@@ -1594,6 +1621,10 @@ export class ReplayEngine {
       width: data.width,
       height: data.height,
       blendMode: data.blendMode,
+      // Preserved so complex-blend ('existing') strokes and z-order survive a
+      // checkpoint rebuild; undoLastStrokeGlobal sorts on seq + timestamp.
+      blendBakeMode: data.blendBakeMode,
+      seq: data.seq,
       userId: data.userId,
       timestamp: data.timestamp,
       eraseAll: data.eraseAll || false,
@@ -1601,9 +1632,16 @@ export class ReplayEngine {
       blurRadius: data.blurRadius,
       affectedTiles: data.affectedTiles
     };
+    if (data.selectionRestoreData) record.selectionRestoreData = data.selectionRestoreData;
     if (data.filterType) {
       record.maskCanvas = maskCanvas || canvas;
     }
+    return record;
+  }
+
+  async _importStrokeData(groupIdx, data) {
+    const record = await this._buildImportedStrokeRecord(data);
+    if (!record) return;
     this._replayBoard.layerManager.importStroke(groupIdx, record);
   }
 
@@ -1612,35 +1650,8 @@ export class ReplayEngine {
    * @private
    */
   async _importRedoStrokeData(userId, batchIdx, groupIdx, data) {
-    const canvasWidth = data.canvasWidth ?? data.width;
-    const canvasHeight = data.canvasHeight ?? data.height;
-    const canvas = await this._loadImageToNewCanvas(data.imageData, canvasWidth, canvasHeight);
-    if (!canvas) return;
-
-    let maskCanvas = null;
-    if (data.maskCanvasData) {
-      const maskCanvasWidth = data.maskCanvasWidth ?? canvasWidth;
-      const maskCanvasHeight = data.maskCanvasHeight ?? canvasHeight;
-      maskCanvas = await this._loadImageToNewCanvas(data.maskCanvasData, maskCanvasWidth, maskCanvasHeight);
-    }
-
-    const record = {
-      canvas,
-      x: data.x,
-      y: data.y,
-      width: data.width,
-      height: data.height,
-      blendMode: data.blendMode,
-      userId: data.userId,
-      timestamp: data.timestamp,
-      eraseAll: data.eraseAll || false,
-      filterType: data.filterType,
-      blurRadius: data.blurRadius,
-      affectedTiles: data.affectedTiles
-    };
-    if (data.filterType) {
-      record.maskCanvas = maskCanvas || canvas;
-    }
+    const record = await this._buildImportedStrokeRecord(data);
+    if (!record) return;
     this._replayBoard.layerManager.importRedoStroke(userId, batchIdx, groupIdx, record);
   }
 
@@ -2452,12 +2463,21 @@ export class ReplayEngine {
         canvas.width = this.width;
         canvas.height = this.height;
         const ctx = canvas.getContext('2d');
-        await this._loadImageToCanvas(ctx, strokeData.canvasData);
+        // QOI form (layerStateCodec) is cropped to its dirty rect and drawn at
+        // (x, y) onto the full-size active canvas; the legacy form is a full-size
+        // dataURL drawn at the origin.
+        if (strokeData.qoi) {
+          const cropped = qoiToCanvas(strokeData.qoi);
+          if (cropped) ctx.drawImage(cropped, strokeData.x ?? 0, strokeData.y ?? 0);
+        } else {
+          await this._loadImageToCanvas(ctx, strokeData.canvasData);
+        }
 
         const active = {
           canvas,
           ctx,
           blendMode: strokeData.blendMode ?? 'source-over',
+          blendBakeMode: strokeData.blendBakeMode === 'background' ? 'background' : 'existing',
           dirtyRect: strokeData.dirtyRect
             ? { ...strokeData.dirtyRect }
             : { minX: this.width, minY: this.height, maxX: -1, maxY: -1 },
@@ -2467,7 +2487,9 @@ export class ReplayEngine {
         if (strokeData.filterType) {
           active.filterType = strokeData.filterType;
           active.blurRadius = strokeData.blurRadius;
-          if (strokeData.maskCanvasData) {
+          if (strokeData.maskQoi) {
+            active.maskCanvas = qoiToCanvas(strokeData.maskQoi) || canvas;
+          } else if (strokeData.maskCanvasData) {
             const maskCanvas = document.createElement('canvas');
             maskCanvas.width = this.width;
             maskCanvas.height = this.height;

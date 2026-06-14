@@ -67,6 +67,54 @@ function _collectEagerBakeUsers(rec) {
 }
 
 /**
+ * True if the recording's checkpoints carry full layer state (baked base +
+ * undoable strokeStack + redo, from layerStateCodec) rather than just a flat
+ * composite PNG. Layer-state checkpoints rebuild faithfully — correct undo and
+ * complex blends — so seeks can rebuild from the nearest one instead of replaying
+ * the whole tape from the opening anchor. Old flat-only recordings (pre-Phase-3
+ * .ddraw files) fall back to the complex-blend safety check below.
+ * @param {{ openingSnapshot?: Object, intraCheckpoints?: Array<{snapshot?: Object}> }} rec
+ * @returns {boolean}
+ */
+function _checkpointsCarryLayerState(rec) {
+  const hasState = (s) => !!(s && (Array.isArray(s.history) || Array.isArray(s.layerBaked)));
+  if (hasState(rec?.openingSnapshot)) return true;
+  return (rec?.intraCheckpoints ?? []).some((cp) => hasState(cp?.snapshot));
+}
+
+/**
+ * Blend modes a flat checkpoint image can reproduce faithfully — they composite
+ * the same with or without an opaque backdrop. Anything else ("multiply",
+ * "difference", …) can bake wrong against a checkpoint's transparent backdrop.
+ */
+const CHECKPOINT_SAFE_BLEND_MODES = new Set(['', 'source-over', 'destination-out', 'normal']);
+
+/**
+ * True if the recording uses any complex (non-source-over) blend mode, anywhere
+ * in its delta tape or its opening per-user state. Such tapes must rebuild from
+ * the opening snapshot rather than the nearest checkpoint: checkpoint images are
+ * flat composites captured against a transparent backdrop, which freezes an
+ * unbaked complex-blend stroke as its raw colour instead of its displayed,
+ * blended-against-background colour.
+ * @param {{ deltas?: Array<{msg?: { bm?: string }}>, openingSnapshot?: Object }} rec
+ * @returns {boolean}
+ */
+function _tapeHasComplexBlend(rec) {
+  const isComplex = (bm) =>
+    typeof bm === 'string' && bm !== '' && !CHECKPOINT_SAFE_BLEND_MODES.has(bm);
+  for (const d of rec?.deltas ?? []) {
+    if (isComplex(d?.msg?.bm)) return true;
+  }
+  const states = rec?.openingSnapshot?.appState?.userDrawingStates;
+  if (states) {
+    for (const id in states) {
+      if (isComplex(states[id]?.blendMode)) return true;
+    }
+  }
+  return false;
+}
+
+/**
  * TimeMachine manages server-side replay of board history.
  */
 class TimeMachineState {
@@ -570,13 +618,18 @@ class TimeMachineState {
         // resolves, `_drawToReplayCanvas` will clear isPreviewMode and the
         // overlay disappears. Errors fall back to staying in preview mode.
         //
-        // forceFromOpening: replay the WHOLE tape from the opening snapshot
-        // rather than rebuilding from the nearest checkpoint. Checkpoint images
-        // bake unbaked complex-blend strokes with a transparent backdrop (raw
-        // black instead of the displayed blended colour), so a checkpoint
-        // rebuild shows wrong pixels on open. A full replay reconstructs every
-        // stroke through the live composite path and matches the preview blob.
-        this.seek(this.sessionEnd, { forceFromOpening: true }).catch((err) => {
+        // Prefer rebuilding from the nearest intra-checkpoint (a few seconds of
+        // deltas) over replaying the WHOLE tape from the opening snapshot —
+        // after a heavy session a full replay can take many seconds, which is
+        // exactly the lag the user feels on open. Layer-state checkpoints rebuild
+        // faithfully (correct undo + complex blends), so they never need the full
+        // replay. Only old flat-only recordings with complex blends still do: a
+        // flat checkpoint freezes an unbaked complex-blend stroke as its raw
+        // colour, so for those we force the opening snapshot (which predates the
+        // strokes and reconstructs them through the live composite path).
+        const forceFromOpening =
+          !_checkpointsCarryLayerState(rec) && _tapeHasComplexBlend(rec);
+        this.seek(this.sessionEnd, { forceFromOpening }).catch((err) => {
           console.warn('[TimeMachine] background catch-up failed:', err);
         });
 

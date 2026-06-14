@@ -20,6 +20,9 @@
   let handoffToFull = false;
 
   let tmLoading = $derived(TimeMachine.isLoading);
+  // True while the player is showing a low-res cached frame and crisp output is
+  // still catching up in the background — surfaced as a subtle corner spinner.
+  let tmPreview = $derived(TimeMachine.isPreviewMode);
 
   // ── Embedded player lifecycle ───────────────────────────────────────────────
   async function startEmbedded() {
@@ -169,6 +172,8 @@
           {/if}
           {#if tmLoading}
             <div class="rp-overlay"><div class="rp-spinner"></div></div>
+          {:else if tmPreview}
+            <div class="rp-preview-spinner" title="Sharpening…" aria-label="Loading full-resolution frame"></div>
           {/if}
           <button
             class="rp-fullscreen"
@@ -276,6 +281,13 @@
     border-top-color: #fff; border-radius: 50%; animation: rp-spin 0.9s linear infinite;
   }
   @keyframes rp-spin { to { transform: rotate(360deg); } }
+  /* Subtle "still sharpening the full-res frame" hint — small, corner, no dim. */
+  .rp-preview-spinner {
+    position: absolute; bottom: 10px; left: 10px; z-index: 6;
+    width: 16px; height: 16px; border: 2px solid rgba(255, 255, 255, 0.2);
+    border-top-color: rgba(255, 255, 255, 0.75); border-radius: 50%;
+    animation: rp-spin 0.9s linear infinite; opacity: 0.7; pointer-events: none;
+  }
   .rp-fullscreen {
     position: absolute; top: 10px; right: 10px; width: 32px; height: 32px;
     display: flex; align-items: center; justify-content: center;

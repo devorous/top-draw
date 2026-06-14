@@ -25,8 +25,10 @@ const RECORDING_VERSION = 2;
 /** Visible scrub window. Two minutes of "what just happened". */
 const DEFAULT_WINDOW_MS = 120_000;
 const DEFAULT_ENABLED = true;
-/** Anchor/intra checkpoint cadence. Plan calls for 10–15s. */
-const INTRA_CHECKPOINT_INTERVAL_MS = 12_000;
+/** Anchor/intra checkpoint cadence. Checkpoints now carry full undoable layer
+ * state (layerStateCodec), so each is heavier than the old flat PNG — 30s keeps
+ * the capture cost down while a rebuild still replays ≤30s of deltas. */
+const INTRA_CHECKPOINT_INTERVAL_MS = 30_000;
 /** Low-res scrub-preview cadence (matches Recorder + TimeMachine). */
 const VISUAL_CHECKPOINT_INTERVAL_MS = 2000;
 const VISUAL_CHECKPOINT_SCALE = 1 / 6;
