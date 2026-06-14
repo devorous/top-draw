@@ -61,6 +61,7 @@ import {
 } from './platform/updater.js';
 import { compareVersionStrings, ensureClientCanConnect, formatOutdatedClientMessage, getVersionStatus } from './VersionChecker.js';
 import { broadcastChatPopoutEvent, focusChatPopout } from './platform/chatPopoutBridge.js';
+import { BackgroundKeepAlive } from './platform/BackgroundKeepAlive.js';
 import initWasm from './wasm/ddraw_wasm.js';
 import * as wasm from './wasm/ddraw_wasm.js';
 
@@ -599,6 +600,10 @@ export class DrawingApp {
     this.TimeMachine = TimeMachine; // Expose for WebSocketClient recording
     this.recorder = recorder;       // Local replay tape. TimeMachine.recordAction → here.
     this.rollingTapeRecorder = rollingTapeRecorder; // Automatic 2-min DVR tape (History → Recent).
+
+    // Keeps the tick loop at full rate when the tab is backgrounded so remote
+    // strokes rasterize at a consistent cadence across users (see module doc).
+    this.backgroundKeepAlive = new BackgroundKeepAlive();
 
     this._applyReplayPreferences();
 
@@ -2839,6 +2844,9 @@ export class DrawingApp {
     }
 
     this.resetRoomState({ preserveRemoteVisuals: false, clearBoard: true });
+    // Joining is a user gesture — use it to unlock the silent-audio keepalive
+    // that keeps the tick loop running at full rate while the tab is hidden.
+    this.backgroundKeepAlive?.start();
     // Drop the rolling tape from the room we're leaving; it re-arms on sync.
     this.rollingTapeRecorder.stop('room-change');
 

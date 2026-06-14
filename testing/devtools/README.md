@@ -151,6 +151,66 @@ land in `testing/sync_results/k6ddraw_<RUN_ID>/`.
   straight into `flatCanvas` (so `strokeStack.length` stays 0 on replay — that
   is expected; the pixels are in `flatCanvas`, which the diff captures).
 
+---
+
+# 3-user SYNC state suite (`sync_state_join_suite.mjs`)
+
+Targets the part of the sync model the other harnesses skip: **board state that
+has crossed the bake threshold** (`MAX_STROKES_PER_USER = 20`), combined with
+**undo** and a **pending (un-redone) redo stack**, and then a **fresh user
+joining** into that state — the `sync_checkpoint_join_bakes_undoable` danger zone
+(baked strokes leave the live `strokeStack`, so a naive join hands the joiner a
+baked image with no undo history).
+
+Three live tabs (A, B, C) each draw 24 strokes round-robin (so seqs interleave
+and every user keeps some live, undoable strokes after baking), then per state:
+
+| State | Op after build |
+|---|---|
+| `baked` | none (just verifies baking happened) |
+| `undo` | A undo×3, B undo×3 |
+| `pending_redo` | A undo×3 — left redoable, **not** redone |
+
+Per state it asserts:
+
+1. **Baking actually occurred** — `flatCanvas` / watermark > 0 (we're really on the baked path).
+2. **Live parity (A,B,C)** — equal `strokeLog` (count/latestSeq/rollingHash), pixel diff A↔B / A↔C within the shared `layerDiff` tolerance, equal live `strokeStack` totals, and equal per-user redo-stack sizes.
+3. **Undo wasn't a no-op** — each operated user's redo stack grew by exactly the undo count, *replicated on every peer*.
+4. **Late-join parity** — a 4th tab (D) joins AFTER the state exists and converges to A's pixels.
+5. **Post-join remote undo/redo** — A then undoes/redoes and D must mirror it (the exact op the baked-join bug breaks on the joiner).
+
+```bash
+npm run dev            # vite :3000 + ws server :8030
+npm run test:syncstate                                   # all 3 states, fresh rooms
+node testing/devtools/sync_state_join_suite.mjs --only=undo --headed
+node testing/devtools/sync_state_join_suite.mjs --strokes=30
+node testing/devtools/sync_state_join_suite.mjs --lobby  # persistent room (see below)
+```
+
+Results land in `testing/sync_results/statejoin_<RUN_ID>/` (per-state live/late/post
+screenshots + `*diff*.png` on failure + `summary.json`).
+
+## Harness gotchas (learned the hard way)
+
+- **Assert AGREEMENT, not an absolute stroke count.** Driving pointer events
+  through the tick/input-buffer pipeline with wall-clock sleeps splits/merges
+  strokes, so the committed count is nondeterministic run-to-run (seen swinging
+  67↔78 for a nominal 72). The real invariant is that all peers converge on
+  *whatever* was committed — `waitTrioConverged` polls until logCount + rolling
+  hash + live stack agree and hold across two reads.
+- **Wait for the trio to re-converge AFTER undo/redo before snapshotting.** An
+  early snapshot caught `A=B=45, C=41` — a false desync that was just the undo
+  still propagating to C. Re-converging first makes it reliable; a *persistent*
+  disagreement after the generous timeout is the genuine-bug signal.
+- **`--lobby` is the only way to hit the baked-snapshot-base join.** A fresh
+  room is never persistent (`canPersistSnapshots()` = lobby or registered only),
+  so a joiner always replays the full command tail and can't reproduce the
+  truncated-log / baked-base condition. `--lobby` runs in the real `lobby`,
+  waits past the 15s server snapshot timer before the late join so a checkpoint
+  mints + the log truncates, and then checks the joiner. (Writes strokes into
+  the live lobby — opt-in.) Validated 2026-06-14: all three states pass the
+  baked-base join + post-join remote undo/redo there.
+
 ## Finding: soft-stroke observer-replay divergence
 
 With **shapes** (line/rect/circle) or a **hard opaque brush**
