@@ -5400,7 +5400,7 @@ export class DrawingApp {
   _updateBlurCannotDraw() {
     const cannotDraw =
       (this.self.tool === 'blur' && this.self.activeLayer !== 0) ||
-      (this.self.tool === 'glitchBlur' && (this.self.activeLayer < 0 || this.self.activeLayer > 2));
+      (this.self.tool === 'glitchBlur' && this.self.activeLayer !== 0);
     this._blurCannotDraw = cannotDraw;
     this._updateCursorDrawState();
   }
@@ -7508,7 +7508,21 @@ export class DrawingApp {
     const userId = this.self?.id;
     if (userId === undefined || !this.board?.layerManager?.layerGroups) return false;
 
-    return this.board.layerManager.layerGroups.some(group => group?.activeStrokeByUser?.has(userId));
+    // Only an active stroke with actual content counts as "in progress". Changing
+    // blend mode pre-creates an EMPTY active stroke (the blend sub-layer, via
+    // createActiveLayerBlendSubLayer -> beginUserStroke) whose dirtyRect is still
+    // the sentinel empty rect (maxX < minX). Counting that placeholder made undo
+    // dead: handleUndo early-returns to cancel an in-progress stroke, and
+    // cancelCurrentStroke only clears the CURRENT layer's stroke — so after you
+    // changed blend on one layer then switched to another, the placeholder on the
+    // old layer permanently blocked undo until you switched back. A real in-progress
+    // stroke is already caught by the mousedown check above.
+    return this.board.layerManager.layerGroups.some(group => {
+      const active = group?.activeStrokeByUser?.get(userId);
+      if (!active) return false;
+      const dr = active.dirtyRect;
+      return !!dr && dr.maxX >= dr.minX && dr.maxY >= dr.minY;
+    });
   }
 
   handleUndo() {

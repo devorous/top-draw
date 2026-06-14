@@ -385,17 +385,48 @@ export function setupDrawingHandlers(wrapHandler, app) {
     if (user) {
       if (user.id === app.sessionIndex) return;
 
+      const layerGroups = board.layerManager?.layerGroups || [];
+
       if (user.tool === 'glitchBlur') {
-        if (user.mousedown || board.layerManager?.layerGroups?.some(group => group?.activeStrokeByUser?.has(user.id))) {
+        if (user.mousedown || layerGroups.some(group => group?.activeStrokeByUser?.has(user.id))) {
           remoteUserHandler.handleCancel(user);
         }
         remoteUserHandler.cancelLatestPendingGlitchImage(user.id);
         if (remoteUserHandler.undoLatestRemoteGlitchImage(user.id)) {
           return;
         }
+      } else {
+        // Glitch stamps commit asynchronously (image decode), so on a fresh joiner
+        // the replayed command tail can dispatch this UNDO while the target glitch
+        // is still decoding (not yet in the strokeStack). The branch above only
+        // runs when the user is STILL on the glitch tool; a user who switched tools
+        // (e.g. to brush) after the glitch before undoing skips it, so board.undo
+        // below would miss the in-flight glitch and it would commit anyway —
+        // leaving a stamp on the joiner that had been undone.
+        //
+        // Cancel the in-flight glitch here too, but only when it outranks every
+        // committed stroke for this user (by seq) — i.e. it really is the most
+        // recent stroke this UNDO targets. Otherwise a later committed stroke is
+        // the undo target and must fall through to board.undo (don't cancel an
+        // earlier glitch that should survive).
+        const pendingGlitchSeq = remoteUserHandler.getLatestPendingGlitchSeq(user.id);
+        if (pendingGlitchSeq >= 0) {
+          let maxCommittedSeq = -1;
+          for (const group of layerGroups) {
+            for (const stroke of group.strokeStack) {
+              if (stroke.userId === user.id && (stroke.seq || 0) > maxCommittedSeq) {
+                maxCommittedSeq = stroke.seq || 0;
+              }
+            }
+          }
+          if (pendingGlitchSeq >= maxCommittedSeq) {
+            remoteUserHandler.cancelLatestPendingGlitchImage(user.id);
+            return;
+          }
+        }
       }
 
-      const hasActiveStroke = user.mousedown || board.layerManager?.layerGroups?.some(
+      const hasActiveStroke = user.mousedown || layerGroups.some(
         group => group?.activeStrokeByUser?.has(user.id)
       );
       if (hasActiveStroke) {

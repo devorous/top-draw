@@ -1721,13 +1721,12 @@ menuBtn: document.getElementById('menuBtn'),
 
   /**
    * Enable/disable blur tool buttons based on active layer.
-   * Regular blur only works on layer 0; glitch blur is enabled on the
-   * three base layers for testing.
+   * Regular blur and glitch blur only work on layer 0 (Layer 1).
    * @param {number} layerIndex - Active layer index
    */
   updateBlurToolState(layerIndex) {
     const regularBlurDisabled = layerIndex !== 0;
-    const glitchBlurDisabled = layerIndex < 0 || layerIndex > 2;
+    const glitchBlurDisabled = layerIndex !== 0;
     if (this.elements.blurBtn) {
       const renderedTool = this.elements.blurBtn.dataset.tool || 'blur';
       const disabled = renderedTool === 'glitchBlur' ? glitchBlurDisabled : regularBlurDisabled;

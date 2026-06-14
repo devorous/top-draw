@@ -160,7 +160,16 @@ export class RemoteInkHandler {
     }
 
     const strokeLayer = user._strokeLayer ?? user.activeLayer;
-    const layerCtx = this.board.layerManager.getUserStrokeContext(strokeLayer, user.id);
+    // Resolve the stroke blend from synced user state (respecting the layer's
+    // complex-blend restriction), matching how handleMouseDown/_syncLayeredRemotePreview
+    // would have begun this stroke. Passing it means that if the active stroke was
+    // lazily created as source-over — e.g. a joiner that missed this stroke's
+    // MD/CBM preamble in the join race — getUserStrokeContext corrects its blend
+    // instead of baking the stroke flat (overlay → plain black). See
+    // LayerManager.getUserStrokeContext (it overwrites a stale non-source-over blend).
+    const allowComplex = this.board.layerManager.getLayerAllowComplexBlendModes(strokeLayer);
+    const strokeBlend = allowComplex ? (user.blendMode || 'source-over') : 'source-over';
+    const layerCtx = this.board.layerManager.getUserStrokeContext(strokeLayer, user.id, strokeBlend, { blendBakeMode: user.blendBakeMode });
     if (layerCtx) {
       layerCtx.globalCompositeOperation = 'source-over';
       layerCtx.globalAlpha = user._inkAlpha;

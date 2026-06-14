@@ -1058,6 +1058,25 @@ export class RemoteUserHandler {
     return false;
   }
 
+  /**
+   * Seq of the latest in-flight (queued, not yet committed) glitch stamp for a
+   * user — i.e. the token cancelLatestPendingGlitchImage would cancel. Glitch
+   * stamps commit asynchronously (image decode), so an undo can arrive before the
+   * stamp lands in the strokeStack; the caller uses this seq to decide whether the
+   * undo actually targets the in-flight glitch (vs a later committed stroke).
+   * @param {number} userId
+   * @returns {number} The latest pending glitch seq, or -1 if none is in flight.
+   */
+  getLatestPendingGlitchSeq(userId) {
+    const queue = this.pendingGlitchImagesByUser.get(userId);
+    if (!queue?.length) return -1;
+
+    for (let i = queue.length - 1; i >= 0; i--) {
+      if (!queue[i].canceled) return queue[i].seq || 0;
+    }
+    return -1;
+  }
+
   _processPendingGlitchImages(userId) {
     if (userId == null) return;
     const queue = this.pendingGlitchImagesByUser.get(userId);

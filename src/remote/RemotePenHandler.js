@@ -249,7 +249,14 @@ export class RemotePenHandler {
     }
 
     const strokeLayer = user._strokeLayer ?? user.activeLayer;
-    const layerCtx = this.board.layerManager.getUserStrokeContext(strokeLayer, user.id);
+    // Resolve the stroke blend from synced user state (respecting the layer's
+    // complex-blend restriction) so a lazily-created active stroke — e.g. a joiner
+    // that missed this stroke's MD/CBM preamble in the join race — gets the correct
+    // blend instead of being baked flat as source-over (overlay → plain black).
+    // Mirrors the RemoteInkHandler fix. See LayerManager.getUserStrokeContext.
+    const allowComplex = this.board.layerManager.getLayerAllowComplexBlendModes(strokeLayer);
+    const strokeBlend = allowComplex ? (user.blendMode || 'source-over') : 'source-over';
+    const layerCtx = this.board.layerManager.getUserStrokeContext(strokeLayer, user.id, strokeBlend, { blendBakeMode: user.blendBakeMode });
     if (layerCtx) {
       layerCtx.globalCompositeOperation = 'source-over';
       layerCtx.globalAlpha = user._penAlpha;
