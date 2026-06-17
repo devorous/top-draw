@@ -28,6 +28,19 @@ loadEnvFile('.env');
 loadEnvFile('.env.production');
 loadEnvFile('.env.local', true);
 
+// `.env.local` holds local dev/test overrides and is loaded with override=true so
+// developer secrets (R2 keys, signing key) can live there. But it must NOT empty out
+// frontend build vars: Vite gives any VITE_-prefixed value already in process.env
+// priority over its own .env.production file, so an empty VITE_API_BASE_URL here would
+// be baked into the release and break every /api fetch in the packaged app (the app then
+// hits tauri://localhost and gets index.html -> "<!DOCTYPE ... is not valid JSON").
+// Drop empty VITE_* overrides so Vite falls back to .env.production for the build.
+for (const key of Object.keys(process.env)) {
+  if (key.startsWith('VITE_') && process.env[key] === '') {
+    delete process.env[key];
+  }
+}
+
 function ensureDir(dirPath) {
   fs.mkdirSync(dirPath, { recursive: true });
 }
