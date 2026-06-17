@@ -1,11 +1,11 @@
 {
   "version": "1.10.1-beta",
-  "notes": "Fixed a few bugs related to the new replay system, improving its UI and performance. Fixed some minor bugs involving glitch brush, eraser and mirror modes.",
-  "pub_date": "2026-06-09T20:04:31.146Z",
+  "notes": "Implemented new smooth replay system to replace existing snapshot system",
+  "pub_date": "2026-06-17T05:48:00.461Z",
   "platforms": {
     "windows-x86_64": {
-      "url": "https://www.ddraw.ca/desktop-updates/windows-x86_64/Ddraw_1.10.0-beta_x64-setup.exe",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQ01XR1piUDlNem1YcVF5RFQwaUhESG1aV2grdUlqeUZWa2lpc3BTd1NxTmRzQkpCNWJPMExhT3Z5NXhpajI0RWE4Q1dpRGtEVzRTaDZvTHBCeTNUV1lzNXFla25nYUFVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgxMDM1NzQ2CWZpbGU6RGRyYXdfMS4xMC4wLWJldGFfeDY0LXNldHVwLmV4ZQpRZWs4UUM5TVdMRVBCL016VkVHUTU3WUFhK3Q4SVdNVzJKb1M2Y2gzTGFybzJYcTNwc2s0NnBWcnIxTnBuQWdxTmlvbmx6bFBQM1ZLaE43L0V6YjVEdz09Cg=="
+      "url": "https://www.ddraw.ca/desktop-updates/windows-x86_64/Ddraw_1.10.1-beta_x64-setup.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQ01XR1piUDlNem4zeldSeFJvbVJQMzRkZnZFM0EvR2NiUEtnUlJKMXE0SHlzaXplTzBFZnExQzFUUlFnSnZRWEdhWFhVY283OGE2UlA1NEYycGRqWVNEeGVWbit3aHdrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgxNjc1MzcwCWZpbGU6RGRyYXdfMS4xMC4xLWJldGFfeDY0LXNldHVwLmV4ZQp1THh3NEo1VUFuMUtkc2x5NDNyaHVTTHkwcHNycmpuZnhrUGxPdjVCdlZyd2ZCdmFSRGdEd0NZQXZlUFBGNUIvLzlTMHlocXlLd3ZSQUFEdjA5ZUFCUT09Cg=="
     }
   }
 }
