@@ -671,6 +671,11 @@ export class TimeLapseExporter {
     if (!ctx || !engine?.botUsers) return;
 
     for (const user of engine.botUsers.values()) {
+      // Same idle gating as ReplayEngine.drawCursors: skip lurkers who never
+      // drew (no _lastCursorTs — present in the opening snapshot but silent)
+      // and cursors idle past the threshold, so a frozen marker doesn't linger
+      // for the whole export.
+      if (typeof engine.isCursorVisible === 'function' && !engine.isCursorVisible(user)) continue;
       const x = Number(user?.x);
       const y = Number(user?.y);
       if (!Number.isFinite(x) || !Number.isFinite(y)) continue;

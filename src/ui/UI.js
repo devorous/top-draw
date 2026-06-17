@@ -2454,6 +2454,65 @@ menuBtn: document.getElementById('menuBtn'),
     this._parityFixToastEl = null;
   }
 
+  /**
+   * Actionable toast confirming a file was saved. When `onReveal` is provided
+   * (desktop only — browser downloads don't expose a path to open), an "Open
+   * file location" button reveals the file in the OS file manager. Reuses the
+   * .snapshotJoinToast styling.
+   * @param {string} message - e.g. "Time-lapse saved (12.3 MB)"
+   * @param {{ onReveal?: (() => void)|null }} [opts]
+   */
+  showSavedFileToast(message, { onReveal = null } = {}) {
+    this._dismissSavedFileToast();
+
+    const el = document.createElement('div');
+    el.className = 'snapshotJoinToast';
+
+    const revealBtnHtml = onReveal
+      ? '<button class="savedFileToast__reveal btn primary small">Open file location</button>'
+      : '';
+    el.innerHTML = `
+      <div class="snapshotJoinToast__body">
+        <div class="snapshotJoinToast__title">File saved</div>
+        <div class="snapshotJoinToast__meta"></div>
+        <div class="snapshotJoinToast__actions">
+          ${revealBtnHtml}
+          <button class="savedFileToast__dismiss btn secondary small">Dismiss</button>
+        </div>
+      </div>
+    `;
+    // Set the message via textContent so a filename/size can't inject markup.
+    el.querySelector('.snapshotJoinToast__meta').textContent = message;
+
+    document.body.appendChild(el);
+    this._savedFileToastEl = el;
+
+    const dismiss = () => this._dismissSavedFileToast();
+    const revealBtn = el.querySelector('.savedFileToast__reveal');
+    if (revealBtn) {
+      revealBtn.addEventListener('click', () => {
+        dismiss();
+        try { onReveal?.(); } catch (e) { console.error('[SavedFile] onReveal threw', e); }
+      });
+    }
+    el.querySelector('.savedFileToast__dismiss').addEventListener('click', dismiss);
+
+    clearTimeout(this._savedFileToastTimeout);
+    this._savedFileToastTimeout = setTimeout(dismiss, 6000);
+
+    requestAnimationFrame(() => el.classList.add('show'));
+  }
+
+  _dismissSavedFileToast() {
+    clearTimeout(this._savedFileToastTimeout);
+    const el = this._savedFileToastEl;
+    if (!el) return;
+    el.classList.remove('show');
+    el.addEventListener('transitionend', () => el.remove(), { once: true });
+    setTimeout(() => el.remove(), 400);
+    this._savedFileToastEl = null;
+  }
+
   _dismissSnapshotJoinToast() {
     clearTimeout(this._snapshotJoinToastTimeout);
     const el = this._snapshotJoinToastEl;

@@ -39,8 +39,6 @@
   let tmStart = $derived(TimeMachine.sessionStart);
   let tmEnd = $derived(TimeMachine.sessionEnd);
   let tmCurrent = $derived(TimeMachine.currentTime);
-  let tmExporting = $derived(TimeMachine.isExportingVideo);
-  let tmExportProgress = $derived(TimeMachine.videoExportProgress);
 
   let tmTrimStart = $derived(TimeMachine.effectiveTrimStart);
   let tmTrimEnd = $derived(TimeMachine.effectiveTrimEnd);
@@ -78,10 +76,6 @@
     // advancing underneath the time-lapse dialog.
     if (TimeMachine.isPlaying) TimeMachine.pause();
     timeLapseDialogOpen = true;
-  }
-
-  function cancelVideo() {
-    TimeMachine.cancelVideoExport();
   }
 
   async function undoToHere() {
@@ -238,13 +232,7 @@
   <span class="rp-time rp-time-total">{totalLabel}</span>
 </div>
 
-{#if tmExporting}
-  <div class="rp-export-progress">
-    <div class="rp-export-bar" style="width: {Math.round(tmExportProgress * 100)}%"></div>
-    <span class="rp-export-label">Rendering... {Math.round(tmExportProgress * 100)}%</span>
-    <button class="rp-action" onclick={cancelVideo}>Cancel</button>
-  </div>
-{:else if TimeMachine.isReviewing}
+{#if TimeMachine.isReviewing}
   <!-- Local replays are always "reviewing"; server replays hide the actions
        while caught up to the live edge (transport-only, as before). -->
   <div class="rp-actions">
@@ -398,17 +386,6 @@
   }
   .rp-trim-chip:hover { color: #fff; border-color: rgba(220, 53, 69, 0.6); }
   .rp-trim-x { font-size: 10px; opacity: 0.8; }
-
-  /* ── Export progress ────────────────────────────────────────────────────── */
-  .rp-export-progress {
-    position: relative; display: flex; align-items: center; gap: 10px; height: 32px;
-  }
-  .rp-export-bar {
-    position: absolute; left: 0; top: 0; bottom: 0; border-radius: 6px;
-    background: linear-gradient(90deg, var(--accent-primary, #00d4aa), var(--accent-hover, #00e6b8));
-    opacity: 0.35; transition: width 120ms ease-out; pointer-events: none;
-  }
-  .rp-export-label { font-size: 12px; color: #eee; z-index: 1; flex: 1; }
 
   /* ── Region picker (viewport overlay, above any host modal/timebar) ─────── */
   .rp-region-picker {

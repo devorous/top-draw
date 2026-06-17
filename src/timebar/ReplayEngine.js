@@ -3292,13 +3292,29 @@ export class ReplayEngine {
    */
   drawCursors(ctx, offsetX = 0, offsetY = 0) {
     if (!ctx || this.renderCursors === false) return;
-    const now = this._currentReplayTs ?? 0;
 
     for (const user of this.botUsers.values()) {
-      const lastTs = user._lastCursorTs;
-      if (lastTs == null || now - lastTs > REPLAY_CURSOR_IDLE_MS) continue;
+      if (!this.isCursorVisible(user)) continue;
       drawReplayCursor(ctx, user, offsetX, offsetY);
     }
+  }
+
+  /**
+   * Whether a bot's cursor should be visible at the current playhead.
+   * Hidden when the user has produced no pointer activity yet — e.g. a lurker
+   * who was present (and so captured in the opening snapshot's
+   * userDrawingStates) but never drew during the tape — or has been idle past
+   * REPLAY_CURSOR_IDLE_MS. Mirrors the live remote-cursor idle-hide so a frozen
+   * cursor never lingers on screen. Shared by drawCursors and the video
+   * exporter's cursor overlay so the two surfaces can't drift.
+   * @param {User} user
+   * @returns {boolean}
+   */
+  isCursorVisible(user) {
+    const lastTs = user?._lastCursorTs;
+    if (lastTs == null) return false;
+    const now = this._currentReplayTs ?? 0;
+    return now - lastTs <= REPLAY_CURSOR_IDLE_MS;
   }
 
   /**

@@ -10,6 +10,7 @@ import { ReplayEngine } from './ReplayEngine.js';
 import { T } from '../../shared/MessageTypes.js';
 import { encodeDdraw, suggestDdrawFilename } from '../replay/ddrawCodec.js';
 import { TimeLapseExporter, compressedTapeDurationMs, suggestImageSequenceFilename, suggestVideoFilename } from '../replay/TimeLapseExporter.js';
+import { isTauriDesktop, saveBytesViaNativeDialog, revealPathInDir } from '../platform/desktop.js';
 
 const SEEK_TELEMETRY_LOG_INTERVAL_MS = 1500;
 const LOCAL_REVERSE_SCRUB_FRAME_MS = 500;
@@ -1140,22 +1141,61 @@ class TimeMachineState {
     }
     try {
       const blob = await encodeDdraw(rec);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = suggestDdrawFilename(rec);
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 30_000);
-      const sizeKb = Math.max(1, Math.round(blob.size / 1024));
-      window.app?.ui?.showToast?.(`Saved replay (${sizeKb} KB)`, 2500);
-      return true;
+      return await this._saveExportedFile(blob, suggestDdrawFilename(rec), 'Replay', {
+        filterName: 'Ddraw Replay',
+        extensions: ['ddraw'],
+      });
     } catch (err) {
       console.error('[TimeMachine] export failed:', err);
       window.app?.ui?.showToast?.('Could not save replay', 3000, 'error');
       return false;
     }
+  }
+
+  /**
+   * Persist an exported blob and confirm it to the user. On the Tauri desktop
+   * app this routes through a native save dialog (so we learn the chosen path)
+   * and the confirmation toast offers "Open file location"; in the browser it
+   * falls back to an anchor download, which can't expose a path to reveal.
+   * @param {Blob} blob
+   * @param {string} filename - Suggested filename.
+   * @param {string} label - Human label for the toast, e.g. "Time-lapse".
+   * @param {{ filterName?: string, extensions?: string[] }} [opts]
+   * @returns {Promise<boolean>} false only if the user cancelled the save.
+   * @private
+   */
+  async _saveExportedFile(blob, filename, label, opts = {}) {
+    const ui = window.app?.ui;
+    const sizeLabel = blob.size >= 1024 * 1024
+      ? `${(blob.size / (1024 * 1024)).toFixed(1)} MB`
+      : `${Math.max(1, Math.round(blob.size / 1024))} KB`;
+
+    if (isTauriDesktop()) {
+      const result = await saveBytesViaNativeDialog(blob, {
+        suggestedName: filename,
+        filterName: opts.filterName,
+        extensions: opts.extensions,
+      });
+      if (!result?.saved) return false; // user dismissed the native dialog
+      const path = result.path || null;
+      ui?.showSavedFileToast?.(`${label} saved (${sizeLabel})`, {
+        onReveal: path ? () => revealPathInDir(path) : null,
+      });
+      return true;
+    }
+
+    // Browser: anchor download. The page never learns the save path, so there's
+    // no "open file location" affordance.
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    ui?.showSavedFileToast?.(`${label} saved (${sizeLabel})`);
+    return true;
   }
 
   /**
@@ -1201,19 +1241,22 @@ class TimeMachineState {
       }
       const isSequence = result.kind === 'sequence' || output === 'sequence';
       const ext = result.mimeType.includes('webm') ? 'webm' : 'mp4';
-      const url = URL.createObjectURL(result.blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = isSequence
+      const filename = isSequence
         ? suggestImageSequenceFilename(rec, { speed, fps })
         : suggestVideoFilename(rec, ext, { speed, fps });
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 60_000);
-      const sizeMb = (result.blob.size / (1024 * 1024)).toFixed(1);
-      const label = isSequence ? 'image sequence' : 'time-lapse';
-      window.app?.ui?.showToast?.(`Saved ${label} (${sizeMb} MB)`, 2500);
+      const saveOpts = isSequence
+        ? { filterName: 'ZIP Archive', extensions: ['zip'] }
+        : { filterName: ext === 'webm' ? 'WebM Video' : 'MP4 Video', extensions: [ext] };
+      const saved = await this._saveExportedFile(
+        result.blob,
+        filename,
+        isSequence ? 'Image sequence' : 'Time-lapse',
+        saveOpts,
+      );
+      if (!saved) {
+        window.app?.ui?.showToast?.('Render not saved', 2000);
+        return false;
+      }
       return true;
     } catch (err) {
       console.error('[TimeMachine] render failed:', err);
@@ -1991,31 +2034,16 @@ class TimeMachineState {
     hideElement(ui.elements?.selfPressureCircle);
     hideElement(ui.elements?.selfPressureSquare);
 
-    const remoteCursors = ui.remoteUserUI?.cursors;
-    if (remoteCursors) {
-      for (const [userId, cursorElements] of remoteCursors.entries()) {
-        if (this._botCursorIds.has(Number(userId))) continue;
-        hideElement(cursorElements?.cursor);
-        hideElement(cursorElements?.circle);
-        hideElement(cursorElements?.square);
-        hideElement(cursorElements?.crosshair);
-      }
-    }
-
-    const remoteUserUI = ui.remoteUserUI;
-    if (!remoteUserUI) return;
-
-    // Hide ALL user-list entries (bots too). The cursor visuals above are
-    // kept on the canvas overlay so the viewer still sees who's drawing; the
-    // sidebar/list itself is just chrome that distracts from playback.
-    for (const [userId] of remoteCursors ?? []) {
-      hideElement(document.querySelector(`.userEntry.u${userId}`));
-    }
-
-    for (const group of remoteUserUI.userGroups?.values?.() ?? []) {
-      hideElement(group?.element);
-    }
-
+    // Remote-user cursor overlays, user-list entries, and group headers are
+    // owned by RemoteUserUI.setReplayModeActive(), which _showReplayCanvas()
+    // invokes alongside this method. We must NOT hide/capture them here too:
+    // setReplayModeActive(true) runs first on open, so the display value we'd
+    // record below would already be 'none'. Restoring that stale 'none' on
+    // close then re-hides live users that setReplayModeActive(false) had just
+    // correctly shown — which left a still-present friend missing from the
+    // user list after closing a replay. Only manage chrome that
+    // setReplayModeActive does not touch: the self cursor (above) and the
+    // list container itself.
     const userListEl = document.getElementById('userList') || document.querySelector('.userList');
     hideElement(userListEl);
   }

@@ -154,6 +154,19 @@ fn show_save_png_dialog(suggested_name: &str) -> Result<Option<String>, String> 
   )
 }
 
+fn show_save_file_dialog(
+  suggested_name: &str,
+  filter_name: &str,
+  extensions: &[String],
+) -> Result<Option<String>, String> {
+  let mut dialog = rfd::FileDialog::new().set_file_name(suggested_name);
+  if !extensions.is_empty() {
+    let ext_refs: Vec<&str> = extensions.iter().map(String::as_str).collect();
+    dialog = dialog.add_filter(filter_name, &ext_refs);
+  }
+  Ok(dialog.save_file().map(|path| path.to_string_lossy().to_string()))
+}
+
 fn image_mime_for_path(path: &Path) -> &'static str {
   match path
     .extension()
@@ -393,6 +406,79 @@ fn save_png_via_dialog(base64_png: String, suggested_name: Option<String>) -> Re
   })
 }
 
+/// Save arbitrary bytes (base64-encoded) through a native save dialog. Used by
+/// the replay/time-lapse exports (.ddraw, .webm/.mp4, .zip) so the desktop app
+/// learns the chosen path and can later reveal it in the file manager.
+#[tauri::command]
+fn save_bytes_via_dialog(
+  base64: String,
+  suggested_name: Option<String>,
+  filter_name: Option<String>,
+  extensions: Option<Vec<String>>,
+) -> Result<SaveDialogResult, String> {
+  let suggested_name = suggested_name.unwrap_or_else(|| "file".to_string());
+  let filter_name = filter_name.unwrap_or_else(|| "File".to_string());
+  let extensions = extensions.unwrap_or_default();
+  let Some(path) = show_save_file_dialog(&suggested_name, &filter_name, &extensions)? else {
+    return Ok(SaveDialogResult {
+      saved: false,
+      path: None,
+    });
+  };
+
+  let bytes = BASE64
+    .decode(base64.trim())
+    .map_err(|error| format!("Failed to decode file data: {error}"))?;
+
+  fs::write(&path, bytes).map_err(|error| format!("Failed to save file: {error}"))?;
+
+  Ok(SaveDialogResult {
+    saved: true,
+    path: Some(path),
+  })
+}
+
+/// Reveal a saved file in the OS file manager, selecting it where the platform
+/// supports it (Explorer on Windows, Finder on macOS; Linux opens the parent
+/// folder since most file managers can't select a target from the CLI).
+#[tauri::command]
+fn reveal_path_in_dir(path: String) -> Result<(), String> {
+  let target = Path::new(&path);
+  if !target.exists() {
+    return Err("That file no longer exists.".to_string());
+  }
+
+  #[cfg(target_os = "windows")]
+  {
+    use std::os::windows::process::CommandExt;
+    // raw_arg so explorer parses `/select,"<path>"` itself — std's normal arg
+    // quoting would wrap the whole thing and explorer would mis-parse it.
+    std::process::Command::new("explorer")
+      .raw_arg(format!("/select,\"{}\"", path))
+      .spawn()
+      .map_err(|error| format!("Failed to open file location: {error}"))?;
+  }
+
+  #[cfg(target_os = "macos")]
+  {
+    std::process::Command::new("open")
+      .args(["-R", &path])
+      .spawn()
+      .map_err(|error| format!("Failed to open file location: {error}"))?;
+  }
+
+  #[cfg(all(unix, not(target_os = "macos")))]
+  {
+    let parent = target.parent().unwrap_or(target);
+    std::process::Command::new("xdg-open")
+      .arg(parent)
+      .spawn()
+      .map_err(|error| format!("Failed to open file location: {error}"))?;
+  }
+
+  Ok(())
+}
+
 #[tauri::command]
 async fn fetch_update(app: AppHandle, pending_update: State<'_, PendingUpdate>) -> Result<Option<UpdateMetadata>, String> {
   let Some((endpoint, pubkey)) = updater_configuration() else {
@@ -463,6 +549,8 @@ pub fn run() {
     .invoke_handler(tauri::generate_handler![
       open_image_via_dialog,
       save_png_via_dialog,
+      save_bytes_via_dialog,
+      reveal_path_in_dir,
       open_discord_oauth_window,
       update_discord_presence,
       fetch_update,
