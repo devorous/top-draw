@@ -84,7 +84,15 @@ export class StrokeTape {
     if (this.toolStateTypes.has(t)) {
       let st = this._toolState.get(uid);
       if (!st) { st = new Map(); this._toolState.set(uid, st); }
-      st.set(t, bytes.slice());
+      const copy = bytes.slice();
+      st.set(t, copy);
+      // If a stroke is already in flight, this change also belongs *inside* the
+      // stroke's preamble so a joiner replays mid-stroke tool-state changes in
+      // order (e.g. scrolling brush size while dragging a circle/rectangle).
+      // The MD-time snapshot only captures state as it was at mousedown; without
+      // this the stroke is reconstructed with the original size/color/etc.
+      const pend = this._pending.get(uid);
+      if (pend) pend.push(copy);
       return;
     }
 

@@ -105,6 +105,10 @@ export class EraserTool extends Tool {
     }
     this.commitCurrentLine(user, user.pressure, user.size, user.opacity, false);
 
+    // Drop the transient preview stroke now that the erase has committed to the
+    // active stroke, so the composite doesn't double-apply it for a frame.
+    this.board.layerManager?.clearUserPreviewStroke?.(userId);
+
     const erasedTiles = this.collectErasedTiles(user);
 
     if (this._shouldEraseAllLayers(user)) {
@@ -167,12 +171,19 @@ export class EraserTool extends Tool {
       });
     });
 
+    // Publish the per-user preview into the layer composite as a transient
+    // destination-out preview stroke. Each user gets their own preview entry
+    // (activePreviewByUser), so simultaneous erasers no longer fight over a
+    // single shared flatten pass — which caused both previews to flicker.
+    this._publishPreviewStroke(user, ctx, rect);
+
     state.previewDirtyBounds = null;
-    // The live preview surface (topCanvas) is used only as a destination-out mask;
-    // the visible erase preview is composited into the main canvas. Keep topCanvas
-    // hidden so it isn't also painted on top — a full clearTop(null) (e.g. when
-    // mirror regions force a null preview rect) resets its opacity and would
-    // otherwise double the erase strength in the preview vs. the committed result.
+    // The live preview surface (topCanvas) is only a source for the per-user
+    // destination-out preview stroke published above; the visible erase preview
+    // is composited into the main canvas. Keep topCanvas hidden so it isn't also
+    // painted on top — a full clearTop(null) (e.g. when mirror regions force a
+    // null preview rect) resets its opacity and would otherwise double the erase
+    // strength in the preview vs. the committed result.
     if (this._isLocalUser(user)) this._setPreviewMaskVisible(false);
     this.board.requestUpdate();
   }
@@ -325,6 +336,39 @@ export class EraserTool extends Tool {
       );
     } else {
       ctx.drawImage(state.previewCanvas, 0, 0);
+    }
+  }
+
+  /**
+   * Register the current eraser preview as a per-user, transient destination-out
+   * preview stroke so the layer compositor renders it alongside every other
+   * user's preview. Erase-all-layers still uses the flattened global preview
+   * path (Board._findActiveEraserPreview), so it is skipped here.
+   * @param {Object} user - The erasing user.
+   * @param {CanvasRenderingContext2D} ctx - The per-user preview context (its
+   *   canvas already holds the direct stroke plus any mirror reflections).
+   * @param {{x:number,y:number,width:number,height:number}|null} rect - Dirty region.
+   * @private
+   */
+  _publishPreviewStroke(user, ctx, rect) {
+    const lm = this.board.layerManager;
+    if (!lm || !ctx?.canvas) return;
+    if (this._shouldEraseAllLayers(user)) return;
+
+    // The local path passes the expanded composite rect; the remote path calls
+    // drawPreview without one, so fall back to this stroke's pending preview
+    // bounds to avoid a full-board copy/composite every frame.
+    let dirtyRect = rect && Number.isFinite(rect.x) ? rect : null;
+    if (!dirtyRect && this.board.mirrorRegions?.length === 0) {
+      const state = this._getStrokeState(user);
+      if (state?.previewDirtyBounds) dirtyRect = this._expandBoundsForComposite(state.previewDirtyBounds);
+    }
+    lm.setUserPreviewStroke(this._getStrokeLayer(user), this._getUserId(user), ctx.canvas, 'destination-out', dirtyRect);
+
+    if (dirtyRect && dirtyRect.width > 0 && dirtyRect.height > 0) {
+      this.board.compositeTileGrid?.markRect(dirtyRect.x, dirtyRect.y, dirtyRect.width, dirtyRect.height);
+    } else {
+      this.board.markCompositeFull?.();
     }
   }
 

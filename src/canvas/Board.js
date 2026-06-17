@@ -2472,6 +2472,15 @@ export class Board {
         const user = this.app?.users?.get?.(userId);
         if (user?.tool && user.tool !== 'erase') continue;
 
+        // Single-layer erasers now render as per-user destination-out preview
+        // strokes inside the normal layer composite (so multiple simultaneous
+        // erasers no longer flicker). Only erase-all-layers still needs this
+        // flattened global preview pass.
+        const isAllLayers = userId === localUserId
+          ? (this.app?.eraseAllLayers ?? false)
+          : (user?.eraseAllLayers ?? false);
+        if (!isAllLayers) continue;
+
         const strokeState = eraserTool?._getStrokeState?.(user) ?? user?._eraserStrokeState ?? null;
         const maskCanvas = userId === localUserId
           ? this.topCanvas

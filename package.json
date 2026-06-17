@@ -15,6 +15,7 @@
     "test:parity": "node testing/devtools/replay_parity_suite.mjs",
     "test:k6parity": "node testing/devtools/k6_ddraw_parity.mjs",
     "test:k6edge": "node testing/devtools/replay_multiuser_edge_suite.mjs",
+    "test:undosnap": "node testing/devtools/replay_undo_after_snapshot.mjs",
     "test:syncstate": "node testing/devtools/sync_state_join_suite.mjs",
     "test:k6obs": "node testing/devtools/k6_lowstress_observers.mjs",
     "test:moderation": "node testing/puppeteer/moderation_suite.js",

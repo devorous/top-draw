@@ -1,6 +1,6 @@
 {
-  "version": "1.10.0-beta",
-  "notes": "Implemented new smooth replay system to replace existing snapshot system",
+  "version": "1.10.1-beta",
+  "notes": "Fixed a few bugs related to the new replay system, improving its UI and performance. Fixed some minor bugs involving glitch brush, eraser and mirror modes.",
   "pub_date": "2026-06-09T20:04:31.146Z",
   "platforms": {
     "windows-x86_64": {
