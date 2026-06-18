@@ -1203,7 +1203,7 @@ class TimeMachineState {
    * download. Uses a dedicated ReplayEngine instance so the user's current
    * scrub position is unaffected.
    *
-   * @param {{ speed?: number, fps?: number, output?: 'video'|'sequence', region?: {x:number,y:number,width:number,height:number}|null, renderCursors?: boolean }} [opts]
+   * @param {{ speed?: number, fps?: number, output?: 'video'|'sequence', region?: {x:number,y:number,width:number,height:number}|null, renderCursors?: boolean, transparentBackground?: boolean }} [opts]
    * @returns {Promise<boolean>}
    */
   async exportTimeLapseVideo(opts = {}) {
@@ -1229,6 +1229,7 @@ class TimeMachineState {
       output,
       region,
       renderCursors: opts.renderCursors === true,
+      transparentBackground: opts.transparentBackground === true,
       backgroundColor: this._board?.backgroundColor,
       onProgress: (p) => { this.videoExportProgress = p; },
     });

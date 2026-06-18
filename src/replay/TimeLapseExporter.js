@@ -96,6 +96,7 @@ export function compressedTapeDurationMs(recording) {
  * @property {'video'|'sequence'} [output='video'] - Render target format
  * @property {{x: number, y: number, width: number, height: number}|null} region - null = full board
  * @property {[number, number, number, number]} [backgroundColor] - rgba 0-255, alpha 0-1 (defaults to white)
+ * @property {boolean} [transparentBackground=false] - skip the background fill so frames keep an alpha channel (image-sequence output only — WebM/VP8 video cannot store alpha)
  * @property {boolean} [renderCursors=false]    - paint bot cursor markers on each frame
  * @property {(progress: number) => void} [onProgress] - 0..1
  */
@@ -642,8 +643,16 @@ export class TimeLapseExporter {
 
   _drawFrame(r, bg) {
     const ctx = this._exportCtx;
-    ctx.fillStyle = `rgba(${bg[0]}, ${bg[1]}, ${bg[2]}, ${bg[3]})`;
-    ctx.fillRect(0, 0, r.width, r.height);
+    // Transparent background: clear to fully-transparent pixels instead of
+    // painting the board color, so PNG frames keep their alpha channel. Only
+    // honored for image-sequence output (the WebM/VP8 video path is forced to
+    // an opaque background by the encoder anyway).
+    if (this._opts.transparentBackground && this._opts.output === 'sequence') {
+      ctx.clearRect(0, 0, r.width, r.height);
+    } else {
+      ctx.fillStyle = `rgba(${bg[0]}, ${bg[1]}, ${bg[2]}, ${bg[3]})`;
+      ctx.fillRect(0, 0, r.width, r.height);
+    }
     if (this._engine.outputCanvas) {
       ctx.drawImage(
         this._engine.outputCanvas,

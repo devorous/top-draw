@@ -25,6 +25,9 @@
   let output = $state('video');
   // Off by default — renders are usually about the artwork, not the cursors.
   let renderCursors = $state(false);
+  // Transparent background keeps the PNG frames' alpha channel. Only meaningful
+  // for the Frames output — WebM/VP8 video can't store alpha.
+  let transparentBackground = $state(false);
   let useRegion = $state(false);
   /** Board-pixel coords. Null = full board. */
   let region = $state(null);
@@ -146,6 +149,7 @@
       output,
       region: useRegion ? region : null,
       renderCursors,
+      transparentBackground: output === 'sequence' && transparentBackground,
     };
     // Don't await — let the dialog stay open so the progress bar updates.
     TimeMachine.exportTimeLapseVideo(opts);
@@ -252,6 +256,21 @@
           <span class="checkbox-wrap">
             <input type="checkbox" bind:checked={renderCursors} disabled={TimeMachine.isExportingVideo} />
             Render cursors
+          </span>
+        </label>
+
+        <label class="row cursors-row">
+          <span>Background</span>
+          <span class="checkbox-wrap">
+            <input
+              type="checkbox"
+              bind:checked={transparentBackground}
+              disabled={TimeMachine.isExportingVideo || output !== 'sequence'}
+            />
+            Transparent
+            {#if output !== 'sequence'}
+              <span class="hint">(Frames only)</span>
+            {/if}
           </span>
         </label>
 
@@ -424,6 +443,8 @@
     gap: 8px;
     font-size: 13px;
     input[type="checkbox"] { accent-color: #4a90e2; margin: 0; }
+    input[type="checkbox"]:disabled { opacity: 0.5; cursor: not-allowed; }
+    .hint { opacity: 0.55; font-size: 11px; }
   }
 
   .output-row {
