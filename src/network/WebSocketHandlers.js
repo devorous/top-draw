@@ -32,7 +32,7 @@ export function setupWebSocketHandlers(app) {
       // 'fill' self branch is reconcile-only (it assigns the authoritative FILL
       // seq to the already-committed local fill stroke; it does NOT recompute or
       // re-draw the fill) — see the 'fill' handler in DrawingHandlers.js.
-      const allowSelf = eventName === 'mu' || eventName === 'undo' || eventName === 'fill' || eventName === 'glitch_result';
+      const allowSelf = eventName === 'mu' || eventName === 'undo' || eventName === 'fill' || eventName === 'glitch_result' || eventName === 'sel_delete';
       if (data && data.sessionIndex === app.sessionIndex && !allowSelf) {
         return;
       }

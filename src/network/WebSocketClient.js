@@ -792,6 +792,14 @@ export class WebSocketClient {
     // else. It also carries no `u`, which proto3 defaults to 0, so without this
     // exemption the session-0 client would self-skip and never revert (Bug A
     // regression caught in live testing).
+    //
+    // SEL_DELETE is exempt for the same reason as FILL: the local clear commits
+    // an optimistic destination-out erase stroke at seq=0 (tagged
+    // pendingCommitEcho='sel_delete'). The MU reconciler skips the tag, so the
+    // SEL_DELETE self echo (reconcile-only, see the 'sel_delete' handler) must
+    // reach it to assign the authoritative erase seq. Without it the erase keeps
+    // seq=0 — sorting it above every confirmed stroke, where it permanently
+    // erases other users' work in that region (the persistent "white spot").
     if (
       data.u !== undefined &&
       this.sessionIndex !== null &&
@@ -800,6 +808,7 @@ export class WebSocketClient {
       data.t !== T.MU &&
       data.t !== T.FILL &&
       data.t !== T.GLITCH_RESULT &&
+      data.t !== T.SEL_DELETE &&
       data.t !== T.BOARD_SNAPSHOT_RESTORE
     ) {
       return;
@@ -1292,7 +1301,7 @@ export class WebSocketClient {
       }
 
       case T.SEL_DELETE:
-        this.emit('sel_delete', { sessionIndex: data.u, layerIndex: data.ly ?? 0 });
+        this.emit('sel_delete', { sessionIndex: data.u, layerIndex: data.ly ?? 0, seq: data.seq });
         break;
 
       case T.SEL_FILL:

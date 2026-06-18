@@ -45,9 +45,19 @@ export function setupSelectionHandlers(wrapHandler, app) {
 
   wrapHandler('sel_delete', (data) => {
     const user = users.get(data.sessionIndex);
-    if (user) {
-      remoteUserHandler.selectionHandler.handleSelectionDelete(user, data.layerIndex);
+    if (!user) return;
+
+    // Self echo: we already committed this clear's destination-out erase stroke
+    // optimistically (tagged pendingCommitEcho='sel_delete'). Recomputing it here
+    // would double-erase. Reconcile that pending stroke with the authoritative
+    // SEL_DELETE seq so our ordering matches every observer (who commit the same
+    // erase carrying this seq). Reconcile only — no canvas work.
+    if (data.sessionIndex === app.sessionIndex) {
+      app.board?.layerManager?.reconcileLocalCommitStroke(user.id, data.seq || 0, 'sel_delete');
+      return;
     }
+
+    remoteUserHandler.selectionHandler.handleSelectionDelete(user, data.layerIndex, data.seq);
   });
 
   wrapHandler('sel_fill', (data) => {

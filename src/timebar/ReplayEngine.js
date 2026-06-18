@@ -3114,6 +3114,10 @@ export class ReplayEngine {
           this._remoteHandler.selectionHandler.handleSelectionCommit(user, msg.ly ?? 0);
           break;
         case T.SEL_DELETE:
+          // Replay commits all strokes at seq=0 and orders by timestamp (MU is
+          // replayed via handleMouseUp() with no seq). Passing the wire seq here
+          // would sort the destination-out erase BELOW every seq=0 stroke, so it
+          // would stop erasing them and the clear would vanish from the replay.
           this._remoteHandler.selectionHandler.handleSelectionDelete(user, msg.ly ?? 0);
           break;
         case T.SEL_FILL:

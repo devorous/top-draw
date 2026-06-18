@@ -246,6 +246,37 @@ export class RemoteSelectionHandler {
     return removedAny;
   }
 
+  /**
+   * Assign an authoritative seq to a lift-time selection-erase stroke (committed
+   * at seq=0) and re-sort so it settles into the confirmed stroke order instead
+   * of floating on top. Used when a moved selection is removed: the erase that
+   * happened at lift must adopt the SEL_DELETE seq.
+   * @param {Object} restoreData - The user's _selectionRestoreData
+   * @param {number} fallbackUserId - User to attribute the erase to
+   * @param {number} seq - Authoritative server seq
+   */
+  _setSelectionEraseStrokeSeq(restoreData, fallbackUserId, seq) {
+    const lm = this.board.layerManager;
+    const timestamp = restoreData?.eraseTimestamp;
+    if (!lm || !seq || timestamp === undefined || timestamp === null) return;
+
+    const userId = restoreData.eraseUserId ?? fallbackUserId;
+    for (const group of lm.layerGroups) {
+      if (!Array.isArray(group?.strokeStack)) continue;
+      let touched = false;
+      for (const stroke of group.strokeStack) {
+        if (stroke && stroke.userId === userId && stroke.timestamp === timestamp && stroke.isSelectionErase === true) {
+          stroke.seq = seq;
+          touched = true;
+        }
+      }
+      if (touched) {
+        lm._sortStrokeStack(group);
+        lm.needsComposite = true;
+      }
+    }
+  }
+
   _cropFloatingCanvasToSourceBounds(user, sourceCrop) {
     if (!user?.floatingCanvas || !sourceCrop) return false;
 
@@ -867,8 +898,8 @@ export class RemoteSelectionHandler {
     this._cleanupUserSelection(user);
   }
 
-  handleSelectionDelete(user) {
-    if (this._queueIfLoading(user, () => this.handleSelectionDelete(user))) return;
+  handleSelectionDelete(user, layerIndex, seq = 0) {
+    if (this._queueIfLoading(user, () => this.handleSelectionDelete(user, layerIndex, seq))) return;
     // Use selection if available, otherwise fall back to pendingSelection
     const s = user.selection || user.pendingSelection;
     if (!s) return;
@@ -881,11 +912,16 @@ export class RemoteSelectionHandler {
     const intS = { x, y, width, height };
 
     if (!user.floatingCanvas) {
+      // Pass the authoritative SEL_DELETE seq so the destination-out erase sorts
+      // among the confirmed stroke stack. Without it the erase commits at seq=0,
+      // which _sortStrokeStack pushes to the top, permanently erasing every
+      // other user's strokes beneath it in this region (the persistent white spot).
       this._eraseSelectionFromLayer(
         intS,
         user.activeLayer ?? 0,
         user.pendingLassoPath && user.pendingLassoPath.length >= 3 ? user.pendingLassoPath : null,
-        user.id
+        user.id,
+        seq
       );
 
       // Check affected tiles for emptiness and clear ownership from empty ones
@@ -896,6 +932,11 @@ export class RemoteSelectionHandler {
           this.board.checkErasedTilesByIndices(new Set(affectedTiles), false);
         }
       }
+    } else if (user._selectionRestoreData) {
+      // Moved-then-removed: the erase already happened at lift time and was
+      // committed at seq=0. Reconcile it to the authoritative SEL_DELETE seq now
+      // so it stops floating above (and erasing) confirmed strokes.
+      this._setSelectionEraseStrokeSeq(user._selectionRestoreData, user.id, seq);
     }
 
     this.board.activeSelectionLayer = -1;
@@ -1689,8 +1730,11 @@ export class RemoteSelectionHandler {
    * @param {number} layerIdx - Layer group index
    * @param {Array<{x,y}>|null} lassoPath - Lasso polygon, or null for rectangle erase
    * @param {number} userId - ID of the user performing the erase
+   * @param {number} [seq=0] - Authoritative server seq for this erase stroke. When
+   *   0 (lift/merge, which carry no seq) the stroke sorts to the top until a later
+   *   commit/delete reconciles it; pass the real seq for a standalone clear.
    */
-  _eraseSelectionFromLayer(s, layerIdx, lassoPath, userId) {
+  _eraseSelectionFromLayer(s, layerIdx, lassoPath, userId, seq = 0) {
     const lm = this.board.layerManager;
     if (!lm) return null;
 
@@ -1775,7 +1819,8 @@ export class RemoteSelectionHandler {
       : Date.now();
     lm.commitUserStroke(layerIdx, userId, {
       isSelectionErase: true,
-      timestamp: eraseTimestamp
+      timestamp: eraseTimestamp,
+      seq
     });
 
     lm.needsComposite = true;

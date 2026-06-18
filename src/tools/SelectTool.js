@@ -2998,7 +2998,9 @@ export class SelectTool extends Tool {
 
   // Erase the selection directly from the layer manager using a destination-out stroke.
   // This correctly handles content in both baked sequences and the stroke stack.
-  _eraseSelectionDirectly(s, lassoPath) {
+  // commitTag (e.g. 'sel_delete') tags a single-layer erase so the MU self-echo
+  // reconciler skips it and a dedicated commit echo assigns its authoritative seq.
+  _eraseSelectionDirectly(s, lassoPath, commitTag = null) {
     const lm = this.board.layerManager;
     const isMultiLayer = this.copyAllLayers;
     const userId = this.board.app?.self?.id ?? 0;
@@ -3036,7 +3038,10 @@ export class SelectTool extends Tool {
       this._eraseRegionStroke(groupIdx, s, lassoPath, userId, {
         eraseAll: isMultiLayer,
         timestamp: batchTimestamp,
-        isSelectionErase: true // Flag to distinguish from normal erasers if needed
+        isSelectionErase: true, // Flag to distinguish from normal erasers if needed
+        // Only a single-layer erase reconciles cleanly via the FIFO-oldest commit
+        // echo; multi-layer batches keep the legacy MU-reconcile path.
+        ...(commitTag && !isMultiLayer ? { pendingCommitEcho: commitTag } : {})
       });
     };
 
@@ -3346,9 +3351,11 @@ export class SelectTool extends Tool {
       this._sourceCropForRemote = null;
       this._restoreData = null;
     } else {
-      // Not yet lifted — erase now directly
+      // Not yet lifted — erase now directly. Tag the erase so it reconciles to
+      // the authoritative SEL_DELETE seq (see the 'sel_delete' self-echo handler);
+      // otherwise it lingers at seq=0 atop the stack and erases later strokes.
       const lassoPath = this.mode === 'lasso' ? this.lassoPath : null;
-      this._eraseSelectionDirectly(s, lassoPath);
+      this._eraseSelectionDirectly(s, lassoPath, 'sel_delete');
 
       // Check affected tiles for emptiness and clear ownership
       const tileOwnership = this.board.tileTracker;
