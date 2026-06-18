@@ -208,7 +208,7 @@
   });
 </script>
 
-<div class="rp-controls">
+<div class="rp-controls" data-tut="replay-transport">
   <button class="rp-play" onclick={togglePlay} title={tmPlaying ? 'Pause' : 'Play'} aria-label={tmPlaying ? 'Pause' : 'Play'}>
     {#if tmPlaying}
       <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
@@ -236,7 +236,7 @@
   <!-- Local replays are always "reviewing"; server replays hide the actions
        while caught up to the live edge (transport-only, as before). -->
   <div class="rp-actions">
-    <div class="rp-speed" role="group" aria-label="Playback speed" title="Playback speed">
+    <div class="rp-speed" data-tut="replay-speed" role="group" aria-label="Playback speed" title="Playback speed">
       {#each RATE_STOPS as rate}
         <button
           class="rp-speed-stop"
@@ -254,10 +254,11 @@
     {/if}
     {#if TimeMachine.isLocalReplay}
       <span class="rp-divider"></span>
-      <button class="rp-action" onclick={saveReplay} title="Save this replay as a .ddraw file">Save .ddraw</button>
-      <button class="rp-action accent" onclick={openRenderDialog} title={regionRect ? 'Render this region as a time-lapse' : 'Render time-lapse'}>Render</button>
+      <button class="rp-action" data-tut="replay-save" onclick={saveReplay} title="Save this replay as a .ddraw file">Save .ddraw</button>
+      <button class="rp-action accent" data-tut="replay-render" onclick={openRenderDialog} title={regionRect ? 'Render this region as a time-lapse' : 'Render time-lapse'}>Render</button>
       <button
         class="rp-action"
+        data-tut="replay-region"
         class:active={regionSelecting || !!regionRect}
         onclick={toggleRegionSelect}
         title="Select a region of the canvas"
@@ -276,7 +277,7 @@
     {/if}
     <span class="rp-actions-spacer"></span>
     {#if appState.canUndoReplayHistory}
-      <button class="rp-action danger" onclick={undoToHere} title={TimeMachine.isLocalReplay ? (regionRect ? 'Undo just this region to here' : 'Undo board to here') : 'Restore board to here'}>
+      <button class="rp-action danger" data-tut="replay-undo" onclick={undoToHere} title={TimeMachine.isLocalReplay ? (regionRect ? 'Undo just this region to here' : 'Undo board to here') : 'Restore board to here'}>
         {#if !TimeMachine.isLocalReplay}Restore to here{:else if regionRect}Undo region{:else}Undo to here{/if}
       </button>
     {/if}

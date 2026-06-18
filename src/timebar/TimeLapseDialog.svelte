@@ -211,7 +211,7 @@
 
 {#if open && !pickingRegion}
   <div class="overlay" onclick={close} role="dialog" aria-modal="true">
-    <div class="dialog" onclick={(e) => e.stopPropagation()} role="document">
+    <div class="dialog" data-tut="render-dialog" onclick={(e) => e.stopPropagation()} role="document">
       <div class="header">
         <h3>Render time-lapse</h3>
         <button class="close-btn" onclick={close} title="Close">×</button>

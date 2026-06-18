@@ -87,7 +87,7 @@
 </script>
 
 {#if appState.recorderPanelVisible && !viewerOpen}
-  <div class="rec-panel" role="dialog" aria-label="Session recorder">
+  <div class="rec-panel" data-tut="recorder-panel" role="dialog" aria-label="Session recorder">
     <div class="rec-header">
       <span class="rec-title">
         <span class="rec-dot" class:live={recording}></span>
@@ -114,7 +114,7 @@
         <div class="rec-sub rec-idle">
           Capture this session locally, then scrub and replay it.
         </div>
-        <button class="rec-btn record" onclick={startRecording}>
+        <button class="rec-btn record" data-tut="recorder-start" onclick={startRecording}>
           <span class="rec-toggle-dot"></span>
           Start recording
         </button>

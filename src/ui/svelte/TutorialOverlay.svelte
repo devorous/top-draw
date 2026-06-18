@@ -165,8 +165,7 @@
       title: 'The Selection Tool',
       target: '#selectBtn',
       text: 'The Selection Tool lets you isolate parts of your drawing to move, transform, or use as a mask.',
-      actionTarget: '#selectBtn',
-      actionLabel: 'Click Selection Tool to begin'
+      awaitTool: 'select'
     },
     {
       section: 'Selection',
@@ -239,8 +238,7 @@
       title: 'Text Tool',
       target: '#textBtn',
       text: 'The Text tool lets you place editable text on the canvas. Click anywhere on the board to start typing. Clicking with no text entered swaps you back to your previous tool.',
-      actionTarget: '#textBtn',
-      actionLabel: 'Click the Text tool to begin'
+      awaitTool: 'text'
     },
     {
       section: 'Advanced Tools',
@@ -262,9 +260,8 @@
       section: 'Advanced Tools',
       title: 'Flood Fill',
       target: '#fillBtn',
-      text: 'Flood Fill replaces a connected region of similar colour. Select it now.',
-      actionTarget: '#fillBtn',
-      actionLabel: 'Click the Fill tool to continue'
+      text: 'Flood Fill replaces a connected region of similar colour with a single click.',
+      awaitTool: 'fill'
     },
     {
       section: 'Advanced Tools',
@@ -288,18 +285,23 @@
       section: 'Advanced Tools',
       title: 'Glitch Blur',
       target: '#glitchBlurBtn',
-      text: 'This brush messes existing pixels up. Try it on the canvas.',
-      beforeEnter: () => window.app?.selectTool?.('glitchBlur'),
+      text: 'Glitch Blur smears and corrupts the pixels already on the canvas for a glitchy, data-moshed look.',
+      awaitTool: 'glitchBlur'
+    },
+    {
+      section: 'Advanced Tools',
+      title: 'Try Glitch Blur',
+      target: '#glitchBlurBtn',
+      text: 'Drag across an area that already has artwork. The further you drag, the more the pixels smear and distort.',
       allowCanvas: true,
-      actionLabel: 'Drag across the canvas to try it'
+      actionLabel: 'Drag across the canvas to try it, then press Next'
     },
     {
       section: 'Advanced Tools',
       title: 'Pattern Brush',
       target: '#patternBtn',
-      text: 'The Pattern Brush paints with a repeating image tile instead of a solid stroke. Select it to see the pattern controls.',
-      actionTarget: '#patternBtn',
-      actionLabel: 'Click the Pattern tool to continue'
+      text: 'The Pattern Brush paints with a repeating image tile instead of a solid stroke.',
+      awaitTool: 'pattern'
     },
     {
       section: 'Advanced Tools',
@@ -308,11 +310,137 @@
       text: 'Upload your own images or pick from the gallery. Tune Image Scale, Grid Rotation, and Grid Spacing for textile-like results. Switch Colour Mode to tint patterns with your current colour.',
       allowCanvas: true,
       skipIfMissing: true
+    },
+    {
+      section: 'Replay',
+      title: 'The Time Machine',
+      target: '#tapeRecBtn',
+      text: 'Top Draw quietly keeps a timeline of everything drawn in the room — so you can scrub back through it, replay it, and even export it as a video. Let\'s start with the record button.',
+      actionTarget: '#tapeRecBtn',
+      actionLabel: 'Click the record button to open the Session Recorder'
+    },
+    {
+      section: 'Replay',
+      title: 'Session Recorder',
+      target: '[data-tut="recorder-panel"], .rec-panel',
+      text: 'The Session Recorder captures everything happening on your device into a local replay. Press Start recording, draw for a while, then Stop to open it in the player. Nothing is uploaded — the tape lives on your machine.',
+      skipIfMissing: true
+    },
+    {
+      section: 'Replay',
+      title: 'Recent History',
+      target: '[data-tut="history"], .history-btn',
+      text: 'You don\'t have to record manually to look back. The History button opens the Time Machine: the Recent tab auto-plays the last couple of minutes, and Server history reconstructs much older states from room checkpoints.',
+      actionTarget: '[data-tut="history"], .history-btn',
+      actionLabel: 'Click History to open the Time Machine, or press Next'
+    },
+    {
+      section: 'Replay',
+      title: 'Scrub the Timeline',
+      target: '[data-tut="replay-transport"], .rp-controls',
+      fallbackTarget: '[data-tut="history-dialog"], .snapshot-panel',
+      text: 'Every replay player shares these controls. Press play to watch the drawing rebuild itself, or drag the playhead to jump to any moment. The brackets at each end of the timeline trim playback to just the part you care about.',
+      skipIfMissing: true
+    },
+    {
+      section: 'Replay',
+      title: 'Playback Speed',
+      target: '[data-tut="replay-speed"], .rp-speed',
+      fallbackTarget: '[data-tut="replay-transport"], .rp-controls',
+      text: 'Speed up to 8× to skim a long session, or slow to 0.5× to study exactly how a stroke was made. Dead time between strokes is automatically compressed so replays stay watchable.',
+      skipIfMissing: true
+    },
+    {
+      section: 'Replay',
+      title: 'Render a Time-lapse',
+      target: '[data-tut="replay-render"]',
+      fallbackTarget: '[data-tut="replay-transport"], .rp-controls',
+      text: 'Render turns the replay into a shareable time-lapse. It opens a dialog where you pick the speed, frame rate, and whether to include cursors.',
+      skipIfMissing: true
+    },
+    {
+      section: 'Replay',
+      title: 'Video or Frames',
+      target: '[data-tut="render-dialog"], .dialog',
+      text: 'Choose Video for a ready-to-post WebM clip, or Frames for an editable ZIP of PNGs (with optional transparency). The estimate shows how long the output will run before you commit to the render.',
+      skipIfMissing: true
+    },
+    {
+      section: 'Replay',
+      title: 'Render Just a Region',
+      target: '[data-tut="replay-region"]',
+      fallbackTarget: '[data-tut="replay-transport"], .rp-controls',
+      text: 'Select region lets you draw a box on the canvas and export only that part of the board — perfect for focusing a time-lapse on a single character or detail.',
+      skipIfMissing: true
+    },
+    {
+      section: 'Replay',
+      title: 'Save the Raw Replay',
+      target: '[data-tut="replay-save"]',
+      fallbackTarget: '[data-tut="replay-transport"], .rp-controls',
+      text: 'Save .ddraw downloads the replay itself, not a video. Re-open a .ddraw file later to scrub, re-render, or restore from it — it is the full, editable recording.',
+      skipIfMissing: true
+    },
+    {
+      section: 'Replay',
+      title: 'Rewind the Board',
+      target: '[data-tut="replay-undo"]',
+      fallbackTarget: '[data-tut="replay-transport"], .rp-controls',
+      text: 'Undo to here rolls your board back to the moment you\'re viewing — and with a region selected, it rewinds only that area. On shared server replays this can restore the board for everyone, so use it carefully.',
+      skipIfMissing: true
+    },
+    {
+      section: 'Replay',
+      title: 'Replay Settings',
+      target: '[data-tut="replay-settings"]',
+      text: 'In App Settings you can tune how much history is kept: the snapshot distance, the maximum manual recording length, and how long the always-on Recent tape rolls. Longer tapes use more memory.',
+      beforeEnter: () => {
+        appState.appSettingsVisible = true;
+        appState.appSettingsTab = 'general';
+        setTimeout(() => {
+          document.querySelector('[data-tut="replay-settings"]')?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        }, 140);
+      }
     }
   ];
 
+  // Tutorial tracks. `key` matches each step's `section`; `label` is the short
+  // chip text shown in the picker + mini switcher.
+  const SECTIONS = [
+    { key: 'Basic Tutorial', label: 'Basics', blurb: 'Settings, mirror, layers, blend modes & history.' },
+    { key: 'Selection', label: 'Selection', blurb: 'Lift, move, transform, mask & clone pixels.' },
+    { key: 'Advanced Tools', label: 'Advanced', blurb: 'Text, flood fill, glitch blur & pattern brush.' },
+    { key: 'Replay', label: 'Replay', blurb: 'Record, scrub, render time-lapses & rewind the board.' }
+  ];
+
+  // Friendly names for tools a step can wait on (see `awaitTool`).
+  const TOOL_LABELS = {
+    select: 'Selection',
+    text: 'Text',
+    fill: 'Fill',
+    glitchBlur: 'Glitch Blur',
+    pattern: 'Pattern',
+    brush: 'Brush',
+    pen: 'Pen',
+    line: 'Line',
+    rectangle: 'Rectangle',
+    circle: 'Circle',
+    erase: 'Eraser'
+  };
+
+  function toolLabel(tool) {
+    return TOOL_LABELS[tool] || tool;
+  }
+
+  function sectionLabel(key) {
+    return SECTIONS.find((section) => section.key === key)?.label || key || 'Tutorial';
+  }
+
   let active = $state(false);
   let promptVisible = $state(false);
+  // True for an `awaitTool` step only when the awaited tool was already active
+  // as the step opened — suppresses the auto-advance so the user can read it.
+  let awaitToolPreSatisfied = $state(false);
   let activeSection = $state(null);
   let index = $state(0);
   let rect = $state(null);
@@ -330,6 +458,12 @@
   let currentStep = $derived(visibleSteps[index] || visibleSteps[visibleSteps.length - 1]);
   let total = $derived(visibleSteps.length);
   let sections = $derived([...new Set(steps.filter(s => !s.when || s.when()).map((step) => step.section || 'Tutorial'))]);
+  // The tracks that actually have at least one available step right now — used
+  // to build the picker / switcher so empty tracks never show up.
+  let availableSections = $derived(SECTIONS.filter((section) => sections.includes(section.key)));
+  // An `awaitTool` step is "gated" until the user actually selects the tool it
+  // teaches. Until then we spotlight the tool button and hold the lesson body.
+  let awaitingTool = $derived(!!currentStep?.awaitTool && appState.currentTool !== currentStep.awaitTool);
 
   function canEditRoomSettings() {
     const roomData = appState.currentRoomData;
@@ -459,6 +593,9 @@
     if (step?.target?.includes('ranks-dialog')) {
       appState.ranksDialogVisible = false;
     }
+    if (step?.target?.includes('replay-settings')) {
+      appState.appSettingsVisible = false;
+    }
   }
 
   function updateTopbarBottom() {
@@ -477,7 +614,11 @@
     updateTopbarBottom();
     revealTargetContainers(currentStep);
 
-    const targets = currentStep?.allowCanvas && !currentStep?.targetControl
+    // While an `awaitTool` step is still gated (tool not yet picked), keep the
+    // spotlight on the tool button — not the canvas — so the user knows where
+    // to click. Once they select it, the spotlight moves on like any other step.
+    const gatedOnTool = !!currentStep?.awaitTool && appState.currentTool !== currentStep.awaitTool;
+    const targets = currentStep?.allowCanvas && !currentStep?.targetControl && !gatedOnTool
       ? findTargets({ target: '#boardContainer, #boards, #board' })
       : findTargets();
     targetMissing = !!currentStep?.target && !targets;
@@ -549,6 +690,12 @@
   }
 
   function next() {
+    // If the user advances past an `awaitTool` step without having picked the
+    // tool, select it for them so the following lesson steps (controls, canvas
+    // tries) make sense. This is user-initiated, so it doesn't feel jarring.
+    if (currentStep?.awaitTool && appState.currentTool !== currentStep.awaitTool) {
+      window.app?.selectTool?.(currentStep.awaitTool);
+    }
     cleanupStep(currentStep);
     if (index >= visibleSteps.length - 1) {
       finish();
@@ -598,6 +745,13 @@
     promptVisible = false;
     active = true;
     scheduleSpotlight();
+  }
+
+  function openPicker() {
+    cleanupRevealedContainers();
+    active = false;
+    activeSection = null;
+    promptVisible = true;
   }
 
   function startFromPrompt() {
@@ -701,8 +855,25 @@
     const stepKey = `${index}:${currentStep.title}`;
     if (preparedStep === stepKey) return;
     preparedStep = stepKey;
+    // Record whether an awaitTool step opened with its tool already active, so
+    // the auto-advance below doesn't skip a lesson the user hasn't read yet.
+    awaitToolPreSatisfied = !!currentStep.awaitTool && appState.currentTool === currentStep.awaitTool;
     currentStep.beforeEnter?.();
     setTimeout(scheduleSpotlight, 80);
+  });
+
+  // Auto-advance an `awaitTool` step the instant the user selects the tool it
+  // teaches (unless it was already selected as the step opened). This is the
+  // "tool tutorials appear when you pick the tool" flow — no forced switching.
+  $effect(() => {
+    if (!active) return;
+    const step = currentStep;
+    if (!step?.awaitTool || awaitToolPreSatisfied) return;
+    if (appState.currentTool !== step.awaitTool) return;
+    const timer = setTimeout(() => {
+      if (active && currentStep === step && appState.currentTool === step.awaitTool) next();
+    }, 450);
+    return () => clearTimeout(timer);
   });
 
   $effect(() => {
@@ -714,6 +885,7 @@
 
   onMount(() => {
     window.startTopDrawTutorial = startTutorial;
+    window.openTopDrawTutorialPicker = openPicker;
     const interval = setInterval(maybeStart, 1000);
     window.addEventListener('resize', scheduleSpotlight);
     window.addEventListener('scroll', scheduleSpotlight, true);
@@ -738,6 +910,9 @@
       if (window.startTopDrawTutorial === startTutorial) {
         delete window.startTopDrawTutorial;
       }
+      if (window.openTopDrawTutorialPicker === openPicker) {
+        delete window.openTopDrawTutorialPicker;
+      }
     };
   });
 </script>
@@ -746,12 +921,16 @@
   <div class="tutorialLayer" role="presentation">
     <div class="tutorialToast tutorialPromptToast" role="dialog" aria-modal="true" aria-labelledby="tutorialPromptTitle">
       <div class="tutorialBody">
-        <h2 id="tutorialPromptTitle">Interactive Tutorials</h2>
-        <p>Choose a tour to learn about Top Draw's tools and features.</p>
-        <div class="tutorialSegmentedBar">
-          <button type="button" onclick={() => startTutorial('Basic Tutorial')}>Basic Tutorial</button>
-          <button type="button" onclick={() => startTutorial('Selection')}>Selection</button>
-          <button type="button" onclick={() => startTutorial('Advanced Tools')}>Advanced Tools</button>
+        <span class="tutorialEyebrow">Interactive tour</span>
+        <h2 id="tutorialPromptTitle">Learn Top Draw</h2>
+        <p>Pick a track to walk through — each one spotlights the real controls as you go.</p>
+        <div class="tutorialTrackList">
+          {#each availableSections as section}
+            <button type="button" class="tutorialTrack" onclick={() => startTutorial(section.key)}>
+              <span class="tutorialTrackLabel">{section.label}</span>
+              <span class="tutorialTrackBlurb">{section.blurb}</span>
+            </button>
+          {/each}
         </div>
       </div>
       <div class="tutorialActions">
@@ -788,9 +967,9 @@
       onpointercancel={handleToastPointerUp}
     >
       <div class="tutorialSegmentedBar mini">
-        <button type="button" class:active={activeSection === 'Basic Tutorial'} onclick={() => startTutorial('Basic Tutorial')}>Basic Tutorial</button>
-        <button type="button" class:active={activeSection === 'Selection'} onclick={() => startTutorial('Selection')}>Selection</button>
-        <button type="button" class:active={activeSection === 'Advanced Tools'} onclick={() => startTutorial('Advanced Tools')}>Advanced Tools</button>
+        {#each availableSections as section}
+          <button type="button" class:active={activeSection === section.key} onclick={() => startTutorial(section.key)}>{section.label}</button>
+        {/each}
       </div>
       <div class="tutorialProgress" aria-label="Tutorial progress">
         {#each visibleSteps as step, stepIndex}
@@ -808,9 +987,12 @@
         {/each}
       </div>
       <div class="tutorialBody">
+        <span class="tutorialEyebrow">{sectionLabel(currentStep.section)} · {index + 1}/{total}</span>
         <h2>{currentStep.title}</h2>
         <p>{currentStep.text}</p>
-        {#if currentStep.actionLabel && !targetMissing}
+        {#if awaitingTool}
+          <div class="tutorialHint toolGate">Select the <b>{toolLabel(currentStep.awaitTool)}</b> tool to continue…</div>
+        {:else if currentStep.actionLabel && !targetMissing}
           <div class="tutorialHint">{currentStep.actionLabel}</div>
         {:else if targetMissing}
           <div class="tutorialHint">This control is not visible right now. You can press Next.</div>
@@ -960,7 +1142,7 @@
     left: 50%;
     transform: translateX(-50%);
     width: min(440px, calc(100vw - 24px));
-    height: 210px;
+    height: 236px;
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
@@ -1034,6 +1216,19 @@
   .tutorialBody {
     flex: 1 1 auto;
     min-height: 0;
+    overflow-y: auto;
+    padding-right: 2px;
+    scrollbar-width: thin;
+  }
+
+  .tutorialEyebrow {
+    display: block;
+    margin-bottom: 2px;
+    color: var(--accent-primary, #00d4aa);
+    font-size: 0.62rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
   }
 
   h2 {
@@ -1054,6 +1249,61 @@
     color: var(--text-primary, #f5f7fb);
     font-size: 0.72rem;
     font-weight: 700;
+  }
+
+  .tutorialHint.toolGate {
+    display: inline-block;
+    padding: 4px 9px;
+    border-radius: 999px;
+    color: var(--accent-primary, #00d4aa);
+    background: color-mix(in srgb, var(--accent-primary, #00d4aa) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent-primary, #00d4aa) 38%, transparent);
+  }
+
+  .tutorialHint.toolGate b {
+    color: var(--text-primary, #f5f7fb);
+  }
+
+  /* Picker: vertical list of tracks, each with a blurb. */
+  .tutorialTrackList {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 12px;
+  }
+
+  .tutorialTrack {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    width: 100%;
+    height: auto;
+    padding: 9px 12px;
+    text-align: left;
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.14));
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--text-primary, #fff) 4%, transparent);
+    transition: background 0.18s, border-color 0.18s, transform 0.18s;
+  }
+
+  .tutorialTrack:hover {
+    background: color-mix(in srgb, var(--accent-primary, #00d4aa) 12%, transparent);
+    border-color: color-mix(in srgb, var(--accent-primary, #00d4aa) 45%, transparent);
+    transform: translateY(-1px);
+  }
+
+  .tutorialTrackLabel {
+    font-size: 0.86rem;
+    font-weight: 800;
+    color: var(--text-primary, #f5f7fb);
+  }
+
+  .tutorialTrackBlurb {
+    font-size: 0.72rem;
+    font-weight: 500;
+    color: var(--text-secondary, #b7c0ce);
+    line-height: 1.25;
   }
 
   .tutorialActions {
@@ -1092,7 +1342,7 @@
     .tutorialToast {
       top: max(8px, env(safe-area-inset-top));
       width: min(330px, calc(100vw - 18px));
-      height: 158px;
+      height: 184px;
       padding: 7px 9px;
       border-radius: 7px;
       box-shadow: 0 12px 34px rgba(0, 0, 0, 0.34);

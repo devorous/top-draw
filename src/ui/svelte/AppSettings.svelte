@@ -413,7 +413,13 @@ function getChatOpacity() {
 
   function restartTutorial() {
     hide();
-    window.startTopDrawTutorial?.();
+    // Open the tutorial picker so the user can choose a track (Basics,
+    // Selection, Advanced, Replay) rather than always replaying the Basics tour.
+    if (window.openTopDrawTutorialPicker) {
+      window.openTopDrawTutorialPicker();
+    } else {
+      window.startTopDrawTutorial?.();
+    }
   }
 
   function syncThemeColorDrafts() {
@@ -796,7 +802,7 @@ function getChatOpacity() {
             </div>
 
             <h4>Replay</h4>
-            <div class="settings-select-grid">
+            <div class="settings-select-grid" data-tut="replay-settings">
               <label class="settings-select-card" for="replay-snapshot-interval">
                 <span class="settings-slider-title">Snapshot Distance</span>
                 <select
@@ -880,7 +886,7 @@ function getChatOpacity() {
               {/each}
             </div>
             <div class="settings-actions">
-              <button class="btn primary" type="button" onclick={restartTutorial}>Restart Tutorial</button>
+              <button class="btn primary" type="button" onclick={restartTutorial}>Tutorials</button>
               <button class="btn secondary" type="button" onclick={() => setTab(TAB_KEYBINDS)}>Open Keybinds</button>
               <button class="btn secondary" type="button" onclick={() => appState.ranksDialogVisible = true}>Ranks</button>
               <button class="btn danger" type="button" onclick={restoreThemeDefaults}>Restore Default Colours</button>
