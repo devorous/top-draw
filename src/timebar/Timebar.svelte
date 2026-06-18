@@ -30,19 +30,22 @@
     document.body.classList.toggle('replay-reviewing-mode', !TimeMachine.isEmbedded && !!TimeMachine.isReviewing);
   });
 
-  // Keep the loading overlay centered over the live canvas region rather than
-  // the whole viewport. The boards wrapper has a CSS transform applied to it,
-  // so getBoundingClientRect() reads its current on-screen rect after pan/zoom.
-  // We refresh on resize + every frame while the overlay is visible (cheap).
+  // Keep the loading overlay centered over the replay canvas region rather than
+  // the whole viewport. We anchor to #replayCanvas (not #boards): replays from a
+  // larger-board room (e.g. 1440p) size the replay canvas above the live room's
+  // board (e.g. 1080p), so anchoring to #boards would leave the overlay short of
+  // the canvas. The canvas rect already folds in the #boards transform via
+  // getBoundingClientRect(). Fall back to #boards if the canvas isn't up yet.
+  // We refresh every frame while the overlay is visible (cheap).
   $effect(() => {
     if (typeof window === 'undefined') return;
     if (!TimeMachine.isPreviewMode || !overlayElement) return;
-    const boards = document.getElementById('boards');
-    if (!boards) return;
 
     let rafId = 0;
     const sync = () => {
-      const r = boards.getBoundingClientRect();
+      const anchor = document.getElementById('replayCanvas') || document.getElementById('boards');
+      if (!anchor) { rafId = requestAnimationFrame(sync); return; }
+      const r = anchor.getBoundingClientRect();
       if (overlayElement) {
         overlayElement.style.top = `${r.top}px`;
         overlayElement.style.left = `${r.left}px`;
