@@ -2760,8 +2760,11 @@ export class DrawingApp {
     if (brush.svgContent) brushData.svgContent = brush.svgContent;
     if (brush.colorDepth !== undefined) brushData.colorDepth = brush.colorDepth;
     if (brush.gBrushes) brushData.gBrushes = brush.gBrushes.map(b => ({ gimpUrl: b.gimpUrl, width: b.width, height: b.height }));
-    // Only include gimpUrl on first selection, not on property changes to avoid rate limiting
-    // gimpUrl will be sent via the separate brush selection message
+    // Carry gimpUrl on every payload (same as the image brush's _buildImageBrushPayload).
+    // Built-in shapes (Circle/Square) and .gbr/image brushes store their bitmap ONLY in
+    // gimpUrl with no svgContent, so remote clients and the replay engine cannot rebuild
+    // the tile without it — every property change must re-ship it or the pattern vanishes.
+    if (brush.gimpUrl) brushData.gimpUrl = brush.gimpUrl;
     return {
       brush: brushData,
       scale: this.self.patternScale ?? 100,

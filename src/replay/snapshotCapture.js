@@ -24,6 +24,50 @@ import { exportLayerState } from './layerStateCodec.js';
  * @param {import('../User.js').User} user
  * @returns {Object}
  */
+/**
+ * Build a JSON-safe pattern payload from a live user's selected pattern brush,
+ * matching the `{ brush, scale, rotation, ... }` shape that
+ * ReplayEngine._loadPatternData consumes. The raw `user.patternBrush` holds a
+ * live HTMLImageElement and is the wrong shape for the restore path, so the
+ * payload is reconstructed here (mirroring App._buildPatternPayload), keeping
+ * the reload-able gimpUrl/svgContent so the tile can be rebuilt during replay.
+ *
+ * @param {import('../User.js').User} user
+ * @returns {Object|null}
+ */
+function capturePatternPayload(user) {
+  const brush = user?.patternBrush;
+  if (!brush) return null;
+
+  const brushData = {
+    type: brush.type,
+    brushName: brush.brushName,
+    fileName: brush.fileName,
+    width: brush.width,
+    height: brush.height,
+  };
+  if (brush.svgContent) brushData.svgContent = brush.svgContent;
+  if (brush.colorDepth !== undefined) brushData.colorDepth = brush.colorDepth;
+  if (brush.gimpUrl) brushData.gimpUrl = brush.gimpUrl;
+  if (brush.gBrushes) {
+    brushData.gBrushes = brush.gBrushes.map((b) => ({
+      gimpUrl: b.gimpUrl,
+      width: b.width,
+      height: b.height,
+    }));
+  }
+
+  return {
+    brush: brushData,
+    scale: user.patternScale ?? 100,
+    rotation: user.patternRotation ?? 0,
+    spacing: user.patternSpacing ?? 0,
+    offsetX: user.patternOffsetX ?? 0,
+    offsetY: user.patternOffsetY ?? 0,
+    colorMode: user.patternColorMode ?? 'original',
+  };
+}
+
 function captureUserTransientState(user) {
   const base = typeof user.toJSON === 'function' ? user.toJSON() : { ...user };
 
@@ -139,6 +183,13 @@ function captureUserTransientState(user) {
     ...ink,
     ...selection,
     previewCanvasData,
+    // Pattern state isn't part of user.toJSON(): patternMode and the brush
+    // payload are restored by ReplayEngine.loadSnapshot (_createBotUser reads
+    // state.patternMode; the snapshot restore feeds state.patternBrush into
+    // _loadPatternData). Without these, a pattern selection or fill mode chosen
+    // before the rolling-tape window never renders in the replay.
+    patternMode: !!user.patternMode,
+    patternBrush: capturePatternPayload(user),
   };
 }
 
