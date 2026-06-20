@@ -314,23 +314,8 @@
     {
       section: 'Replay',
       title: 'The Time Machine',
-      target: '#tapeRecBtn',
-      text: 'Top Draw quietly keeps a timeline of everything drawn in the room — so you can scrub back through it, replay it, and even export it as a video. Let\'s start with the record button.',
-      actionTarget: '#tapeRecBtn',
-      actionLabel: 'Click the record button to open the Session Recorder'
-    },
-    {
-      section: 'Replay',
-      title: 'Session Recorder',
-      target: '[data-tut="recorder-panel"], .rec-panel',
-      text: 'The Session Recorder captures everything happening on your device into a local replay. Press Start recording, draw for a while, then Stop to open it in the player. Nothing is uploaded — the tape lives on your machine.',
-      skipIfMissing: true
-    },
-    {
-      section: 'Replay',
-      title: 'Recent History',
       target: '[data-tut="history"], .history-btn',
-      text: 'You don\'t have to record manually to look back. The History button opens the Time Machine: the Recent tab auto-plays the last couple of minutes, and Server history reconstructs much older states from room checkpoints.',
+      text: 'Top Draw quietly keeps a timeline of everything drawn in the room — so you can scrub back through it, replay it, and even export it as a video. The History button opens the Time Machine: the Recent tab auto-plays the last couple of minutes, and Server history reconstructs much older states from room checkpoints.',
       actionTarget: '[data-tut="history"], .history-btn',
       actionLabel: 'Click History to open the Time Machine, or press Next'
     },
@@ -391,6 +376,21 @@
     },
     {
       section: 'Replay',
+      title: 'Record a Longer Session',
+      target: '#tapeRecBtn',
+      text: 'Beyond the always-on timeline, you can also record a longer session by hand. The record button opens the Session Recorder.',
+      actionTarget: '#tapeRecBtn',
+      actionLabel: 'Click the record button to open the Session Recorder, or press Next'
+    },
+    {
+      section: 'Replay',
+      title: 'Session Recorder',
+      target: '[data-tut="recorder-panel"], .rec-panel',
+      text: 'The Session Recorder captures everything happening on your device into a local replay. Press Start recording, draw for a while, then Stop to open it in the player. Nothing is uploaded — the tape lives on your machine.',
+      skipIfMissing: true
+    },
+    {
+      section: 'Replay',
       title: 'Replay Settings',
       target: '[data-tut="replay-settings"]',
       text: 'In App Settings you can tune how much history is kept: the snapshot distance, the maximum manual recording length, and how long the always-on Recent tape rolls. Longer tapes use more memory.',
@@ -408,9 +408,9 @@
   // chip text shown in the picker + mini switcher.
   const SECTIONS = [
     { key: 'Basic Tutorial', label: 'Basics', blurb: 'Settings, mirror, layers, blend modes & history.' },
+    { key: 'Replay', label: 'Replay', blurb: 'Record, scrub, render time-lapses & rewind the board.' },
     { key: 'Selection', label: 'Selection', blurb: 'Lift, move, transform, mask & clone pixels.' },
-    { key: 'Advanced Tools', label: 'Advanced', blurb: 'Text, flood fill, glitch blur & pattern brush.' },
-    { key: 'Replay', label: 'Replay', blurb: 'Record, scrub, render time-lapses & rewind the board.' }
+    { key: 'Advanced Tools', label: 'Advanced', blurb: 'Text, flood fill, glitch blur & pattern brush.' }
   ];
 
   // Friendly names for tools a step can wait on (see `awaitTool`).
@@ -709,6 +709,10 @@
   }
 
   function back() {
+    // Mirror next()/dot-nav: tear down anything the current step opened (e.g. the
+    // App Settings dialog the Replay Settings step pops) before stepping back —
+    // otherwise the dialog stays up and blocks the controls we return to.
+    cleanupStep(currentStep);
     let candidate = Math.max(0, index - 1);
     while (candidate > 0 && !stepIsAvailable(visibleSteps[candidate])) {
       candidate -= 1;
@@ -719,6 +723,7 @@
 
   function stop() {
     storageSet(STOPPED_KEY, 'true');
+    cleanupStep(currentStep);
     cleanupRevealedContainers();
     promptVisible = false;
     active = false;
@@ -919,11 +924,20 @@
 
 {#if promptVisible}
   <div class="tutorialLayer" role="presentation">
-    <div class="tutorialToast tutorialPromptToast" role="dialog" aria-modal="true" aria-labelledby="tutorialPromptTitle">
+    <div
+      class="tutorialToast tutorialPromptToast"
+      class:dragged={!!toastPosition}
+      style={toastPosition ? `left:${toastPosition.x}px;top:${toastPosition.y}px;transform:none;` : ''}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="tutorialPromptTitle"
+      onpointerdown={handleToastPointerDown}
+      onpointermove={handleToastPointerMove}
+      onpointerup={handleToastPointerUp}
+      onpointercancel={handleToastPointerUp}
+    >
       <div class="tutorialBody">
-        <span class="tutorialEyebrow">Interactive tour</span>
-        <h2 id="tutorialPromptTitle">Learn Top Draw</h2>
-        <p>Pick a track to walk through — each one spotlights the real controls as you go.</p>
+        <h2 id="tutorialPromptTitle">DDraw Fundamentals</h2>
         <div class="tutorialTrackList">
           {#each availableSections as section}
             <button type="button" class="tutorialTrack" onclick={() => startTutorial(section.key)}>
@@ -1018,7 +1032,6 @@
 
   .tutorialPromptToast {
     height: auto;
-    cursor: default;
     z-index: 100001;
   }
 
@@ -1142,7 +1155,8 @@
     left: 50%;
     transform: translateX(-50%);
     width: min(440px, calc(100vw - 24px));
-    height: 236px;
+    height: auto;
+    max-height: min(80vh, 460px);
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
@@ -1333,6 +1347,21 @@
     font-weight: 800;
   }
 
+  .tutorialActions button {
+    transition: background 0.15s, border-color 0.15s, transform 0.15s;
+  }
+
+  .tutorialActions button:not(:disabled):hover {
+    background: color-mix(in srgb, var(--text-primary, #fff) 14%, transparent);
+    border-color: color-mix(in srgb, var(--text-primary, #fff) 26%, transparent);
+    transform: translateY(-1px);
+  }
+
+  .tutorialActions button.primary:not(:disabled):hover {
+    background: color-mix(in srgb, var(--accent-primary, #00d4aa) 82%, #fff);
+    border-color: transparent;
+  }
+
   button:disabled {
     cursor: default;
     opacity: 0.45;
@@ -1342,7 +1371,8 @@
     .tutorialToast {
       top: max(8px, env(safe-area-inset-top));
       width: min(330px, calc(100vw - 18px));
-      height: 184px;
+      height: auto;
+      max-height: 78vh;
       padding: 7px 9px;
       border-radius: 7px;
       box-shadow: 0 12px 34px rgba(0, 0, 0, 0.34);
