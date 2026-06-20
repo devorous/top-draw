@@ -488,12 +488,6 @@
     transform: scale(0.95);
   }
 
-  .swatch.empty {
-    background: rgba(255, 255, 255, 0.25);
-    border-color: rgba(255, 255, 255, 0.05);
-    cursor: default;
-  }
-
   .swatch.add-swatch {
     background: rgba(0, 212, 170, 0.1);
     border-color: rgba(0, 212, 170, 0.2);

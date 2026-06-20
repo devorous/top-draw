@@ -31,7 +31,7 @@
 
   let savingAvatar = $state(false);
   let editError = $state('');
-  let fileInputEl;
+  let fileInputEl = $state();
 
   function rankClass(role) {
     if (role >= 9) return 'rank-deity';

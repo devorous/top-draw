@@ -48,7 +48,7 @@
   "devDependencies": {
     "@tauri-apps/api": "2.10.1",
     "@tauri-apps/cli": "2.10.1",
-    "concurrently": "^8.2.0",
+    "concurrently": "^10.0.3",
     "cross-env": "^10.1.0",
     "jsdoc": "^4.0.5",
     "mitata": "^1.0.34",

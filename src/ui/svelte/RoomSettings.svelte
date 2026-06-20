@@ -758,7 +758,7 @@
           </div>
 
           <div class="form-group">
-            <label>Vector text fade time</label>
+            <span class="form-label">Vector text fade time</span>
             <div class="text-fade-inputs">
               <input
                 type="number"
@@ -1325,7 +1325,8 @@
     gap: 0.4rem;
   }
 
-  .form-group label {
+  .form-group label,
+  .form-group .form-label {
     font-size: 0.84rem;
     color: var(--text-primary);
   }

@@ -110,7 +110,7 @@ export async function initDiscordBot(options = {}) {
   client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
   readyPromise = new Promise((resolve) => {
-    client.once('ready', async () => {
+    client.once('clientReady', async () => {
       console.log(`[Discord] Logged in as ${client.user.tag}`);
       try {
         await registerCommands();

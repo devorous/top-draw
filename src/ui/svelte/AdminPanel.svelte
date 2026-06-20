@@ -1224,33 +1224,6 @@
     padding-right: 0.2rem;
   }
 
-  .doc-card {
-    background: var(--bg-primary);
-    border: 1px solid var(--border-subtle);
-    border-radius: 7px;
-    overflow: hidden;
-    flex-shrink: 0;
-  }
-
-  .doc-card summary {
-    cursor: pointer;
-    padding: 0.6rem 0.75rem;
-    font-size: 0.84rem;
-    color: var(--text-primary);
-  }
-
-  .doc-card pre {
-    margin: 0;
-    padding: 0.75rem;
-    border-top: 1px solid var(--border-subtle);
-    overflow: auto;
-    font-size: 0.75rem;
-    line-height: 1.4;
-    color: var(--text-secondary);
-    white-space: pre-wrap;
-    word-break: break-word;
-  }
-
   .empty-state {
     padding: 1rem;
     text-align: center;

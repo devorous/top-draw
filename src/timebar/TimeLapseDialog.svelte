@@ -210,7 +210,9 @@
 </script>
 
 {#if open && !pickingRegion}
-  <div class="overlay" onclick={close} role="dialog" aria-modal="true">
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <div class="overlay" onclick={close} role="dialog" aria-modal="true" tabindex="-1">
+    <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
     <div class="dialog" data-tut="render-dialog" onclick={(e) => e.stopPropagation()} role="document">
       <div class="header">
         <h3>Render time-lapse</h3>

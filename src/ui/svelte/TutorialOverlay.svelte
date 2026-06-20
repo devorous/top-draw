@@ -931,6 +931,7 @@
       role="dialog"
       aria-modal="true"
       aria-labelledby="tutorialPromptTitle"
+      tabindex="-1"
       onpointerdown={handleToastPointerDown}
       onpointermove={handleToastPointerMove}
       onpointerup={handleToastPointerUp}

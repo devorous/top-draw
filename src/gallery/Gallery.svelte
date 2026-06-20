@@ -1320,7 +1320,7 @@
                   <button class="post-thumb" onclick={() => openLightbox(item)} onpointerup={(e) => e.pointerType !== 'mouse' && openLightbox(item)} aria-label={`Open ${item.title || 'image'}`}>
                     <img src={item.thumbUrl || item.url} alt={item.title || 'artwork'} loading="lazy" class:censored={isNsfw(item) && !isNsfwRevealed(item)} />
                     {#if isNsfw(item) && !isNsfwRevealed(item)}
-                      <span class="reveal" onclick={(e) => { e.stopPropagation(); revealNsfw(item); }} onpointerup={(e) => { e.stopPropagation(); e.pointerType !== 'mouse' && revealNsfw(item); }} role="button" tabindex="0">
+                      <span class="reveal" onclick={(e) => { e.stopPropagation(); revealNsfw(item); }} onpointerup={(e) => { e.stopPropagation(); e.pointerType !== 'mouse' && revealNsfw(item); }} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); revealNsfw(item); } }} role="button" tabindex="0">
                         <span>NSFW</span><strong>Reveal</strong>
                       </span>
                     {/if}
@@ -1762,10 +1762,6 @@
     transform: translateY(-1px);
   }
   .nav-active { color: var(--text-dim); }
-  .nav-cta {
-    color: var(--accent);
-    font-weight: 600;
-  }
   .nav-enter {
     background: var(--accent);
     color: #000 !important;
@@ -1851,21 +1847,6 @@
     border-radius: 6px;
     background: rgba(255, 255, 255, 0.035);
   }
-  .view-toggle a,
-  .view-toggle span {
-    min-width: 76px;
-    padding: 0.42rem 0.8rem;
-    border-radius: 4px;
-    color: var(--text-dim);
-    font-size: 0.8rem;
-    font-weight: 600;
-    text-align: center;
-    transition: color 0.2s, background 0.2s, transform 0.2s;
-  }
-  .view-toggle a:hover {
-    color: var(--accent);
-    transform: translateY(-1px);
-  }
   .view-toggle .active {
     color: #000;
     background: var(--accent);
@@ -1920,11 +1901,6 @@
     grid-template-columns: minmax(0, 1fr) 240px;
     gap: 1.5rem;
     align-items: start;
-  }
-  .gallery-layout.no-sidebar {
-    grid-template-columns: minmax(0, 1fr);
-    max-width: 880px;
-    margin: 0 auto;
   }
 
   .tag-strip {
@@ -1996,12 +1972,6 @@
   .sidebar-empty {
     font-size: 0.82rem;
     color: var(--text-dim);
-  }
-
-  .sidebar-tags {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
   }
 
   .recent-comments {
@@ -2261,11 +2231,6 @@
     transform: translateY(-1px);
   }
 
-  .sidebar-tag.active {
-    color: var(--accent);
-    border-color: var(--accent);
-    background: rgba(0, 212, 170, 0.15);
-  }
 
   /* ── Like Button ── */
   .like-btn {

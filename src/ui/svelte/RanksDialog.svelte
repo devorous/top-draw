@@ -201,13 +201,6 @@
     opacity: 0.85;
   }
 
-  .rank-note p {
-    margin: 0;
-    color: var(--text-secondary, #8a8fa8);
-    font-size: 0.82rem;
-    line-height: 1.45;
-  }
-
   .ranks-grid {
     list-style: none;
     margin: 0;

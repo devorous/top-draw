@@ -1014,14 +1014,6 @@
   .snap-title { font-size: 14px; font-weight: 600; color: var(--text-primary, #eee); }
   .snap-header-right { display: flex; align-items: center; gap: 8px; }
 
-  .snap-tabs { display: flex; align-items: center; gap: 2px; background: var(--bg-secondary, #1a1a1a); border: 1px solid var(--border-subtle, #333); border-radius: 8px; padding: 3px; }
-  .snap-tab {
-    background: transparent; border: none; border-radius: 5px; padding: 5px 12px;
-    font-size: 12px; font-weight: 600; color: var(--text-secondary, #aaa); cursor: pointer;
-  }
-  .snap-tab:hover { color: var(--text-primary, #fff); background: var(--bg-elevated, #2a2a2a); }
-  .snap-tab.active { background: var(--accent-primary, #7c5cbf); color: #fff; }
-
   /* Recent / Server panels */
   .snap-tab-panel { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 24px; }
   .snap-recent-card {
