@@ -7584,7 +7584,10 @@ export class DrawingApp {
   // Keyboard handlers
 
   handleResize() {
+    // Recompute the fit-to-view defaults (used by Reset View) for the new size,
+    // but keep the board's current position/scale stable so it doesn't jump.
     this.board.calculateDefaultView();
+    this.board.preserveViewOnResize();
     this.scheduleTopbarCollapseUpdate();
 
     // Auto-collapse sidebar on narrow screens

@@ -113,6 +113,41 @@ export class Board {
     this._cachedContainerRect = null;
     this._containerResizeObserver = null;
     this._invalidateContainerRect = () => { this._cachedContainerRect = null; };
+
+    // Last known container size, used to keep the board's viewport-center point
+    // anchored across window/container resizes (see preserveViewOnResize()).
+    this._lastContainerWidth = null;
+    this._lastContainerHeight = null;
+  }
+
+  /**
+   * Keep the board's current position and scale stable across a container
+   * resize. Pan is applied as the outermost translation in the CSS transform,
+   * so shifting it by half the container-size delta keeps whatever board point
+   * was centered in the viewport centered afterward — independent of zoom and
+   * rotation. Zoom is left untouched.
+   */
+  preserveViewOnResize() {
+    if (!this.container) return;
+
+    const newWidth = this.container.clientWidth;
+    const newHeight = this.container.clientHeight;
+    const oldWidth = this._lastContainerWidth;
+    const oldHeight = this._lastContainerHeight;
+
+    this._lastContainerWidth = newWidth;
+    this._lastContainerHeight = newHeight;
+
+    // First measurement (or a degenerate 0-size container) — nothing to preserve.
+    if (oldWidth == null || oldHeight == null || oldWidth === 0 || oldHeight === 0) {
+      return;
+    }
+    if (newWidth === oldWidth && newHeight === oldHeight) return;
+
+    this.panX += (newWidth - oldWidth) / 2;
+    this.panY += (newHeight - oldHeight) / 2;
+
+    this.applyTransform();
   }
 
   _getContainerRect() {
@@ -330,12 +365,24 @@ export class Board {
     this.calculateDefaultView();
     this.resetView();
 
+    // Seed the baseline container size so the first resize has something to
+    // preserve the view against.
+    if (this.container) {
+      this._lastContainerWidth = this.container.clientWidth;
+      this._lastContainerHeight = this.container.clientHeight;
+    }
+
     if (typeof window !== 'undefined') {
       window.addEventListener('resize', this._invalidateContainerRect, { passive: true });
       window.addEventListener('scroll', this._invalidateContainerRect, { passive: true, capture: true });
     }
     if (typeof ResizeObserver !== 'undefined' && this.container) {
-      this._containerResizeObserver = new ResizeObserver(this._invalidateContainerRect);
+      // Invalidate the cached rect and keep the board's view stable across any
+      // container size change (window resize, sidebar collapse, panel docking).
+      this._containerResizeObserver = new ResizeObserver(() => {
+        this._invalidateContainerRect();
+        this.preserveViewOnResize();
+      });
       this._containerResizeObserver.observe(this.container);
     }
   }
