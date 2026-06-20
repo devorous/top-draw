@@ -535,6 +535,22 @@ html[data-sidebar-side='left'] .sidebarToggleBtn.active .sidebarIcon {
   white-space: nowrap;
 }
 
+/* Colour-mode options ("Original" / "Colour" / "User Color") get clipped
+   side-by-side in the narrow sidebar — stack them full-width instead. */
+.radio-group.pattern-colour-mode-group {
+  flex-direction: column;
+}
+
+.radio-group.pattern-colour-mode-group > .radio-option {
+  flex: 1 1 auto;
+  width: 100%;
+}
+
+/* Fill tool "Fill Mode" (Advanced / Pattern) — stack for the same reason. */
+#fillModeOptions .radio-group:not(.pattern-colour-mode-group) {
+  flex-direction: column;
+}
+
 /* Blend Mode Select */
 .blendModeSelect {
   width: 100%;

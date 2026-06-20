@@ -9,6 +9,7 @@ import { performHomographyTransform, imageDataToCanvas, calculateCornerBounds, c
 import { pointInHull, distanceBasedCulling } from '../utils/drawing.js';
 import { getPatternTile } from '../utils/patternTile.js';
 import { Tool } from './BaseTool.js';
+import { assetLibrary } from '../ui/AssetLibrary.js';
 
 function cloneSelectionRect(rect) {
   if (!rect) return null;
@@ -3962,12 +3963,31 @@ export class SelectTool extends Tool {
       }
     }
 
+    const dataUrl = canvas.toDataURL();
+
+    // Persist the selection as a custom image brush so it shows up in the
+    // brush list and survives reloads. Giving each one a unique id/name is
+    // also what makes a freshly-made selection brush actually override the
+    // previous one: the image-brush tint cache keys on brushName/fileName,
+    // so brushes without one all collided on a shared "brush" key.
+    const uniqueTag = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+    const customAsset = assetLibrary.addCustomAsset({
+      kind: 'imageBrush',
+      type: 'image',
+      fileType: 'png',
+      fileName: `selection-${uniqueTag}.png`,
+      dataUrl,
+      gimpUrl: dataUrl,
+      brushName: `Selection ${uniqueTag}`
+    });
+
     // Create brush data structure similar to GIMP brush
     const brushData = {
+      ...customAsset,
       type: 'image',
       width: canvas.width,
       height: canvas.height,
-      gimpUrl: canvas.toDataURL(),
+      gimpUrl: dataUrl,
       image: null // Will be set when loaded
     };
 
@@ -3976,16 +3996,27 @@ export class SelectTool extends Tool {
     img.onload = () => {
       brushData.image = img;
 
-      // Set as active brush and switch to imageBrush tool
+      // Set as active brush and switch to imageBrush tool (this also lazy-loads
+      // the gallery, which will pick the new asset up from storage on first open).
       app.self.imageBrush = brushData;
       app.selectTool('imageBrush');
+
+      // Add to the custom brush list now if the gallery is already loaded
+      // (avoid a duplicate if selectTool just loaded it from storage).
+      const gallery = app.brushGallery?.realGallery;
+      if (gallery && !gallery.brushes.some(b => b.id === brushData.id)) {
+        gallery.registerBrush({ ...brushData, image: img });
+      }
+
       app.ui.setBrushPreview(brushData.gimpUrl);
 
-      // Broadcast brush to other users
-      app.inputBufferManager.queueBroadcast(() => app.wsClient.broadcastBrush(brushData));
-      app.inputBufferManager.queueBroadcast(() => app.wsClient.broadcastSelectionToBrush(brushData));
+      // Broadcast brush to other users (strip the non-serializable image element)
+      const broadcastData = { ...brushData };
+      delete broadcastData.image;
+      app.inputBufferManager.queueBroadcast(() => app.wsClient.broadcastBrush(broadcastData));
+      app.inputBufferManager.queueBroadcast(() => app.wsClient.broadcastSelectionToBrush(broadcastData));
     };
-    img.src = brushData.gimpUrl;
+    img.src = dataUrl;
 
     // Deselect after converting to brush
     this.deselect();

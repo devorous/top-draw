@@ -350,6 +350,53 @@
   cursor: pointer;
 }
 
+/* Hover-revealed hide/remove action on each brush tile */
+.brushItemAction {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  cursor: pointer;
+  opacity: 0;
+  transform: scale(0.8);
+  transition: opacity var(--transition-fast), transform var(--transition-fast), background var(--transition-fast);
+  z-index: 2;
+}
+
+.brushItem:hover .brushItemAction,
+.brushItemAction:focus-visible {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.brushItemActionGlyph {
+  font-size: 15px;
+  line-height: 1;
+}
+
+.brushItem .brushItemAction img {
+  width: 12px;
+  height: 12px;
+  filter: invert(1) brightness(1.8);
+}
+
+.brushItemAction--remove:hover {
+  background: #8c1d1d;
+}
+
+.brushItemAction--hide:hover {
+  background: var(--accent-primary);
+}
+
 /* ========================================
    Dual Range Slider (Pressure)
    ======================================== */

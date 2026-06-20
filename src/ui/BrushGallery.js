@@ -472,6 +472,7 @@ export class BrushGallery {
     item.dataset.assetId = brush.id || '';
 
     this.appendBrushPreview(item, brush);
+    this.appendHoverAction(item, brush);
     item.addEventListener('click', () => {
       if (this.pendingRemovalId === brush.id) {
         this.confirmRemoveBrush(brush);
@@ -485,6 +486,35 @@ export class BrushGallery {
     });
 
     return item;
+  }
+
+  /**
+   * Adds the hover-revealed action icon to a brush tile: an X to remove a
+   * user-uploaded/custom brush, or an eye to hide a built-in one. Replaces the
+   * old (undiscoverable) right-click interaction; right-click still works too.
+   * @param {HTMLElement} item - The gallery item element
+   * @param {Object} brush - Brush data object
+   */
+  appendHoverAction(item, brush) {
+    const isCustom = brush.source === 'custom';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `brushItemAction ${isCustom ? 'brushItemAction--remove' : 'brushItemAction--hide'}`;
+    btn.title = isCustom ? 'Remove brush' : 'Hide brush';
+    btn.setAttribute('aria-label', btn.title);
+    btn.innerHTML = isCustom
+      ? '<span class="brushItemActionGlyph" aria-hidden="true">&times;</span>'
+      : '<img src="/images/eye-open.svg" alt="" width="12" height="12" />';
+    btn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      if (isCustom) {
+        // Removing a custom brush is permanent, so route through the confirm flow.
+        this.handleBrushContextMenu(brush, item);
+      } else {
+        this.hideBrush(brush);
+      }
+    });
+    item.appendChild(btn);
   }
 
   appendBrushPreview(item, brush) {
