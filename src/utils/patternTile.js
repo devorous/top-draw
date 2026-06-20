@@ -31,14 +31,20 @@ export function getPatternTile(user, cache) {
 
   if (cache && cache.has(key)) return cache.get(key);
 
-  // SVGs render at higher resolution (200px) to avoid pixelation when scaled;
-  // regular images use 1024px max to preserve detail from high-res textures.
-  const maxDim = (brush.type === 'svg') ? 200 : 1024;
   const imgWidth = img.width || img.naturalWidth;
   const imgHeight = img.height || img.naturalHeight;
 
   // Image not loaded yet — bail rather than computing NaN tile dimensions.
   if (!imgWidth || !imgHeight) return null;
+
+  // SVGs render at a fixed higher resolution (200px) to avoid pixelation when
+  // scaled. Raster brushes cap at 1024px to preserve detail from high-res
+  // textures, but must NOT be upscaled past their own size — otherwise a small
+  // brush (e.g. pepper.gbr at 49×61) gets blown up ~17× into a giant, blurry
+  // tile that reads as "stretched out" at default scale.
+  const maxDim = (brush.type === 'svg')
+    ? 200
+    : Math.min(1024, Math.max(imgWidth, imgHeight));
 
   const aspectRatio = imgWidth / imgHeight;
 

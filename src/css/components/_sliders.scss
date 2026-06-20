@@ -178,7 +178,11 @@
   border: 2px solid transparent;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  overflow: hidden;
+  // Visible so the hover action button can float off the top-right corner
+  // instead of overlapping the preview (where it was easy to mis-click). The
+  // preview media stays inset by the padding + border, so it never spills past
+  // the rounded corner anyway.
+  overflow: visible;
   transition: all var(--transition-fast);
   display: flex;
   align-items: center;
@@ -189,6 +193,8 @@
 .brushItem:hover {
   border-color: var(--accent-primary);
   transform: scale(1.05);
+  // Lift above sibling tiles so the floating corner button isn't painted over.
+  z-index: 3;
 }
 
 .brushItem.selected {
@@ -353,8 +359,10 @@
 /* Hover-revealed hide/remove action on each brush tile */
 .brushItemAction {
   position: absolute;
-  top: 3px;
-  right: 3px;
+  // Float off the top-right corner of the tile so it no longer overlaps the
+  // preview image and is harder to click by accident.
+  top: -8px;
+  right: -8px;
   width: 18px;
   height: 18px;
   display: flex;
