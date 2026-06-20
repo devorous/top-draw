@@ -252,8 +252,9 @@ export function setupUserHandlers(wsClient, app) {
         if (userData.registeredName) {
           app.self.registeredName = userData.registeredName;
         }
-        if (userData.hasDiscord !== undefined) {
-          app.self.hasDiscord = !!userData.hasDiscord;
+        if (userData.hasDiscord !== undefined || userData.selectedBadge !== undefined) {
+          if (userData.hasDiscord !== undefined) app.self.hasDiscord = !!userData.hasDiscord;
+          if (userData.selectedBadge !== undefined) app.self.selectedBadge = userData.selectedBadge || '';
           app.ui.updateSelfBadges?.(app.self);
         }
         if (userData.globalRole !== undefined) {
@@ -430,8 +431,11 @@ export function setupUserHandlers(wsClient, app) {
         if (userData.registeredName) {
           user.registeredName = userData.registeredName;
         }
-        if (userData.hasDiscord !== undefined && user.hasDiscord !== !!userData.hasDiscord) {
-          user.hasDiscord = !!userData.hasDiscord;
+        const nextSelectedBadge = userData.selectedBadge !== undefined ? (userData.selectedBadge || '') : user.selectedBadge;
+        if ((userData.hasDiscord !== undefined && user.hasDiscord !== !!userData.hasDiscord) ||
+            (userData.selectedBadge !== undefined && user.selectedBadge !== nextSelectedBadge)) {
+          if (userData.hasDiscord !== undefined) user.hasDiscord = !!userData.hasDiscord;
+          user.selectedBadge = nextSelectedBadge;
           ui.updateRemoteBadges?.(userData.sessionIndex, user);
         }
         if (userData.visibleIp !== undefined) {

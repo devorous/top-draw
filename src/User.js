@@ -76,6 +76,7 @@ export class User {
     this.globalRole = options.globalRole || 0;
     this.roomRole = options.roomRole || 0;
     this.hasDiscord = !!options.hasDiscord;
+    this.selectedBadge = options.selectedBadge || '';
     this.isMuted = options.isMuted || false;
     this.ipHash = options.ipHash || options.iph || '';
     this.visibleIp = options.visibleIp || '';

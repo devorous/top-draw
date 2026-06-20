@@ -138,6 +138,7 @@ message Msg {
     SYNC_PARITY_RESYNC_REQUEST = 143; // Client→server: replay these missing seqs
     SYNC_PARITY_MISMATCH_REPORT = 144; // Client→server: post-diff detail for persistence
     SYNC_CHECKPOINT_MINTED = 145;  // Server→client: a checkpoint was minted at snapshot_seq; truncate the fingerprint log before it (shared baseSeq watermark)
+    SET_BADGE = 146;               // Client→server: change the user's selected cosmetic badge
   }
 
   // Tool enum
@@ -231,6 +232,7 @@ message Msg {
     bool hdsc = 34;     // Whether this account is linked to Discord
     uint32 globalRole = 35; // Account/global role, including Noble/Holy/Deity
     uint32 roomRole = 36;   // Room-specific role for this room
+    string bdg = 37;        // Selected cosmetic badge id (e.g. 'flock', 'pepper')
   }
   repeated U us = 17;   // Users array
 
@@ -276,6 +278,7 @@ message Msg {
   bool auth_has_discord        = 161; // Whether user has a linked Discord account
   bool auth_needs_username_setup = 162; // Whether the user should pick a DDraw username
   string auth_suggested_username = 163; // Suggested username for setup flows
+  string auth_badge = 198;             // AUTH_RESULT: the user's saved selectedBadge id
 
   // === Moderation Fields (34-42) ===
   uint32 mod_action_type  = 34;  // 0=kick, 1=mute, 2=ban, 3=unmute, 4=unban
@@ -518,6 +521,7 @@ message Msg {
   uint32 parity_pixel_mean_mad_x100 = 194; // CHECK: mean tile MAD * 100
   uint32 parity_pixel_tile_cols = 195; // CHECK: tile grid width
   bool snapshot_probe = 196; // BOARD_SNAPSHOT_GET/SAVE response: private checkpoint probe fetch
+  string profile_badge = 197; // SET_BADGE: selected cosmetic badge id ('' clears it)
 
   message FingerprintEntry {
     uint64  seq         = 1;

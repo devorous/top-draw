@@ -10,6 +10,10 @@ const CORS_HEADERS = corsHeaders('GET, POST, PATCH, OPTIONS');
 const AVATAR_MAX_BYTES = 64 * 1024; // ~64KB after base64 encoding
 const PROFILE_BODY_LIMIT = 128 * 1024;
 
+// Cosmetic badges a user may pick for themselves. Keep in sync with the
+// `selectable` entries in src/ui/Badges.js.
+const SELECTABLE_BADGES = new Set(['flock', 'pepper']);
+
 function json(res, status, body) {
   writeJson(res, status, body, CORS_HEADERS);
 }
@@ -80,6 +84,8 @@ export async function handleUserProfile(req, res, username) {
       createdAt: user.createdAt || null,
       avatar: user.avatar || null,
       status: user.status || '',
+      selectedBadge: user.selectedBadge || '',
+      hasDiscord: !!user.discord?.id,
       distanceDrawn: user.distanceDrawn || 0,
       totalStrokes: user.totalStrokes || 0,
       timeSpentMs: user.timeSpentMs || 0,
@@ -112,7 +118,7 @@ export async function handleUpdateProfile(req, res) {
   const db = getDB();
   if (!db) return json(res, 503, { error: 'Database not available' });
 
-  const me = await getRequestUser(req, { projection: { _id: 1 } });
+  const me = await getRequestUser(req, { projection: { _id: 1, discord: 1 } });
   if (!me) return json(res, 401, { error: 'Authentication required' });
 
   let payload;
@@ -149,6 +155,19 @@ export async function handleUpdateProfile(req, res) {
       updates.avatar = payload.avatar;
     } else {
       return json(res, 400, { error: 'Avatar must be a string or null' });
+    }
+  }
+
+  if (payload.selectedBadge !== undefined) {
+    const badge = payload.selectedBadge;
+    if (badge === null || badge === '' || badge === 'none') {
+      updates.selectedBadge = badge === 'none' ? 'none' : '';
+    } else if (typeof badge === 'string' && SELECTABLE_BADGES.has(badge)) {
+      updates.selectedBadge = badge;
+    } else if (badge === 'discord' && !!me.discord?.id) {
+      updates.selectedBadge = 'discord';
+    } else {
+      return json(res, 400, { error: 'Unknown badge' });
     }
   }
 

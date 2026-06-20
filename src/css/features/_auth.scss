@@ -791,9 +791,10 @@ body.desktop-window-chrome #landingPage {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
 
-  // Shrink first when the viewport is short — the login dialog above
-  // keeps its natural height, this section gets its own scrollbar.
-  flex: 0 1 auto;
+  // Keep the changelog at its natural height instead of letting flexbox
+  // crush it — if the viewport is short, the whole landing page scrolls
+  // (#landingPage is overflow-y: auto) rather than squishing this section.
+  flex: 0 0 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -820,7 +821,7 @@ body.desktop-window-chrome #landingPage {
     min-height: 0;
     // Cap height so the changelog shrinks (with internal scroll)
     // before pushing the login dialog around at short viewports.
-    max-height: clamp(60px, 20vh, 280px);
+    max-height: clamp(120px, 32vh, 420px);
     overflow-y: auto;
   }
 

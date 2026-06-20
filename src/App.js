@@ -4016,6 +4016,19 @@ export class DrawingApp {
    * @param {number} role - The user's role level.
    * @param {string} username - The user's verified username.
    */
+  /**
+   * Applies a cosmetic badge selection for the local user: updates the local
+   * badge UI immediately and tells the server so it shows for everyone in the
+   * room. Persistence is handled by the profile PATCH endpoint separately.
+   * @param {string} badgeId - Badge id, or '' to clear.
+   */
+  applySelfBadge(badgeId) {
+    const id = badgeId || '';
+    this.self.selectedBadge = id;
+    this.ui.updateSelfBadges?.(this.self);
+    this.wsClient?.sendBadge?.(id);
+  }
+
   handleAuthSuccess(token, role, username, globalRole = role, roomRole = 0, hasDiscord = false) {
     this.selfRole = role;
     this.self.role = role;

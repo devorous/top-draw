@@ -150,10 +150,15 @@
   flex: 0 0 15px;
   color: currentColor;
 
-  svg {
+  svg,
+  img {
     width: 100%;
     height: 100%;
     display: block;
+  }
+
+  img {
+    object-fit: contain;
   }
 }
 

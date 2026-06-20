@@ -19,7 +19,60 @@ export const BADGES = Object.freeze({
     color: '#5865f2',
     svg: DISCORD_SVG,
   },
+  flock: {
+    id: 'flock',
+    label: 'Flock',
+    img: '/images/flock.png',
+    selectable: true,
+  },
+  pepper: {
+    id: 'pepper',
+    label: 'Pepper',
+    img: '/images/pepper.png',
+    selectable: true,
+  },
 });
+
+// Sentinel stored in `selectedBadge` to mean "explicitly show nothing", as
+// opposed to '' / unset which falls back to the automatic Discord badge.
+export const BADGE_NONE = 'none';
+
+/**
+ * Whether a given badge id may be selected by `userData`. `discord` is only
+ * offered to accounts that actually have Discord linked.
+ */
+function canSelectBadge(id, userData) {
+  if (id === 'discord') return !!userData?.hasDiscord;
+  return !!BADGES[id]?.selectable;
+}
+
+/**
+ * The badge ids a user may pick in their profile, in display order. Discord is
+ * included first when the account is linked, followed by the cosmetic badges.
+ * @returns {Array<{id: string, label: string}>}
+ */
+export function badgePickerOptions(userData) {
+  const out = [];
+  if (userData?.hasDiscord) out.push({ id: 'discord', label: BADGES.discord.label });
+  for (const def of Object.values(BADGES)) {
+    if (def.selectable) out.push({ id: def.id, label: def.label });
+  }
+  return out;
+}
+
+/**
+ * The single badge id currently displayed for a user (or '' for none). Driven
+ * by their explicit `selectedBadge`, falling back to the automatic Discord
+ * badge when nothing is chosen.
+ * @returns {string}
+ */
+export function effectiveBadgeId(userData) {
+  const selected = userData?.selectedBadge || '';
+  if (selected === BADGE_NONE) return '';
+  if (selected && BADGES[selected] && canSelectBadge(selected, userData)) return selected;
+  if (userData?.hasDiscord) return 'discord';
+  return '';
+}
 
 /**
  * Build a DOM element for a single badge.
@@ -33,35 +86,30 @@ export function createBadgeElement(badgeId) {
   el.className = `userBadge userBadge-${def.id}`;
   el.title = def.label;
   el.setAttribute('aria-label', def.label);
-  el.style.color = def.color;
-  el.innerHTML = def.svg;
+  if (def.color) el.style.color = def.color;
+  if (def.img) {
+    const img = document.createElement('img');
+    img.src = def.img;
+    img.alt = def.label;
+    img.draggable = false;
+    el.appendChild(img);
+  } else {
+    el.innerHTML = def.svg;
+  }
   return el;
 }
 
 /**
- * Resolve a user's badge ids from server-supplied data. Accepts a `badges` array
- * directly or derives them from legacy flags (e.g. `hasDiscord`). Unknown badge
- * ids are filtered out so renaming/removing badges in the registry can't crash
- * older clients.
+ * Resolve the badge ids to render next to a username. A user shows a single
+ * badge: their chosen `selectedBadge`, falling back to the automatic Discord
+ * badge when nothing is picked. Returned as an array so render helpers stay
+ * uniform.
  * @param {object} userData
  * @returns {string[]}
  */
 export function badgesForUser(userData) {
-  const out = [];
-  const seen = new Set();
-
-  const push = (id) => {
-    if (!id || seen.has(id) || !BADGES[id]) return;
-    seen.add(id);
-    out.push(id);
-  };
-
-  if (Array.isArray(userData?.badges)) {
-    for (const id of userData.badges) push(id);
-  }
-  if (userData?.hasDiscord) push('discord');
-
-  return out;
+  const id = effectiveBadgeId(userData);
+  return id ? [id] : [];
 }
 
 /**

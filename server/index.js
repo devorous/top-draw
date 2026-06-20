@@ -255,6 +255,10 @@ function rateLimitKey(prefix, ip, suffix = '') {
   return suffix ? `${prefix}:${ip}:${suffix}` : `${prefix}:${ip}`;
 }
 
+// Cosmetic badges a user may select for themselves. Keep in sync with the
+// `selectable` entries in src/ui/Badges.js and SELECTABLE_BADGES in userRoutes.js.
+const SELECTABLE_BADGES = new Set(['flock', 'pepper']);
+
 function shouldAllowWsMessage(ws, data) {
   const ip = ws.clientIp || 'unknown';
   let config = WS_DRAW_LIMIT;
@@ -330,6 +334,7 @@ function shouldAllowWsMessage(ws, data) {
     case T.CHECKPOINT_LIST:
     case T.CHECKPOINT_GET:
     case T.REPLAY_REQUEST:
+    case T.SET_BADGE:
       suffix = 'admin';
       config = WS_ADMIN_LIMIT;
       break;
@@ -1371,6 +1376,7 @@ function mapUsersForBroadcast(users, viewer = null, room = null) {
         rn: u.registeredName || '',
         mt: !!u.isMuted,
         hdsc: !!u.hasDiscord,
+        bdg: u.selectedBadge || '',
         vip: room ? getVisibleIpForViewer(viewer, u, room) : '',
         fpId: u.fingerprintId || '' // Include fingerprintId for persistent user tracking
       };
@@ -1903,6 +1909,22 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
   }
 
   switch (data.t) {
+    case T.SET_BADGE: {
+      // Only logged-in accounts have a persistent badge; ignore guests.
+      if (!ws?.userId) return;
+      const requested = typeof data.profileBadge === 'string' ? data.profileBadge : '';
+      let badge = '';
+      if (requested === 'none') badge = 'none';
+      else if (SELECTABLE_BADGES.has(requested)) badge = requested;
+      else if (requested === 'discord' && user.hasDiscord) badge = 'discord';
+      if (user.selectedBadge === badge) return;
+      user.selectedBadge = badge;
+      // Persistence is handled by the PATCH /api/users/me/profile request the
+      // client sends alongside this; here we only sync live presence.
+      broadcastUsersForRoom(room);
+      return;
+    }
+
     case T.MM:
       if (data.ps && data.ps.length >= 2) {
         // ps is quantized (x10) sint32 delta-encoded on the wire. Sum all
@@ -4866,6 +4888,7 @@ wss.on('connection', async (ws, req) => {
               user.name = uniqueName;
               user.registeredName = userDoc.username;
               user.hasDiscord = !!userDoc.discord?.id;
+              user.selectedBadge = userDoc.selectedBadge || '';
               user.isMuted = !!ws.isMuted;
               user.isShadowBanned = !!ws.isShadowBanned;
               user.isVPN = !!ws.isVPN;
@@ -4888,7 +4911,8 @@ wss.on('connection', async (ws, req) => {
               authEmailPromptDeclined: !!userDoc.emailPromptDeclined,
               authHasDiscord: !!userDoc.discord?.id,
               authNeedsUsernameSetup: !!userDoc.discord?.id && !userDoc.passwordHash && !userDoc.discord?.usernameSetupCompleted,
-              authSuggestedUsername: userDoc.discord?.username || ''
+              authSuggestedUsername: userDoc.discord?.username || '',
+              authBadge: userDoc.selectedBadge || ''
             });
 
             await recordConnectionEvent(db, {

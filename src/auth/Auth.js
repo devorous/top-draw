@@ -1,6 +1,7 @@
 import { isTauriDesktop, openDiscordOAuthWindow } from '../platform/desktop.js';
 import { debug } from '../utils/debug.js';
 import { resolveApiUrl } from '../config/serverEndpoints.js';
+import { badgesForUser, renderBadgesInto } from '../ui/Badges.js';
 
 /**
  * Auth module — handles token storage, login/register form logic, auto-login
@@ -28,6 +29,7 @@ export class Auth {
     this.isLoggedIn = false;
     this.loggedInUsername = null;
     this.hasDiscord = false;
+    this.selectedBadge = '';
     this.currentAuthSession = null;
     this._autoLoginInFlight = false;
     this._autoLoginToken = null;
@@ -75,6 +77,7 @@ export class Auth {
       // Logged in state
       authUsernameBtn: document.getElementById('authUsernameBtn'),
       authUsernameDisplay: document.getElementById('authUsernameDisplay'),
+      authUserBadges: document.getElementById('authUserBadges'),
       authLoggedInJoinBtn: document.getElementById('authLoggedInJoinBtn'),
       joinBtnLoggedIn: document.getElementById('joinBtnLoggedIn'),
       discordLinkBtn: document.getElementById('discordLinkBtn'),
@@ -662,7 +665,8 @@ export class Auth {
   async showLoggedInState(username, {
     hasDiscord = this.hasDiscord,
     needsUsernameSetup = this.needsUsernameSetup,
-    suggestedUsername = this.suggestedUsername
+    suggestedUsername = this.suggestedUsername,
+    selectedBadge = this.selectedBadge
   } = {}) {
     const wasLoggedIn = this.isLoggedIn;
     this.clearLandingError();
@@ -671,8 +675,10 @@ export class Auth {
     this.hasDiscord = !!hasDiscord;
     this.needsUsernameSetup = !!needsUsernameSetup;
     this.suggestedUsername = suggestedUsername || username;
+    this.selectedBadge = selectedBadge || '';
 
     if (this.els.authUsernameDisplay) this.els.authUsernameDisplay.textContent = username;
+    this.renderAuthBadges();
     if (this.els.authUsernameBtn) {
       this.els.authUsernameBtn.classList.toggle('auth-is-discord', this.hasDiscord);
       this.els.authUsernameBtn.title = this.hasDiscord ? 'Logged in with Discord' : '';
@@ -704,6 +710,17 @@ export class Auth {
   }
 
   /**
+   * Render the logged-in user's badge next to their name on the landing page.
+   */
+  renderAuthBadges() {
+    if (!this.els.authUserBadges) return;
+    renderBadgesInto(
+      this.els.authUserBadges,
+      badgesForUser({ hasDiscord: this.hasDiscord, selectedBadge: this.selectedBadge })
+    );
+  }
+
+  /**
    * Show the not-logged-in UI state
    */
   async showNotLoggedInState() {
@@ -712,6 +729,8 @@ export class Auth {
     this.hasDiscord = false;
     this.needsUsernameSetup = false;
     this.suggestedUsername = '';
+    this.selectedBadge = '';
+    this.renderAuthBadges();
     if (this.els.authUsernameBtn) {
       this.els.authUsernameBtn.classList.remove('auth-is-discord');
       this.els.authUsernameBtn.title = '';
@@ -1548,12 +1567,14 @@ export class Auth {
           roomRole: data.roomRole || 0,
           hasDiscord: !!data.hasDiscord,
           needsUsernameSetup: !!data.needsUsernameSetup,
-          suggestedUsername: data.suggestedUsername || ''
+          suggestedUsername: data.suggestedUsername || '',
+          selectedBadge: data.selectedBadge || ''
         };
         this.showLoggedInState(username, {
           hasDiscord: !!data.hasDiscord,
           needsUsernameSetup: !!data.needsUsernameSetup,
-          suggestedUsername: data.suggestedUsername || username
+          suggestedUsername: data.suggestedUsername || username,
+          selectedBadge: data.selectedBadge || ''
         });
       }
 

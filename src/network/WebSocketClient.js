@@ -906,6 +906,7 @@ export class WebSocketClient {
           registeredName: u.rn || '',
           isMuted: !!u.mt,
           hasDiscord: !!u.hdsc,
+          selectedBadge: u.bdg || '',
           visibleIp: u.vip || ''
         }));
         this.emit('users', { users });
@@ -1493,7 +1494,8 @@ export class WebSocketClient {
           emailPromptDeclined: data.authEmailPromptDeclined || false,
           hasDiscord: data.authHasDiscord || false,
           needsUsernameSetup: data.authNeedsUsernameSetup || false,
-          suggestedUsername: data.authSuggestedUsername || ''
+          suggestedUsername: data.authSuggestedUsername || '',
+          selectedBadge: data.authBadge || ''
         });
         break;
 
@@ -1962,6 +1964,17 @@ export class WebSocketClient {
    */
   broadcastLayerBlendModeChange(layerIndex, blendMode, blendBakeMode = 'background') {
     this.send({ t: T.CBM, ly: layerIndex, bm: blendMode, bbm: blendBakeMode === 'background' ? 'background' : 'existing' });
+  }
+
+  /**
+   * Broadcasts the local user's selected cosmetic badge so it appears next to
+   * their name for everyone in the room. Persistence is handled separately via
+   * the profile PATCH endpoint.
+   * @param {string} badgeId - Badge id, or '' to clear.
+   * @returns {void}
+   */
+  sendBadge(badgeId) {
+    this.send({ t: T.SET_BADGE, profileBadge: badgeId || '' });
   }
 
   /**

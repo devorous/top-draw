@@ -3,6 +3,8 @@
  * Works in both the main app and gallery (or any page).
  */
 
+import { BADGES, badgePickerOptions, effectiveBadgeId } from './Badges.js';
+
 const PX_PER_METER = 3779;
 const ROLE_NAMES = ['Guest', 'User', 'Trusted', 'Helper', 'Mod', 'Admin', 'Owner', 'Noble Mod', 'Holy Mod', 'Deity Mod'];
 const AVATAR_TARGET_PX = 256;
@@ -356,6 +358,91 @@ const STYLES = `
   text-align: center;
 }
 
+.profile-username-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.profile-username-row .profile-username { min-width: 0; }
+
+.profile-badge-img,
+.profile-badge-svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+  flex: 0 0 20px;
+}
+.profile-badge-svg svg { width: 100%; height: 100%; display: block; }
+.profile-badge-current {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.profile-badge-noicon {
+  width: 14px;
+  height: 2px;
+  border-radius: 1px;
+  background: rgba(255,255,255,0.55);
+  display: block;
+}
+
+.profile-badge-picker { position: relative; flex: 0 0 auto; }
+.profile-badge-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 5px;
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.04);
+  color: #fff;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.profile-badge-trigger:hover:not(:disabled) {
+  border-color: rgba(255,255,255,0.25);
+  background: rgba(255,255,255,0.07);
+}
+.profile-badge-trigger:disabled { opacity: 0.5; cursor: wait; }
+.profile-badge-caret {
+  font-size: 0.6rem;
+  color: rgba(255,255,255,0.5);
+  line-height: 1;
+}
+.profile-badge-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 5;
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: #1c1c1f;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+}
+.profile-badge-option {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: none;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.profile-badge-option:hover { background: rgba(255,255,255,0.08); }
+.profile-badge-option.selected {
+  border-color: #00d4aa;
+  background: rgba(0,212,170,0.12);
+}
+
 .profile-status {
   margin-top: 1rem;
   display: flex;
@@ -552,8 +639,11 @@ export class ProfileDialog {
     this._backdrop = null;
     this._stylesInjected = false;
     this._boundKeydown = this._handleKeydown.bind(this);
+    this._boundBadgeOutside = this._handleBadgeOutside.bind(this);
     this._data = null;
     this._savingAvatar = false;
+    this._savingBadge = false;
+    this._badgeMenuOpen = false;
     this._editError = '';
     this._editingStatus = false;
     this._statusDraft = '';
@@ -589,6 +679,7 @@ export class ProfileDialog {
     this._editingStatus = false;
     this._statusDraft = '';
     this._savingStatus = false;
+    this._badgeMenuOpen = false;
 
     this._backdrop = document.createElement('div');
     this._backdrop.className = 'profile-dialog-backdrop';
@@ -607,6 +698,7 @@ export class ProfileDialog {
     });
     this._backdrop.querySelector('.profile-dialog-close').addEventListener('click', () => this.close());
     document.addEventListener('keydown', this._boundKeydown);
+    document.addEventListener('mousedown', this._boundBadgeOutside);
 
     document.body.appendChild(this._backdrop);
     document.body.style.overflow = 'hidden';
@@ -687,6 +779,42 @@ export class ProfileDialog {
       ? `<div class="profile-edit-error">${this._escapeHtml(this._editError)}</div>`
       : '';
 
+    // For the user's own profile, fall back to in-app self state for Discord
+    // link status so the badge shows even if this fetch predates it.
+    const selfHasDiscord = (typeof window !== 'undefined') ? window.app?.self?.hasDiscord : false;
+    const badgeData = { ...data, hasDiscord: (data.hasDiscord ?? (isOwn ? selfHasDiscord : false)) || false };
+    const currentBadgeId = effectiveBadgeId(badgeData);
+    const badgeIcon = (id) => {
+      const def = BADGES[id];
+      if (!def) return '';
+      return def.img
+        ? `<img class="profile-badge-img" src="${def.img}" alt="${this._escapeHtml(def.label)}" draggable="false">`
+        : `<span class="profile-badge-svg" style="color:${def.color || 'currentColor'}">${def.svg}</span>`;
+    };
+    const noIcon = '<span class="profile-badge-noicon"></span>';
+    let badgeHtml = '';
+    if (isOwn) {
+      const optionBtn = (id, selected, inner, label) =>
+        `<button type="button" class="profile-badge-option${selected ? ' selected' : ''}" data-badge="${id}" title="${this._escapeHtml(label)}" role="option" aria-selected="${selected}">${inner}</button>`;
+      const menuItems = [optionBtn('none', !currentBadgeId, noIcon, 'No badge')]
+        .concat(badgePickerOptions(badgeData).map((b) =>
+          optionBtn(b.id, b.id === currentBadgeId, badgeIcon(b.id), b.label)))
+        .join('');
+      const menuHtml = this._badgeMenuOpen
+        ? `<div class="profile-badge-menu" role="listbox">${menuItems}</div>`
+        : '';
+      badgeHtml = `
+        <span class="profile-badge-picker">
+          <button type="button" class="profile-badge-trigger" data-action="toggle-badge-menu" title="Choose your badge" aria-haspopup="listbox" aria-expanded="${!!this._badgeMenuOpen}"${this._savingBadge ? ' disabled' : ''}>
+            ${currentBadgeId && BADGES[currentBadgeId] ? badgeIcon(currentBadgeId) : noIcon}
+            <span class="profile-badge-caret">▾</span>
+          </button>
+          ${menuHtml}
+        </span>`;
+    } else if (currentBadgeId && BADGES[currentBadgeId]) {
+      badgeHtml = `<span class="profile-badge-current" title="${this._escapeHtml(BADGES[currentBadgeId].label)}">${badgeIcon(currentBadgeId)}</span>`;
+    }
+
     const status = (data.status || '').trim();
     let statusHtml = '';
     if (this._editingStatus && isOwn) {
@@ -724,7 +852,10 @@ export class ProfileDialog {
           ${avatarEditBtn}
         </div>
         <div class="profile-identity">
-          <h2 class="profile-username ${rcls}">${this._escapeHtml(data.username)}</h2>
+          <div class="profile-username-row">
+            <h2 class="profile-username ${rcls}">${this._escapeHtml(data.username)}</h2>
+            ${badgeHtml}
+          </div>
           <div class="profile-role-row">
             <span class="profile-role-badge ${rcls}">${roleName(role)}</span>
             ${joinMeta}
@@ -808,6 +939,23 @@ export class ProfileDialog {
 
     const removeAvatar = root.querySelector('[data-action="remove-avatar"]');
     if (removeAvatar) removeAvatar.addEventListener('click', () => this._removeAvatar());
+
+    const badgeToggle = root.querySelector('[data-action="toggle-badge-menu"]');
+    if (badgeToggle) {
+      badgeToggle.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (this._savingBadge) return;
+        this._badgeMenuOpen = !this._badgeMenuOpen;
+        this._renderProfile();
+      });
+    }
+    root.querySelectorAll('.profile-badge-option').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this._badgeMenuOpen = false;
+        this._saveBadge(btn.dataset.badge || 'none');
+      });
+    });
 
     const editStatus = root.querySelector('[data-action="edit-status"]');
     if (editStatus) {
@@ -907,6 +1055,23 @@ export class ProfileDialog {
     }
   }
 
+  async _saveBadge(badgeId) {
+    if (this._savingBadge) return;
+    this._savingBadge = true;
+    this._editError = '';
+    this._renderProfile();
+    try {
+      const updated = await this._patchProfile({ selectedBadge: badgeId });
+      this._data.selectedBadge = updated.selectedBadge ?? badgeId;
+      if (typeof window !== 'undefined') window.app?.applySelfBadge?.(this._data.selectedBadge);
+    } catch (err) {
+      this._editError = err?.message || 'Failed to save badge';
+    } finally {
+      this._savingBadge = false;
+      this._renderProfile();
+    }
+  }
+
   async _removeAvatar() {
     if (this._savingAvatar) return;
     this._savingAvatar = true;
@@ -943,6 +1108,13 @@ export class ProfileDialog {
     if (e.key === 'Escape') this.close();
   }
 
+  _handleBadgeOutside(e) {
+    if (!this._badgeMenuOpen) return;
+    if (e.target.closest?.('.profile-badge-picker')) return;
+    this._badgeMenuOpen = false;
+    this._renderProfile();
+  }
+
   _escapeHtml(str) {
     const div = document.createElement('div');
     div.textContent = str ?? '';
@@ -955,7 +1127,9 @@ export class ProfileDialog {
       this._backdrop = null;
       document.body.style.overflow = '';
       document.removeEventListener('keydown', this._boundKeydown);
+      document.removeEventListener('mousedown', this._boundBadgeOutside);
     }
+    this._badgeMenuOpen = false;
     this._data = null;
   }
 }

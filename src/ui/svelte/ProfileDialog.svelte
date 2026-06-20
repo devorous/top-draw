@@ -1,7 +1,21 @@
 <script>
   import { appState } from '../../state.svelte.js';
+  import { BADGES, badgePickerOptions, effectiveBadgeId } from '../Badges.js';
 
   let { galleryBaseUrl = '/gallery', apiBaseUrl = '', onViewGallery = null, onImageClick = null } = $props();
+
+  let savingBadge = $state(false);
+  let badgeMenuOpen = $state(false);
+  let badgePickerEl = $state(null);
+  // For the user's own profile, fall back to the in-app self state for Discord
+  // link status so the badge shows even if the profile fetch predates it.
+  let badgeData = $derived((() => {
+    const d = data || {};
+    const selfHasDiscord = (typeof window !== 'undefined') ? window.app?.self?.hasDiscord : false;
+    return { ...d, hasDiscord: (d.hasDiscord ?? (d.isOwn ? selfHasDiscord : false)) || false };
+  })());
+  let badgeOptions = $derived(badgePickerOptions(badgeData));
+  let currentBadgeId = $derived(effectiveBadgeId(badgeData));
 
   let visible = $derived(appState.profileDialog.visible);
   let username = $derived(appState.profileDialog.username);
@@ -156,6 +170,35 @@
     }
   }
 
+  async function applyBadge(badgeId) {
+    badgeMenuOpen = false;
+    if (savingBadge) return;
+    savingBadge = true;
+    editError = '';
+    try {
+      const updated = await patchProfile({ selectedBadge: badgeId });
+      const applied = updated.selectedBadge ?? badgeId;
+      appState.profileDialog = {
+        ...appState.profileDialog,
+        data: { ...data, selectedBadge: applied }
+      };
+      if (typeof window !== 'undefined') window.app?.applySelfBadge?.(applied);
+    } catch (err) {
+      editError = err?.message || 'Failed to save badge';
+    } finally {
+      savingBadge = false;
+    }
+  }
+
+  $effect(() => {
+    if (!badgeMenuOpen) return;
+    function onDocPointer(e) {
+      if (badgePickerEl && !badgePickerEl.contains(e.target)) badgeMenuOpen = false;
+    }
+    document.addEventListener('mousedown', onDocPointer);
+    return () => document.removeEventListener('mousedown', onDocPointer);
+  });
+
   async function removeAvatar() {
     if (savingAvatar) return;
     savingAvatar = true;
@@ -229,6 +272,14 @@
   });
 </script>
 
+{#snippet badgeIcon(id)}
+  {#if BADGES[id]?.img}
+    <img class="profile-badge-img" src={BADGES[id].img} alt={BADGES[id].label} draggable="false">
+  {:else if BADGES[id]?.svg}
+    <span class="profile-badge-svg" style="color: {BADGES[id].color || 'currentColor'}">{@html BADGES[id].svg}</span>
+  {/if}
+{/snippet}
+
 {#if visible}
   <div
     class="profile-dialog-backdrop"
@@ -286,7 +337,61 @@
             </div>
 
             <div class="profile-identity">
-              <h2 class="profile-username {rcls}">{data.username}</h2>
+              <div class="profile-username-row">
+                <h2 class="profile-username {rcls}">{data.username}</h2>
+                {#if isOwn}
+                  <span class="profile-badge-picker" bind:this={badgePickerEl}>
+                    <button
+                      type="button"
+                      class="profile-badge-trigger"
+                      onclick={() => { if (!savingBadge) badgeMenuOpen = !badgeMenuOpen; }}
+                      disabled={savingBadge}
+                      aria-haspopup="listbox"
+                      aria-expanded={badgeMenuOpen}
+                      title="Choose your badge"
+                    >
+                      {#if currentBadgeId && BADGES[currentBadgeId]}
+                        {@render badgeIcon(currentBadgeId)}
+                      {:else}
+                        <span class="profile-badge-noicon"></span>
+                      {/if}
+                      <span class="profile-badge-caret">▾</span>
+                    </button>
+                    {#if badgeMenuOpen}
+                      <div class="profile-badge-menu" role="listbox">
+                        <button
+                          type="button"
+                          class="profile-badge-option"
+                          class:selected={!currentBadgeId}
+                          onclick={() => applyBadge('none')}
+                          title="No badge"
+                          role="option"
+                          aria-selected={!currentBadgeId}
+                        >
+                          <span class="profile-badge-noicon"></span>
+                        </button>
+                        {#each badgeOptions as opt}
+                          <button
+                            type="button"
+                            class="profile-badge-option"
+                            class:selected={opt.id === currentBadgeId}
+                            onclick={() => applyBadge(opt.id)}
+                            title={opt.label}
+                            role="option"
+                            aria-selected={opt.id === currentBadgeId}
+                          >
+                            {@render badgeIcon(opt.id)}
+                          </button>
+                        {/each}
+                      </div>
+                    {/if}
+                  </span>
+                {:else if currentBadgeId && BADGES[currentBadgeId]}
+                  <span class="profile-badge-current" title={BADGES[currentBadgeId].label}>
+                    {@render badgeIcon(currentBadgeId)}
+                  </span>
+                {/if}
+              </div>
               <div class="profile-role-row">
                 <span class="profile-role-badge {rcls}">{roleName(role)}</span>
                 {#if data.createdAt}
@@ -737,5 +842,99 @@
     font-size: 0.75rem;
     color: #e07070;
     text-align: center;
+  }
+
+  .profile-username-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+  }
+  .profile-username-row .profile-username { min-width: 0; }
+
+  /* Badge icon (img or coloured svg) */
+  .profile-badge-img,
+  .profile-badge-svg {
+    width: 20px;
+    height: 20px;
+    display: block;
+    flex: 0 0 20px;
+  }
+  .profile-badge-svg :global(svg) {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+  /* Read-only badge next to another user's name */
+  .profile-badge-current {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* "No icon" — a short horizontal line */
+  .profile-badge-noicon {
+    width: 14px;
+    height: 2px;
+    border-radius: 1px;
+    background: rgba(255,255,255,0.55);
+    display: block;
+  }
+
+  .profile-badge-picker { position: relative; flex: 0 0 auto; }
+
+  .profile-badge-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 3px 5px;
+    border-radius: 6px;
+    border: 1px solid rgba(255,255,255,0.12);
+    background: rgba(255,255,255,0.04);
+    color: #fff;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .profile-badge-trigger:hover:not(:disabled) {
+    border-color: rgba(255,255,255,0.25);
+    background: rgba(255,255,255,0.07);
+  }
+  .profile-badge-trigger:disabled { opacity: 0.5; cursor: wait; }
+  .profile-badge-caret {
+    font-size: 0.6rem;
+    color: rgba(255,255,255,0.5);
+    line-height: 1;
+  }
+
+  .profile-badge-menu {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    z-index: 5;
+    display: flex;
+    gap: 2px;
+    padding: 4px;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.12);
+    background: #1c1c1f;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  }
+  .profile-badge-option {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    background: none;
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s;
+  }
+  .profile-badge-option:hover { background: rgba(255,255,255,0.08); }
+  .profile-badge-option.selected {
+    border-color: #00d4aa;
+    background: rgba(0,212,170,0.12);
   }
 </style>
