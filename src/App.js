@@ -3021,7 +3021,27 @@ export class DrawingApp {
    */
   _enterOfflineMode() {
     console.log('[App] Draw Alone mode - creating local room');
-    this.resetRoomState({ preserveRemoteVisuals: false, clearBoard: true });
+
+    // Tear down any replay state from the session we're leaving before the board
+    // is wiped below. Close an open time machine (it would otherwise show the
+    // old online replay against a cleared board) and drop a mid-flight manual
+    // recording (its opening snapshot is the online board, so continuing across
+    // the wipe yields a corrupt tape). The rolling tape is re-armed fresh at the
+    // end of this method against the new offline board.
+    TimeMachine.stop();
+    if (this.recorder?.isRecording?.()) {
+      this.stopTapeRecording();
+    }
+    this.rollingTapeRecorder.stop('enter-offline');
+
+    // Preserve the current artwork: switching to offline (e.g. after a dropped
+    // connection or an update prompt) exists so the user can keep drawing on
+    // what's already there, not start over. Keep the board (clearBoard:false)
+    // and bake departing remote users' committed strokes into it
+    // (preserveRemoteVisuals:true) — only their cursors/transient state are
+    // dropped. The fresh offline rolling tape (started below) then snapshots
+    // this preserved board as its replay base.
+    this.resetRoomState({ preserveRemoteVisuals: true, clearBoard: false });
     this.isOfflineMode = true;
     this.connected = false;
     appState.connected = false;
@@ -3040,6 +3060,11 @@ export class DrawingApp {
     this.self.id = 0;
     const offlineUsername = this.auth?.getJoinUsername() || this.ui.elements.loginUsername?.value.trim() || '';
     this.self.setUsername(offlineUsername);
+    // Offline is solo. resetRoomState removed remotes but kept self under its old
+    // online session index; clear that stale key so users holds exactly {0: self}
+    // — otherwise the offline rolling tape's opening snapshot captures self twice
+    // and replays a phantom duplicate cursor.
+    this.users.clear();
     this.users.set(0, this.self);
 
     if (this.landingPage) {
@@ -3056,6 +3081,13 @@ export class DrawingApp {
       this._visibilityEligibilityHandler = () => this._updatePreviewUploadEligibility();
       document.addEventListener('visibilitychange', this._visibilityEligibilityHandler);
     }
+
+    // The rolling DVR tape, manual recorder and time machine are entirely
+    // client-side, so run them in offline mode too. Online they start on
+    // sync-complete (which never fires here); start() respects the user's
+    // enable/disable preference and captures the opening checkpoint now.
+    this.rollingTapeRecorder.start(this);
+    this.updateRecordingButtonState();
 
     // Update URL to /go/offline
     if (window.location.pathname !== '/go/offline') {
@@ -4800,7 +4832,11 @@ export class DrawingApp {
 
     TimeMachine.start();
     this.updateRecordingButtonState();
-    this.ui.showToast('Loading timeline…', 2000);
+    // start() shows its own toast when offline has nothing to replay; only show
+    // the loading toast when a source is actually being loaded.
+    if (TimeMachine.isLoading || TimeMachine.isStarted) {
+      this.ui.showToast('Loading timeline…', 2000);
+    }
   }
 
   canUseImageFeatures(showToast = false) {

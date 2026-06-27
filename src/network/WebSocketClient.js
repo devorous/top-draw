@@ -1715,6 +1715,17 @@ export class WebSocketClient {
       if (window.app?.TimeMachine && this.sessionIndex != null) {
         window.app.TimeMachine.recordAction({ ...data, u: this.sessionIndex }, 'outbound');
       }
+      return;
+    }
+
+    // Offline (Draw Alone) mode: there is no open socket, but the local replay
+    // recorders (rolling DVR tape + manual tape) still want every action so the
+    // time machine works without a server. Feed them the same outbound tap the
+    // online path produces. sessionIndex is null while disconnected, so fall
+    // back to the app's offline session index (0).
+    if (window.app?.isOfflineMode && window.app?.TimeMachine) {
+      const selfIdx = this.sessionIndex ?? window.app.sessionIndex ?? 0;
+      window.app.TimeMachine.recordAction({ ...data, u: selfIdx }, 'outbound');
     }
   }
 

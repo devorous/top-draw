@@ -464,9 +464,21 @@ class TimeMachineState {
   }
 
   /**
-   * @deprecated Legacy name — calls loadFromServer() for backward compat with App.js.
+   * Open the time machine. Online this loads the server checkpoint history;
+   * offline (Draw Alone) there is no server, so open the local rolling DVR
+   * tape instead. Legacy name kept for backward compat with App.js.
    */
   start() {
+    const app = (typeof window !== 'undefined' ? window.app : null);
+    if (app?.isOfflineMode) {
+      const bundle = app.rollingTapeRecorder?.snapshotRecording?.();
+      if (bundle && bundle.deltas?.length) {
+        this.loadFromRecording(bundle);
+      } else {
+        app.ui?.showToast?.('Nothing to replay yet — draw something first', 2500);
+      }
+      return;
+    }
     this.loadFromServer();
   }
 
