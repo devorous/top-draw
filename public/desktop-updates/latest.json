@@ -1,11 +1,11 @@
 {
-  "version": "1.10.1-beta",
-  "notes": "Implemented new smooth replay system to replace existing snapshot system",
-  "pub_date": "2026-06-17T05:48:00.461Z",
+  "version": "1.10.2-beta",
+  "notes": "I've polished the new replay system and fixed some issues with the app not connecting properly for both user profiles and gallery.",
+  "pub_date": "2026-06-28T19:02:58.875Z",
   "platforms": {
     "windows-x86_64": {
-      "url": "https://www.ddraw.ca/desktop-updates/windows-x86_64/Ddraw_1.10.1-beta_x64-setup.exe",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQ01XR1piUDlNem4zeldSeFJvbVJQMzRkZnZFM0EvR2NiUEtnUlJKMXE0SHlzaXplTzBFZnExQzFUUlFnSnZRWEdhWFhVY283OGE2UlA1NEYycGRqWVNEeGVWbit3aHdrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgxNjc1MzcwCWZpbGU6RGRyYXdfMS4xMC4xLWJldGFfeDY0LXNldHVwLmV4ZQp1THh3NEo1VUFuMUtkc2x5NDNyaHVTTHkwcHNycmpuZnhrUGxPdjVCdlZyd2ZCdmFSRGdEd0NZQXZlUFBGNUIvLzlTMHlocXlLd3ZSQUFEdjA5ZUFCUT09Cg=="
+      "url": "https://www.ddraw.ca/desktop-updates/windows-x86_64/Ddraw_1.10.2-beta_x64-setup.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQ01XR1piUDlNem01STRpa3pKaHpCQW9ZOWNCUzZxNU95ZENIQnVqTTBtbk83T08raFdSdzE5NkkzMHJHeVdhN1dpZGQxeGFLc1R3eUU5RWw1OUJEcm9GRGRaR292OUFrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgyNjczNDYwCWZpbGU6RGRyYXdfMS4xMC4yLWJldGFfeDY0LXNldHVwLmV4ZQpiTVJ0RFA3UERGNXljSk5qSTVGZ004dDhQOEg4NCtkalE1SXE0ellJSVplcXdZTUVzTXlKNHJKK2RseDh2ZmJoaE9MQ2NUUWFGMmlwdFRyeHUxZzNCZz09Cg=="
     }
   }
 }
