@@ -25,7 +25,12 @@ function loadEnvFile(relativePath, override = false) {
 }
 
 loadEnvFile('.env');
-loadEnvFile('.env.production');
+// `.env.production` must override `.env` for release builds: otherwise the dev
+// values from `.env` (e.g. VITE_API_BASE_URL=http://localhost:8030) stay in
+// process.env and Vite bakes them into the packaged app, breaking every /api
+// fetch (gallery, auth) against a localhost backend that does not exist on a
+// user's machine.
+loadEnvFile('.env.production', true);
 loadEnvFile('.env.local', true);
 
 // `.env.local` holds local dev/test overrides and is loaded with override=true so

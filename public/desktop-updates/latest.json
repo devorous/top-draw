@@ -1,5 +1,5 @@
 {
-  "version": "1.10.2-beta",
+  "version": "1.10.3-beta",
   "notes": "I've polished the new replay system and fixed some issues with the app not connecting properly for both user profiles and gallery.",
   "pub_date": "2026-06-28T19:02:58.875Z",
   "platforms": {
