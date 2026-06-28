@@ -12,7 +12,7 @@ import fs from 'fs';
 import { connectDB, getDB, getMongoDatabase, updateUserMetrics, updateConsecutiveDays } from './db.js';
 import { getIpSalt, validateProductionConfig } from './config.js';
 import { metricsTracker } from './MetricsTracker.js';
-import { handleGalleryList, handleGalleryUpload, handleGalleryItem, handleGalleryLike, handleGalleryFavorite, handleGalleryFavorites, handleGalleryLiked, handleGalleryFavoriteCheck, handleGalleryCommentsList, handleGalleryCommentCreate, handleGalleryCommentUpdate, handleGalleryCommentDelete, handleGalleryDelete, handleGallerySidebar, handleGalleryTagsUpdate, handleFloatingArtList, setFloatingArtBroadcaster, setGalleryDiscordPoster } from './gallery.js';
+import { handleGalleryList, handleGalleryUpload, handleGalleryAnimationUpload, handleGalleryItem, handleGalleryLike, handleGalleryFavorite, handleGalleryFavorites, handleGalleryLiked, handleGalleryFavoriteCheck, handleGalleryCommentsList, handleGalleryCommentCreate, handleGalleryCommentUpdate, handleGalleryCommentDelete, handleGalleryDelete, handleGallerySidebar, handleGalleryTagsUpdate, handleFloatingArtList, setFloatingArtBroadcaster, setGalleryDiscordPoster } from './gallery.js';
 import { initDiscordBot, postGalleryItemToDiscord, setDiscordRoomManager } from './discordBot.js';
 import { postReleaseUpdateToDiscord } from './discordBot.js';
 import { handleAuthLogin, handleAuthRegister, handleAuthMe, handleAuthUsernameUpdate, handlePasswordResetRequest, handlePasswordResetComplete, handleEmailSet, handleEmailVerify, handleEmailDecline, handleDiscordConfig, handleDiscordOAuthStart, handleDiscordOAuthCallback, handleDiscordDdrawAccountLink } from './authRoutes.js';
@@ -739,6 +739,14 @@ const server = createServer(async (req, res) => {
   const likeMatch = path.match(/^\/api\/gallery\/([a-f0-9]{24})\/like$/);
   if (likeMatch && req.method === 'POST') {
     await handleGalleryLike(req, res, likeMatch[1]);
+    return;
+  }
+
+  // Attach a time-lapse animation to a gallery item (author-only).
+  const animationMatch = path.match(/^\/api\/gallery\/([a-f0-9]{24})\/animation$/);
+  if (animationMatch && req.method === 'POST') {
+    if (rateLimited(uploadLimiter)) return;
+    await handleGalleryAnimationUpload(req, res, animationMatch[1]);
     return;
   }
 

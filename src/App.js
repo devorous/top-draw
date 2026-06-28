@@ -36,6 +36,7 @@ import { PerformanceDebugPanel } from './ui/PerformanceDebugPanel.js';
 import { TimeMachine } from './timebar/TimeMachine.svelte.js';
 import { recorder } from './replay/Recorder.js';
 import { rollingTapeRecorder } from './replay/RollingTapeRecorder.js';
+import { TimelapseCapturer } from './timebar/TimelapseCapturer.js';
 import { decodeDdraw, isDdrawFile } from './replay/ddrawCodec.js';
 // PerformanceSettings is lazy-loaded by Moderation._showPerformanceSettings()
 import { highlight } from './ui/Highlight.js';
@@ -600,6 +601,13 @@ export class DrawingApp {
     this.TimeMachine = TimeMachine; // Expose for WebSocketClient recording
     this.recorder = recorder;       // Local replay tape. TimeMachine.recordAction → here.
     this.rollingTapeRecorder = rollingTapeRecorder; // Automatic 2-min DVR tape (History → Recent).
+
+    // Periodic full-board stills (~60s) used to build a gallery time-lapse webm
+    // when the user uploads their drawing. Reset on room change (new board).
+    this.timelapseCapturer = new TimelapseCapturer(this.board, {
+      shouldCapture: () => this.canUseGalleryTimelapse(),
+    });
+    this.timelapseCapturer.start();
 
     // Keeps the tick loop at full rate when the tab is backgrounded so remote
     // strokes rasterize at a consistent cadence across users (see module doc).
@@ -2852,6 +2860,8 @@ export class DrawingApp {
     this.backgroundKeepAlive?.start();
     // Drop the rolling tape from the room we're leaving; it re-arms on sync.
     this.rollingTapeRecorder.stop('room-change');
+    // New board => new time-lapse; discard the previous room's frames.
+    this.timelapseCapturer?.reset();
 
     this.isOfflineMode = false;
     this.currentRoomId = roomId;
@@ -3108,6 +3118,7 @@ export class DrawingApp {
     this.ui.setRemoteUsersConnected(false);
     TimeMachine.stop();
     this.rollingTapeRecorder.stop('leave-room');
+    this.timelapseCapturer?.reset();
     this.updateRecordingButtonState();
 
     if (this.landingPage) {
@@ -4083,6 +4094,7 @@ export class DrawingApp {
     this.updateRoomSettingsButtonVisibility();
     this.updateGalleryButtonVisibility(role);
     this.updateAuthenticatedActionVisibility(role);
+    this._maybeShowTimelapsePrompt();
 
     if (this._pendingOffline) {
       this._pendingOffline = false;
@@ -4906,7 +4918,10 @@ export class DrawingApp {
         const saved = await this.saveCanvasLocally(canvas, `selection-${ts}.png`, 'Selection saved!');
         if (!saved) return;
       } else {
-        await this.handleSaveToGallery(canvas);
+        // Crop the time-lapse to the selection rect (board-space).
+        const sel = selectTool?.selection;
+        const region = sel ? { x: sel.x, y: sel.y, width: sel.width, height: sel.height } : null;
+        await this.handleSaveToGallery(canvas, { timelapseRegion: region });
       }
     } else {
       const canvas = this.board.getExportCanvas(transparent);
@@ -4980,6 +4995,13 @@ export class DrawingApp {
       }
 
       this.ui.showToast('Saved to gallery!');
+
+      // Fire-and-forget: render + attach a time-lapse for entitled users. Not
+      // awaited so the save UI completes immediately; the clip attaches when ready.
+      if (data?.id && this.canUseGalleryTimelapse()) {
+        this._uploadGalleryTimelapse(data.id, metadata.timelapseRegion ?? null, token)
+          .catch(err => console.warn('[Timelapse] upload failed:', err));
+      }
     } catch (err) {
       console.error('[Gallery] Save error:', err);
       this.ui.showToast(`Gallery save failed: ${err.message}`, 3000, 'error');
@@ -4987,6 +5009,86 @@ export class DrawingApp {
     } finally {
       this.ui.hideSavingPopup();
       if (btn && originalText) btn.textContent = originalText;
+    }
+  }
+
+  /**
+   * Show the one-time "try gallery time-lapse" prompt for eligible (NOBLE+)
+   * users. Default stays on whether they accept or dismiss; this just surfaces
+   * the feature once. The flag is per-device (localStorage).
+   */
+  _maybeShowTimelapsePrompt() {
+    try {
+      if (Number(this.self?.role || 0) < 7) return;
+      const KEY = 'topDrawTimelapsePromptSeen';
+      if (localStorage.getItem(KEY)) return;
+      // Brief delay so it doesn't collide with the login/join toasts.
+      setTimeout(() => {
+        if (localStorage.getItem(KEY)) return;
+        localStorage.setItem(KEY, '1');
+        this.ui.showTimelapsePromptToast(
+          () => this._setGalleryTimelapseEnabled(true),
+          () => this._setGalleryTimelapseEnabled(false),
+        );
+      }, 2500);
+    } catch { /* ignore */ }
+  }
+
+  _setGalleryTimelapseEnabled(enabled) {
+    const next = {
+      ...this.appPreferences,
+      general: { ...(this.appPreferences?.general ?? {}), galleryTimelapseEnabled: enabled },
+    };
+    this.setAppPreferences(next);
+    this.ui.showToast(enabled ? 'Gallery time-lapse enabled' : 'Gallery time-lapse disabled', 2500);
+  }
+
+  /**
+   * Whether the local user may generate a gallery time-lapse. Gated to NOBLE(7)+
+   * for now, plus the (default-on) app-settings toggle. The role check is the
+   * future subscription seam.
+   * @returns {boolean}
+   */
+  canUseGalleryTimelapse() {
+    const role = Number(this.self?.role || 0);
+    if (role < 7) return false;
+    return this.appPreferences?.general?.galleryTimelapseEnabled !== false;
+  }
+
+  /**
+   * Render the captured session stills into a WebM cropped to `region` and
+   * attach it to the just-uploaded gallery item.
+   * @param {string} itemId - Gallery item id from the upload response.
+   * @param {{x:number,y:number,width:number,height:number}|null} region - board px, null = full board
+   * @param {string} token - auth token
+   */
+  async _uploadGalleryTimelapse(itemId, region, token) {
+    const capturer = this.timelapseCapturer;
+    if (!capturer || capturer.frameCount < 1) return;
+
+    const blob = await capturer.renderWebm(region);
+    if (!blob) return; // not enough distinct frames
+
+    const dataUrl = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(blob);
+    });
+
+    const apiBase = import.meta.env.VITE_API_BASE_URL || '';
+    const res = await fetch(`${apiBase}/api/gallery/${itemId}/animation`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({ animationData: dataUrl, region }),
+    });
+    if (res.ok) {
+      this.ui.showToast('Time-lapse attached to your gallery upload', 2500);
+    } else {
+      console.warn('[Timelapse] server rejected animation:', res.status);
     }
   }
 

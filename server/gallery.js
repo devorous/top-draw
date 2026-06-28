@@ -62,6 +62,9 @@ const r2 = process.env.R2_ENDPOINT
   ? new S3Client({
       region: 'auto',
       endpoint: process.env.R2_ENDPOINT,
+      // Path-style addressing for local S3 mocks (MinIO). Cloudflare R2 uses
+      // virtual-hosted style, so this stays false in production.
+      forcePathStyle: process.env.R2_FORCE_PATH_STYLE === 'true',
       credentials: {
         accessKeyId: process.env.R2_ACCESS_KEY_ID || '',
         secretAccessKey: process.env.R2_SECRET_ACCESS_KEY || '',
@@ -165,6 +168,7 @@ function toClientGalleryItem(item, likedGalleryIds = null) {
     liked: likedGalleryIds ? likedGalleryIds.has(id) : false,
     likedByCurrentUser: likedGalleryIds ? likedGalleryIds.has(id) : false,
     views: item.views || 0,
+    animatedUrl: item.animatedUrl || null,
     createdAt: item.createdAt,
   };
 }
@@ -490,6 +494,105 @@ export async function handleGalleryUpload(req, res) {
     console.error('[Gallery] DB insert error:', err);
     json(res, 500, { error: 'Failed to save gallery item' });
   }
+}
+
+const ANIMATION_MAX_BYTES = 25 * 1024 * 1024; // 25 MB webm cap
+
+/**
+ * POST /api/gallery/:id/animation — attach a time-lapse WebM to an existing
+ * gallery item. Author-only. Body: { animationData: 'data:video/webm;base64,…',
+ * region?: {x,y,width,height} }.
+ */
+export async function handleGalleryAnimationUpload(req, res, id) {
+  const clientIp = getClientIp(req);
+  const limit = httpRateLimiter.consume(`gallery:animation:${clientIp}`, GALLERY_UPLOAD_LIMIT);
+  if (!limit.allowed) {
+    return json(res, 429, { error: 'Too many uploads. Please try again later.' });
+  }
+
+  if (!/^[a-f0-9]{24}$/.test(id)) return json(res, 400, { error: 'Invalid id' });
+
+  const authUser = await requireAuthenticatedUser(req, res, { projection: { username: 1 } });
+  if (!authUser) return;
+
+  const db = getDB();
+  if (!db) return json(res, 503, { error: 'Database not available' });
+  if (!r2) return json(res, 503, { error: 'Storage not configured' });
+
+  let item;
+  try {
+    item = await db.collection('gallery').findOne({ _id: new ObjectId(id) });
+  } catch {
+    return json(res, 400, { error: 'Invalid id' });
+  }
+  if (!item) return json(res, 404, { error: 'Item not found' });
+  if (String(item.authorId) !== authUser._id.toString()) {
+    return json(res, 403, { error: 'Not your upload' });
+  }
+
+  let body;
+  try {
+    body = JSON.parse(await readBody(req, Math.ceil(ANIMATION_MAX_BYTES * 1.5) + 1024));
+  } catch (err) {
+    if (err?.message === 'Payload too large') return json(res, 413, { error: 'Animation too large' });
+    return json(res, 400, { error: 'Invalid request body' });
+  }
+
+  const { animationData, region } = body;
+  if (typeof animationData !== 'string' || !animationData.startsWith('data:video/webm')) {
+    return json(res, 400, { error: 'Missing or invalid animationData' });
+  }
+
+  const base64 = animationData.slice(animationData.indexOf(',') + 1);
+  let buffer;
+  try {
+    buffer = Buffer.from(base64, 'base64');
+  } catch {
+    return json(res, 400, { error: 'Invalid animation encoding' });
+  }
+  if (buffer.length === 0 || buffer.length > ANIMATION_MAX_BYTES) {
+    return json(res, 400, { error: 'Animation size out of range' });
+  }
+  // EBML/Matroska(WebM) magic bytes: 1A 45 DF A3
+  if (!(buffer[0] === 0x1A && buffer[1] === 0x45 && buffer[2] === 0xDF && buffer[3] === 0xA3)) {
+    return json(res, 400, { error: 'Animation is not a valid WebM' });
+  }
+
+  const key = `${id}_timelapse.webm`;
+  try {
+    await r2.send(new PutObjectCommand({
+      Bucket: BUCKET,
+      Key: key,
+      Body: buffer,
+      ContentType: 'video/webm',
+      CacheControl: 'public, max-age=31536000, immutable',
+    }));
+  } catch (err) {
+    console.error('[Gallery] Animation R2 upload error:', err);
+    return json(res, 500, { error: 'Failed to upload animation' });
+  }
+
+  const animatedUrl = `${PUBLIC_URL}/${key}`;
+  const sanitizedRegion = region && typeof region === 'object'
+    ? {
+        x: Math.round(Number(region.x) || 0),
+        y: Math.round(Number(region.y) || 0),
+        width: Math.round(Number(region.width) || 0),
+        height: Math.round(Number(region.height) || 0),
+      }
+    : null;
+
+  try {
+    await db.collection('gallery').updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { animatedUrl, animatedRegion: sanitizedRegion, animatedAt: new Date() } }
+    );
+  } catch (err) {
+    console.error('[Gallery] Animation DB update error:', err);
+    return json(res, 500, { error: 'Failed to save animation' });
+  }
+
+  return json(res, 200, { id, animatedUrl });
 }
 
 /**

@@ -51,7 +51,15 @@ export async function connectDB() {
       const indexName = `galleryId_1_${fieldName}_1`;
       const partialFilterExpression = { [fieldName]: { $exists: true, $type: 'string' } };
 
-      const indexes = await collection.listIndexes().toArray();
+      // On a fresh database the collection doesn't exist yet, so listIndexes
+      // throws NamespaceNotFound (26). Treat that as "no indexes" and let the
+      // createIndex below create both the collection and the index.
+      let indexes = [];
+      try {
+        indexes = await collection.listIndexes().toArray();
+      } catch (err) {
+        if (err.code !== 26) throw err;
+      }
       const existing = indexes.find(index => index.name === indexName);
       const existingPartial = JSON.stringify(existing?.partialFilterExpression || {});
       const expectedPartial = JSON.stringify(partialFilterExpression);

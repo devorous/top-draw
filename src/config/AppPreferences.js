@@ -2,7 +2,7 @@ import { getDefaultKeybindings, KEYBIND_ACTIONS_BY_ID } from '../input/keybinds/
 import { normalizeBinding } from '../input/keybinds/KeybindMatcher.js';
 
 export const APP_PREFERENCES_STORAGE_KEY = 'topDrawAppPreferences';
-const APP_PREFERENCES_VERSION = 12;
+const APP_PREFERENCES_VERSION = 13;
 const SIDEBAR_SIDES = new Set(['left', 'right']);
 // The 3 base colors from which all theme CSS variables are derived.
 // Empty string means "use the CSS default".
@@ -40,6 +40,7 @@ export function createDefaultAppPreferences() {
       lowPowerMode: false,
       scrollToZoom: false,
       showFloatingArt: true,
+      galleryTimelapseEnabled: true,
       chatOpacity: 0.95,
       sfx: { ...DEFAULT_SFX_PREFERENCES },
       replay: { ...DEFAULT_REPLAY_PREFERENCES }
@@ -243,6 +244,9 @@ function sanitizePreferences(rawPreferences) {
       lowPowerMode: migratedLowPowerMode,
       scrollToZoom: migratedScrollToZoom,
       showFloatingArt: migratedShowFloatingArt,
+      galleryTimelapseEnabled: parsed.general?.galleryTimelapseEnabled !== undefined
+        ? !!parsed.general.galleryTimelapseEnabled
+        : true,
       chatOpacity: sanitizeChatOpacity(parsed.general?.chatOpacity),
       sfx: sanitizeSfx(migratedSfx),
       replay: sanitizeReplay(parsed.general?.replay)

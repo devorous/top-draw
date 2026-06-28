@@ -30,6 +30,16 @@
 
   // Gallery state
   let items = $state([]);
+  // Card whose time-lapse is currently hovered (grid view). Lazy-loads the video.
+  let hoveredTimelapseId = $state(null);
+  const prefersReducedMotion = typeof window !== 'undefined'
+    && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
+  function canPlayTimelapse(item) {
+    return !!item?.animatedUrl
+      && !prefersReducedMotion
+      && !(isNsfw(item) && !isNsfwRevealed(item));
+  }
   let loading = $state(true);
   let error = $state(null);
   let page = $state(1);
@@ -1270,8 +1280,26 @@
           <div class="grid">
         {#each items as item (item.id)}
           <div class="card" role="button" tabindex="0" onclick={() => openLightbox(item)} onpointerup={(e) => e.pointerType !== 'mouse' && openLightbox(item)} onkeydown={(e) => e.key === 'Enter' && openLightbox(item)}>
-            <div class="card-img">
+            <div
+              class="card-img"
+              onpointerenter={(e) => { if (e.pointerType === 'mouse' && canPlayTimelapse(item)) hoveredTimelapseId = item.id; }}
+              onpointerleave={() => { if (hoveredTimelapseId === item.id) hoveredTimelapseId = null; }}
+            >
               <img src={item.thumbUrl || item.url} alt={item.title || 'artwork'} loading="lazy" class:censored={isNsfw(item) && !isNsfwRevealed(item)}>
+              {#if item.animatedUrl && hoveredTimelapseId === item.id && canPlayTimelapse(item)}
+                <video
+                  class="card-timelapse"
+                  src={item.animatedUrl}
+                  muted
+                  loop
+                  autoplay
+                  playsinline
+                  preload="none"
+                ></video>
+              {/if}
+              {#if item.animatedUrl && canPlayTimelapse(item)}
+                <span class="card-timelapse-badge" title="Hover to play time-lapse">▶ lapse</span>
+              {/if}
               {#if isNsfw(item)}
                 <span class="card-badge">NSFW</span>
                 {#if !isNsfwRevealed(item)}
@@ -2107,6 +2135,32 @@
     transition: transform 0.4s ease, filter 0.2s ease;
   }
   .card:hover .card-img img { transform: scale(1.05); }
+
+  .card-timelapse {
+    position: absolute;
+    inset: 0;
+    width: 100%; height: 100%;
+    object-fit: contain;
+    display: block;
+    background: var(--bg2);
+    z-index: 1;
+  }
+
+  .card-timelapse-badge {
+    position: absolute;
+    top: 0.4rem;
+    left: 0.4rem;
+    z-index: 2;
+    padding: 0.1rem 0.4rem;
+    border-radius: 0.35rem;
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: #fff;
+    background: rgba(0, 212, 170, 0.85);
+    pointer-events: none;
+    text-transform: uppercase;
+  }
 
   .censored {
     filter: blur(20px) saturate(0.7);

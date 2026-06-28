@@ -203,6 +203,15 @@
     gap: 6px;
     margin-top: 6px;
   }
+
+  // Variant for multi-line prompts (e.g. the gallery time-lapse invite) where
+  // the meta line should wrap instead of single-line ellipsis.
+  &--wrap &__meta {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    line-height: 1.35;
+  }
 }
 
 // ========================================

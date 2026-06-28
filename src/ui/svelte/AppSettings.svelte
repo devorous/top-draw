@@ -168,6 +168,23 @@
     updatePreferences(nextPreferences, enabled ? 'Floating art enabled' : 'Floating art disabled');
   }
 
+  // Gallery time-lapse is gated to NOBLE(7)+ for now (see App.canUseGalleryTimelapse).
+  function isGalleryTimelapseEnabled() {
+    return appPreferences?.general?.galleryTimelapseEnabled !== false;
+  }
+
+  function updateGalleryTimelapse(enabled) {
+    const nextPreferences = {
+      ...appPreferences,
+      general: {
+        ...(appPreferences?.general ?? {}),
+        galleryTimelapseEnabled: enabled
+      }
+    };
+
+    updatePreferences(nextPreferences, enabled ? 'Gallery time-lapse enabled' : 'Gallery time-lapse disabled');
+  }
+
   function isBoardViewEnabled() {
     return localStorage.getItem('boardViewerEnabled') !== 'false';
   }
@@ -729,6 +746,16 @@ function getChatOpacity() {
                 />
                 <span>Show Floating Art</span>
               </label>
+              {#if appState.selfRole >= 7}
+                <label class="settings-toggle-compact">
+                  <input
+                    type="checkbox"
+                    checked={isGalleryTimelapseEnabled()}
+                    onchange={(event) => updateGalleryTimelapse(event.currentTarget.checked)}
+                  />
+                  <span>Gallery Time-lapse</span>
+                </label>
+              {/if}
               <label class="settings-toggle-compact">
                 <input
                   type="checkbox"

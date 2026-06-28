@@ -2455,6 +2455,52 @@ menuBtn: document.getElementById('menuBtn'),
   }
 
   /**
+   * One-time prompt inviting eligible users to try the gallery time-lapse
+   * feature. Mirrors the .snapshotJoinToast styling. Persists until answered or
+   * the user dismisses it (default stays on — see App._maybeShowTimelapsePrompt).
+   * @param {Function} onEnable
+   * @param {Function} onDecline
+   */
+  showTimelapsePromptToast(onEnable, onDecline) {
+    if (this._timelapsePromptEl) return;
+
+    const el = document.createElement('div');
+    el.className = 'snapshotJoinToast snapshotJoinToast--wrap';
+    el.innerHTML = `
+      <div class="snapshotJoinToast__body">
+        <div class="snapshotJoinToast__title">Try gallery time-lapse?</div>
+        <div class="snapshotJoinToast__meta">Your gallery uploads can include an animated time-lapse of your drawing. It's on by default — you can change this anytime in Settings.</div>
+        <div class="snapshotJoinToast__actions">
+          <button class="snapshotJoinToast__load btn primary small">Sounds good</button>
+          <button class="snapshotJoinToast__dismiss btn secondary small">No thanks</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(el);
+    this._timelapsePromptEl = el;
+
+    const dismiss = () => {
+      const node = this._timelapsePromptEl;
+      if (!node) return;
+      node.classList.remove('show');
+      setTimeout(() => node.remove(), 400);
+      this._timelapsePromptEl = null;
+    };
+
+    el.querySelector('.snapshotJoinToast__load').addEventListener('click', () => {
+      dismiss();
+      try { onEnable?.(); } catch (e) { console.error('[Timelapse] onEnable threw', e); }
+    });
+    el.querySelector('.snapshotJoinToast__dismiss').addEventListener('click', () => {
+      dismiss();
+      try { onDecline?.(); } catch (e) { console.error('[Timelapse] onDecline threw', e); }
+    });
+
+    requestAnimationFrame(() => el.classList.add('show'));
+  }
+
+  /**
    * Actionable toast confirming a file was saved. When `onReveal` is provided
    * (desktop only — browser downloads don't expose a path to open), an "Open
    * file location" button reveals the file in the OS file manager. Reuses the
