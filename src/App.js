@@ -3617,6 +3617,12 @@ export class DrawingApp {
 
     // Eligibility determined by election or manual pin — let the handler decide
     this._updatePreviewUploadEligibility();
+
+    // Offer the gallery time-lapse opt-in only once the user is actually in a
+    // real (online) room — not at login. Role-gated to NOBLE(7)+ inside.
+    if (this.currentRoomId && !this.isOfflineMode) {
+      this._maybeShowTimelapsePrompt();
+    }
   }
 
   /**
@@ -4094,7 +4100,6 @@ export class DrawingApp {
     this.updateRoomSettingsButtonVisibility();
     this.updateGalleryButtonVisibility(role);
     this.updateAuthenticatedActionVisibility(role);
-    this._maybeShowTimelapsePrompt();
 
     if (this._pendingOffline) {
       this._pendingOffline = false;
