@@ -163,11 +163,11 @@
 
 <div class="page">
   <nav>
-    <a href="/" class="wordmark">DDraw</a>
+    <a href="/" class="wordmark">DDraw!</a>
     <div class="nav-links">
       <a href="/gallery/" class="nav-link">gallery</a>
       <span class="nav-active">messenger</span>
-      <a href="/go/" class="nav-cta" target="_blank">draw →</a>
+      <a href="/go/" class="nav-cta" target="_blank">Draw Now! →</a>
       <span class="nav-divider">|</span>
       {#if user}
         <button class="btn-text" onclick={() => profileDialog.show(user.username)}>{user.username}</button>
@@ -184,12 +184,58 @@
       <Messenger initialTargetUser={null} username={user.username} />
     {:else}
       <div class="login-prompt">
-        <div class="prompt-content">
-          <div class="icon">🔒</div>
-          <h3>Sign in to use Messenger</h3>
-          <p>You need a registered account to send and receive messages.</p>
-          <button class="btn-primary" onclick={() => openAuthModal('login')}>Sign In</button>
-          <p class="signup-text">Don't have an account? <button class="link-btn" onclick={() => openAuthModal('register')}>Create one</button></p>
+        <div class="pitch-grid">
+          <div class="pitch-copy">
+            <h2>Private messages for the friends you draw with</h2>
+            <ul class="pitch-features">
+              <li>
+                <span class="pitch-emoji">🔐</span>
+                <div>
+                  <strong>End-to-end encrypted</strong>
+                  <p>Messages are sealed on your device. Our server relays them without ever being able to read them.</p>
+                </div>
+              </li>
+              <li>
+                <span class="pitch-emoji">🎨</span>
+                <div>
+                  <strong>Built into DDraw</strong>
+                  <p>Message anyone you've drawn with and pick the conversation back up outside the room.</p>
+                </div>
+              </li>
+              <li>
+                <span class="pitch-emoji">🚫</span>
+                <div>
+                  <strong>No ads, no tracking</strong>
+                  <p>It's just mail between artists. Nothing is read, mined, or sold.</p>
+                </div>
+              </li>
+            </ul>
+            <div class="pitch-actions">
+              <button class="btn-primary" onclick={() => openAuthModal('login')}>Sign In</button>
+              <button class="btn-secondary" onclick={() => openAuthModal('register')}>Create Account</button>
+            </div>
+            <p class="pitch-note">Accounts are free — a username and password is all it takes.</p>
+          </div>
+
+          <div class="pitch-preview" aria-hidden="true">
+            <div class="fake-chat">
+              <div class="fake-chat-header">
+                <span class="fake-avatar">M</span>
+                <span class="fake-name">moss</span>
+                <span class="fake-lock" title="End-to-end encrypted">🔒</span>
+              </div>
+              <div class="fake-chat-body">
+                <div class="bubble them">did you see ravi's dragon??</div>
+                <div class="bubble me">SAW it. instant gallery heart</div>
+                <div class="bubble them">lobby at 8 to finish the mural?</div>
+                <div class="bubble me">bringing the confetti brush 🎉</div>
+                <div class="bubble them typing"><span></span><span></span><span></span></div>
+              </div>
+              <div class="fake-chat-input">
+                <span>Message moss…</span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     {/if}
@@ -308,14 +354,18 @@
           font-weight: 500;
         }
 
+        /* Pill CTA, matches gallery/landing "Draw Now!" */
         .nav-cta {
-          color: var(--accent, #00d4aa);
+          background: var(--accent, #00d4aa);
+          color: #000;
           text-decoration: none;
-          font-weight: 600;
-          transition: opacity 0.2s;
+          font-weight: 700;
+          padding: 0.5rem 1rem;
+          border-radius: 50px;
+          transition: transform 0.2s;
 
           &:hover {
-            opacity: 0.8;
+            transform: translateY(-1px) scale(1.03);
           }
         }
 
@@ -510,58 +560,220 @@
     align-items: center;
     justify-content: center;
     height: 100%;
+    padding: 2rem;
 
-    .prompt-content {
-      text-align: center;
-      max-width: 400px;
+    .pitch-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+      gap: 3.5rem;
+      align-items: center;
+      max-width: 960px;
+    }
 
-      .icon {
-        font-size: 3rem;
-        margin-bottom: 1rem;
+    .pitch-copy {
+      h2 {
+        font-family: 'Fredoka', sans-serif;
+        font-size: clamp(1.6rem, 3.5vw, 2.4rem);
+        line-height: 1.15;
+        margin: 0 0 1.75rem 0;
+      }
+    }
+
+    .pitch-features {
+      list-style: none;
+      margin: 0 0 2rem 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 1.1rem;
+
+      li {
+        display: flex;
+        gap: 0.85rem;
+        align-items: flex-start;
       }
 
-      h3 {
-        margin: 0 0 0.5rem 0;
-        font-size: 1.5rem;
+      .pitch-emoji {
+        font-size: 1.3rem;
+        line-height: 1.4;
+      }
+
+      strong {
+        display: block;
+        margin-bottom: 0.15rem;
       }
 
       p {
-        margin: 0 0 1.5rem 0;
+        margin: 0;
+        font-size: 0.88rem;
+        line-height: 1.45;
         color: var(--text-secondary, #8b949e);
+        max-width: 42ch;
       }
+    }
 
-      .btn-primary {
-        padding: 0.75rem 1.5rem;
+    .pitch-actions {
+      display: flex;
+      gap: 0.75rem;
+      margin-bottom: 0.85rem;
+    }
+
+    .btn-primary {
+      padding: 0.75rem 1.5rem;
+      background: var(--accent, #00d4aa);
+      color: #0f1117;
+      border: none;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s;
+
+      &:hover {
+        opacity: 0.9;
+      }
+    }
+
+    .btn-secondary {
+      padding: 0.75rem 1.5rem;
+      background: transparent;
+      color: var(--accent, #00d4aa);
+      border: 1.5px solid var(--accent, #00d4aa);
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+
+      &:hover {
+        background: rgba(0, 212, 170, 0.1);
+      }
+    }
+
+    .pitch-note {
+      margin: 0;
+      font-size: 0.8rem;
+      color: var(--text-secondary, #8b949e);
+    }
+
+    /* ── Decorative chat mockup ── */
+    .pitch-preview {
+      display: flex;
+      justify-content: center;
+    }
+
+    .fake-chat {
+      width: 100%;
+      max-width: 340px;
+      background: var(--bg-secondary, #161b22);
+      border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
+      border-radius: 14px;
+      overflow: hidden;
+      transform: rotate(2deg);
+      box-shadow:
+        14px 14px 0 rgba(0, 212, 170, 0.18),
+        0 24px 48px rgba(0, 0, 0, 0.45);
+    }
+
+    .fake-chat-header {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      padding: 0.7rem 0.9rem;
+      border-bottom: 1px solid var(--border, rgba(255, 255, 255, 0.1));
+
+      .fake-avatar {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
         background: var(--accent, #00d4aa);
         color: #0f1117;
-        border: none;
-        border-radius: 6px;
-        font-weight: 600;
-        cursor: pointer;
-        transition: opacity 0.2s;
-        margin-bottom: 1rem;
-
-        &:hover {
-          opacity: 0.9;
-        }
+        font-weight: 700;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.85rem;
       }
 
-      .signup-text {
-        font-size: 0.875rem;
-        color: var(--text-secondary, #8b949e);
+      .fake-name {
+        font-weight: 600;
+        flex: 1;
+      }
 
-        .link-btn {
-          background: transparent;
-          border: none;
-          color: var(--accent, #00d4aa);
-          cursor: pointer;
-          text-decoration: underline;
-          padding: 0;
+      .fake-lock {
+        font-size: 0.85rem;
+        opacity: 0.75;
+      }
+    }
 
-          &:hover {
-            opacity: 0.8;
-          }
+    .fake-chat-body {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      padding: 1rem 0.9rem;
+    }
+
+    .bubble {
+      max-width: 78%;
+      padding: 0.5rem 0.8rem;
+      border-radius: 14px;
+      font-size: 0.85rem;
+      line-height: 1.35;
+
+      &.them {
+        align-self: flex-start;
+        background: rgba(255, 255, 255, 0.07);
+        border-bottom-left-radius: 4px;
+      }
+
+      &.me {
+        align-self: flex-end;
+        background: rgba(0, 212, 170, 0.22);
+        border-bottom-right-radius: 4px;
+      }
+
+      &.typing {
+        display: inline-flex;
+        gap: 4px;
+        padding: 0.65rem 0.8rem;
+
+        span {
+          width: 6px;
+          height: 6px;
+          border-radius: 50%;
+          background: var(--text-secondary, #8b949e);
+          animation: typing-bounce 1.2s infinite;
+
+          &:nth-child(2) { animation-delay: 0.15s; }
+          &:nth-child(3) { animation-delay: 0.3s; }
         }
+      }
+    }
+
+    @keyframes typing-bounce {
+      0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
+      30% { transform: translateY(-4px); opacity: 1; }
+    }
+
+    .fake-chat-input {
+      margin: 0 0.9rem 0.9rem;
+      padding: 0.55rem 0.85rem;
+      border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
+      border-radius: 999px;
+      font-size: 0.82rem;
+      color: var(--text-secondary, #8b949e);
+    }
+
+    @media (max-width: 820px) {
+      .pitch-grid {
+        grid-template-columns: 1fr;
+        gap: 2.5rem;
+      }
+
+      .pitch-preview {
+        order: -1;
+      }
+
+      .fake-chat {
+        max-width: 300px;
       }
     }
   }

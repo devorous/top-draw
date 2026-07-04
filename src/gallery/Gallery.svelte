@@ -72,6 +72,11 @@
   let sidebarTags = $state([]);
   let sidebarLoading = $state(false);
 
+  // Tag strip: show only the most-used tags until expanded
+  const TAG_PREVIEW_COUNT = 8;
+  let tagsExpanded = $state(false);
+  let visibleTags = $derived(tagsExpanded ? sidebarTags : sidebarTags.slice(0, TAG_PREVIEW_COUNT));
+
   // Comments state
   let comments = $state([]);
   let commentsLoading = $state(false);
@@ -136,14 +141,12 @@
 
   function initialLayoutFromEnv() {
     if (typeof window === 'undefined') return 'grid';
-    // Path-based default: /gallery/grid/ -> grid, otherwise board
-    const path = window.location.pathname.replace(/\/+$/, '');
-    const pathDefault = /\/gallery\/grid$/.test(path) ? 'grid' : 'board';
     try {
       const stored = localStorage.getItem(LAYOUT_KEY);
       if (stored === 'grid' || stored === 'board') return stored;
     } catch {}
-    return pathDefault;
+    // Grid is the default everywhere; board (feed) view is opt-in via the toggle.
+    return 'grid';
   }
 
   async function fetchBoardCommentsForItems(forItems) {
@@ -1137,7 +1140,7 @@
 
 <div class="page">
   <nav>
-    <a href="/" class="wordmark">DDraw</a>
+    <a href="/" class="wordmark">DDraw!</a>
     <div class="nav-links">
       <span class="nav-active">gallery</span>
       <a href="/messenger/" class="nav-link">messenger</a>
@@ -1265,13 +1268,15 @@
                 <p class="tag-strip-empty">{sidebarLoading ? 'Loading tags...' : 'No tags yet'}</p>
               {:else}
                 <div class="tag-strip-list">
-                  {#each sidebarTags.slice(0, 24) as entry}
+                  {#each visibleTags as entry}
                     <button class="tag-chip" class:active={tagFilter === entry.tag} onclick={() => filterByTag(entry.tag)} onpointerup={(e) => e.pointerType !== 'mouse' && filterByTag(entry.tag)}>
                       #{entry.tag} <span>{entry.count}</span>
                     </button>
                   {/each}
-                  {#if sidebarTags.length > 24}
-                    <span class="tag-more">...</span>
+                  {#if sidebarTags.length > TAG_PREVIEW_COUNT}
+                    <button class="tag-chip tag-expand" onclick={() => tagsExpanded = !tagsExpanded} onpointerup={(e) => e.pointerType !== 'mouse' && (tagsExpanded = !tagsExpanded)}>
+                      {tagsExpanded ? '− less' : `+${sidebarTags.length - TAG_PREVIEW_COUNT} more`}
+                    </button>
                   {/if}
                 </div>
               {/if}
@@ -1474,8 +1479,8 @@
                     <img src={entry.image.thumbUrl} alt={entry.image.title || 'artwork'} class:censored={isNsfw(entry.image) && !isNsfwRevealed(entry.image)}>
                     <div class="recent-comment-body">
                       <div class="recent-comment-meta">
-                        <span>{entry.author}</span>
-                        <span>{formatDate(entry.createdAt)}</span>
+                        <span class="recent-comment-author">{entry.author}</span>
+                        <span class="recent-comment-date">{shortDate(entry.createdAt)}</span>
                       </div>
                       <p>{entry.text}</p>
                       <strong>{entry.image.title || `by ${entry.image.author}`}</strong>
@@ -1880,42 +1885,37 @@
     background: var(--accent);
   }
 
-  .sort-controls {
-    display: flex;
-    gap: 0.5rem;
+  /* Segmented control, matches .view-toggle */
+  .sort-controls, .top-period-controls {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px;
     margin-bottom: 0.5rem;
-    flex-wrap: wrap;
-  }
-  .top-period-controls {
-    display: flex;
-    gap: 0.5rem;
-    flex-wrap: wrap;
+    border: 1.5px solid var(--border);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.035);
   }
   .sort-btn, .period-btn {
     background: none;
-    border: 2px solid var(--border);
+    border: none;
     color: var(--text-dim);
     font-family: inherit;
     font-size: 0.8rem;
     padding: 0.4rem 0.9rem;
     border-radius: 4px;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: color 0.2s, background 0.2s;
   }
   .period-btn {
-    border-width: 1.5px;
     font-size: 0.74rem;
     padding: 0.3rem 0.7rem;
   }
   .sort-btn:hover, .period-btn:hover {
-    border-color: var(--accent);
     color: var(--accent);
-    transform: translateY(-1px);
   }
   .sort-btn.active, .period-btn.active {
-    border-color: var(--accent);
-    color: var(--accent);
-    background: rgba(0, 212, 170, 0.1);
+    color: #000;
+    background: var(--accent);
   }
 
   /* ── Main ── */
@@ -2049,11 +2049,26 @@
     margin-bottom: 0.25rem;
   }
 
+  .recent-comment-author {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .recent-comment-date {
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
   .recent-comment-body p {
     font-size: 0.8rem;
     line-height: 1.35;
     margin-bottom: 0.3rem;
     word-break: break-word;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
   }
 
   .recent-comment-body strong {
@@ -2127,6 +2142,15 @@
     aspect-ratio: 4 / 3;
     overflow: hidden;
     background: var(--bg2);
+  }
+  /* Inset frame so mostly-white artwork still reads as a canvas, not a glitch */
+  .card-img::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12), inset 0 0 24px rgba(0, 0, 0, 0.05);
+    pointer-events: none;
+    z-index: 2;
   }
   .card-img img {
     width: 100%; height: 100%;
@@ -2261,6 +2285,11 @@
     font-size: 0.75rem;
     color: var(--text-dim);
     font-weight: 500;
+  }
+
+  .tag-expand {
+    border-style: dashed;
+    color: var(--text-dim);
   }
 
   .tag-chip {

@@ -27,17 +27,13 @@ function versionInjectionPlugin() {
         return `export const APP_VERSION = '${version}';`;
       }
     },
-    transform(code) {
-      // Inject into HTML as global variable
-      if (code.includes('<!DOCTYPE html>') || code.includes('<html')) {
-        return {
-          code: code.replace(
-            '</head>',
-            `<script>window.APP_VERSION = '${version}';</script>\n  </head>`
-          ),
-          map: null
-        };
-      }
+    // transformIndexHtml runs in dev serve AND build (the old `transform` hook
+    // only fired at build time, so dev showed "Version unknown").
+    transformIndexHtml(html) {
+      return html.replace(
+        '</head>',
+        `<script>window.APP_VERSION = '${version}';</script>\n  </head>`
+      );
     }
   };
 }

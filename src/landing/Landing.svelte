@@ -1,200 +1,39 @@
 <script>
-  import { getStroke } from 'perfect-freehand';
   import FeedbackWidget from '../ui/svelte/FeedbackWidget.svelte';
 
-  let canvasEl = $state(null);
-  let canvasReady = $state(false);
   let mounted = $state(false);
-  let appVersion = $state(typeof window !== 'undefined' ? window.APP_VERSION || '1.3.0' : '1.3.0');
-
-  // Virtual canvas space
-  const VW = 480, VH = 300;
-
-  function sampleBezier([p0, p1, p2, p3], n = 60) {
-    return Array.from({ length: n }, (_, i) => {
-      const t = i / (n - 1);
-      const mt = 1 - t;
-      const x = mt**3*p0[0] + 3*mt**2*t*p1[0] + 3*mt*t**2*p2[0] + t**3*p3[0];
-      const y = mt**3*p0[1] + 3*mt**2*t*p1[1] + 3*mt*t**2*p2[1] + t**3*p3[1];
-      const pressure = 0.06 + 0.9 * Math.sin(Math.PI * t);
-      return [x, y, pressure];
-    });
-  }
-
-  function sampleBezierSkewed([p0, p1, p2, p3], n = 60, peakT = 0.5) {
-    return Array.from({ length: n }, (_, i) => {
-      const t = i / (n - 1);
-      const mt = 1 - t;
-      const x = mt**3*p0[0] + 3*mt**2*t*p1[0] + 3*mt*t**2*p2[0] + t**3*p3[0];
-      const y = mt**3*p0[1] + 3*mt**2*t*p1[1] + 3*mt*t**2*p2[1] + t**3*p3[1];
-      const norm = t / peakT < 1 ? t / peakT : (1 - t) / (1 - peakT);
-      const pressure = 0.05 + 0.92 * Math.pow(norm, 0.6);
-      return [x, y, Math.max(0.05, Math.min(1, pressure))];
-    });
-  }
-
-  const STROKES = [
-    { bz: [[22, 238], [110, 135], [305, 82], [458, 62]], n: 72, peakT: 0.35, color: '#ffdd00', size: 18, thinning: 0.74 },
-    { bz: [[48, 98], [165, 148], [308, 162], [452, 205]], n: 55, color: '#c800c8', size: 9, thinning: 0.58 },
-    { bz: [[118, 262], [178, 192], [244, 188], [288, 258]], n: 44, color: '#00d4aa', size: 13, thinning: 0.85, opacity: 0.5 },
-    { bz: [[332, 252], [368, 210], [418, 218], [452, 248]], n: 30, peakT: 0.25, color: '#287ac1', size: 7, thinning: 0.7 },
-  ];
-  for (const s of STROKES) {
-    s.points = s.peakT !== undefined ? sampleBezierSkewed(s.bz, s.n, s.peakT) : sampleBezier(s.bz, s.n);
-  }
-
-  const TL = [
-    { start: 400,  end: 1900, idx: 0 },
-    { start: 2150, end: 3200, idx: 1 },
-    { start: 3420, end: 4250, idx: 2 },
-    { start: 4420, end: 4980, idx: 3 },
-  ];
-
-  const CURSORS = [
-    { strokeIdxs: [0, 2] },
-    { strokeIdxs: [1, 3] },
-  ];
-
-  let cursor1El = $state(null);
-  let cursor2El = $state(null);
-
-  function easeInOut(t) {
-    return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
-  }
-
-  function bezierAt([p0, p1, p2, p3], t) {
-    const mt = 1 - t;
-    return [
-      mt**3*p0[0] + 3*mt**2*t*p1[0] + 3*mt*t**2*p2[0] + t**3*p3[0],
-      mt**3*p0[1] + 3*mt**2*t*p1[1] + 3*mt*t**2*p2[1] + t**3*p3[1],
-    ];
-  }
-
-  function bezierTangent([p0, p1, p2, p3], t) {
-    const mt = 1 - t;
-    const dx = 3*mt**2*(p1[0]-p0[0]) + 6*mt*t*(p2[0]-p1[0]) + 3*t**2*(p3[0]-p2[0]);
-    const dy = 3*mt**2*(p1[1]-p0[1]) + 6*mt*t*(p2[1]-p1[1]) + 3*t**2*(p3[1]-p2[1]);
-    const len = Math.hypot(dx, dy) || 1;
-    return [dx/len, dy/len];
-  }
-
-  function updateCursor(el, strokeIdxs, elapsed) {
-    if (!el) return;
-    const FADE_MS = 140;
-    let best = null;
-    for (const idx of strokeIdxs) {
-      const phase = TL[idx];
-      if (elapsed < phase.start - FADE_MS || elapsed > phase.end + FADE_MS) continue;
-      let progress, alpha;
-      if (elapsed < phase.start) {
-        progress = 0;
-        alpha = (elapsed - (phase.start - FADE_MS)) / FADE_MS;
-      } else if (elapsed > phase.end) {
-        progress = 1;
-        alpha = 1 - (elapsed - phase.end) / FADE_MS;
-      } else {
-        progress = (elapsed - phase.start) / (phase.end - phase.start);
-        alpha = 1;
-      }
-      if (!best || alpha > best.alpha) best = { phase, progress, alpha };
-    }
-    if (!best) { el.style.opacity = '0'; return; }
-    const s = STROKES[best.phase.idx];
-    const t = easeInOut(best.progress);
-    const [bx, by] = bezierAt(s.bz, t);
-    // Lead the centerline by half-stroke along the tangent so the circle sits
-    // at the visible tip (perfect-freehand renders a round cap at the endpoint).
-    const [tx, ty] = bezierTangent(s.bz, t);
-    const lead = s.size * 0.5;
-    const x = bx + tx * lead;
-    const y = by + ty * lead;
-    el.style.left = `${(x / VW) * 100}%`;
-    el.style.top = `${(y / VH) * 100}%`;
-    el.style.opacity = String(best.alpha);
-    el.style.setProperty('--rc-size-vp', String(s.size));
-  }
+  let appVersion = $state(typeof window !== 'undefined' ? window.APP_VERSION || '1.10.3' : '1.10.3');
 
   $effect(() => {
     mounted = true;
-
-    let t0 = null;
-    let alive = true;
-    const DONE_MS = TL[TL.length - 1].end + 200;
-
-
-    const canvas = canvasEl;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-
-    function setup() {
-      if (!alive) return;
-
-      const dpr = window.devicePixelRatio || 1;
-      const { width, height } = canvas.getBoundingClientRect();
-      canvas.width = Math.round(width * dpr);
-      canvas.height = Math.round(height * dpr);
-      ctx.setTransform(width / VW * dpr, 0, 0, height / VH * dpr, 0, 0);
-    }
-    setup();
-
-    function drawStroke(pts, color, size, thinning, opacity = 1) {
-      const outline = getStroke(pts, {
-        size, thinning,
-        smoothing: 0.5,
-        streamline: 0.45,
-        simulatePressure: false,
-        last: true,
-      });
-      if (outline.length < 2) return;
-      ctx.save();
-      ctx.globalAlpha = opacity;
-      ctx.fillStyle = color;
-      ctx.beginPath();
-      ctx.moveTo(outline[0][0], outline[0][1]);
-      for (let i = 1; i < outline.length; i++) ctx.lineTo(outline[i][0], outline[i][1]);
-      ctx.closePath();
-      ctx.fill();
-      ctx.restore();
-    }
-
-    function frame(ts) {
-      if (!alive) return;
-
-       if (t0 === null) {
-        t0 = ts;
-        canvasReady = true; 
-      }
-
-      if (t0 === null) t0 = ts;
-      const elapsed = ts - t0;
-      if (elapsed > DONE_MS) {
-        t0 = ts; // Loop it!
-      }
-
-      ctx.clearRect(0, 0, VW, VH);
-
-      for (const phase of TL) {
-        const s = STROKES[phase.idx];
-        if (elapsed < phase.start) continue;
-
-        if (elapsed >= phase.end) {
-          drawStroke(s.points, s.color, s.size, s.thinning, s.opacity ?? 1);
-        } else {
-          const t = easeInOut((elapsed - phase.start) / (phase.end - phase.start));
-          const count = Math.max(2, Math.ceil(t * s.points.length));
-          drawStroke(s.points.slice(0, count), s.color, s.size, s.thinning, s.opacity ?? 1);
-        }
-      }
-
-      updateCursor(cursor1El, CURSORS[0].strokeIdxs, elapsed);
-      updateCursor(cursor2El, CURSORS[1].strokeIdxs, elapsed);
-
-      requestAnimationFrame(frame);
-    }
-
-    requestAnimationFrame(frame);
-    return () => { alive = false; };
   });
+
+  // Placeholder: swap for a real curated art timelapse (Phase 1 content capture).
+  const HERO_TIMELAPSE_URL = 'https://assets.ddraw.ca/drawing.mp4';
+
+  // Only play marquee videos while they're on screen (8 <video> els after duplication).
+  function playInView(video) {
+    const io = new IntersectionObserver((entries) => {
+      for (const e of entries) {
+        if (e.isIntersecting) e.target.play().catch(() => {});
+        else e.target.pause();
+      }
+    }, { rootMargin: '100px' });
+    io.observe(video);
+    return { destroy: () => io.disconnect() };
+  }
+
+  // Top-liked gallery pieces (see public/images/landing-art/manifest.json to refresh)
+  const galleryArt = [
+    { file: 'art-1.png', id: '69def5f3f8a0b70b603f16b2', author: 'maim', tilt: -3 },
+    { file: 'art-2.png', id: '69e94aaadee71eca2830b59e', author: 'Towa', tilt: 2 },
+    { file: 'art-3.png', id: '69dac8946a423563454fb374', author: 'sassysince1969', tilt: -1.5 },
+    { file: 'art-4.png', id: '69ed7628262018b8d40ec4d4', author: 'pemi', tilt: 2.5 },
+    { file: 'art-5.png', id: '69ed76b4262018b8d40ec4d5', author: 'Towa', tilt: -2 },
+    { file: 'art-6.png', id: '69ed35a4262018b8d40ec488', author: 'maim', tilt: 1.5 },
+    { file: 'art-7.png', id: '69ebb64c6ae06e5a90402722', author: 'maim', tilt: -2.5 },
+    { file: 'art-8.png', id: '69ea7f80ed26a4494fca512b', author: 'maim', tilt: 2 },
+  ];
 
   const features = [
     { video: 'https://assets.ddraw.ca/drawing.mp4', title: 'Smooth Drawing', desc: 'Designed to make every stroke feel smooth and responsive, runs at a crisp 60 FPS, and keeps everyone in sync and drawing without a hitch.' },
@@ -208,19 +47,23 @@
     { title: 'No Nonsense', desc: 'No paywalls, no "premium brushes," and no annoying ads. It\'s a pure creative space built for the love of digital art.' },
   ];
 
+  // One marquee "half" must be wider than any viewport for a seamless -50% loop,
+  // so each half carries the feature list twice.
+  const marqueeItems = [...features, ...features];
+
   const WINDOWS_DOWNLOAD_URL = 'https://www.ddraw.ca/download';
   const DISCORD_INVITE_URL = 'https://discord.gg/aKp4Ew7V7a';
 </script>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
-<link rel="preload" href="https://assets.ddraw.ca/homography.mp4" as="video" type="video/mp4">
+<link rel="preload" href={HERO_TIMELAPSE_URL} as="video" type="video/mp4">
 <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&family=Inter:wght@400;600&display=swap" rel="stylesheet">
 
 <div class="page" class:mounted>
   <nav>
     <div class="nav-left">
-      <span class="wordmark">DDraw!</span>
+      <a href="/" class="wordmark">DDraw!</a>
     </div>
     <div class="nav-links">
       <a href="#features">cool stuff</a>
@@ -284,27 +127,16 @@
             <div class="app-body">
               <div class="canvas-wrap">
                 <div class="canvas-grid"></div>
-                {#if !canvasReady}
-                  <img
-                    src="/images/preview-fallback.png"
-                    alt="DDraw collaborative drawing app preview - real-time canvas with smooth drawing tools"
-                    fetchpriority="high"
-                    width="480"
-                    height="300"
-                    class="canvas-fallback"
-                  />
-                {/if}
-                <canvas bind:this={canvasEl}></canvas>
-                <div class="remote-cursors" aria-hidden="true">
-                  <div class="rc" bind:this={cursor1El}>
-                    <div class="rc-circle"></div>
-                    <span class="rc-name">ravi</span>
-                  </div>
-                  <div class="rc" bind:this={cursor2El}>
-                    <div class="rc-circle"></div>
-                    <span class="rc-name">moss</span>
-                  </div>
-                </div>
+                <video
+                  class="hero-timelapse"
+                  src={HERO_TIMELAPSE_URL}
+                  poster="/images/preview-fallback.png"
+                  autoplay
+                  muted
+                  loop
+                  playsinline
+                  aria-label="Timelapse of art being drawn in DDraw"
+                ></video>
               </div>
               <aside class="app-tools" aria-hidden="true">
                 <button class="tool-btn selected" tabindex="-1" title="Brush">
@@ -343,6 +175,52 @@
       </div>
     </section>
   </main>
+
+  <section id="features" class="marquee-section" aria-label="Feature previews">
+    <div class="section-header center">
+      <p class="label-goofy">Wait, what is this?</p>
+      <h2>Kind of neat features</h2>
+    </div>
+    <div class="marquee">
+      <div class="marquee-track">
+        {#each [...marqueeItems, ...marqueeItems] as f, i}
+          <div class="marquee-card" class:marquee-dupe={i >= marqueeItems.length} aria-hidden={i >= marqueeItems.length}>
+            <video
+              src={f.video}
+              muted
+              loop
+              playsinline
+              preload="metadata"
+              use:playInView
+            ></video>
+            <div class="marquee-caption">
+              <h3>{f.title}</h3>
+              <p>{f.desc}</p>
+            </div>
+          </div>
+        {/each}
+      </div>
+    </div>
+  </section>
+
+  <section class="art-strip-section">
+    <div class="section-header center">
+      <p class="label-goofy">Made in DDraw</p>
+      <h2>Real art, real rooms</h2>
+    </div>
+    <div class="art-strip">
+      {#each galleryArt as a}
+        <a class="art-card" href="/gallery/{a.id}" style="--tilt: {a.tilt}deg;">
+          <img src="/images/landing-art/{a.file}" alt="Artwork by {a.author}" loading="lazy" />
+          <span class="art-author">by {a.author}</span>
+        </a>
+      {/each}
+    </div>
+    <div class="art-strip-cta">
+      <a href="/gallery/" class="btn-primary gallery-btn">Visit the Gallery →</a>
+    </div>
+  </section>
+
   <section class="discord-card-section">
     <div class="discord-card">
       <div>
@@ -378,34 +256,6 @@
         <div class="star s2">★</div>
         <div class="star s3">★</div>
       </div>
-    </div>
-  </section>
-
-  <section id="features" class="features-section">
-    <div class="section-header center">
-      <p class="label-goofy">Wait, what is this?</p>
-      <h2>Kind of neat features</h2>
-    </div>
-    <div class="features-grid-goofy">
-      {#each features as f}
-        <div class="feature-card">
-          <div class="feat-preview">
-            <video 
-              src={f.video} 
-              autoplay 
-              muted 
-              loop 
-              playsinline
-              class="rounded-lg shadow-sm"
-            >
-              <track kind="captions" />
-              Your browser does not support the video tag.
-            </video>
-          </div>
-          <h3>{f.title}</h3>
-          <p>{f.desc}</p>
-        </div>
-      {/each}
     </div>
   </section>
 
@@ -489,7 +339,7 @@
     border-bottom: 2px solid #00d4aa;
     backdrop-filter: blur(12px);
   }
-  .wordmark { font-size: 22px; font-weight: 700; color: #00d4aa; transform: rotate(-2deg); }
+  .wordmark { display: inline-block; font-size: 22px; font-weight: 700; color: #00d4aa; transform: rotate(-2deg); }
   .nav-links { display: flex; align-items: center; gap: 2rem; font-size: 14px; font-weight: 600; }
   .nav-links a { color: rgba(255,255,255,0.7); transition: all 0.2s; }
   .nav-links a:hover { color: #c800c8; transform: scale(1.1) rotate(2deg); }
@@ -668,57 +518,13 @@
     pointer-events: none;
     z-index: 0;
   }
-  .canvas-fallback {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    z-index: 1;
-  }
-  canvas {
+  .hero-timelapse {
     position: relative;
     width: 100%;
     height: 100%;
-    z-index: 2;
-  }
-
-  /* ── Remote cursors (mirrors real app .cursor / .name styling) ──
-     Position is JS-driven (set via .style.left/top) for perfect sync with
-     the stroke animation. Circle size matches the stroke width via cqw. */
-  .remote-cursors {
-    position: absolute;
-    inset: 0;
-    z-index: 3;
-    pointer-events: none;
-  }
-  .rc {
-    position: absolute;
-    left: 0;
-    top: 0;
-    opacity: 0;
-    --rc-size-vp: 10;
-  }
-  .rc-circle {
-    position: absolute;
-    /* Center the circle on .rc's anchor (which is the cursor tip). */
-    transform: translate(-50%, -50%);
-    /* Diameter in screen px = (stroke virtual size) * canvas-wrap width / 480 */
-    width: calc(var(--rc-size-vp) * 100cqw / 480);
-    height: calc(var(--rc-size-vp) * 100cqw / 480);
-    border-radius: 50%;
-    border: 1.2px solid #3a4150;
-    box-sizing: border-box;
-  }
-  .rc-name {
-    position: absolute;
-    top: calc(var(--rc-size-vp) * 50cqw / 480 + 2px);
-    left: calc(var(--rc-size-vp) * 55cqw / 480 + 2px);
-    font-family: 'Inter', sans-serif;
-    font-size: 11px;
-    font-weight: 500;
-    color: rgba(47, 55, 69, 0.55);
-    text-shadow: 0 0 1px rgba(255, 255, 255, 0.55);
-    white-space: nowrap;
+    object-fit: cover;
+    z-index: 1;
+    display: block;
   }
   /* ── Tools rail (mirrors real .tools panel) ── */
   .app-tools {
@@ -885,56 +691,114 @@
   .s2 { bottom: 15%; right: 12%; transform: rotate(20deg); }
   .s3 { top: 20%; right: 15%; font-size: 1rem !important; }
 
-  /* ── Features ── */
-  .features-section { padding: 8rem 2rem; max-width: 1200px; margin: 0 auto; }
+  /* ── Feature marquee ── */
   .label-goofy { color: #ffdd00; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 1rem; }
-  .features-grid-goofy {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 1.5rem;
-    margin-top: 3rem;
+  .marquee-section { padding: 5rem 0 2rem; overflow: hidden; }
+  .marquee-section .section-header { padding: 0 2rem; margin-bottom: 2.5rem; }
+  .marquee { overflow: hidden; }
+  .marquee-track {
+    display: flex;
+    width: max-content;
+    animation: marquee-scroll 60s linear infinite;
+  }
+  .marquee:hover .marquee-track { animation-play-state: paused; }
+  @keyframes marquee-scroll {
+    to { transform: translateX(-50%); }
+  }
+  .marquee-card {
+    position: relative;
+    width: clamp(220px, 24vw, 300px);
+    aspect-ratio: 3 / 4;
+    margin-right: 1.5rem;
+    flex-shrink: 0;
+    border-radius: 16px;
+    border: 2px solid rgba(255,255,255,0.1);
+    overflow: hidden;
+    background: #fff;
+    transform: rotate(-1.2deg);
+    transition: border-color 0.3s;
+  }
+  .marquee-card:nth-child(even) { transform: rotate(1.2deg); }
+  .marquee-card:hover { border-color: #00d4aa; }
+  .marquee-card video {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+    background: #fff;
+  }
+  .marquee-caption {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    padding: 2.5rem 1rem 0.9rem;
+    background: linear-gradient(transparent, rgba(15,15,19,0.92) 65%);
+  }
+  .marquee-caption h3 { color: #00d4aa; font-size: 1.15rem; margin-bottom: 0.25rem; }
+  .marquee-caption p {
+    color: rgba(255,255,255,0.75);
+    font-size: 12px;
+    line-height: 1.45;
+    max-height: 0;
+    opacity: 0;
+    overflow: hidden;
+    transition: max-height 0.3s ease, opacity 0.3s ease;
+  }
+  .marquee-card:hover .marquee-caption p { max-height: 8em; opacity: 1; }
+  @media (prefers-reduced-motion: reduce) {
+    .marquee-track { animation: none; width: auto; }
+    .marquee { overflow-x: auto; scroll-snap-type: x mandatory; padding: 0 2rem 1rem; }
+    .marquee-card { scroll-snap-align: center; }
+    .marquee-card.marquee-dupe { display: none; }
+  }
+
+  /* ── Art strip (Made in DDraw) ── */
+  .art-strip-section { padding: 4rem 2rem; max-width: 1200px; margin: 0 auto; }
+  .art-strip {
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 1.25rem;
+    margin-top: 2.5rem;
+    /* Fits 4 cards per row → balanced 4+4 with 8 pieces */
     max-width: 800px;
     margin-left: auto;
     margin-right: auto;
   }
-  .feature-card {
-    background: rgba(255,255,255,0.03);
-    padding: 1.25rem;
-    border-radius: 16px;
-    border: 2px solid rgba(255,255,255,0.1);
-    transition: all 0.3s;
+  .art-card {
+    position: relative;
+    width: 170px;
+    aspect-ratio: 4 / 5;
+    background: #fdfdfa;
+    border: 3px solid rgba(255,255,255,0.85);
+    border-radius: 10px;
+    overflow: hidden;
+    transform: rotate(var(--tilt));
+    display: block;
+    box-shadow: 0 10px 24px rgba(0,0,0,0.4);
+    transition: transform 0.25s ease;
   }
-  .feature-card:hover {
-    border-color: #00d4aa;
-    transform: translateY(-5px) rotate(1deg);
-    background: rgba(0,212,170,0.05);
+  .art-card:hover { transform: rotate(0deg) scale(1.06); z-index: 2; }
+  .art-card img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
   }
-.feat-preview {
-  width: 100%;
-  /* Set your desired aspect ratio (e.g., 16/9, 4/3, or 1/1) */
-  aspect-ratio: 3 / 4; 
-  
-  background-color: white; /* This fills the "letterbox" gaps */
-  margin-bottom: 1rem;
-  border-radius: 8px;
-  overflow: hidden;
-  border: 2px solid rgba(255,255,255,0.1);
-  
-  /* Centers the video if it's smaller than the box */
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.feat-preview video {
-  width: 100%;
-  height: 100%;
-  /* 'contain' keeps the whole video visible without stretching */
-  object-fit: contain; 
-  display: block;
-}
-  .feature-card h3 { font-size: 1.25rem; margin-bottom: 0.75rem; color: #00d4aa; }
-  .feature-card p { color: rgba(255,255,255,0.5); font-size: 13px; line-height: 1.5; }
+  .art-author {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    padding: 1.4rem 0.6rem 0.45rem;
+    background: linear-gradient(transparent, rgba(15,15,19,0.85));
+    font-family: 'Fredoka', sans-serif;
+    font-weight: 600;
+    font-size: 12px;
+    color: #fff;
+    opacity: 0;
+    transition: opacity 0.25s ease;
+  }
+  .art-card:hover .art-author { opacity: 1; }
+  .art-strip-cta { text-align: center; margin-top: 2.5rem; }
+  .gallery-btn { border-radius: 12px; }
 
   /* ── Why Section ── */
   .why-section-goofy { padding: 4rem 2rem; border-top: 2px dashed #333; }
