@@ -4,9 +4,7 @@ import { T, ToolToEnum } from '../shared/MessageTypes.js';
 import {
   packColor,
   hexToRgb as _hexToRgb,
-  rgbToHex as _rgbToHex,
   rgbToHsl as _rgbToHsl,
-  hslToRgb as _hslToRgb,
   shiftLightness as _shiftL,
   blendColors as _blend
 } from '../shared/ColorUtils.js';
@@ -26,6 +24,12 @@ import { douglasPeucker, distanceBasedCulling } from './utils/drawing.js';
 import { bindPressAction } from './utils/buttonBinding.js';
 import { Moderation } from './auth/Moderation.js';
 import { ColorInputMenu } from './ui/ColorInputMenu.js';
+import { ColorController } from './ui/ColorController.js';
+import { SaveController } from './ui/SaveController.js';
+import { PatternOptionsController } from './ui/PatternOptionsController.js';
+import { RecordingController } from './ui/RecordingController.js';
+import { UpdateNoticeController } from './ui/UpdateNoticeController.js';
+import { ChatController } from './ui/ChatController.js';
 import { ToolLockManager } from './tools/ToolLockManager.js';
 import { InputBufferManager } from './input/InputBufferManager.js';
 import { KeyboardHandler } from './input/KeyboardHandler.js';
@@ -49,19 +53,11 @@ import { loadAppPreferences, saveAppPreferences, THEME_BASE_COLORS } from './con
 import { applyRoomBoardSize } from './config/BoardSizes.js';
 import { getTextFontDefaults, loadTextFont, normalizeTextFont } from './config/textFonts.js';
 import {
-  copyCanvasToSystemClipboard,
-  copyImageDataToSystemClipboard,
   isTauriDesktop,
-  openImageViaNativeDialog,
-  saveCanvasViaNativeDialog
+  openImageViaNativeDialog
 } from './platform/desktop.js';
-import {
-  checkForDesktopUpdates,
-  dismissDesktopUpdateForOffline,
-  isDesktopUpdateDismissedForOffline
-} from './platform/updater.js';
-import { compareVersionStrings, ensureClientCanConnect, formatOutdatedClientMessage, getVersionStatus } from './VersionChecker.js';
-import { broadcastChatPopoutEvent, focusChatPopout } from './platform/chatPopoutBridge.js';
+import { ensureClientCanConnect, getVersionStatus } from './VersionChecker.js';
+import { focusChatPopout } from './platform/chatPopoutBridge.js';
 import { BackgroundKeepAlive } from './platform/BackgroundKeepAlive.js';
 import initWasm from './wasm/ddraw_wasm.js';
 import * as wasm from './wasm/ddraw_wasm.js';
@@ -69,8 +65,6 @@ import * as wasm from './wasm/ddraw_wasm.js';
 // Svelte UI Components
 import { initSvelteUI, syncStoresFromApp, showProfile as showProfileDialog } from './ui/svelte/AppUI.svelte.js';
 import { appState, addRecentColor, getCustomPresetKey, toggleRecorderPanel } from './state.svelte.js';
-import ColorWheel from 'reinvented-color-wheel';
-import 'reinvented-color-wheel/css/reinvented-color-wheel.css';
 
 const TEXT_FONT_SETTINGS_STORAGE_KEY = 'topDrawTextFontSettings';
 const SHAPE_DRAW_MODE_STORAGE_KEY = 'topDrawShapeDrawMode';
@@ -231,15 +225,13 @@ export class DrawingApp {
     this.patternGallery = null;
     this.colorInputMenu = null;
 
-    // Color picker state (initialized but used in init())
-    this.colorPicker = null;
-    this.colorPickers = [];
-    this.colorPickerResizeObservers = [];
-    this.primaryColor = [0, 0, 0, 1];
-    this.secondaryColor = [255, 255, 255, 1];
-    this.activeColorSlot = 'primary';
-    this.colorSlotElements = [];
-    this.colorPickerHexInputs = [];
+    // Color system (pickers, slots, palette/hex handling) — see ui/ColorController.js
+    this.colorController = new ColorController(this);
+    this.saveController = new SaveController(this);
+    this.patternOptions = new PatternOptionsController(this);
+    this.recording = new RecordingController(this);
+    this.updateNotices = new UpdateNoticeController(this);
+    this.chatController = new ChatController(this);
 
     this.self = null;
     this.isOnBoard = false;
@@ -963,419 +955,22 @@ export class DrawingApp {
   /**
    * Sets up the color picker component.
    */
-  setupColorPicker() {
-    try {
-      const containers = [
-        document.getElementById('colorPicker'),
-        document.getElementById('boardColorPicker')
-      ].filter(Boolean);
-      if (!containers.length) {
-        console.warn('[App] Color picker container #colorPicker not found');
-        return;
-      }
+  // --- Color system delegates (implementation in ui/ColorController.js) ---
 
-      let suppressChange = false;
-      const parseColorValue = (value) => {
-        if (Array.isArray(value)) {
-          if (value.length === 3) {
-            const rgb = this.hsvToRgb(value[0], value[1], value[2]);
-            return [rgb.r, rgb.g, rgb.b, this.self?.opacity ?? 1];
-          }
-          return value;
-        }
+  get colorPicker() { return this.colorController.colorPicker; }
+  get colorPickers() { return this.colorController.colorPickers; }
+  get primaryColor() { return this.colorController.primaryColor; }
+  get secondaryColor() { return this.colorController.secondaryColor; }
+  get activeColorSlot() { return this.colorController.activeColorSlot; }
 
-        if (typeof value !== 'string') {
-          return null;
-        }
-
-        const rgbaMatch = value.match(/^rgba?\(([^)]+)\)$/i);
-        if (rgbaMatch) {
-          const parts = rgbaMatch[1].split(',').map(part => Number(part.trim()));
-          if (parts.length >= 3 && parts.every(part => Number.isFinite(part))) {
-            return [parts[0], parts[1], parts[2], parts[3] ?? this.self?.opacity ?? 1];
-          }
-        }
-
-        const hslMatch = value.match(/^hsla?\(([^)]+)\)$/i);
-        if (hslMatch) {
-          const parts = hslMatch[1].split(',').map(part => part.trim());
-          if (parts.length >= 3) {
-            const h = Number(parts[0]);
-            const s = Number(parts[1].replace('%', ''));
-            const l = Number(parts[2].replace('%', ''));
-            if (Number.isFinite(h) && Number.isFinite(s) && Number.isFinite(l)) {
-              const [r, g, b] = _hslToRgb(h, s, l);
-              return [Math.round(r), Math.round(g), Math.round(b), this.self?.opacity ?? 1];
-            }
-          }
-        }
-
-        return null;
-      };
-
-      const syncHexInput = (rgba) => {
-        this.colorPickerHexInputs?.forEach(input => {
-          input.value = _rgbToHex(rgba[0], rgba[1], rgba[2]).toUpperCase();
-        });
-      };
-
-      const getWheelDiameter = (container) => {
-        const bounds = container.getBoundingClientRect();
-        const styles = getComputedStyle(container);
-        const horizontalPadding = parseFloat(styles.paddingLeft || '0') + parseFloat(styles.paddingRight || '0');
-        const availableWidth = Math.floor((bounds.width || container.clientWidth || 0) - horizontalPadding);
-        const maxDiameter = container.classList.contains('boardColorPicker') ? 160 : 200;
-        const minDiameter = container.classList.contains('boardColorPicker') ? 44 : 120;
-        return Math.max(minDiameter, Math.min(maxDiameter, availableWidth));
-      };
-
-      const getWheelMetrics = (container) => {
-        const diameter = getWheelDiameter(container);
-        const scale = diameter / 200;
-        return {
-          diameter,
-          thickness: Math.max(12, Math.round(20 * scale)),
-          handleDiameter: Math.max(12, Math.round(16 * scale))
-        };
-      };
-
-      this.colorPickerResizeObservers?.forEach(observer => observer?.disconnect());
-      this.colorPickerResizeObservers = [];
-      this.colorPickers = [];
-      this.colorSlotElements = [];
-      this.colorPickerHexInputs = [];
-
-      this.primaryColor = this.self?.color ? [...this.self.color] : [0, 0, 0, 1];
-      this.activeColorSlot = 'primary';
-      containers.forEach(container => {
-        container.innerHTML = '';
-        if (!container.classList.contains('boardColorPicker')) {
-          this._setupColorSlotControls(container);
-          this._setupColorPickerHexInput(container);
-          this._setupColorPickerPopoutButton(container);
-        }
-
-        const initialMetrics = getWheelMetrics(container);
-        const wheel = new ColorWheel({
-          appendTo: container,
-          rgb: this.self?.color ? this.self.color.slice(0, 3) : [0, 0, 0],
-          wheelDiameter: initialMetrics.diameter,
-          wheelThickness: initialMetrics.thickness,
-          handleDiameter: initialMetrics.handleDiameter,
-          wheelReflectsSaturation: false,
-          onChange: (color) => {
-            if (suppressChange) return;
-
-            const rgb = this.hsvToRgb(color.hsv[0], color.hsv[1], color.hsv[2]);
-            const opacity = this.ui.elements.opacitySlider?.value ? parseInt(this.ui.elements.opacitySlider.value) / 100 : 1;
-            const rgba = [rgb.r, rgb.g, rgb.b, opacity];
-
-            this.commitSelfEraserSegment(this.self.pressure, this.self.size, opacity);
-            this.self.setColor(rgba);
-            this.self.setOpacity(opacity);
-            this._syncActiveColorSlot(rgba);
-            syncHexInput(rgba);
-            this.ui.updateSelfColor(rgba);
-            this.ui.updateSelfTextStyle(this.self.size, rgba, this.self.font);
-            this.ui.updateOpacityValue(opacity);
-
-            const { elements } = this.ui;
-            if (elements.opacitySlider) {
-              elements.opacitySlider.value = opacity * 100;
-            }
-
-            if (this.colorInputMenu) {
-              this.colorInputMenu.updateColor(rgba);
-            }
-
-            const patternTool = this.toolManager.getTool('pattern');
-            if (patternTool) {
-              patternTool._tileCache.clear();
-              this.updatePatternPreviewIfVisible();
-            }
-
-            const imageBrushTool = this.toolManager.getTool('imageBrush');
-            if (imageBrushTool) imageBrushTool._tintCache.clear();
-
-            const fillTool = this.toolManager.getTool('fill');
-            if (fillTool && fillTool._patternTileCache) {
-              fillTool._patternTileCache.clear();
-            }
-
-            const selectTool = this.toolManager.getTool('select');
-            if (selectTool && selectTool._patternTileCache) {
-              selectTool._patternTileCache.clear();
-            }
-
-            this._setColorPickersColor(rgba, { source: wheel, silent: true });
-            appState.currentColor = [...rgba];
-            this.updateCurrentToolPresetSettings();
-            this.updateActiveToolPreview();
-
-            if (this.connected) {
-              this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastColorChange(rgba));
-            }
-          }
-        });
-
-        wheel.element = wheel.rootElement;
-        wheel.setColor = (value, silent = false) => {
-          const rgba = parseColorValue(value);
-          if (!rgba) {
-            console.warn('[App] Unsupported color picker value:', value);
-            return;
-          }
-
-          suppressChange = silent;
-          if (Array.isArray(value) && value.length === 3) {
-            wheel.hsv = value;
-          } else {
-            wheel.rgb = rgba.slice(0, 3);
-          }
-          suppressChange = false;
-          this._syncActiveColorSlot(rgba);
-          syncHexInput(rgba);
-        };
-
-        const resizeWheel = () => {
-          const nextMetrics = getWheelMetrics(container);
-          if (
-            nextMetrics.diameter === wheel.wheelDiameter &&
-            nextMetrics.thickness === wheel.wheelThickness &&
-            nextMetrics.handleDiameter === wheel.handleDiameter
-          ) return;
-
-          wheel.wheelDiameter = nextMetrics.diameter;
-          wheel.wheelThickness = nextMetrics.thickness;
-          wheel.handleDiameter = nextMetrics.handleDiameter;
-          wheel.redraw();
-        };
-
-        if (typeof ResizeObserver !== 'undefined') {
-          const observer = new ResizeObserver(() => resizeWheel());
-          observer.observe(container);
-          this.colorPickerResizeObservers.push(observer);
-        }
-
-        this.colorPickers.push(wheel);
-      });
-
-      this.colorPicker = this.colorPickers[0] ?? null;
-      this._syncActiveColorSlot(this.primaryColor);
-      this._updateColorSlotUI();
-      syncHexInput(this.primaryColor);
-    } catch (err) {
-      console.error('[App] Failed to setup color picker:', err);
-    }
-  }
-
-  _setColorPickersColor(value, { source = null, silent = true } = {}) {
-    this.colorPickers?.forEach(picker => {
-      if (picker && picker !== source) picker.setColor(value, silent);
-    });
-  }
-
-  _setupColorSlotControls(container) {
-    container.querySelector('.colorSlotControls')?.remove();
-
-    const controls = document.createElement('div');
-    controls.className = 'colorSlotControls';
-    controls.innerHTML = `
-      <button type="button" class="colorSlotSwatch secondary" data-slot="secondary" title="Secondary color"></button>
-      <button type="button" class="colorSlotSwatch primary active" data-slot="primary" title="Primary color"></button>
-      <button type="button" class="colorSlotSwap" title="Swap colors" aria-label="Swap primary and secondary colors"></button>
-    `;
-
-    const [secondaryButton, primaryButton, swapButton] = controls.children;
-    primaryButton.addEventListener('click', () => this.selectColorSlot('primary'));
-    secondaryButton.addEventListener('click', () => this.selectColorSlot('secondary'));
-    swapButton.addEventListener('click', () => this.swapColorSlots());
-
-    container.prepend(controls);
-    this.colorSlotElements.push({
-      controls,
-      primaryButton,
-      secondaryButton,
-      swapButton
-    });
-  }
-
-  _setupColorPickerHexInput(container) {
-    container.querySelector('.colorPickerHexField')?.remove();
-
-    const field = document.createElement('div');
-    field.className = 'colorPickerHexField';
-    field.innerHTML = `
-      <input class="colorPickerHexInput" type="text" inputmode="text" maxlength="6" spellcheck="false" autocomplete="off">
-    `;
-
-    const input = field.querySelector('input');
-    const commitHex = () => {
-      let hex = input.value.replace(/[^0-9A-Fa-f]/g, '');
-      if (hex.length === 3) {
-        hex = hex.split('').map(c => c + c).join('');
-      }
-      if (hex.length === 0) {
-        hex = _rgbToHex(this.self.color[0], this.self.color[1], this.self.color[2]);
-      }
-      while (hex.length < 6) {
-        hex = `0${hex}`;
-      }
-      hex = hex.substring(0, 6).toUpperCase();
-      input.value = hex;
-
-      const color = [
-        parseInt(hex.substring(0, 2), 16),
-        parseInt(hex.substring(2, 4), 16),
-        parseInt(hex.substring(4, 6), 16),
-        this.self?.color?.[3] ?? 1
-      ];
-      this.handleColorInputChange(color);
-    };
-
-    input.addEventListener('input', () => {
-      input.value = input.value.replace(/[^0-9A-Fa-f]/g, '').substring(0, 6).toUpperCase();
-    });
-    input.addEventListener('change', commitHex);
-    input.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter') {
-        event.preventDefault();
-        commitHex();
-        input.blur();
-      }
-    });
-
-    container.prepend(field);
-    this.colorPickerHexInputs.push(input);
-  }
-
-  _setupColorPickerPopoutButton(container) {
-    container.querySelector('.colorPickerPopoutButton')?.remove();
-
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'colorPickerPopoutButton';
-    button.title = 'Open mini color picker';
-    button.setAttribute('aria-label', 'Open mini color picker');
-    button.innerHTML = `
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <rect x="5" y="6" width="11" height="11" rx="2" stroke="currentColor" stroke-width="1.8"></rect>
-        <rect x="9" y="3" width="11" height="11" rx="2" stroke="currentColor" stroke-width="1.8"></rect>
-      </svg>
-    `;
-
-    button.addEventListener('click', () => {
-      appState.boardColorPickerVisible = true;
-      appState.boardColorPickerForceVisible = true;
-    });
-
-    container.appendChild(button);
-  }
-
-  _syncActiveColorSlot(rgba) {
-    const normalized = [...rgba];
-    if (this.activeColorSlot === 'secondary') {
-      this.secondaryColor = normalized;
-    } else {
-      this.primaryColor = normalized;
-    }
-    this._updateColorSlotUI();
-  }
-
-  _updateColorSlotUI() {
-    if (!this.colorSlotElements?.length) return;
-
-    this.colorSlotElements.forEach(elements => {
-      elements.primaryButton.style.backgroundColor = `rgba(${this.primaryColor.join(',')})`;
-      elements.secondaryButton.style.backgroundColor = `rgba(${this.secondaryColor.join(',')})`;
-      elements.primaryButton.classList.toggle('active', this.activeColorSlot === 'primary');
-      elements.secondaryButton.classList.toggle('active', this.activeColorSlot === 'secondary');
-    });
-  }
-
-  selectColorSlot(slot) {
-    if (slot !== 'primary' && slot !== 'secondary') return;
-
-    this.activeColorSlot = slot;
-    const color = slot === 'primary' ? [...this.primaryColor] : [...this.secondaryColor];
-    this.handlePaletteColorSelect(color);
-    this._updateColorSlotUI();
-  }
-
-  swapColorSlots() {
-    [this.primaryColor, this.secondaryColor] = [this.secondaryColor, this.primaryColor];
-    const currentSlot = this.activeColorSlot;
-    this._updateColorSlotUI();
-    this.selectColorSlot(currentSlot);
-  }
-
-  /**
-   * Convert HSV to RGB.
-   * @param {number} h - Hue (0-360)
-   * @param {number} s - Saturation (0-100)
-   * @param {number} v - Value (0-100)
-   * @returns {Object} {r: 0-255, g: 0-255, b: 0-255}
-   */
-  hsvToRgb(h, s, v) {
-    h = h / 360;
-    s = s / 100;
-    v = v / 100;
-
-    const i = Math.floor(h * 6);
-    const f = h * 6 - i;
-    const p = v * (1 - s);
-    const q = v * (1 - f * s);
-    const t = v * (1 - (1 - f) * s);
-
-    let r, g, b;
-    switch (i % 6) {
-      case 0: r = v; g = t; b = p; break;
-      case 1: r = q; g = v; b = p; break;
-      case 2: r = p; g = v; b = t; break;
-      case 3: r = p; g = q; b = v; break;
-      case 4: r = t; g = p; b = v; break;
-      case 5: r = v; g = p; b = q; break;
-    }
-
-    return {
-      r: Math.round(r * 255),
-      g: Math.round(g * 255),
-      b: Math.round(b * 255)
-    };
-  }
-
-  /**
-   * Convert RGB to HSV.
-   * @param {number} r - Red (0-255)
-   * @param {number} g - Green (0-255)
-   * @param {number} b - Blue (0-255)
-   * @returns {Array} [h: 0-360, s: 0-100, v: 0-100]
-   */
-  rgbToHsv(r, g, b) {
-    r /= 255;
-    g /= 255;
-    b /= 255;
-
-    const max = Math.max(r, g, b);
-    const min = Math.min(r, g, b);
-    const delta = max - min;
-
-    let h = 0;
-    let s = max === 0 ? 0 : (delta / max);
-    let v = max;
-
-    if (delta !== 0) {
-      if (max === r) {
-        h = ((g - b) / delta + (g < b ? 6 : 0)) / 6;
-      } else if (max === g) {
-        h = ((b - r) / delta + 2) / 6;
-      } else {
-        h = ((r - g) / delta + 4) / 6;
-      }
-    }
-
-    return [h * 360, s * 100, v * 100];
-  }
+  setupColorPicker() { this.colorController.setupColorPicker(); }
+  _setColorPickersColor(value, options) { this.colorController._setColorPickersColor(value, options); }
+  selectColorSlot(slot) { this.colorController.selectColorSlot(slot); }
+  swapColorSlots() { this.colorController.swapColorSlots(); }
+  handlePaletteColorSelect(colorOrCallback) { this.colorController.handlePaletteColorSelect(colorOrCallback); }
+  handleColorInputChange(rgba) { this.colorController.handleColorInputChange(rgba); }
+  hsvToRgb(h, s, v) { return this.colorController.hsvToRgb(h, s, v); }
+  rgbToHsv(r, g, b) { return this.colorController.rgbToHsv(r, g, b); }
 
   setupToolGroupMenus() {
     const groups = Array.from(document.querySelectorAll('.toolGroup'));
@@ -2554,289 +2149,22 @@ export class DrawingApp {
     }
   }
 
-  roundPatternOptionValue(value) {
-    const numericValue = Number(value);
-    if (!Number.isFinite(numericValue)) return 0;
-    return Math.round(numericValue * 10) / 10;
-  }
-
-  formatPatternOptionValue(value) {
-    const roundedValue = this.roundPatternOptionValue(value);
-    return Number.isInteger(roundedValue) ? String(roundedValue) : roundedValue.toFixed(1);
-  }
-
-  handlePatternScaleChange(e) {
-    const scale = this.roundPatternOptionValue(e.target.value);
-    this.self.patternScale = scale;
-    if (this.ui.elements.patternScaleValue) {
-      this.ui.elements.patternScaleValue.textContent = `${this.formatPatternOptionValue(scale)}%`;
-    }
-    if (this.ui.elements.fillPatternScaleValue) {
-      this.ui.elements.fillPatternScaleValue.textContent = `${this.formatPatternOptionValue(scale)}%`;
-    }
-    if (this.ui.elements.selectionPatternScaleValue) {
-      this.ui.elements.selectionPatternScaleValue.textContent = `${this.formatPatternOptionValue(scale)}%`;
-    }
-
-    this.updatePatternPreviewIfVisible();
-
-    if (this.connected && this.self.patternBrush) {
-      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPatternBrush(this._buildPatternPayload()));
-    }
-  }
-
-  handlePatternImageBtnClick() {
-    if (!this.canUseImageFeatures(true)) return;
-    this.ui.elements.patternImageUploadInput?.click();
-  }
-
-  async handlePatternImageUpload(e) {
-    const files = Array.from(e.target.files || []);
-    if (!files.length) return;
-    if (!this.canUseImageFeatures(true)) {
-      e.target.value = '';
-      return;
-    }
-
-    const MAX_PATTERN_SIZE_BYTES = 10 * 1024 * 1024;
-    let firstBrush = null;
-    const failedFiles = [];
-
-    for (const file of files) {
-      if (file.size > MAX_PATTERN_SIZE_BYTES) {
-        const sizeMB = (MAX_PATTERN_SIZE_BYTES / 1024 / 1024).toFixed(0);
-        failedFiles.push(`${file.name} (exceeds ${sizeMB} MB limit)`);
-        continue;
-      }
-
-      try {
-        const dataUrl = await new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result);
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
-
-        const img = await new Promise((resolve, reject) => {
-          const image = new Image();
-          image.onload = () => resolve(image);
-          image.onerror = reject;
-          image.src = dataUrl;
-        });
-
-        const customBrush = assetLibrary.addCustomAsset({
-          kind: 'pattern',
-          type: 'image',
-          fileName: file.name,
-          fileType: file.name.split('.').pop().toLowerCase(),
-          dataUrl,
-          gimpUrl: dataUrl,
-          brushName: file.name.replace(/\.[^/.]+$/, '') || 'Uploaded Image'
-        });
-
-        const runtimeBrush = {
-          ...customBrush,
-          type: 'image',
-          image: img,
-          gimpUrl: dataUrl,
-          width: img.width,
-          height: img.height
-        };
-
-        this.patternGallery.registerBrush(runtimeBrush);
-        if (!firstBrush) {
-          firstBrush = runtimeBrush;
-          this.handlePatternBrushSelect(runtimeBrush);
-        }
-      } catch (err) {
-        console.error(`Failed to load pattern ${file.name}:`, err);
-        failedFiles.push(file.name);
-      }
-    }
-
-    if (failedFiles.length > 0) {
-      this.ui.alert(`Failed to load: ${failedFiles.join(', ')}`);
-    }
-
-    e.target.value = '';
-  }
-
-  handlePatternRotationChange(e) {
-    const rotation = this.roundPatternOptionValue(e.target.value);
-    this.self.patternRotation = rotation;
-    if (this.ui.elements.patternRotationValue) {
-      this.ui.elements.patternRotationValue.textContent = `${this.formatPatternOptionValue(rotation)}°`;
-    }
-    if (this.ui.elements.fillPatternRotationValue) {
-      this.ui.elements.fillPatternRotationValue.textContent = `${this.formatPatternOptionValue(rotation)}°`;
-    }
-    if (this.ui.elements.selectionPatternRotationValue) {
-      this.ui.elements.selectionPatternRotationValue.textContent = `${this.formatPatternOptionValue(rotation)}°`;
-    }
-
-    this.updatePatternPreviewIfVisible();
-
-    if (this.connected && this.self.patternBrush) {
-      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPatternBrush(this._buildPatternPayload()));
-    }
-  }
-
-  handlePatternSpacingChange(e) {
-    const spacing = this.roundPatternOptionValue(e.target.value);
-    this.self.patternSpacing = spacing;
-    if (this.ui.elements.patternSpacingValue) {
-      this.ui.elements.patternSpacingValue.textContent = this.formatPatternOptionValue(spacing);
-    }
-    if (this.ui.elements.fillPatternSpacingValue) {
-      this.ui.elements.fillPatternSpacingValue.textContent = this.formatPatternOptionValue(spacing);
-    }
-    if (this.ui.elements.selectionPatternSpacingValue) {
-      this.ui.elements.selectionPatternSpacingValue.textContent = this.formatPatternOptionValue(spacing);
-    }
-
-    this.updatePatternPreviewIfVisible();
-
-    if (this.connected && this.self.patternBrush) {
-      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPatternBrush(this._buildPatternPayload()));
-    }
-  }
-
-  handlePatternOffsetXChange(e) {
-    const offsetX = this.roundPatternOptionValue(e.target.value);
-    this.self.patternOffsetX = offsetX;
-    if (this.ui.elements.patternOffsetXValue) {
-      this.ui.elements.patternOffsetXValue.textContent = this.formatPatternOptionValue(offsetX);
-    }
-    if (this.ui.elements.fillPatternOffsetXValue) {
-      this.ui.elements.fillPatternOffsetXValue.textContent = this.formatPatternOptionValue(offsetX);
-    }
-    if (this.ui.elements.selectionPatternOffsetXValue) {
-      this.ui.elements.selectionPatternOffsetXValue.textContent = this.formatPatternOptionValue(offsetX);
-    }
-
-    this.updatePatternPreviewIfVisible();
-
-    if (this.connected && this.self.patternBrush) {
-      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPatternBrush(this._buildPatternPayload()));
-    }
-  }
-
-  handlePatternOffsetYChange(e) {
-    const offsetY = this.roundPatternOptionValue(e.target.value);
-    this.self.patternOffsetY = offsetY;
-    if (this.ui.elements.patternOffsetYValue) {
-      this.ui.elements.patternOffsetYValue.textContent = this.formatPatternOptionValue(offsetY);
-    }
-    if (this.ui.elements.fillPatternOffsetYValue) {
-      this.ui.elements.fillPatternOffsetYValue.textContent = this.formatPatternOptionValue(offsetY);
-    }
-    if (this.ui.elements.selectionPatternOffsetYValue) {
-      this.ui.elements.selectionPatternOffsetYValue.textContent = this.formatPatternOptionValue(offsetY);
-    }
-
-    this.updatePatternPreviewIfVisible();
-
-    if (this.connected && this.self.patternBrush) {
-      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPatternBrush(this._buildPatternPayload()));
-    }
-  }
-
-  handlePatternColorModeChange(e) {
-    const colorMode = e.target.value;
-    this.self.patternColorMode = colorMode;
-
-    const patternTool = this.toolManager.getTool('pattern');
-    if (patternTool) {
-      // Clear cache so tiles are regenerated with new color mode
-      patternTool._tileCache.clear();
-      this.updatePatternPreviewIfVisible();
-    }
-
-    // Sync all radio groups (pattern, fill pattern, and selection pattern)
-    document.querySelectorAll('input[name="patternColorMode"], input[name="fillPatternColorMode"], input[name="selectionPatternColorMode"]').forEach(r => r.checked = r.value === colorMode);
-
-    if (this.connected && this.self.patternBrush) {
-      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPatternBrush(this._buildPatternPayload()));
-    }
-  }
-
-  _buildPatternPayload() {
-    const brush = this.self.patternBrush;
-    if (!brush) return null;
-    // Strip non-serializable Image/HTMLImageElement references, keep data URLs
-    const brushData = { type: brush.type, brushName: brush.brushName, fileName: brush.fileName, width: brush.width, height: brush.height };
-    if (brush.svgContent) brushData.svgContent = brush.svgContent;
-    if (brush.colorDepth !== undefined) brushData.colorDepth = brush.colorDepth;
-    if (brush.gBrushes) brushData.gBrushes = brush.gBrushes.map(b => ({ gimpUrl: b.gimpUrl, width: b.width, height: b.height }));
-    // Carry gimpUrl on every payload (same as the image brush's _buildImageBrushPayload).
-    // Built-in shapes (Circle/Square) and .gbr/image brushes store their bitmap ONLY in
-    // gimpUrl with no svgContent, so remote clients and the replay engine cannot rebuild
-    // the tile without it — every property change must re-ship it or the pattern vanishes.
-    if (brush.gimpUrl) brushData.gimpUrl = brush.gimpUrl;
-    return {
-      brush: brushData,
-      scale: this.self.patternScale ?? 100,
-      rotation: this.self.patternRotation ?? 0,
-      spacing: this.self.patternSpacing ?? 0,
-      offsetX: this.self.patternOffsetX ?? 0,
-      offsetY: this.self.patternOffsetY ?? 0,
-      colorMode: this.self.patternColorMode ?? 'original'
-    };
-  }
-
-  handleImageBrushColorModeChange(e) {
-    const colorMode = e.target.value;
-    this.self.imageBrushColorMode = colorMode;
-
-    const imageBrushTool = this.toolManager.getTool('imageBrush');
-    if (imageBrushTool) {
-      imageBrushTool._tintCache.clear();
-      imageBrushTool.updatePreview?.(this.self);
-    }
-
-    if (this.connected && this.self.imageBrush) {
-      this.inputBufferManager.queueBroadcast(() =>
-        this.wsClient.broadcastBrush(this._buildImageBrushPayload())
-      );
-    }
-  }
-
-  _buildImageBrushPayload() {
-    const brush = this.self.imageBrush;
-    if (!brush) return null;
-    const data = {
-      type: brush.type,
-      brushName: brush.brushName,
-      fileName: brush.fileName,
-      width: brush.width,
-      height: brush.height
-    };
-    if (brush.gimpUrl) data.gimpUrl = brush.gimpUrl;
-    if (brush.svgContent) data.svgContent = brush.svgContent;
-    if (brush.colorDepth !== undefined) data.colorDepth = brush.colorDepth;
-    if (brush.gBrushes) data.gBrushes = brush.gBrushes.map(b => ({ gimpUrl: b.gimpUrl, width: b.width, height: b.height }));
-    if (brush.dimensions) data.dimensions = brush.dimensions;
-    if (brush.ncells) data.ncells = brush.ncells;
-    if (brush.cellwidth) data.cellwidth = brush.cellwidth;
-    if (brush.cellheight) data.cellheight = brush.cellheight;
-    data.colorMode = this.self.imageBrushColorMode ?? 'original';
-    return data;
-  }
-
-  _buildConfettiBrushPayload(extra = {}) {
-    const confettiTool = this.toolManager?.getTool('confetti');
-    return confettiTool?.getNetworkSettings?.(this.self, extra) || null;
-  }
-
-  handlePatternBrushSelect(brush) {
-    this.self.patternBrush = brush;
-
-    this.updatePatternPreviewIfVisible();
-
-    if (this.connected) {
-      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPatternBrush(this._buildPatternPayload()));
-    }
-  }
+  // --- Pattern/image-brush option delegates (implementation in ui/PatternOptionsController.js) ---
+  roundPatternOptionValue(value) { return this.patternOptions.roundPatternOptionValue(value); }
+  formatPatternOptionValue(value) { return this.patternOptions.formatPatternOptionValue(value); }
+  handlePatternScaleChange(e) { this.patternOptions.handlePatternScaleChange(e); }
+  handlePatternRotationChange(e) { this.patternOptions.handlePatternRotationChange(e); }
+  handlePatternSpacingChange(e) { this.patternOptions.handlePatternSpacingChange(e); }
+  handlePatternOffsetXChange(e) { this.patternOptions.handlePatternOffsetXChange(e); }
+  handlePatternOffsetYChange(e) { this.patternOptions.handlePatternOffsetYChange(e); }
+  handlePatternImageBtnClick() { this.patternOptions.handlePatternImageBtnClick(); }
+  handlePatternImageUpload(e) { return this.patternOptions.handlePatternImageUpload(e); }
+  handlePatternColorModeChange(e) { this.patternOptions.handlePatternColorModeChange(e); }
+  handleImageBrushColorModeChange(e) { this.patternOptions.handleImageBrushColorModeChange(e); }
+  handlePatternBrushSelect(brush) { this.patternOptions.handlePatternBrushSelect(brush); }
+  _buildPatternPayload() { return this.patternOptions._buildPatternPayload(); }
+  _buildImageBrushPayload() { return this.patternOptions._buildImageBrushPayload(); }
+  _buildConfettiBrushPayload(extra) { return this.patternOptions._buildConfettiBrushPayload(extra); }
 
   // Room selection
 
@@ -3882,155 +3210,14 @@ export class DrawingApp {
     }
   }
 
-  async checkForRuntimeUpdate({ force = true } = {}) {
-    // Keep both desktop and browser clients honest after deploys. Desktop can
-    // hand off to the native updater; browser clients need the durable reload
-    // banner even when they stayed connected through an update notice.
-    // Only run if WebSocket is connected (new server is reachable)
-    if (!this.wsClient?.connected) return;
-    // Only show the prompt once per restart cycle
-    if (this._versionUpdateNoticed) return;
-    // This fetch only succeeds if the new server is responding with its version info
-    const status = await getVersionStatus({ force });
-    if (this._versionUpdateNoticed) return;
-    if (status?.allowed === false) {
-      this._versionUpdateNoticed = true;
-      this.showUpdateRequiredNotice(status);
-      return;
-    }
-    const latest = status?.serverVersion?.latest || status?.latestVersion;
-    if (!latest || !status.clientVersion) return;
-    // Only prompt when the client is strictly older than the advertised latest.
-    // String inequality alone produces false positives (e.g. client 1.6.3-beta
-    // vs. server-advertised latest 1.6.2-beta — the client is newer, no update needed).
-    const cmp = compareVersionStrings(status.clientVersion, latest);
-    if (cmp === null || cmp >= 0) return;
-    if (this._isUpdateDismissedForOffline(latest)) return;
-
-    this._versionUpdateNoticed = true;
-    this.showUpdateAvailableNotice(status);
-  }
-
-  async showUpdateAvailableNotice(versionStatus = {}) {
-    const latest = versionStatus.latestVersion || versionStatus.serverVersion?.latest || 'the latest version';
-    if (this._isUpdateDismissedForOffline(latest)) return;
-    this._versionUpdateNoticed = true;
-    this._reloadRecommended = true;
-    this._lastUpdateNoticeVersion = latest;
-    this.ui.showDisconnectionBanner({
-      message: `A new Ddraw version is available (${latest}). Reload to update, or continue offline.`,
-      icon: '!',
-      retryLabel: isTauriDesktop() ? 'Update App' : 'Refresh',
-      offlineLabel: 'Continue Offline'
-    });
-
-    if (isTauriDesktop()) {
-      await this._promptDesktopUpdateFromRuntimeNotice();
-    }
-  }
-
-  showUpdateRequiredNotice(versionStatus = {}) {
-    const latest = versionStatus.latestVersion || versionStatus.serverVersion?.latest || versionStatus.minRequired || '';
-    if (this._isUpdateDismissedForOffline(latest)) return;
-    this._versionUpdateNoticed = true;
-    this._reloadRecommended = true;
-    this._lastUpdateNoticeVersion = latest || null;
-    this.ui.showToast('Update required before connecting online', 3500, 'error');
-    this.ui.showDisconnectionBanner({
-      message: `${formatOutdatedClientMessage(versionStatus)} You can still draw offline.`,
-      icon: '!',
-      retryLabel: isTauriDesktop() ? 'Update App' : 'Refresh',
-      offlineLabel: 'Continue Offline'
-    });
-
-    if (isTauriDesktop() && !versionStatus.desktopUpdateResult) {
-      void this._promptDesktopUpdateFromRuntimeNotice({ force: true });
-    }
-  }
-
-  async handleServerUpdateNotice(data = {}) {
-    const latest = data.latestVersion || data.version || data.serverVersion?.latest || '';
-    if (data.kind === 'restart') {
-      this._awaitingServerRestart = true;
-      this._versionUpdateNoticed = false;
-      this.ui.showToast(data.message || 'Ddraw server is updating soon', 5000);
-      this.ui.showDisconnectionBanner({
-        message: data.message || 'Server is updating soon. Keep drawing for now; we will refresh/update once the new server is live.',
-        icon: '!',
-        retryVisible: false,
-        offlineLabel: 'Continue Offline'
-      });
-      return;
-    }
-
-    if (this._versionUpdateNoticed && !this._awaitingServerRestart) return;
-    if (this._isUpdateDismissedForOffline(latest)) return;
-    this._versionUpdateNoticed = true;
-    this._reloadRecommended = true;
-    this._lastUpdateNoticeVersion = latest || null;
-    this.ui.showToast(data.message || 'Ddraw is updating', 5000);
-    this.ui.showDisconnectionBanner({
-      message: data.message || 'Ddraw is updating. Reload in a moment, or continue offline.',
-      icon: '!',
-      retryLabel: isTauriDesktop() ? 'Update App' : 'Refresh',
-      offlineLabel: 'Continue Offline'
-    });
-
-    if (isTauriDesktop()) {
-      await this._promptDesktopUpdateFromRuntimeNotice();
-    }
-  }
-
-  async _promptDesktopUpdateFromRuntimeNotice({ force = false } = {}) {
-    if (force && this._desktopUpdatePollTimer) {
-      window.clearInterval(this._desktopUpdatePollTimer);
-      this._desktopUpdatePollTimer = null;
-    }
-    if (force) {
-      this._desktopUpdatePollActive = false;
-    }
-    if (this._desktopUpdatePollActive) return;
-    this._desktopUpdatePollActive = true;
-
-    const attempt = async ({ silent = true } = {}) => {
-      const result = await checkForDesktopUpdates({
-        silent,
-        ignoreOfflineDismissal: force
-      });
-      if (!result || result.status === 'up-to-date') {
-        return false;
-      }
-      if (result.status === 'server-not-ready') {
-        this.ui.showDisconnectionBanner({
-          message: 'Server is updating soon. Keep drawing for now; we will offer the app update once the new server is live.',
-          icon: '!',
-          retryVisible: false,
-          offlineLabel: 'Continue Offline'
-        });
-        return false;
-      }
-      if (result.status === 'offline-dismissed') {
-        return true;
-      }
-      if (result.status === 'error') {
-        this.ui.showToast('Desktop update check failed. Restart the app to try again.', 4500, 'error');
-      }
-      return true;
-    };
-
-    if (await attempt({ silent: !force })) {
-      this._desktopUpdatePollActive = false;
-      return;
-    }
-
-    this._desktopUpdatePollTimer = window.setInterval(async () => {
-      if (await attempt()) {
-        window.clearInterval(this._desktopUpdatePollTimer);
-        this._desktopUpdatePollTimer = null;
-        this._desktopUpdatePollActive = false;
-      }
-    }, 15000);
-  }
+  // --- Update-notice delegates (implementation in ui/UpdateNoticeController.js) ---
+  checkForRuntimeUpdate(options) { return this.updateNotices.checkForRuntimeUpdate(options); }
+  showUpdateAvailableNotice(versionStatus) { return this.updateNotices.showUpdateAvailableNotice(versionStatus); }
+  showUpdateRequiredNotice(versionStatus) { this.updateNotices.showUpdateRequiredNotice(versionStatus); }
+  handleServerUpdateNotice(data) { return this.updateNotices.handleServerUpdateNotice(data); }
+  _promptDesktopUpdateFromRuntimeNotice(options) { return this.updateNotices._promptDesktopUpdateFromRuntimeNotice(options); }
+  _dismissCurrentUpdateForOffline() { this.updateNotices._dismissCurrentUpdateForOffline(); }
+  _isUpdateDismissedForOffline(version) { return this.updateNotices._isUpdateDismissedForOffline(version); }
 
   /**
    * Displays a moderation overlay for kicks or bans.
@@ -4400,31 +3587,6 @@ export class DrawingApp {
     this.handleOffline();
   }
 
-  _dismissCurrentUpdateForOffline() {
-    const latest = this._lastUpdateNoticeVersion || null;
-    if (latest) {
-      this._offlineDismissedUpdateVersion = latest;
-      if (isTauriDesktop()) {
-        dismissDesktopUpdateForOffline(latest);
-      }
-    }
-    this._versionUpdateNoticed = true;
-    this._reloadRecommended = false;
-    this._awaitingServerRestart = false;
-    if (this._desktopUpdatePollTimer) {
-      window.clearInterval(this._desktopUpdatePollTimer);
-      this._desktopUpdatePollTimer = null;
-    }
-    this._desktopUpdatePollActive = false;
-  }
-
-  _isUpdateDismissedForOffline(version = '') {
-    return !!version && (
-      this._offlineDismissedUpdateVersion === version ||
-      (isTauriDesktop() && isDesktopUpdateDismissedForOffline(version))
-    );
-  }
-
   ensureAppSettingsButton() {
     const collapsible = document.getElementById('collapsibleBtns');
     if (!collapsible || document.getElementById('appSettingsBtn')) return;
@@ -4707,154 +3869,12 @@ export class DrawingApp {
     this.scheduleTopbarCollapseUpdate();
   }
 
-  updateRecordingButtonState() {
-    const btn = this.ui?.elements?.recordBtn;
-    if (!btn) return;
-
-    const connectedToRoom = !!this.currentRoomId && !this.isOfflineMode;
-    const waitingForSync = connectedToRoom && !!this.syncClient && !this.syncClient.hasCompletedSync;
-
-    btn.classList.toggle('is-recording', TimeMachine.isStarted);
-    btn.classList.toggle('disabled', waitingForSync);
-    btn.setAttribute('aria-disabled', waitingForSync ? 'true' : 'false');
-
-    if (TimeMachine.isStarted) {
-      btn.title = 'Timeline active (click to close)';
-      btn.setAttribute('aria-label', 'Close timeline');
-    } else if (waitingForSync) {
-      btn.title = 'Timeline becomes available after room sync completes';
-      btn.setAttribute('aria-label', 'Timeline unavailable until sync completes');
-    } else {
-      btn.title = 'Open Timeline';
-      btn.setAttribute('aria-label', 'Open timeline');
-    }
-  }
-
-  /**
-   * Begin a local tape recording. Returns true on success. The recorder mini
-   * viewer (RecorderPanel.svelte) drives this.
-   */
-  startTapeRecording() {
-    const rec = this.recorder;
-    if (!rec || rec.isRecording()) return false;
-
-    if (!this.currentRoomId) {
-      this.ui?.showToast('Join a room before recording', 2000);
-      return false;
-    }
-
-    try {
-      rec.start(this);
-      this._setTapeRecButtonRecording(true);
-      this._startTapeRecElapsedTick();
-      this.ui?.showToast('Recording…', 1500);
-      return true;
-    } catch (err) {
-      console.error('[App] tape recorder start failed:', err);
-      this.ui?.showToast('Could not start recording', 2500);
-      return false;
-    }
-  }
-
-  /**
-   * Stop the local tape recording and return the captured bundle (or null).
-   * Unlike the old toggle, this does NOT auto-open the full-board replay — the
-   * recorder mini viewer presents the result and offers a fullscreen handoff.
-   * @returns {import('./replay/Recorder.js').ReplayRecording | null}
-   */
-  stopTapeRecording() {
-    const rec = this.recorder;
-    if (!rec || !rec.isRecording()) return null;
-    const bundle = rec.stop();
-    this._stopTapeRecElapsedTick();
-    this._setTapeRecButtonRecording(false);
-    return bundle;
-  }
-
-  /**
-   * Toggle the local tape recorder. Kept for backwards compatibility; the
-   * stop path now opens the full-board replay directly.
-   */
-  async handleToggleTapeRecording() {
-    const rec = this.recorder;
-    if (!rec) return;
-
-    if (rec.isRecording()) {
-      const bundle = this.stopTapeRecording();
-      if (bundle && bundle.deltas.length > 0) {
-        this.ui?.showToast(`Loading replay... ${bundle.deltas.length} actions`, 60_000);
-        try {
-          await TimeMachine.loadFromRecording(bundle);
-        } catch (err) {
-          console.error('[App] failed to open local replay:', err);
-          this.ui?.showToast('Could not load replay', 3000, 'error');
-        }
-      } else {
-        this.ui?.showToast('Recording stopped (no actions captured)', 2000);
-      }
-      return;
-    }
-
-    this.startTapeRecording();
-  }
-
-  _setTapeRecButtonRecording(isOn) {
-    const btn = this.ui?.elements?.tapeRecBtn;
-    if (!btn) return;
-    btn.classList.toggle('is-recording', !!isOn);
-    btn.title = isOn ? 'Stop recording (opens scrubber)' : 'Record session — captures everything locally for scrubbing';
-    const elapsed = this.ui?.elements?.tapeRecElapsed;
-    if (elapsed) {
-      elapsed.style.display = isOn ? '' : 'none';
-      if (!isOn) elapsed.textContent = '0:00';
-    }
-  }
-
-  _startTapeRecElapsedTick() {
-    this._stopTapeRecElapsedTick();
-    const elapsedEl = this.ui?.elements?.tapeRecElapsed;
-    if (!elapsedEl) return;
-    const tick = () => {
-      if (!this.recorder?.isRecording()) return;
-      const s = Math.floor(this.recorder.elapsedMs() / 1000);
-      const mm = Math.floor(s / 60);
-      const ss = String(s % 60).padStart(2, '0');
-      elapsedEl.textContent = `${mm}:${ss}`;
-    };
-    tick();
-    this._tapeRecElapsedInterval = setInterval(tick, 1000);
-  }
-
-  _stopTapeRecElapsedTick() {
-    if (this._tapeRecElapsedInterval) {
-      clearInterval(this._tapeRecElapsedInterval);
-      this._tapeRecElapsedInterval = null;
-    }
-  }
-
-  handleStartRecording() {
-    if (TimeMachine.isStarted) {
-      TimeMachine.stop();
-      this.updateRecordingButtonState();
-      this.ui.showToast('Timeline closed', 2000);
-      return;
-    }
-
-    const connectedToRoom = !!this.currentRoomId && !this.isOfflineMode;
-    if (connectedToRoom && this.syncClient && !this.syncClient.hasCompletedSync) {
-      this.ui.showToast('Please wait for sync to finish before opening the timeline', 2500);
-      this.updateRecordingButtonState();
-      return;
-    }
-
-    TimeMachine.start();
-    this.updateRecordingButtonState();
-    // start() shows its own toast when offline has nothing to replay; only show
-    // the loading toast when a source is actually being loaded.
-    if (TimeMachine.isLoading || TimeMachine.isStarted) {
-      this.ui.showToast('Loading timeline…', 2000);
-    }
-  }
+  // --- Recording/timeline delegates (implementation in ui/RecordingController.js) ---
+  updateRecordingButtonState() { this.recording.updateRecordingButtonState(); }
+  startTapeRecording() { return this.recording.startTapeRecording(); }
+  stopTapeRecording() { return this.recording.stopTapeRecording(); }
+  handleToggleTapeRecording() { return this.recording.handleToggleTapeRecording(); }
+  handleStartRecording() { this.recording.handleStartRecording(); }
 
   canUseImageFeatures(showToast = false) {
     const allowed = this.selfRole >= 1;
@@ -4864,238 +3884,17 @@ export class DrawingApp {
     return allowed;
   }
 
-  /** Opens the interactive save mode with visual selection. */
-  openSaveDialog() {
-    if (this.saveMode) {
-      this.saveMode.open();
-    }
-  }
-
-  openSaveDialogForCanvas(sourceCanvas) {
-    if (!this.saveMode || !sourceCanvas) {
-      this.openSaveDialog();
-      return;
-    }
-
-    const canvas = document.createElement('canvas');
-    canvas.width = sourceCanvas.width;
-    canvas.height = sourceCanvas.height;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(sourceCanvas, 0, 0);
-    this.saveMode.openWithCanvas(canvas, { fixedSelection: false });
-  }
-
-  /** Closes the interactive save mode. */
-  closeSaveDialog() {
-    if (this.saveMode) {
-      this.saveMode.close();
-    }
-  }
-
-  /**
-   * Performs the save action from the save mode overlay.
-   * @param {boolean} locally - If true, downloads the file. If false, uploads to gallery.
-   */
-  async performSave(locally) {
-    const { saveAreaSelection, saveTransparent } = this.ui.elements;
-    const isSelection = saveAreaSelection?.checked;
-    const transparent = saveTransparent?.checked ?? false;
-
-    if (isSelection) {
-      const selectTool = this.toolManager.tools.select;
-      let canvas = selectTool?.getSelectionExportCanvas();
-      if (!canvas) { this.ui.showToast('No active selection'); return; }
-
-      if (!transparent) {
-        const out = document.createElement('canvas');
-        out.width = canvas.width;
-        out.height = canvas.height;
-        const ctx = out.getContext('2d');
-        const [r, g, b, a] = this.board.backgroundColor;
-        ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
-        ctx.fillRect(0, 0, out.width, out.height);
-        ctx.drawImage(canvas, 0, 0);
-        canvas = out;
-      }
-
-      if (locally) {
-        const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
-        const saved = await this.saveCanvasLocally(canvas, `selection-${ts}.png`, 'Selection saved!');
-        if (!saved) return;
-      } else {
-        // Crop the time-lapse to the selection rect (board-space).
-        const sel = selectTool?.selection;
-        const region = sel ? { x: sel.x, y: sel.y, width: sel.width, height: sel.height } : null;
-        await this.handleSaveToGallery(canvas, { timelapseRegion: region });
-      }
-    } else {
-      const canvas = this.board.getExportCanvas(transparent);
-
-      if (locally) {
-        const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
-        const saved = await this.saveCanvasLocally(canvas, `board-${ts}.png`, 'Image saved!');
-        if (!saved) return;
-      } else {
-        await this.handleSaveToGallery(canvas);
-      }
-    }
-
-    this.closeSaveDialog();
-  }
-
-  /**
-   * Uploads a canvas to the gallery. Uses mainCanvas if no canvas is provided.
-   * @param {HTMLCanvasElement} [canvas]
-   * @async
-   */
-  async handleSaveToGallery(canvas, metadata = {}) {
-    const token = localStorage.getItem('topDrawAuthToken');
-    if (!token) {
-      this.ui.showToast('Log in to save to the gallery');
-      return;
-    }
-
-    const targetCanvas = canvas ?? this.board.mainCanvas;
-    const btn = this.ui.elements.saveToGalleryBtn;
-    const originalText = btn?.textContent;
-    if (btn) btn.textContent = 'Saving...';
-    this.ui.showSavingPopup('Saving to gallery...');
-
-    try {
-      const imageData = targetCanvas.toDataURL('image/png');
-      const apiBase = import.meta.env.VITE_API_BASE_URL || '';
-
-      // Auto-add room tag for floating art
-      const roomTag = this.wsClient?.roomId || 'lobby';
-      const tags = metadata.tags ? [...metadata.tags] : [];
-      if (!tags.includes(roomTag)) {
-        tags.push(roomTag);
-      }
-
-      const res = await fetch(`${apiBase}/api/gallery/upload`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          imageData,
-          title: metadata.title || '',
-          description: metadata.description || '',
-          tags: tags,
-          tagUsername: metadata.tagUsername !== false
-        }),
-      });
-
-      const data = await res.json().catch(() => ({}));
-
-      if (!res.ok) {
-        if (data.duplicate) {
-          this.ui.showToast('This image is already in the gallery', 3000, 'error');
-        } else {
-          this.ui.showToast(`Gallery save failed: ${data.error || res.status}`, 3000, 'error');
-          await this._offerLocalSave(targetCanvas);
-        }
-        return;
-      }
-
-      this.ui.showToast('Saved to gallery!');
-
-      // Fire-and-forget: render + attach a time-lapse for entitled users. Not
-      // awaited so the save UI completes immediately; the clip attaches when ready.
-      if (data?.id && this.canUseGalleryTimelapse()) {
-        this._uploadGalleryTimelapse(data.id, metadata.timelapseRegion ?? null, token)
-          .catch(err => console.warn('[Timelapse] upload failed:', err));
-      }
-    } catch (err) {
-      console.error('[Gallery] Save error:', err);
-      this.ui.showToast(`Gallery save failed: ${err.message}`, 3000, 'error');
-      await this._offerLocalSave(targetCanvas);
-    } finally {
-      this.ui.hideSavingPopup();
-      if (btn && originalText) btn.textContent = originalText;
-    }
-  }
-
-  /**
-   * Show the one-time "try gallery time-lapse" prompt for eligible (NOBLE+)
-   * users. Default stays on whether they accept or dismiss; this just surfaces
-   * the feature once. The flag is per-device (localStorage).
-   */
-  _maybeShowTimelapsePrompt() {
-    try {
-      if (Number(this.self?.role || 0) < 7) return;
-      const KEY = 'topDrawTimelapsePromptSeen';
-      if (localStorage.getItem(KEY)) return;
-      // Brief delay so it doesn't collide with the login/join toasts.
-      setTimeout(() => {
-        if (localStorage.getItem(KEY)) return;
-        localStorage.setItem(KEY, '1');
-        this.ui.showTimelapsePromptToast(
-          () => this._setGalleryTimelapseEnabled(true),
-          () => this._setGalleryTimelapseEnabled(false),
-        );
-      }, 2500);
-    } catch { /* ignore */ }
-  }
-
-  _setGalleryTimelapseEnabled(enabled) {
-    const next = {
-      ...this.appPreferences,
-      general: { ...(this.appPreferences?.general ?? {}), galleryTimelapseEnabled: enabled },
-    };
-    this.setAppPreferences(next);
-    this.ui.showToast(enabled ? 'Gallery time-lapse enabled' : 'Gallery time-lapse disabled', 2500);
-  }
-
-  /**
-   * Whether the local user may generate a gallery time-lapse. Gated to NOBLE(7)+
-   * for now, plus the (default-on) app-settings toggle. The role check is the
-   * future subscription seam.
-   * @returns {boolean}
-   */
-  canUseGalleryTimelapse() {
-    const role = Number(this.self?.role || 0);
-    if (role < 7) return false;
-    return this.appPreferences?.general?.galleryTimelapseEnabled !== false;
-  }
-
-  /**
-   * Render the captured session stills into a WebM cropped to `region` and
-   * attach it to the just-uploaded gallery item.
-   * @param {string} itemId - Gallery item id from the upload response.
-   * @param {{x:number,y:number,width:number,height:number}|null} region - board px, null = full board
-   * @param {string} token - auth token
-   */
-  async _uploadGalleryTimelapse(itemId, region, token) {
-    const capturer = this.timelapseCapturer;
-    if (!capturer || capturer.frameCount < 1) return;
-
-    const blob = await capturer.renderWebm(region);
-    if (!blob) return; // not enough distinct frames
-
-    const dataUrl = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(blob);
-    });
-
-    const apiBase = import.meta.env.VITE_API_BASE_URL || '';
-    const res = await fetch(`${apiBase}/api/gallery/${itemId}/animation`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
-      },
-      body: JSON.stringify({ animationData: dataUrl, region }),
-    });
-    if (res.ok) {
-      this.ui.showToast('Time-lapse attached to your gallery upload', 2500);
-    } else {
-      console.warn('[Timelapse] server rejected animation:', res.status);
-    }
-  }
+  // --- Save/export delegates (implementation in ui/SaveController.js) ---
+  openSaveDialog() { this.saveController.openSaveDialog(); }
+  openSaveDialogForCanvas(sourceCanvas) { this.saveController.openSaveDialogForCanvas(sourceCanvas); }
+  closeSaveDialog() { this.saveController.closeSaveDialog(); }
+  performSave(locally) { return this.saveController.performSave(locally); }
+  handleSaveToGallery(canvas, metadata) { return this.saveController.handleSaveToGallery(canvas, metadata); }
+  _maybeShowTimelapsePrompt() { this.saveController._maybeShowTimelapsePrompt(); }
+  canUseGalleryTimelapse() { return this.saveController.canUseGalleryTimelapse(); }
+  saveCanvasLocally(canvas, suggestedName, successMessage) { return this.saveController.saveCanvasLocally(canvas, suggestedName, successMessage); }
+  copyCanvasToClipboard(canvas, options) { return this.saveController.copyCanvasToClipboard(canvas, options); }
+  copyImageDataToClipboard(clipboardData, options) { return this.saveController.copyImageDataToClipboard(clipboardData, options); }
 
   /**
    * Handles floating art updates from the server
@@ -5106,16 +3905,6 @@ export class DrawingApp {
     if (this.components?.floatingArt?.addItem) {
       this.components.floatingArt.addItem(item);
     }
-  }
-
-  /**
-   * Triggers a local download of the canvas as a fallback when gallery upload fails.
-   * @param {HTMLCanvasElement} canvas
-   * @private
-   */
-  async _offerLocalSave(canvas) {
-    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
-    await this.saveCanvasLocally(canvas, `drawing-${ts}.png`, 'Saved locally instead');
   }
 
   /**
@@ -6036,208 +4825,14 @@ export class DrawingApp {
     e.target.value = '';
   }
 
-  handleChatSend(message) {
-    const messageId = this._createChatMessageId();
-    // Show immediately in chat (Svelte component handles its own state)
-    if (this.svelteComponents?.chat) {
-      this.svelteComponents.chat.addChatMessage(
-        this.self.username,
-        message,
-        this._chatNameColor(this.self.color),
-        this.sessionIndex,
-        messageId,
-        this.self.role ?? this.selfRole ?? 0
-      );
-    }
-    broadcastChatPopoutEvent('addChatMessage', [
-      this.self.username,
-      message,
-      this._chatNameColor(this.self.color),
-      this.sessionIndex,
-      messageId,
-      this.self.role ?? this.selfRole ?? 0
-    ]);
-    this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastChat(message, messageId));
-  }
-
-  handleStaffChatSend(message) {
-    const messageId = this._createChatMessageId();
-    if (this.svelteComponents?.chat) {
-      this.svelteComponents.chat.addStaffMessage(
-        this.self.username,
-        message,
-        this._chatNameColor(this.self.color),
-        this.sessionIndex,
-        messageId,
-        this.self.role ?? this.selfRole ?? 0
-      );
-    }
-    broadcastChatPopoutEvent('addStaffMessage', [
-      this.self.username,
-      message,
-      this._chatNameColor(this.self.color),
-      this.sessionIndex,
-      messageId,
-      this.self.role ?? this.selfRole ?? 0
-    ]);
-    this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastStaffChat(message, messageId));
-  }
-
-  handleStaffChatImageSend(imageData) {
-    if (!this.connected) return;
-
-    const messageId = this._createChatMessageId();
-    this.inputBufferManager.queueBroadcast(() => {
-      const result = this.wsClient.broadcastStaffChatImage(imageData, messageId);
-      if (!result?.ok) {
-        this.ui?.showToast(result?.error || 'Failed to send chat image', 3000, 'error');
-        return;
-      }
-
-      this.svelteComponents?.chat?.addStaffImage(imageData, this.self, messageId);
-      broadcastChatPopoutEvent('addStaffImage', [imageData, this._chatPopoutUser(this.self, this.sessionIndex), messageId]);
-    });
-  }
-
-  handleDMSend(message, recipientId) {
-    if (this.connected) {
-      const messageId = this._createChatMessageId();
-      this.svelteComponents?.chat?.addChatDM(message, recipientId, true, messageId, this.self.role ?? this.selfRole ?? 0);
-      broadcastChatPopoutEvent('addChatDM', [message, recipientId, true, messageId, this.self.role ?? this.selfRole ?? 0]);
-      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastDM(message, recipientId, messageId));
-    }
-  }
-
-  handleChatImageSend(imageData, recipientId = null) {
-    if (!this.connected) return;
-
-    const messageId = this._createChatMessageId();
-    this.inputBufferManager.queueBroadcast(() => {
-      const result = this.wsClient.broadcastChatImage(imageData, recipientId, messageId);
-      if (!result?.ok) {
-        this.ui?.showToast(result?.error || 'Failed to send chat image', 3000, 'error');
-        return;
-      }
-
-      if (recipientId !== null && recipientId !== undefined) {
-        this.svelteComponents?.chat?.addDMImage(imageData, recipientId, true, messageId, this.self.role ?? this.selfRole ?? 0);
-        broadcastChatPopoutEvent('addDMImage', [imageData, recipientId, true, messageId, this.self.role ?? this.selfRole ?? 0]);
-      } else {
-        this.svelteComponents?.chat?.addChatImage(imageData, this.self, messageId);
-        broadcastChatPopoutEvent('addChatImage', [imageData, this._chatPopoutUser(this.self, this.sessionIndex), messageId]);
-      }
-    });
-  }
-
-  handleChatReaction(payload) {
-    if (this.connected && payload?.messageId && payload?.emoji) {
-      broadcastChatPopoutEvent('applyReaction', [payload]);
-      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastChatReaction(payload));
-    }
-  }
-
-  _createChatMessageId() {
-    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-      return crypto.randomUUID();
-    }
-    return `chat-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-  }
-
-  _chatNameColor(color) {
-    if (!Array.isArray(color)) return color || '#8ba3c7';
-    const [r = 139, g = 163, b = 199] = color;
-    const luminance = (0.2126 * r) + (0.7152 * g) + (0.0722 * b);
-    if (luminance < 72) return 'var(--role-user)';
-    return `rgb(${r}, ${g}, ${b})`;
-  }
-
-  _chatPopoutUser(user, fallbackSessionIndex = null) {
-    if (!user || typeof user !== 'object') return null;
-    return {
-      id: user.id ?? user.sessionIndex ?? fallbackSessionIndex ?? null,
-      sessionIndex: user.sessionIndex ?? user.id ?? fallbackSessionIndex ?? null,
-      username: user.username || user.name || '',
-      name: user.name || user.username || '',
-      color: user.color,
-      registeredName: user.registeredName || '',
-      role: user.role || 0,
-      visibleIp: user.visibleIp || '',
-      tool: user.tool || 'brush',
-      afk: !!user.afk
-    };
-  }
-
-  updateChatUserList() {
-    // Update the users store for Svelte Chat component
-    const userMap = new Map();
-    this.users.forEach((user, id) => {
-      if (id !== this.sessionIndex) { // Exclude self
-        userMap.set(id, {
-          id,
-          username: user.username || user.name || '',
-          color: this._chatNameColor(user.color),
-          registeredName: user.registeredName || '',
-          role: user.role || 0,
-          visibleIp: user.visibleIp || '',
-          tool: user.tool || 'brush',
-          afk: !!user.afk,
-          isSelf: false
-        });
-      }
-    });
-
-    // Update the users store
-    appState.users = userMap;
-  }
-
-  handlePaletteColorSelect(colorOrCallback) {
-    // If it's a callback (from the add button), pass the current color
-    if (typeof colorOrCallback === 'function') {
-      colorOrCallback(this.self.color);
-      return;
-    }
-
-    // Otherwise, select the color and update picker
-    this.clearActiveCustomPreset();
-    const color = colorOrCallback;
-    this.self.setColor(color);
-    this.self.setOpacity(color[3]);
-    appState.currentColor = [...color];
-    this._syncActiveColorSlot(color);
-    this.ui.updateSelfColor(color);
-    this.ui.updateSelfTextStyle(this.self.size, color, this.self.font);
-    this.ui.updateOpacityValue(color[3]);
-
-    // Update the color picker to match
-    this._setColorPickersColor(`rgba(${color.join(',')})`);
-
-    // Update pattern tools when color changes (for tinted color modes)
-    const patternTool = this.toolManager.getTool('pattern');
-    if (patternTool) {
-      patternTool._tileCache.clear();
-      this.updatePatternPreviewIfVisible();
-    }
-
-    const imageBrushTool = this.toolManager.getTool('imageBrush');
-    if (imageBrushTool) imageBrushTool._tintCache.clear();
-
-    const fillTool = this.toolManager.getTool('fill');
-    if (fillTool && fillTool._patternTileCache) {
-      fillTool._patternTileCache.clear();
-    }
-
-    const selectTool = this.toolManager.getTool('select');
-    if (selectTool && selectTool._patternTileCache) {
-      selectTool._patternTileCache.clear();
-    }
-
-    if (this.connected) {
-      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastColorChange(color));
-    }
-
-    this.updateCurrentToolPresetSettings();
-    this.updateActiveToolPreview();
-  }
+  // --- Chat delegates (implementation in ui/ChatController.js) ---
+  handleChatSend(message) { this.chatController.handleChatSend(message); }
+  handleStaffChatSend(message) { this.chatController.handleStaffChatSend(message); }
+  handleStaffChatImageSend(imageData) { this.chatController.handleStaffChatImageSend(imageData); }
+  handleDMSend(message, recipientId) { this.chatController.handleDMSend(message, recipientId); }
+  handleChatImageSend(imageData, recipientId) { this.chatController.handleChatImageSend(imageData, recipientId); }
+  handleChatReaction(payload) { this.chatController.handleChatReaction(payload); }
+  updateChatUserList() { this.chatController.updateChatUserList(); }
 
   getCurrentToolPresetSettings(toolName = this.self?.tool) {
     const lockConfig = this.toolLockManager?.toolLocks?.[toolName];
@@ -6316,45 +4911,6 @@ export class DrawingApp {
         if (this.ui.elements.pressureDualSlider) this.ui.elements.pressureDualSlider.style.display = value ? '' : 'none';
       }
     }
-  }
-
-  handleColorInputChange(rgba) {
-    this.commitSelfEraserSegment(this.self.pressure, this.self.size, rgba[3]);
-    // Update self's color
-    this.self.setColor(rgba);
-    this.self.setOpacity(rgba[3]);
-    this.ui.updateSelfColor(rgba);
-    this.ui.updateSelfTextStyle(this.self.size, rgba, this.self.font);
-    this.ui.updateOpacityValue(rgba[3]);
-
-    // Update the color picker to match
-    this._setColorPickersColor(rgba);
-
-    // Update pattern tools when color changes (for tinted color modes)
-    const patternTool = this.toolManager.getTool('pattern');
-    if (patternTool) {
-      patternTool._tileCache.clear();
-      this.updatePatternPreviewIfVisible();
-    }
-
-    const fillTool = this.toolManager.getTool('fill');
-    if (fillTool && fillTool._patternTileCache) {
-      fillTool._patternTileCache.clear();
-    }
-
-    const selectTool = this.toolManager.getTool('select');
-    if (selectTool && selectTool._patternTileCache) {
-      selectTool._patternTileCache.clear();
-    }
-
-    // Broadcast to other users if connected
-    if (this.connected) {
-      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastColorChange(rgba));
-    }
-
-    appState.currentColor = [...rgba];
-    this.updateCurrentToolPresetSettings();
-    this.updateActiveToolPreview();
   }
 
   // Pointer event handlers
@@ -7757,64 +6313,6 @@ export class DrawingApp {
   }
 
   // Image Upload/Drop handlers
-
-  async saveCanvasLocally(canvas, suggestedName, successMessage = 'Image saved!') {
-    if (isTauriDesktop()) {
-      try {
-        const result = await saveCanvasViaNativeDialog(canvas, suggestedName);
-        if (result?.saved) {
-          this.ui.showToast(successMessage);
-          return true;
-        }
-        return false;
-      } catch (error) {
-        console.error('[Desktop] Native save failed:', error);
-        this.ui.showToast('Native save failed, using browser download instead', 3000, 'error');
-      }
-    }
-
-    const link = document.createElement('a');
-    link.download = suggestedName;
-    link.href = canvas.toDataURL('image/png');
-    link.click();
-    this.ui.showToast(successMessage);
-    return true;
-  }
-
-  async copyCanvasToClipboard(canvas, options = {}) {
-    const copied = await copyCanvasToSystemClipboard(canvas);
-    if (copied) {
-      if (!options.silent) this.ui.showToast('Copied to clipboard!');
-      return true;
-    }
-
-    if (!options.silent) {
-      this.ui.showToast('Clipboard copy is not available here', 3000, 'error');
-    }
-    return false;
-  }
-
-  async copyImageDataToClipboard(clipboardData, options = {}) {
-    if (!clipboardData?.imageData || !clipboardData?.width || !clipboardData?.height) {
-      return false;
-    }
-
-    const copied = await copyImageDataToSystemClipboard(
-      clipboardData.imageData,
-      clipboardData.width,
-      clipboardData.height
-    );
-
-    if (copied) {
-      if (!options.silent) this.ui.showToast('Copied to clipboard!');
-      return true;
-    }
-
-    if (!options.silent) {
-      this.ui.showToast('Clipboard copy is not available here', 3000, 'error');
-    }
-    return false;
-  }
 
   async handleImageDataUrl(dataUrl) {
     if (!dataUrl || !this.canUseImageFeatures(true)) return;
