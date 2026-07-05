@@ -372,7 +372,11 @@
   @include toolbar-icon-collapse('#mirrorBtn, #appSettingsBtn');
 }
 
-.boardBtns.force-menu-collapse {
+/* Hamburger + dropdown menu. Applied by the JS overflow measurement
+   (App.updateTopbarCollapseState → .force-menu-collapse) on desktop and
+   permanently on mobile. Formerly duplicated in a respond-below(xl) block —
+   the JS measurement is now the single collapse mechanism on desktop. */
+@mixin topbar-menu-collapse {
   .btn.menuBtn {
     display: inline-flex;
   }
@@ -436,96 +440,8 @@
   }
 }
 
-/* ========================================
-   Responsive Toolbar
-   ======================================== */
-
-// Breakpoint for collapsing secondary actions into menu
-@include respond-below(xl) {
-  .btn.menuBtn {
-    display: inline-flex; // Show hamburger
-  }
-
-  .collapsibleBtns {
-    display: none; // Hide from main bar
-    flex-direction: column;
-    position: absolute;
-    top: 100%; 
-    left: 8px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-md);
-    padding: var(--space-3);
-    box-shadow: var(--shadow-lg);
-    z-index: 1200;
-    align-items: stretch;
-    min-width: 180px;
-    gap: var(--space-3);
-
-    &.show {
-      display: flex !important;
-      animation: menuFadeIn 0.2s ease;
-    }
-
-    .btn {
-      justify-content: flex-start;
-      width: 100%;
-      min-width: 0;
-      height: 36px; // Slightly taller buttons in the dropdown for touch
-    }
-
-    #mirrorBtn,
-    #flipCanvasBtn,
-    #appSettingsBtn {
-      width: 100%;
-      min-width: 0;
-      padding: 8px;
-    }
-
-    .btnText,
-    #mirrorBtn .btnText,
-    #flipCanvasBtn .btnText,
-    #appSettingsBtn .btnText {
-      display: inline !important;
-    }
-
-    .btnIcon,
-    #mirrorBtn .btnIcon,
-    #flipCanvasBtn .btnIcon,
-    #appSettingsBtn .btnIcon {
-      display: none !important;
-      margin-right: 8px;
-    }
-
-    .mirrorContainer, .devContainer {
-      justify-content: space-between;
-      padding: 0 var(--space-1);
-    }
-  }
-
-  .zoomPercent {
-    padding: 0 2px;
-  }
-}
-
-// Breakpoint for condensing text to icons (e.g., Save/Upload/Chat/Exit)
-@include respond-below(lg) {
-  @include toolbar-icon-collapse('.saveUploadGroup .btn, #inboxBtn, #roomSettingsBtn, #disconnectBtn');
-
-  #chatBtn .btnIcon img {
-    width: 24px;
-    height: 24px;
-  }
-
-  #inboxBtn .btnIcon img {
-    width: 18px;
-    height: 18px;
-  }
-
-  #roomSettingsBtn .btnIcon svg,
-  #roomSettingsBtn .btnIcon path {
-    fill: var(--accent-primary);
-  }
+.boardBtns.force-menu-collapse {
+  @include topbar-menu-collapse;
 }
 
 // Further adjustments for smaller screens
@@ -540,8 +456,10 @@
     padding: 6px 8px;
     gap: var(--space-1);
   }
-  
-  .zoomGroup {
+
+  // Narrow desktop-web only: mobile has its own slim bar and must not
+  // float the zoom group over the canvas.
+  html:not([data-mobile='true']) .zoomGroup {
     position: fixed;
     top: 42px;
     left: 92px;
@@ -558,7 +476,7 @@
   body.desktop-window-chrome .zoomGroup {
     top: calc(var(--desktop-titlebar-height) + 42px);
   }
-  
+
   .right {
     gap: var(--space-1);
   }
@@ -570,6 +488,79 @@
   .saveUploadGroup {
     gap: var(--space-1);
   }
+}
+
+/* ========================================
+   Mobile Slim Bar
+   ======================================== */
+
+/* Mobile app mode: the topbar is permanently collapsed — hamburger holds
+   everything except zoom reset, chat and exit. Secondary buttons are moved
+   into #collapsibleBtns at startup by MobileLayoutController, and
+   App.updateTopbarCollapseState() short-circuits so the overflow
+   measurement never fights this layout. */
+html[data-mobile='true'] .boardBtns {
+  @include topbar-menu-collapse;
+  @include toolbar-icon-collapse('#chatBtn, #disconnectBtn');
+
+  #chatBtn .btnIcon img {
+    width: 24px;
+    height: 24px;
+  }
+
+  // Connection state: dot only, no text on the slim bar.
+  .connectionText,
+  .connectionRoom {
+    display: none;
+  }
+
+  // Touch ergonomics: taller bar buttons, 44px dropdown items.
+  .btn {
+    height: 40px;
+  }
+
+  .btn.menuBtn,
+  #zoomResetBtn,
+  #chatBtn,
+  #disconnectBtn {
+    min-width: 40px;
+  }
+
+  .collapsibleBtns .btn {
+    height: 44px;
+  }
+
+  .collapsibleBtns {
+    max-height: calc(100dvh - 60px);
+    overflow-y: auto;
+
+    .mobileMenuSection {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: var(--space-3);
+      border-top: 1px solid var(--border-subtle);
+      padding-top: var(--space-3);
+    }
+
+    // Relocated zoom/flip buttons stay as one compact row inside the menu.
+    .zoomBtns {
+      display: flex;
+      flex-direction: row;
+      gap: 4px;
+
+      .btn {
+        width: auto;
+        flex: 1 1 0;
+        justify-content: center;
+      }
+    }
+  }
+}
+
+// Android app: keep the bar clear of display cutouts / status bar.
+html[data-android-app='true'] .boardBtns {
+  padding-top: calc(2px + env(safe-area-inset-top, 0px));
 }
 
 @keyframes menuFadeIn {

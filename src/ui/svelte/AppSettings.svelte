@@ -1,5 +1,6 @@
 <script>
   import { appState } from '../../state.svelte.js';
+  import { isMobile } from '../../platform/mobile.js';
   import {
     createDefaultAppPreferences,
     DEFAULT_REPLAY_PREFERENCES,
@@ -756,14 +757,16 @@ function getChatOpacity() {
                   <span>Gallery Time-lapse</span>
                 </label>
               {/if}
-              <label class="settings-toggle-compact">
-                <input
-                  type="checkbox"
-                  checked={isBoardViewEnabled()}
-                  onchange={(event) => updateBoardViewEnabled(event.currentTarget.checked)}
-                />
-                <span>Enable Board View</span>
-              </label>
+              {#if !isMobile()}
+                <label class="settings-toggle-compact">
+                  <input
+                    type="checkbox"
+                    checked={isBoardViewEnabled()}
+                    onchange={(event) => updateBoardViewEnabled(event.currentTarget.checked)}
+                  />
+                  <span>Enable Board View</span>
+                </label>
+              {/if}
             </div>
 
             <div class="settings-slider-stack">

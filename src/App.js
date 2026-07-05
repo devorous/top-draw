@@ -25,6 +25,8 @@ import { bindPressAction } from './utils/buttonBinding.js';
 import { Moderation } from './auth/Moderation.js';
 import { ColorInputMenu } from './ui/ColorInputMenu.js';
 import { ColorController } from './ui/ColorController.js';
+import { MobileLayoutController } from './ui/MobileLayoutController.js';
+import { isMobile, MOBILE_HIDDEN_TOOLS } from './platform/mobile.js';
 import { SaveController } from './ui/SaveController.js';
 import { PatternOptionsController } from './ui/PatternOptionsController.js';
 import { RecordingController } from './ui/RecordingController.js';
@@ -232,6 +234,7 @@ export class DrawingApp {
     this.recording = new RecordingController(this);
     this.updateNotices = new UpdateNoticeController(this);
     this.chatController = new ChatController(this);
+    this.mobileLayout = new MobileLayoutController(this);
 
     this.self = null;
     this.isOnBoard = false;
@@ -768,6 +771,8 @@ export class DrawingApp {
       window.app = this;
 
       this.setupEventListeners();
+      this.mobileLayout.init();
+      this.scheduleTopbarCollapseUpdate();
       this.ui.updateTextPositionMultiplierValue(this.self.textPositionMultiplier);
       this.ui.updateTextPositionOffsetValue(this.self.textPositionOffset);
       this.updateAuthenticatedActionVisibility();
@@ -3600,6 +3605,7 @@ export class DrawingApp {
       <span class="btnIcon" style="display: none;"><img src="../images/settings-icon.svg" alt="Settings"></span>
     `;
     collapsible.appendChild(appSettingsBtn);
+    this.scheduleTopbarCollapseUpdate();
   }
 
   scheduleTopbarCollapseUpdate() {
@@ -3614,6 +3620,10 @@ export class DrawingApp {
   }
 
   updateTopbarCollapseState() {
+    // Mobile: the bar is permanently collapsed via CSS and buttons are
+    // relocated into the hamburger — measurement would fight that layout.
+    if (isMobile()) return;
+
     const toolbar = document.querySelector('.boardBtns');
     if (!toolbar) return;
 
@@ -3958,6 +3968,11 @@ export class DrawingApp {
    * @param {string} tool - The name of the tool to select.
    */
   selectTool(tool) {
+    // Mobile trims these tools from the UI; block activation here too so
+    // keyboard shortcuts (BT keyboards) can't reach them. Remote users
+    // drawing with them still render — only local selection is gated.
+    if (isMobile() && MOBILE_HIDDEN_TOOLS.includes(tool)) return;
+
     this.clearActiveCustomPreset();
     if (this.self.tool === 'pan') {
       this.self.panning = false;
@@ -6301,15 +6316,7 @@ export class DrawingApp {
     this.board.calculateDefaultView();
     this.board.preserveViewOnResize();
     this.scheduleTopbarCollapseUpdate();
-
-    // Auto-collapse sidebar on narrow screens
-    const width = window.innerWidth;
-    const isNarrow = width < 768;
-    
-    if (this._wasNarrow !== isNarrow) {
-      this.ui.setSidebarCollapsed(isNarrow);
-      this._wasNarrow = isNarrow;
-    }
+    this.mobileLayout.handleResize();
   }
 
   // Image Upload/Drop handlers

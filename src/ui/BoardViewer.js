@@ -1,4 +1,5 @@
 import { isTauriDesktop } from '../platform/desktop.js';
+import { isMobile } from '../platform/mobile.js';
 import { bindPressAction } from '../utils/buttonBinding.js';
 
 const AUTO_SHOW_ZOOM = 1.5;
@@ -63,6 +64,12 @@ export class BoardViewer {
   }
 
   init() {
+    // Board View is desktop-only: never build the panel, launch button or
+    // zoom auto-show on mobile (setMainZoom early-returns when !enabled).
+    if (isMobile()) {
+      this.enabled = false;
+      return;
+    }
     this._build();
     this._fitToPanel();
     this._bind();
@@ -193,6 +200,7 @@ export class BoardViewer {
   }
 
   setEnabled(enabled) {
+    if (enabled && isMobile()) return; // unavailable on mobile — UI never built
     this.enabled = enabled;
     localStorage.setItem('boardViewerEnabled', enabled ? 'true' : 'false');
     if (!enabled) {

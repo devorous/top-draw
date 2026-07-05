@@ -3,7 +3,9 @@ function hasTauriGlobals() {
 }
 
 export function isTauriDesktop() {
-  return hasTauriGlobals();
+  // The Tauri Android build exposes the same globals; desktop-only paths
+  // (native dialogs, updater, popout windows) must not run there.
+  return hasTauriGlobals() && !(typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent));
 }
 
 async function invokeDesktop(command, payload = {}) {

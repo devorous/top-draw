@@ -1,5 +1,10 @@
 function isDesktopApp() {
-  return typeof window !== 'undefined' && !!(window.__TAURI_INTERNALS__ || window.__TAURI_METADATA__);
+  // Tauri Android exposes the same globals — no custom titlebar there.
+  return (
+    typeof window !== 'undefined' &&
+    !!(window.__TAURI_INTERNALS__ || window.__TAURI_METADATA__) &&
+    !/Android/i.test(navigator.userAgent)
+  );
 }
 
 async function initEarlyDesktopChrome() {

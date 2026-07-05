@@ -113,6 +113,27 @@
   display: none;
 }
 
+/* Mobile: enlarge native range thumbs (dual pressure slider, inline .slider
+   ranges) to finger-sized targets. PointerSlider handles its own thumb. */
+html[data-mobile='true'] {
+  input[type='range'].slider::-webkit-slider-thumb,
+  .dual-slider input[type='range']::-webkit-slider-thumb {
+    width: 24px;
+    height: 24px;
+  }
+
+  input[type='range'].slider::-moz-range-thumb,
+  .dual-slider input[type='range']::-moz-range-thumb {
+    width: 24px;
+    height: 24px;
+  }
+
+  .adjustBtn {
+    width: 32px;
+    height: 32px;
+  }
+}
+
 /* ========================================
    Image Brush Options
    ======================================== */

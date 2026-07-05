@@ -6,13 +6,22 @@
     <link id="favicon" rel="icon" href="/images/pepper.ico">
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 
     <script>
       (() => {
-        const isDesktop = typeof window !== 'undefined' && !!(window.__TAURI_INTERNALS__ || window.__TAURI_METADATA__);
-        if (isDesktop) {
+        // Keep in sync with src/platform/mobile.js / desktop.js — runs pre-paint
+        // so [data-desktop-app]/[data-mobile] CSS applies without a flash.
+        const hasTauri = typeof window !== 'undefined' && !!(window.__TAURI_INTERNALS__ || window.__TAURI_METADATA__);
+        const isAndroid = /Android/i.test(navigator.userAgent);
+        if (hasTauri && !isAndroid) {
           document.documentElement.dataset.desktopApp = 'true';
+        }
+        const isMobile = (hasTauri && isAndroid) ||
+          (matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 768);
+        if (isMobile) {
+          document.documentElement.dataset.mobile = 'true';
+          if (hasTauri && isAndroid) document.documentElement.dataset.androidApp = 'true';
         }
       })();
     </script>

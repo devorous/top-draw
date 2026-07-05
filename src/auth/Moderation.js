@@ -177,6 +177,8 @@ export class Moderation {
 
     if (this.isMod() && (!this._modUIInjected || !hasToolbar || !hasPanel)) {
       this._injectModUI();
+      // Injected buttons change the toolbar width — re-measure collapse state.
+      window.app?.scheduleTopbarCollapseUpdate?.();
     }
 
     const elements = document.querySelectorAll('.modOnly');

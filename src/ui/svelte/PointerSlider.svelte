@@ -213,5 +213,18 @@
     transform: translateY(-50%) scale(1.2);
     box-shadow: 0 0 0 4px var(--accent-glow, rgba(0, 212, 170, 0.25));
   }
+
+  /* Mobile: taller track + bigger thumb for finger-sized targets */
+  :global(html[data-mobile='true']) .slider {
+    height: 10px;
+    border-radius: 5px;
+  }
+
+  :global(html[data-mobile='true']) .slider-thumb {
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    left: calc(var(--thumb-position, 50%) - 12px);
+  }
 </style>
 

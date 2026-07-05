@@ -8,6 +8,7 @@ import { badgesForUser, renderBadgesInto } from './Badges.js';
 import { RemoteUserUI } from './RemoteUserUI.js';
 import { LayerPreview } from './LayerPreview.js';
 import { ResizableSections } from './ResizableSections.js';
+import { isMobile } from '../platform/mobile.js';
 import { appState } from '../state.svelte.js';
 import PointerSlider from './svelte/PointerSlider.svelte';
 import {
@@ -224,6 +225,10 @@ export class UI {
    * Initializes resizable sections in the tool options panel
    */
   initResizableSections() {
+    // Mobile: the options panel is a fixed overlay whose height differs from
+    // the desktop column — persisted section heights would overflow it, and
+    // drag handles are hidden anyway. Sections fall back to plain flex sizing.
+    if (isMobile()) return;
     this.resizableSections = new ResizableSections('sidebarTop', [
       { id: 'userList', minHeight: 40, defaultHeight: 150, hasPersistentContent: true },
       { id: 'toolSliders', minHeight: 50, defaultHeight: 120, contentSelector: '.sliders' },
@@ -301,6 +306,13 @@ export class UI {
    * @param {Object} preferences - App preferences object
    */
   applySidebarWidths(preferences) {
+    // Mobile: fixed rail width and overlay panel — ignore persisted desktop widths.
+    if (isMobile()) {
+      document.documentElement.style.setProperty('--sidebar-width', '200px');
+      document.documentElement.style.setProperty('--tools-width', '48px');
+      return;
+    }
+
     const sidebarWidth = preferences?.general?.sidebarWidth ?? 200;
     const toolsWidth = preferences?.general?.toolsWidth ?? 48;
 

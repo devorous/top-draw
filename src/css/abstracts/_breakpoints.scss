@@ -97,6 +97,18 @@
   }
 }
 
+/// Target the mobile app UI (set pre-paint by the bootstrap script in
+/// go/index.html — Tauri Android or coarse-pointer small screens).
+/// Unlike media queries this is a fixed per-session mode, so layout
+/// never flaps when the soft keyboard resizes the viewport.
+/// @example
+///   #toolOptions { @include mobile-app { position: fixed; } }
+@mixin mobile-app {
+  @at-root html[data-mobile='true'] & {
+    @content;
+  }
+}
+
 // ========================================
 // Orientation Queries
 // ========================================

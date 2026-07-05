@@ -54,6 +54,100 @@ html[data-sidebar-side='left'] #sideMenu {
   }
 }
 
+/* Mobile app mode: the options panel becomes a fixed overlay next to the
+   icon rail instead of a persistent column. The .collapsed class (and all
+   UI.js toggle wiring) keeps working unchanged. */
+#toolOptions {
+  @include mobile-app {
+    position: fixed;
+    top: 0;
+    bottom: 0; // not 100vh — stays correct when the soft keyboard resizes the viewport
+    right: var(--tools-width);
+    // Capitalised Min() = CSS math function; lowercase collides with the
+    // project's Sass min() in abstracts/_functions.scss.
+    width: Min(320px, calc(100vw - var(--tools-width) - 16px));
+    border-left: 1px solid var(--border-subtle);
+    box-shadow: var(--shadow-lg);
+    z-index: 135;
+
+    &.collapsed {
+      width: Min(320px, calc(100vw - var(--tools-width) - 16px));
+      border-left-width: 1px;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateX(24px);
+    }
+  }
+}
+
+html[data-mobile='true'][data-sidebar-side='left'] #toolOptions {
+  right: auto;
+  left: var(--tools-width);
+  border-left: 0;
+  border-right: 1px solid var(--border-subtle);
+
+  &.collapsed {
+    border-right-width: 1px;
+    transform: translateX(-24px);
+  }
+}
+
+html[data-mobile='true'] {
+  // No drag-resizing on mobile: fixed rail width, overlay options panel,
+  // sections as plain flex children (ResizableSections is skipped in UI.init).
+  #sidebarResizeHandle,
+  .tools-resizer,
+  .resize-handle {
+    display: none;
+  }
+
+  .tools {
+    overflow-y: auto;
+    overflow-x: visible;
+  }
+
+  // Touch ergonomics: 44px minimum targets for tool buttons (rail + flyouts).
+  .tools .tool.btn:not(.sidebarUtilityBtn):not(.sidebarToggleBtn) {
+    width: 44px;
+    height: 44px;
+    margin-inline: 2px;
+  }
+
+  // The overlay panel is full-height — no need for the short-screen
+  // colour picker downscale.
+  #pickerContainer {
+    transform: none;
+  }
+
+  // Mobile tool trim (UI only — the tools stay registered so remote users
+  // drawing with them still render). Activation is also blocked in
+  // App.selectTool via MOBILE_HIDDEN_TOOLS.
+  #confettiBtn,
+  #imageBrushBtn,
+  #patternBtn,
+  #glitchBlurBtn,
+  #confettiModeOptions,
+  #imageBrushModeOptions,
+  #patternModeOptions {
+    display: none !important;
+  }
+}
+
+// Android app: keep the rail clear of gesture-nav / cutout insets.
+html[data-android-app='true'] {
+  #sideMenu {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  &:not([data-sidebar-side='left']) #sideMenu {
+    padding-right: env(safe-area-inset-right, 0px);
+  }
+
+  &[data-sidebar-side='left'] #sideMenu {
+    padding-left: env(safe-area-inset-left, 0px);
+  }
+}
+
 #sidebarTop {
   flex: 1 1 auto;
   min-height: 0;
@@ -362,6 +456,23 @@ html[data-sidebar-side='left'] .sidebarToggleBtn.active .sidebarIcon {
     left: 100%;
     padding-right: 4px;
     padding-left: 12px;
+  }
+}
+
+/* Mobile app mode: all groups always collapse into flyouts, regardless of
+   viewport height. Open/close is handled by App.setupToolGroupMenus. */
+html[data-mobile='true'] {
+  #moveGroup, #shapesGroup, #blurGroup { @include collapsed-group; }
+
+  &[data-sidebar-side='left'] {
+    #moveGroup, #shapesGroup, #blurGroup {
+      .toolSubgroup {
+        right: auto;
+        left: 100%;
+        padding-right: 4px;
+        padding-left: 12px;
+      }
+    }
   }
 }
 
