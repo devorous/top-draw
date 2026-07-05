@@ -104,8 +104,12 @@ class DrawingState {
   /**
    * Whether the user may rewind the board from a replay/history viewer
    * ("Undo to here"). A connected restore broadcasts to everyone, so it's
-   * moderator-gated — except when there's no shared board to harm: offline mode,
-   * or a room this browser created via "Create a room!" (temp ownership).
+   * moderator-gated — except when there's no shared board to harm: offline
+   * mode, or drawing alone in a room this browser created via "Create a
+   * room!" (temp ownership). The solo requirement matches the server gate
+   * (snapshots.js canRestoreWholeBoard: Trusted+ or solo occupant) — without
+   * it the button appears, the server silently drops the restore, and the
+   * replay closes as if it succeeded.
    * (Reads window.app for the non-reactive offline/ownership bits; re-evaluates
    * with selfRole since the viewer is re-mounted each time it opens.)
    */
@@ -114,6 +118,7 @@ class DrawingState {
     const app = (typeof window !== 'undefined') ? window.app : null;
     if (!app) return false;
     if (app.isOfflineMode) return true;
+    if (this.users.size > 1) return false;
     return app.wasCurrentRoomCreatedByThisBrowser?.() ?? false;
   }
 

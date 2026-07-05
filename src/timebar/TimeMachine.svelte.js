@@ -195,6 +195,8 @@ class TimeMachineState {
   _isSeeking = false;
   _seekGeneration = 0;
   _pendingSeekTimestamp = null;
+  /** Options of the queued seek (kept alongside `_pendingSeekTimestamp`). */
+  _pendingSeekOptions = null;
   _lastAppliedTimestamp = null;
   /**
    * Index into rec.deltas of the last applied delta, paired with the timestamp
@@ -696,6 +698,9 @@ class TimeMachineState {
     this.isOpen = false;
     this.isReviewing = false;
     this.isPlaying = false;
+    // Reset the bar-expanded toggle so isVisible never reads "a replay is
+    // showing" after the session ended. Open paths re-expand it.
+    this.isVisible = false;
     this.playbackRate = 1;
     this.clearTrimRange();
     this.isLoading = false;
@@ -707,6 +712,7 @@ class TimeMachineState {
     this.isPreviewMode = false;
     this._lastAppliedTimestamp = null;
     this._pendingSeekTimestamp = null;
+    this._pendingSeekOptions = null;
     this._pendingPlaybackTimestamp = null;
     this._source = 'server';
     this._localRecording = null;
@@ -739,7 +745,7 @@ class TimeMachineState {
   /**
    * Seek to a specific timestamp.
    * @param {number} timestamp
-   * @param {{ suppressPlaybackPause?: boolean }} [options]
+   * @param {{ suppressPlaybackPause?: boolean, forceFromOpening?: boolean }} [options]
    */
   async seek(timestamp, options = {}) {
     if (!this.isOpen) return;
@@ -785,6 +791,11 @@ class TimeMachineState {
 
       if (this._isSeeking) {
         this._pendingSeekTimestamp = this.currentTime;
+        // Keep the seek's options with it — dropping them here would strip
+        // forceFromOpening off a queued initial catch-up seek and let the
+        // retry rebuild from a flat checkpoint (wrong colours for unbaked
+        // complex-blend strokes on old flat-format tapes).
+        this._pendingSeekOptions = { forceFromOpening };
         this._seekGeneration += 1;
         return;
       }
@@ -800,11 +811,13 @@ class TimeMachineState {
         this._isSeeking = false;
         if (this.isOpen && this.isReviewing && this._pendingSeekTimestamp !== null) {
           const next = this._pendingSeekTimestamp;
+          const nextOptions = this._pendingSeekOptions;
           this._pendingSeekTimestamp = null;
+          this._pendingSeekOptions = null;
           // The pause-if-playing decision already ran when this position was
           // originally requested (and queued). Re-deciding here would pause a
           // playback that a scrub release just resumed.
-          this.seek(next, { suppressPlaybackPause: true });
+          this.seek(next, { ...nextOptions, suppressPlaybackPause: true });
         } else {
           // Nothing queued behind this seek — the pipeline has settled on the
           // requested frame, so a scrub release waiting on it can resume now.
@@ -825,6 +838,7 @@ class TimeMachineState {
     this.isScrubbing = true;
     this._seekGeneration += 1;
     this._pendingSeekTimestamp = null;
+    this._pendingSeekOptions = null;
     this._scrubLastRequestedTimestamp = this.currentTime;
     this._scrubLastSeekAt = 0;
     // Remember whether we were mid-playback so we can resume after the scrub
@@ -1072,6 +1086,7 @@ class TimeMachineState {
     this.isReviewing = false;
     this._lastAppliedTimestamp = null;
     this._pendingSeekTimestamp = null;
+    this._pendingSeekOptions = null;
     this._pendingPlaybackTimestamp = null;
     this.previewData = null;
     this._showReplayCanvas(false);
@@ -1240,6 +1255,11 @@ class TimeMachineState {
       fps,
       output,
       region,
+      // The timeline's trim brackets bound the render too: deltas before the
+      // trim start are pre-rolled into the first frame, deltas after the trim
+      // end are dropped. Untrimmed passes null = full tape.
+      rangeStartTs: this.hasTrimRange ? this.effectiveTrimStart : null,
+      rangeEndTs: this.hasTrimRange ? this.effectiveTrimEnd : null,
       renderCursors: opts.renderCursors === true,
       transparentBackground: opts.transparentBackground === true,
       backgroundColor: this._board?.backgroundColor,
@@ -1288,11 +1308,16 @@ class TimeMachineState {
 
   /**
    * Tape length (ms) a render will actually cover — the local recording's
-   * duration after dead-air removal. 0 when no local recording is active.
+   * duration after dead-air removal, bounded by the timeline's trim range.
+   * 0 when no local recording is active.
    */
   getRenderTapeDurationMs() {
     if (this._source !== 'local' || !this._localRecording) return 0;
-    return compressedTapeDurationMs(this._localRecording);
+    return compressedTapeDurationMs(
+      this._localRecording,
+      this.hasTrimRange ? this.effectiveTrimStart : null,
+      this.hasTrimRange ? this.effectiveTrimEnd : null,
+    );
   }
 
   async restoreLocalToCurrentState() {
@@ -1391,18 +1416,26 @@ class TimeMachineState {
 
   _onCheckpointListReceived(rawList) {
     const sorted = [...rawList].sort((a, b) => a.ts - b.ts);
-    this.checkpoints = sorted;
 
-    if (sorted.length > 0) {
-      this.sessionStart = sorted[0].ts;
-      this.sessionEnd = sorted[sorted.length - 1].ts;
-    } else {
-      this.sessionStart = Date.now();
-      this.sessionEnd = Date.now();
+    // No server history: replay DB disabled, an empty room history, or the
+    // viewer lacks read permission (the server answers all three with an
+    // empty list). Opening an empty timeline pinned to "now" would show a
+    // dead scrubber — surface it and stay closed instead.
+    if (sorted.length === 0) {
+      window.app?.ui?.showToast?.('No server history available for this room', 3000);
+      console.log('[TimeMachine] Server returned no checkpoints; timeline not opened');
+      return;
     }
+
+    this.checkpoints = sorted;
+    this.sessionStart = sorted[0].ts;
+    this.sessionEnd = sorted[sorted.length - 1].ts;
 
     this.currentTime = this.sessionEnd;
     this.clearTrimRange();
+    // Fresh open starts with the bar expanded; a mid-session list refresh
+    // must not override the user's collapse toggle.
+    if (!this.isOpen) this.isVisible = true;
     this.isOpen = true;
     this._startLiveTick();
 

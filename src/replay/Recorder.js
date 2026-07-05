@@ -190,14 +190,24 @@ export class Recorder {
   snapshot() {
     if (this.state !== 'recording' || !this.recording) return null;
     const rec = this.recording;
+    // Deep-clone the snapshot payloads so the bundle really is frozen — the
+    // live recording keeps going after this returns, and any future
+    // post-processing of a viewed bundle must not reach back into the tape.
+    // Snapshots carry Uint8Arrays (QOI layer state), so the JSON fallback in
+    // structuredCloneSafe would mangle them — on clone failure keep sharing
+    // the reference instead. Visual-checkpoint blobs are immutable; sharing
+    // them is safe.
+    const cloneSnapshot = (snap) => {
+      try { return structuredClone(snap); } catch { return snap; }
+    };
     return {
       version: rec.version,
       roomId: rec.roomId,
       startedAt: rec.startedAt,
       endedAt: Date.now(),
-      openingSnapshot: rec.openingSnapshot,
+      openingSnapshot: cloneSnapshot(rec.openingSnapshot),
       deltas: rec.deltas.map((d) => ({ ts: d.ts, msg: structuredCloneSafe(d.msg), dir: d.dir })),
-      intraCheckpoints: rec.intraCheckpoints.map((cp) => ({ ts: cp.ts, snapshot: cp.snapshot })),
+      intraCheckpoints: rec.intraCheckpoints.map((cp) => ({ ts: cp.ts, snapshot: cloneSnapshot(cp.snapshot) })),
       visualCheckpoints: rec.visualCheckpoints.map((cp) => ({ ts: cp.ts, blob: cp.blob })),
       assets: { ...rec.assets },
     };
@@ -241,10 +251,6 @@ export class Recorder {
   _append(msg, dir) {
     if (this.state !== 'recording' || !this.recording) return;
     if (!shouldRecord(msg)) return;
-    if (this._maxLengthMs > 0 && this.elapsedMs() >= this._maxLengthMs) {
-      this._autoStop('max recording length reached');
-      return;
-    }
 
     // The server echoes commit-class messages (MU, FILL, SEL_COMMIT, UNDO, …)
     // back to the sender so its strokeLog stays in sync. We see the same
@@ -282,6 +288,13 @@ export class Recorder {
     }
     this.recording.deltas.push({ ts: Date.now(), msg: cloned, dir });
     this._activitySinceVisual = true;
+
+    // Check the length cap after recording so the delta that trips it stays
+    // on the tape (the max-length timer usually stops us first; this is the
+    // backstop for throttled timers).
+    if (this._maxLengthMs > 0 && this.elapsedMs() >= this._maxLengthMs) {
+      this._autoStop('max recording length reached');
+    }
   }
 
   /** @private */

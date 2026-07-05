@@ -26,9 +26,23 @@ function canManualSaveSnapshot(ws, room) {
   return authorize(ws, Action.MOD_MUTE, null) || isSoloRoomOccupant(room);
 }
 
-function canRestoreWholeBoard(ws) {
-  // Full-board restore is Trusted+ only (no solo-user bypass).
-  return authorize(ws, Action.MOD_MUTE, null);
+function canRestoreWholeBoard(ws, room) {
+  // Full-board restore is Trusted+, or a user alone in the room — with nobody
+  // else's work on the shared board there is nothing to harm. Mirrors the
+  // region-restore gate (canLoadSnapshot) and the client's "Undo to here"
+  // visibility rule (state.svelte.js canUndoReplayHistory).
+  return authorize(ws, Action.MOD_MUTE, null) || isSoloRoomOccupant(room);
+}
+
+function sendRestorePermissionDenied(ws, room) {
+  // The restore has no dedicated ack; a MOD_RESULT denial surfaces as a toast
+  // client-side (AuthModHandlers 'mod_result'), so a refused restore is at
+  // least visible instead of silently doing nothing.
+  ws.send(room.Msg.encode(room.Msg.create({
+    t: T.MOD_RESULT,
+    a: false,
+    authError: 'Only trusted users (or someone alone in the room) can restore the board'
+  })).finish());
 }
 
 function getSnapshotMaxPerRoom() {
@@ -412,7 +426,10 @@ export async function handleSnapshotList(ws, data, room) {
  * @param {Room} room - The room instance.
  */
 export async function handleSnapshotRestore(ws, data, room) {
-  if (!canRestoreWholeBoard(ws)) return; // Trusted+ only
+  if (!canRestoreWholeBoard(ws, room)) {
+    sendRestorePermissionDenied(ws, room);
+    return;
+  }
 
   const snapshotId = data.snapshotId;
   let snapshotData = null;
@@ -616,7 +633,10 @@ export async function handleSnapshotGet(ws, data, room) {
  * @param {Room} room
  */
 export async function handleSnapshotRegionRestore(ws, data, room) {
-  if (!canLoadSnapshot(ws, room)) return; // Trusted+ only unless user is alone in the room
+  if (!canLoadSnapshot(ws, room)) { // Trusted+ only unless user is alone in the room
+    sendRestorePermissionDenied(ws, room);
+    return;
+  }
 
   const snapshotId = data.snapshotId;
   let snapshotData = null;

@@ -38,6 +38,20 @@ function remainingChunk(entries, fromIdx) {
   return chunk;
 }
 
+/** Clamp an optional [rangeStartTs, rangeEndTs] render window into the tape. */
+function resolveRenderRange(recording, rangeStartTs, rangeEndTs) {
+  const deltas = recording.deltas || [];
+  const tapeStart = recording.startedAt;
+  const tapeEnd = recording.endedAt ?? (deltas.length > 0 ? deltas[deltas.length - 1].ts : tapeStart);
+  const rangeStart = Number.isFinite(rangeStartTs)
+    ? Math.max(tapeStart, Math.min(rangeStartTs, tapeEnd))
+    : tapeStart;
+  const rangeEnd = Number.isFinite(rangeEndTs)
+    ? Math.max(rangeStart, Math.min(rangeEndTs, tapeEnd))
+    : tapeEnd;
+  return { rangeStart, rangeEnd };
+}
+
 /**
  * Stamp every delta with a virtual timestamp on the compressed activity clock:
  * the virtual gap between consecutive deltas is the real gap capped at
@@ -45,45 +59,63 @@ function remainingChunk(entries, fromIdx) {
  * the start of the real gap, so a virtual playhead converts back to a real
  * timestamp as `lastReal + (vt - lastVirtual)`.
  *
+ * An optional render range (the timeline's trim brackets) bounds the walk:
+ * deltas at or before the range start come back as `preRoll` — applied in one
+ * batch to build the starting state, never stepped frame-by-frame — and
+ * deltas past the range end are dropped entirely.
+ *
  * @param {import('./Recorder.js').ReplayRecording} recording
- * @returns {{startTs: number, entries: Array<{vts: number, ts: number, msg: Object}>, vEnd: number}}
+ * @param {number|null} [rangeStartTs] - Absolute tape ts; null = tape start.
+ * @param {number|null} [rangeEndTs] - Absolute tape ts; null = tape end.
+ * @returns {{startTs: number, preRoll: Array<{timestamp: number, msg: Object}>, entries: Array<{vts: number, ts: number, msg: Object}>, vEnd: number}}
  */
-function buildCompressedTimeline(recording) {
-  const startTs = recording.startedAt;
+function buildCompressedTimeline(recording, rangeStartTs = null, rangeEndTs = null) {
   const deltas = recording.deltas || [];
-  const realEnd = recording.endedAt ?? (deltas.length > 0 ? deltas[deltas.length - 1].ts : startTs);
+  const { rangeStart, rangeEnd } = resolveRenderRange(recording, rangeStartTs, rangeEndTs);
 
-  const entries = new Array(deltas.length);
-  let prevReal = startTs;
-  let prevVirtual = startTs;
+  const preRoll = [];
+  const entries = [];
+  let prevReal = rangeStart;
+  let prevVirtual = rangeStart;
   for (let i = 0; i < deltas.length; i++) {
     const d = deltas[i];
+    if (d.ts <= rangeStart) {
+      preRoll.push({ timestamp: d.ts, msg: d.msg });
+      continue;
+    }
+    if (d.ts > rangeEnd) break;
     const vts = prevVirtual + Math.min(Math.max(d.ts - prevReal, 0), IDLE_LEADOUT_MS);
-    entries[i] = { vts, ts: d.ts, msg: d.msg };
+    entries.push({ vts, ts: d.ts, msg: d.msg });
     prevReal = d.ts;
     prevVirtual = vts;
   }
-  const vEnd = prevVirtual + Math.min(Math.max(realEnd - prevReal, 0), IDLE_LEADOUT_MS);
-  return { startTs, entries, vEnd };
+  const vEnd = prevVirtual + Math.min(Math.max(rangeEnd - prevReal, 0), IDLE_LEADOUT_MS);
+  return { startTs: rangeStart, preRoll, entries, vEnd };
 }
 
 /**
  * Tape duration (ms) after dead-air removal — what a render will actually
- * cover. Used by the dialog's output-length estimate.
+ * cover. Used by the dialog's output-length estimate. Accepts the same
+ * optional render range as buildCompressedTimeline so a trimmed timeline
+ * estimates only the trimmed window.
  * @param {import('./Recorder.js').ReplayRecording} recording
+ * @param {number|null} [rangeStartTs]
+ * @param {number|null} [rangeEndTs]
  */
-export function compressedTapeDurationMs(recording) {
+export function compressedTapeDurationMs(recording, rangeStartTs = null, rangeEndTs = null) {
   if (!recording) return 0;
   const deltas = recording.deltas || [];
-  const startTs = recording.startedAt;
-  const realEnd = recording.endedAt ?? (deltas.length > 0 ? deltas[deltas.length - 1].ts : startTs);
+  const { rangeStart, rangeEnd } = resolveRenderRange(recording, rangeStartTs, rangeEndTs);
   let total = 0;
-  let prev = startTs;
+  let prev = rangeStart;
   for (let i = 0; i < deltas.length; i++) {
-    total += Math.min(Math.max(deltas[i].ts - prev, 0), IDLE_LEADOUT_MS);
-    prev = deltas[i].ts;
+    const ts = deltas[i].ts;
+    if (ts <= rangeStart) continue;
+    if (ts > rangeEnd) break;
+    total += Math.min(Math.max(ts - prev, 0), IDLE_LEADOUT_MS);
+    prev = ts;
   }
-  total += Math.min(Math.max(realEnd - prev, 0), IDLE_LEADOUT_MS);
+  total += Math.min(Math.max(rangeEnd - prev, 0), IDLE_LEADOUT_MS);
   return total;
 }
 
@@ -95,6 +127,8 @@ export function compressedTapeDurationMs(recording) {
  * @property {number} fps                       - Output video frame rate
  * @property {'video'|'sequence'} [output='video'] - Render target format
  * @property {{x: number, y: number, width: number, height: number}|null} region - null = full board
+ * @property {number|null} [rangeStartTs] - Absolute tape ts to start rendering from (the timeline's trim start); null = tape start. Deltas before it are pre-rolled into the first frame.
+ * @property {number|null} [rangeEndTs] - Absolute tape ts to stop rendering at (trim end); null = tape end.
  * @property {[number, number, number, number]} [backgroundColor] - rgba 0-255, alpha 0-1 (defaults to white)
  * @property {boolean} [transparentBackground=false] - skip the background fill so frames keep an alpha channel (image-sequence output only — WebM/VP8 video cannot store alpha)
  * @property {boolean} [renderCursors=false]    - paint bot cursor markers on each frame
@@ -172,8 +206,12 @@ export class TimeLapseExporter {
 
     await this._engine.loadSnapshot(recording.openingSnapshot);
     if (this._cancelled) return null;
-    const startTs = recording.startedAt;
-    await this._engine.processActions([], startTs);
+    // Build the (possibly trimmed) timeline, then apply the pre-roll — every
+    // delta at or before the range start — in one batch, so the first encoded
+    // frame is the state at the trim start rather than the tape opening.
+    const { startTs, preRoll, entries, vEnd } = buildCompressedTimeline(
+      recording, this._opts.rangeStartTs, this._opts.rangeEndTs);
+    await this._engine.processActions(preRoll, startTs);
     if (this._cancelled) return null;
 
     const bitrate = estimateBitrate(r.width, r.height, fps);
@@ -214,7 +252,6 @@ export class TimeLapseExporter {
     // Walk the tape on the compressed activity clock so dead air doesn't
     // produce stretches of identical frames. The engine still gets real
     // timestamps (cursor idle-hide and vector-text fades depend on them).
-    const { entries, vEnd } = buildCompressedTimeline(recording);
     const tapeDuration = Math.max(1, vEnd - startTs);
     const tapePerFrameMs = (1000 / fps) * speed;
     const frameDurUs = Math.round(1_000_000 / fps);
@@ -363,11 +400,13 @@ export class TimeLapseExporter {
 
     // Load opening snapshot, then rebase so the snapshot pixels actually land
     // on the engine's base canvas (loadSnapshot alone doesn't paint — the
-    // rebase happens inside _runActionBatch when rebaseSnapshot=true).
+    // rebase happens inside _runActionBatch when rebaseSnapshot=true). The
+    // pre-roll (deltas at or before the trim start) rides in the same batch.
     await this._engine.loadSnapshot(recording.openingSnapshot);
     if (this._cancelled) return null;
-    const startTs = recording.startedAt;
-    await this._engine.processActions([], startTs);
+    const { startTs, preRoll, entries, vEnd } = buildCompressedTimeline(
+      recording, this._opts.rangeStartTs, this._opts.rangeEndTs);
+    await this._engine.processActions(preRoll, startTs);
     if (this._cancelled) return null;
 
     // Paint one frame before MediaRecorder starts so first sample isn't blank.
@@ -395,7 +434,6 @@ export class TimeLapseExporter {
 
     // Same compressed activity clock as the WebCodecs path — see
     // buildCompressedTimeline for the dead-air removal rules.
-    const { entries, vEnd } = buildCompressedTimeline(recording);
     const tapeDuration = Math.max(1, vEnd - startTs);
 
     const frameIntervalMs = 1000 / fps;
@@ -531,13 +569,15 @@ export class TimeLapseExporter {
 
     await this._engine.loadSnapshot(recording.openingSnapshot);
     if (this._cancelled) return null;
-    const startTs = recording.startedAt;
-    await this._engine.processActions([], startTs);
+    // Pre-roll (deltas at or before the trim start) rides in the rebase batch
+    // so the first frame shows the state at the trim start.
+    const { startTs, preRoll, entries, vEnd } = buildCompressedTimeline(
+      recording, this._opts.rangeStartTs, this._opts.rangeEndTs);
+    await this._engine.processActions(preRoll, startTs);
     if (this._cancelled) return null;
 
     this._drawFrame(r, bg);
 
-    const { entries, vEnd } = buildCompressedTimeline(recording);
     const tapeDuration = Math.max(1, vEnd - startTs);
 
     const frameIntervalMs = 1000 / fps;

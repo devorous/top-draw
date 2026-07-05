@@ -1096,6 +1096,14 @@ export class ReplayEngine {
       for (const cvs of [this._replayBoard.mainCanvas, this._replayBoard.topCanvas, this._replayBoard.upperLayersCanvas]) {
         if (cvs) { cvs.width = width; cvs.height = height; }
       }
+      if (this._replayBoard.selectionOverlay) {
+        // Board size + padding, matching the ReplayBoard constructor — a
+        // boot-time-sized overlay clips floating-selection previews near the
+        // right/bottom edges of a larger board.
+        const pad = this._replayBoard.selectionOverlayPadding ?? 0;
+        this._replayBoard.selectionOverlay.width = width + pad * 2;
+        this._replayBoard.selectionOverlay.height = height + pad * 2;
+      }
       if (this._replayBoard.layerManager) {
         this._replayBoard.layerManager.width = width;
         this._replayBoard.layerManager.height = height;

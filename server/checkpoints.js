@@ -136,7 +136,17 @@ export async function handleCheckpointUpload(ws, data, room) {
  * @param {Room} room - The room instance.
  */
 export async function handleCheckpointList(ws, room) {
-  if (!ensureCheckpointReadAccess(ws, room)) return;
+  // Below-Trusted viewers get an empty list, not a MOD_RESULT denial: the
+  // client awaits a CHECKPOINT_LIST_RESPONSE, so a denial-only reply leaves
+  // it hanging until its 10s timeout. An empty list reads as "no server
+  // history available", which is the right message for a passive viewer.
+  if (!canPerform(ws.userRole || 0, Action.MOD_MUTE)) {
+    ws.send(room.Msg.encode(room.Msg.create({
+      t: T.CHECKPOINT_LIST_RESPONSE,
+      checkpointList: []
+    })).finish());
+    return;
+  }
 
   if (!ENABLE_SERVER_REPLAY_DB) {
     ws.send(room.Msg.encode(room.Msg.create({
