@@ -33,6 +33,8 @@ export class SaveMode {
     this._isPanning = false;
     this._lastPanX = 0;
     this._lastPanY = 0;
+    this._activePointers = new Map();
+    this._pinch = null;
     this.viewZoom = 1;
     this.viewPanX = 0;
     this.viewPanY = 0;
@@ -49,7 +51,9 @@ export class SaveMode {
     this.shareToDiscord = false;
     this.tagUsername = true;
     this.galleryTitle = '';
+    this.galleryDescription = '';
     this.preExistingCanvasFixedSelection = false;
+    this.step = 'main'; // 'main' or 'gallery'
 
     this._createElements();
     this._setupEventListeners();
@@ -115,42 +119,48 @@ export class SaveMode {
     this.optionsPanel = document.createElement('div');
     this.optionsPanel.className = 'saveModeOptionsPanel';
     this.optionsPanel.innerHTML = `
-      <div class="saveModeOptionsPanelLead">
-        <span class="saveModeOptionsHint">Draw a selection or save the entire canvas</span>
-      </div>
-      <div class="saveModeOptionsPanelBody">
+      <div class="saveModeStep saveModeStepMain">
+        <div class="saveModeOptionsInfo">
+          <span class="saveModeOptionsHint">Draw a selection or save the entire canvas</span>
+          <span class="saveModeSelectionInfo"></span>
+        </div>
         <label class="saveModeOptionsCheckbox">
           <input type="checkbox" id="saveModeTransparent">
-          <span>Transparent Background</span>
+          <span>Transparent background</span>
         </label>
-        <label class="saveModeOptionsCheckbox">
-          <input type="checkbox" id="saveModeShareDiscord">
-          <span>Share to Discord</span>
-        </label>
-        <label class="saveModeOptionsCheckbox">
-          <input type="checkbox" id="saveModeTagUsername" checked>
-          <span>Tag Username</span>
-        </label>
+        <div class="saveModeOptionsActions">
+          <button class="btn secondary" id="saveModeCancelInteractive">Cancel</button>
+          <button class="btn secondary" id="saveModeCopyInteractive">Copy</button>
+          <button class="btn secondary" id="saveModeGalleryInteractive">Save to Gallery</button>
+          <button class="btn primary" id="saveModeLocalInteractive">Save Locally</button>
+        </div>
       </div>
-      <div class="saveModeOptionsPanelFooter">
-        <button class="btn secondary" id="saveModeCancelInteractive">Cancel</button>
-        <button class="btn secondary" id="saveModeCopyInteractive">Copy</button>
-        <button class="btn secondary" id="saveModeGalleryInteractive">Save to Gallery</button>
-        <button class="btn primary" id="saveModeLocalInteractive">Save Locally</button>
+      <div class="saveModeStep saveModeStepGallery" hidden>
+        <div class="saveModeGalleryFields">
+          <label class="saveModeField">
+            <span>Title</span>
+            <input id="saveModeTitle" type="text" maxlength="60" placeholder="Optional, max 60 characters" />
+          </label>
+          <div class="saveModeGalleryToggles">
+            <label class="saveModeOptionsCheckbox">
+              <input type="checkbox" id="saveModeShareDiscord">
+              <span>Share to Discord</span>
+            </label>
+            <label class="saveModeOptionsCheckbox">
+              <input type="checkbox" id="saveModeTagUsername" checked>
+              <span>Tag my username</span>
+            </label>
+          </div>
+          <label class="saveModeField saveModeDescriptionField">
+            <span>Description</span>
+            <textarea id="saveModeDescription" maxlength="300" rows="2" placeholder="Optional, max 300 characters"></textarea>
+          </label>
+        </div>
+        <div class="saveModeOptionsActions">
+          <button class="btn secondary" id="saveModeGalleryBack">Back</button>
+          <button class="btn primary" id="saveModeGalleryUpload">Upload to Gallery</button>
+        </div>
       </div>
-    `;
-
-    this.captionPanel = document.createElement('div');
-    this.captionPanel.className = 'saveModeCaptionPanel';
-    this.captionPanel.innerHTML = `
-      <label class="saveModeOptionsField saveModeCaptionField" for="saveModeTitle">
-        <span>Title</span>
-        <input id="saveModeTitle" type="text" maxlength="60" placeholder="Short title (optional, max 60 chars)" />
-      </label>
-      <label class="saveModeOptionsField saveModeCaptionField saveModeDescriptionField" for="saveModeDescription">
-        <span>Description</span>
-        <textarea id="saveModeDescription" maxlength="300" rows="2" placeholder="Describe your image (optional, max 300 chars)"></textarea>
-      </label>
     `;
 
     // Close button (top right)
@@ -163,7 +173,6 @@ export class SaveMode {
     this.overlay.appendChild(this.selectionCanvas);
     this.overlay.appendChild(controls);
     this.overlay.appendChild(this.optionsPanel);
-    this.overlay.appendChild(this.captionPanel);
     this.overlay.appendChild(closeBtn);
 
     // Insert into the top-level document layer so the save UI can stack above
@@ -187,6 +196,9 @@ export class SaveMode {
     this.zoomResetBtn = controls.querySelector('#saveModeZoomReset');
     this.zoomInBtn = controls.querySelector('#saveModeZoomIn');
     this.closeBtn = closeBtn;
+    this.stepMain = this.optionsPanel.querySelector('.saveModeStepMain');
+    this.stepGallery = this.optionsPanel.querySelector('.saveModeStepGallery');
+    this.selectionInfo = this.optionsPanel.querySelector('.saveModeSelectionInfo');
   }
 
   /**
@@ -215,6 +227,7 @@ export class SaveMode {
     this.selectionCanvas.addEventListener('pointermove', (e) => this._onPointerMove(e));
     this.selectionCanvas.addEventListener('pointerup', (e) => this._onPointerUp(e));
     this.selectionCanvas.addEventListener('pointerleave', (e) => this._onPointerUp(e));
+    this.selectionCanvas.addEventListener('pointercancel', (e) => this._onPointerUp(e));
 
     // Wheel events for zooming
     this.selectionCanvas.addEventListener('wheel', (e) => this._onWheel(e));
@@ -226,7 +239,9 @@ export class SaveMode {
     this.optionsPanel.querySelector('#saveModeCancelInteractive').addEventListener('click', () => this.close());
     this.optionsPanel.querySelector('#saveModeCopyInteractive').addEventListener('click', () => this._performCopy());
     this.optionsPanel.querySelector('#saveModeLocalInteractive').addEventListener('click', () => this._performSave(true));
-    this.optionsPanel.querySelector('#saveModeGalleryInteractive').addEventListener('click', () => this._performSave(false));
+    this.optionsPanel.querySelector('#saveModeGalleryInteractive').addEventListener('click', () => this._openGalleryStep());
+    this.optionsPanel.querySelector('#saveModeGalleryBack').addEventListener('click', () => this._showStep('main'));
+    this.optionsPanel.querySelector('#saveModeGalleryUpload').addEventListener('click', () => this._performSave(false));
 
     // Transparent checkbox
     this.optionsPanel.querySelector('#saveModeTransparent').addEventListener('change', (e) => {
@@ -242,23 +257,69 @@ export class SaveMode {
       this.tagUsername = e.target.checked;
     });
 
-    this.titleInput = this.captionPanel.querySelector('#saveModeTitle');
+    this.titleInput = this.optionsPanel.querySelector('#saveModeTitle');
     this.titleInput?.addEventListener('input', (e) => {
       this.galleryTitle = e.target.value;
     });
+    this.titleInput?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') this._performSave(false);
+    });
 
-    this.descriptionInput = this.captionPanel.querySelector('#saveModeDescription');
+    this.descriptionInput = this.optionsPanel.querySelector('#saveModeDescription');
     this.descriptionInput?.addEventListener('input', (e) => {
       this.galleryDescription = e.target.value;
     });
 
-    // Escape key to close
+    // Escape steps back out of the gallery form, then closes the overlay
     this._keyHandler = (e) => {
       if (e.key === 'Escape' && this.isActive) {
-        this.close();
+        if (this.step === 'gallery') {
+          this._showStep('main');
+        } else {
+          this.close();
+        }
       }
     };
     document.addEventListener('keydown', this._keyHandler);
+  }
+
+  /**
+   * Switches the bottom sheet between the main and gallery steps.
+   * @param {'main'|'gallery'} step
+   */
+  _showStep(step) {
+    this.step = step;
+    if (this.stepMain) this.stepMain.hidden = step !== 'main';
+    if (this.stepGallery) this.stepGallery.hidden = step !== 'gallery';
+  }
+
+  /**
+   * Opens the gallery details step (requires being logged in).
+   */
+  _openGalleryStep() {
+    if (!localStorage.getItem('topDrawAuthToken')) {
+      this.ui.showToast('Log in to save to the gallery');
+      return;
+    }
+    this._showStep('gallery');
+  }
+
+  /**
+   * Updates the selection size readout in the bottom sheet.
+   */
+  _updateSelectionInfo() {
+    if (!this.selectionInfo) return;
+
+    if (this.selection && this.selection.width > 0 && this.selection.height > 0) {
+      const w = Math.max(1, Math.round(this.selection.width));
+      const h = Math.max(1, Math.round(this.selection.height));
+      this.selectionInfo.textContent = `Selection · ${w} × ${h} px`;
+    } else {
+      const w = this.snapshotCanvas.width;
+      const h = this.snapshotCanvas.height;
+      const label = this.preExistingCanvas ? 'Full image' : 'Full board';
+      this.selectionInfo.textContent = `${label} · ${w} × ${h} px`;
+    }
   }
 
   /**
@@ -291,6 +352,7 @@ export class SaveMode {
     this.optionsPanel.querySelector('#saveModeTagUsername').checked = true;
     if (this.titleInput) this.titleInput.value = '';
     if (this.descriptionInput) this.descriptionInput.value = '';
+    this._showStep('main');
 
     // Size canvases to match board
     const [height, width] = this.board.dimensions;
@@ -298,6 +360,7 @@ export class SaveMode {
     this.snapshotCanvas.height = height;
     this.selectionCanvas.width = width;
     this.selectionCanvas.height = height;
+    this._updateSelectionInfo();
 
     // Take snapshot and draw with overlay
     this._drawSnapshot();
@@ -324,6 +387,7 @@ export class SaveMode {
       this.lassoPoints = [];
       this._drawSnapshot();
       this._drawSelection();
+      this._updateSelectionInfo();
     }
     this._syncControlState();
   }
@@ -698,10 +762,69 @@ export class SaveMode {
   }
 
   /**
+   * Starts a two-finger pinch gesture, cancelling any in-progress selection.
+   */
+  _beginPinch() {
+    if (this.isSelecting) {
+      this.isSelecting = false;
+      this.selection = null;
+      this.lassoPoints = [];
+      this._drawSnapshot();
+      this._drawSelection();
+      this._updateSelectionInfo();
+    }
+    this._isPanning = false;
+
+    const pts = [...this._activePointers.values()];
+    const overlayRect = this.overlay.getBoundingClientRect();
+    this._pinch = {
+      dist: Math.max(1, Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y)),
+      mid: {
+        x: (pts[0].x + pts[1].x) / 2 - overlayRect.left,
+        y: (pts[0].y + pts[1].y) / 2 - overlayRect.top
+      },
+      zoom: this.viewZoom,
+      panX: this.viewPanX,
+      panY: this.viewPanY
+    };
+  }
+
+  /**
+   * Applies zoom/pan from the current two-finger pinch state.
+   */
+  _updatePinch() {
+    const pts = [...this._activePointers.values()];
+    const overlayRect = this.overlay.getBoundingClientRect();
+    const dist = Math.max(1, Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y));
+    const mid = {
+      x: (pts[0].x + pts[1].x) / 2 - overlayRect.left,
+      y: (pts[0].y + pts[1].y) / 2 - overlayRect.top
+    };
+
+    const zoom = Math.max(0.2, Math.min(3, this._pinch.zoom * (dist / this._pinch.dist)));
+
+    // Keep the board point that was under the initial midpoint pinned to the
+    // current midpoint, so zoom and two-finger pan combine naturally.
+    const canvasX = (this._pinch.mid.x - this._pinch.panX) / this._pinch.zoom;
+    const canvasY = (this._pinch.mid.y - this._pinch.panY) / this._pinch.zoom;
+    this._setView(zoom, mid.x - canvasX * zoom, mid.y - canvasY * zoom);
+  }
+
+  /**
    * Handles pointer down events on the selection canvas.
    * @param {PointerEvent} e
    */
   _onPointerDown(e) {
+    // Two-finger touch: switch to pinch zoom/pan, cancelling any in-progress selection
+    if (e.pointerType === 'touch') {
+      this._activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      this.selectionCanvas.setPointerCapture(e.pointerId);
+      if (this._activePointers.size === 2) {
+        this._beginPinch();
+        return;
+      }
+    }
+
     // Check if we're in pan mode (Space held or middle-click)
     const isPanning = this.activeTool === 'pan' || this.app.self.panning || e.button === 1;
 
@@ -733,6 +856,16 @@ export class SaveMode {
    * @param {PointerEvent} e
    */
   _onPointerMove(e) {
+    if (this._activePointers.has(e.pointerId)) {
+      this._activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    }
+
+    // Handle pinch zoom/pan
+    if (this._pinch) {
+      if (this._activePointers.size >= 2) this._updatePinch();
+      return;
+    }
+
     // Handle panning
     if (this._isPanning) {
       const dx = e.clientX - this._lastPanX;
@@ -756,6 +889,7 @@ export class SaveMode {
       const height = Math.abs(pos.y - this.startPos.y);
 
       this.selection = { x, y, width, height };
+      this._updateSelectionInfo();
     } else {
       // Add point to lasso (with distance threshold to avoid too many points)
       const lastPoint = this.lassoPoints[this.lassoPoints.length - 1];
@@ -774,6 +908,21 @@ export class SaveMode {
    * @param {PointerEvent} e
    */
   _onPointerUp(e) {
+    if (e.pointerId !== undefined) {
+      this._activePointers.delete(e.pointerId);
+    }
+
+    // End pinch once fewer than two touch points remain
+    if (this._pinch) {
+      if (this._activePointers.size < 2) {
+        this._pinch = null;
+        if (e.pointerId !== undefined && this.selectionCanvas.hasPointerCapture?.(e.pointerId)) {
+          this.selectionCanvas.releasePointerCapture(e.pointerId);
+        }
+      }
+      return;
+    }
+
     // End panning
     if (this._isPanning) {
       this._isPanning = false;
@@ -798,6 +947,7 @@ export class SaveMode {
 
     this._drawSnapshot();
     this._drawSelection();
+    this._updateSelectionInfo();
   }
 
   /**
@@ -1000,6 +1150,7 @@ export class SaveMode {
     this.optionsPanel.querySelector('#saveModeTagUsername').checked = true;
     if (this.titleInput) this.titleInput.value = '';
     if (this.descriptionInput) this.descriptionInput.value = '';
+    this._showStep('main');
 
     // Size canvases to match the pre-existing canvas
     this.snapshotCanvas.width = canvas.width;
@@ -1011,6 +1162,7 @@ export class SaveMode {
     if (fixedSelection) {
       this.selection = { x: 0, y: 0, width: canvas.width, height: canvas.height };
     }
+    this._updateSelectionInfo();
 
     // Draw the canvas as the snapshot
     this._drawPreExistingSnapshot();
@@ -1082,9 +1234,12 @@ export class SaveMode {
 
     // Reset pan/zoom state
     this._isPanning = false;
+    this._pinch = null;
+    this._activePointers.clear();
     this.activeTool = 'select';
     this._setView(1, 0, 0, true);
     this._syncControlState();
+    this._showStep('main');
 
     // Restore mode toggle visibility
     this.modeToggle.style.display = '';

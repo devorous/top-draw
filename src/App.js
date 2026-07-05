@@ -1088,6 +1088,7 @@ export class DrawingApp {
     });
 
     elements.disconnectBtn.addEventListener('click', () => this.disconnect());
+    elements.roomsBtn?.addEventListener('click', () => this.openRoomsBrowser());
     if (elements.recordBtn) {
       elements.recordBtn.addEventListener('click', () => this.handleStartRecording());
     }
@@ -3914,6 +3915,22 @@ export class DrawingApp {
     // Forward to the FloatingArtManager component if it exists
     if (this.components?.floatingArt?.addItem) {
       this.components.floatingArt.addItem(item);
+    }
+  }
+
+  /**
+   * Opens the room browser overlay on top of the current room WITHOUT
+   * disconnecting. Reuses the landing page UI in an embedded "in-room" mode
+   * so the user can switch rooms or dismiss to return to the current board.
+   */
+  openRoomsBrowser() {
+    if (!this.landingPage) return;
+    this.landingPage.show({ inRoom: true });
+    // Request the live room list over the current room connection and preselect
+    // the room we're already in.
+    this.landingPage.refreshRooms();
+    if (this.currentRoomId) {
+      this.landingPage.selectRoom(this.currentRoomId);
     }
   }
 

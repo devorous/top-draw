@@ -808,6 +808,42 @@ body.desktop-window-chrome #landingPage {
   pointer-events: none;
 }
 
+/* In-room room browser (topbar "Rooms" button): a slim, floating rooms panel
+   that lets the board stay visible behind a light scrim instead of the opaque
+   entry backdrop. Only the rooms panel is shown; the auth panel is hidden. */
+#landingPage.landing-in-room {
+  background: rgba(0, 0, 0, 0.28);
+  backdrop-filter: none;
+  justify-content: center;
+
+  .landingAuth {
+    display: none;
+  }
+
+  .landingContainer {
+    max-width: 560px;
+    height: auto;
+    min-height: 0;
+    max-height: calc(100dvh - 140px);
+    margin-top: 0;
+  }
+
+  .landingRooms {
+    width: 100%;
+  }
+
+  /* The "Recent updates" changelog is a sibling of the container and would
+     otherwise float over the board — hide it in the slim in-room browser. */
+  .landingChangelogWindow {
+    display: none;
+  }
+
+  /* Nudge the connection status left so it clears the close (×) button. */
+  .landingHeader .landingConnectionStatus {
+    margin-right: 44px;
+  }
+}
+
 .landingContainer {
   display: flex;
   position: relative;
@@ -824,6 +860,35 @@ body.desktop-window-chrome #landingPage {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   overflow: hidden;
+}
+
+/* Close button for the embedded in-room room browser (topbar "Rooms" button).
+   Hidden on the normal full-screen landing entry; shown only in in-room mode. */
+.landingCloseBtn {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+
+  &:hover {
+    color: var(--text-primary);
+    background: var(--bg-elevated);
+    border-color: var(--accent-primary);
+  }
 }
 
 .landingChangelogWindow {
@@ -1348,7 +1413,6 @@ body.desktop-window-chrome #landingPage {
   &:hover {
     border-color: var(--accent-primary);
     background: var(--bg-elevated);
-    transform: translateX(2px);
   }
 
   &.selected {

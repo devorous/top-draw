@@ -366,7 +366,12 @@
     scheduleApplyStoredPosition();
   }
 
-  let lastNonZeroSfxVolume = $state(DEFAULT_SFX_PREFERENCES.volume);
+  let lastNonZeroSfxVolume = $state(initialNonZeroSfxVolume());
+
+  function initialNonZeroSfxVolume() {
+    const saved = Number(appState.appPreferences?.general?.sfx?.volume);
+    return Number.isFinite(saved) && saved > 0 ? Math.min(1, saved) : DEFAULT_SFX_PREFERENCES.volume;
+  }
 
   function getSfxPrefs() {
     return {
@@ -411,14 +416,6 @@
       const restore = lastNonZeroSfxVolume > 0 ? lastNonZeroSfxVolume : DEFAULT_SFX_PREFERENCES.volume;
       persistSfxVolume(restore);
     }
-  }
-
-  function getSfxIcon() {
-    const v = getSfxVolume();
-    if (v <= 0) return '\u{1F507}';
-    if (v < 0.34) return '\u{1F508}';
-    if (v < 0.67) return '\u{1F509}';
-    return '\u{1F50A}';
   }
 
   function showPublic() {
@@ -2079,12 +2076,24 @@
         <div class="titlebar-sfx" title="SFX volume">
           <button
             class="titlebar-btn sfx-mute-btn"
+            class:muted={getSfxVolume() <= 0}
             onclick={toggleSfxMute}
             title={getSfxVolume() > 0 ? 'Mute SFX' : 'Unmute SFX'}
             aria-label={getSfxVolume() > 0 ? 'Mute SFX' : 'Unmute SFX'}
+            aria-pressed={getSfxVolume() <= 0}
             type="button"
           >
-            <span class="sfx-icon" aria-hidden="true">{getSfxIcon()}</span>
+            <svg class="sfx-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M4 9.5v5h3.4l4.6 3.8V5.7L7.4 9.5H4z" fill="currentColor" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
+              {#if getSfxVolume() <= 0}
+                <path d="M16 9.5l5 5M21 9.5l-5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+              {:else}
+                <path d="M15.4 9.6a3.6 3.6 0 0 1 0 4.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                {#if getSfxVolume() >= 0.5}
+                  <path d="M18 7.2a7 7 0 0 1 0 9.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" opacity="0.85"/>
+                {/if}
+              {/if}
+            </svg>
           </button>
           <input
             class="sfx-slider"
@@ -2261,31 +2270,35 @@
     </div>
 
     <footer class="chat-composer">
-      {#if composerImage}
-        <div class="composer-preview">
-          <img src={composerImage.dataUrl} alt="Upload preview" />
-          <div class="composer-preview-copy">
-            <strong>{composerImage.name}</strong>
-            <span>Ready to send</span>
-          </div>
-          <button class="composer-preview-remove" onclick={removeComposerImage} onpointerup={(e) => e.pointerType !== 'mouse' && removeComposerImage()} type="button">Remove</button>
-        </div>
-      {/if}
+      {#if composerImage || showEmojiPicker}
+        <div class="composer-popovers">
+          {#if composerImage}
+            <div class="composer-preview">
+              <img src={composerImage.dataUrl} alt="Upload preview" />
+              <div class="composer-preview-copy">
+                <strong>{composerImage.name}</strong>
+                <span>Ready to send</span>
+              </div>
+              <button class="composer-preview-remove" onclick={removeComposerImage} onpointerup={(e) => e.pointerType !== 'mouse' && removeComposerImage()} type="button">Remove</button>
+            </div>
+          {/if}
 
-        {#if showEmojiPicker}
-          <div class="emoji-picker">
-            <div class="emoji-picker-section">
-              <span class="reaction-picker-label">Emojis</span>
-              <div class="reaction-picker-grid composer-emoji-grid">
-                {#each rankedComposerEmojis() as emoji (emoji)}
-                  <button class="emoji-btn" onclick={() => insertEmoji(emoji)} onpointerup={(e) => e.pointerType !== 'mouse' && insertEmoji(emoji)} type="button">
-                    {emoji}
-                  </button>
-                {/each}
+          {#if showEmojiPicker}
+            <div class="emoji-picker">
+              <div class="emoji-picker-section">
+                <span class="reaction-picker-label">Emojis</span>
+                <div class="reaction-picker-grid composer-emoji-grid">
+                  {#each rankedComposerEmojis() as emoji (emoji)}
+                    <button class="emoji-btn" onclick={() => insertEmoji(emoji)} onpointerup={(e) => e.pointerType !== 'mouse' && insertEmoji(emoji)} type="button">
+                      {emoji}
+                    </button>
+                  {/each}
+                </div>
               </div>
             </div>
-          </div>
-        {/if}
+          {/if}
+        </div>
+      {/if}
 
       <div class="composer-row">
         <input class="composer-file-input" bind:this={fileInputEl} onchange={handleFileInputChange} accept="image/*" type="file" />
@@ -2370,9 +2383,15 @@
     transform: none;
   }
 
+  .sfx-mute-btn.muted {
+    color: color-mix(in srgb, #ff8a80 62%, var(--text-primary));
+    opacity: 0.9;
+  }
+
   .sfx-icon {
-    font-size: 0.78rem;
-    line-height: 1;
+    display: block;
+    width: 14px;
+    height: 14px;
   }
 
   .sfx-slider {
@@ -2410,22 +2429,41 @@
   .sfx-slider::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
-    width: 10px;
-    height: 10px;
-    margin-top: -3px;
+    width: 11px;
+    height: 11px;
+    margin-top: -3.5px;
     border-radius: 999px;
-    background: var(--accent-primary);
-    border: 1px solid color-mix(in srgb, black 25%, transparent);
+    background: color-mix(in srgb, var(--accent-primary) 88%, white 12%);
+    border: 1px solid color-mix(in srgb, black 30%, transparent);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
     cursor: pointer;
+    transition: transform 0.12s ease;
+  }
+
+  .sfx-slider:hover::-webkit-slider-thumb,
+  .sfx-slider:active::-webkit-slider-thumb {
+    transform: scale(1.2);
   }
 
   .sfx-slider::-moz-range-thumb {
-    width: 10px;
-    height: 10px;
+    width: 11px;
+    height: 11px;
     border-radius: 999px;
-    background: var(--accent-primary);
-    border: 1px solid color-mix(in srgb, black 25%, transparent);
+    background: color-mix(in srgb, var(--accent-primary) 88%, white 12%);
+    border: 1px solid color-mix(in srgb, black 30%, transparent);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
     cursor: pointer;
+    transition: transform 0.12s ease;
+  }
+
+  .sfx-slider:hover::-moz-range-thumb,
+  .sfx-slider:active::-moz-range-thumb {
+    transform: scale(1.2);
+  }
+
+  .sfx-slider:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--accent-primary) 55%, transparent);
+    outline-offset: 3px;
   }
 
   .sfx-slider::-moz-range-track {
@@ -3132,11 +3170,56 @@
   }
 
   .rail-tab:hover,
-  .rail-action:hover,
+  .rail-action:hover {
+    background: color-mix(in srgb, var(--accent-primary) 9%, var(--bg-elevated));
+    color: var(--chat-text);
+  }
+
   .rail-tab.active,
   .rail-action.active {
-    background: color-mix(in srgb, var(--accent-primary) 16%, var(--bg-elevated));
+    background: color-mix(in srgb, var(--accent-primary) 17%, var(--bg-elevated));
     color: var(--chat-text);
+  }
+
+  .rail-tab::before,
+  .rail-action::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 50%;
+    width: 3px;
+    height: 58%;
+    border-radius: 0 3px 3px 0;
+    background: var(--accent-primary);
+    transform: translateY(-50%) scaleY(0);
+    transition: transform 0.16s ease;
+  }
+
+  .rail-tab.active::before,
+  .rail-action.active::before {
+    transform: translateY(-50%) scaleY(1);
+  }
+
+  .rail-tab:active,
+  .rail-action:active,
+  .directory-user:active,
+  .composer-tool:active:not(:disabled),
+  .emoji-btn:active:not(:disabled),
+  .chat-send:active:not(:disabled),
+  .return-to-present:active,
+  .composer-preview-remove:active {
+    transform: translateY(0) scale(0.985);
+  }
+
+  .rail-tab:focus-visible,
+  .rail-action:focus-visible,
+  .directory-user:focus-visible,
+  .composer-tool:focus-visible,
+  .emoji-btn:focus-visible,
+  .chat-send:focus-visible,
+  .composer-preview-remove:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--accent-primary) 55%, transparent);
+    outline-offset: -2px;
   }
 
   .public-tab {
@@ -3167,9 +3250,13 @@
     border-radius: 0;
   }
 
-  .rail-action:hover,
+  .rail-action:hover {
+    background: color-mix(in srgb, var(--accent-primary) 9%, var(--bg-elevated));
+    color: var(--chat-text);
+  }
+
   .rail-action.active {
-    background: color-mix(in srgb, var(--accent-primary) 16%, var(--bg-elevated));
+    background: color-mix(in srgb, var(--accent-primary) 17%, var(--bg-elevated));
     color: var(--chat-text);
   }
 
@@ -3439,17 +3526,19 @@
     padding: 0 0.85rem;
     border-radius: 999px;
     background: color-mix(in srgb, var(--bg-elevated) 88%, transparent);
+    border: 1px solid color-mix(in srgb, var(--border-subtle) 80%, transparent);
     color: var(--chat-text);
     font-family: inherit;
     font-size: 0.82rem;
     font-weight: 600;
     line-height: 1;
-    box-shadow: none;
-    transition: background 0.16s ease, color 0.16s ease, transform 0.16s ease;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.26);
+    transition: background 0.16s ease, color 0.16s ease, transform 0.16s ease, border-color 0.16s ease;
   }
 
   .return-to-present:hover {
     background: color-mix(in srgb, var(--accent-primary) 14%, var(--bg-elevated));
+    border-color: color-mix(in srgb, var(--accent-primary) 38%, transparent);
     color: var(--chat-text);
     transform: translateY(-1px);
   }
@@ -3501,6 +3590,36 @@
     overflow-y: auto;
     overflow-x: hidden;
     padding: 0.8rem 1.15rem 0.9rem;
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--text-secondary) 32%, transparent) transparent;
+  }
+
+  .message-stream::-webkit-scrollbar,
+  .directory-list::-webkit-scrollbar,
+  .rail-thread-list::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .message-stream::-webkit-scrollbar-track,
+  .directory-list::-webkit-scrollbar-track,
+  .rail-thread-list::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .message-stream::-webkit-scrollbar-thumb,
+  .directory-list::-webkit-scrollbar-thumb,
+  .rail-thread-list::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--text-secondary) 30%, transparent);
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+
+  .message-stream::-webkit-scrollbar-thumb:hover,
+  .directory-list::-webkit-scrollbar-thumb:hover,
+  .rail-thread-list::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--accent-primary) 48%, transparent);
+    background-clip: padding-box;
   }
 
   .message-empty,
@@ -3858,11 +3977,16 @@
     display: flex;
     flex-direction: column;
     gap: 0.55rem;
+    /* Narrow popover anchored over the emoji button: ~6 emojis per row,
+       overflow scrolls vertically. */
+    width: min(248px, 100%);
+    align-self: flex-start;
     padding: 0.6rem;
     border: 1px solid color-mix(in srgb, var(--border-subtle) 85%, transparent);
     border-radius: 16px;
-    background: color-mix(in srgb, var(--bg-elevated) 86%, black 6%);
-    box-shadow: inset 0 1px 0 color-mix(in srgb, white 8%, transparent);
+    background: color-mix(in srgb, var(--bg-secondary) 96%, black);
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.32),
+      inset 0 1px 0 color-mix(in srgb, white 8%, transparent);
   }
 
   .emoji-picker-section {
@@ -3904,6 +4028,11 @@
     line-height: 1;
     background: color-mix(in srgb, var(--bg-secondary) 64%, transparent);
     border: 1px solid color-mix(in srgb, var(--border-subtle) 74%, transparent);
+  }
+
+  .emoji-picker .emoji-btn:hover {
+    background: color-mix(in srgb, var(--accent-primary) 15%, var(--bg-secondary));
+    border-color: color-mix(in srgb, var(--accent-primary) 40%, transparent);
   }
 
   .dm-stream {
@@ -3993,9 +4122,14 @@
     padding: 0.8rem 0.9rem;
     border-radius: 16px;
     background: color-mix(in srgb, var(--bg-elevated) 55%, transparent);
+    border: 1px solid transparent;
     color: var(--chat-text);
     text-align: left;
-    transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease;
+    transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease, border-color 0.18s ease;
+  }
+
+  .directory-user:hover {
+    border-color: color-mix(in srgb, var(--accent-primary) 34%, transparent);
   }
 
   .directory-user.inactive {
@@ -4051,6 +4185,10 @@
   }
 
   .chat-composer {
+    position: relative;
+    /* Above .chat-main (z-index 3 in compact) so the floating popovers render
+       over the message stream, not behind it. */
+    z-index: 5;
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
@@ -4059,6 +4197,26 @@
     border-top: 1px solid var(--border-subtle);
     background: color-mix(in srgb, black 10%, transparent);
     flex: 0 0 auto;
+  }
+
+  /* Image preview + emoji picker float above the composer instead of taking
+     part in the layout — expanding them must not push the chat/rail around. */
+  .composer-popovers {
+    position: absolute;
+    /* Footer spans the full shell width — start the popovers past the 70px
+       channel rail so they only cover the message area. */
+    left: 80px;
+    right: 10px;
+    bottom: calc(100% + 8px);
+    z-index: 12;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    pointer-events: none;
+  }
+
+  .composer-popovers > * {
+    pointer-events: auto;
   }
 
   .chat-shell.full .chat-composer {
@@ -4097,10 +4255,11 @@
     height: 42px;
     border-radius: 12px;
     background: color-mix(in srgb, var(--bg-elevated) 82%, transparent);
+    border: 1px solid color-mix(in srgb, var(--border-subtle) 70%, transparent);
     color: var(--chat-text);
     font-size: 1rem;
     font-weight: 800;
-    transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease;
+    transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease, border-color 0.18s ease;
   }
 
   .chat-shell.compact .composer-tool {
@@ -4122,6 +4281,7 @@
 
   .composer-tool:hover {
     background: color-mix(in srgb, var(--accent-primary) 18%, var(--bg-elevated));
+    border-color: color-mix(in srgb, var(--accent-primary) 42%, transparent);
     color: var(--chat-text);
   }
 
@@ -4140,7 +4300,8 @@
     padding: 0.65rem 0.75rem;
     border: 1px solid color-mix(in srgb, var(--border-subtle) 90%, transparent);
     border-radius: 16px;
-    background: color-mix(in srgb, var(--bg-elevated) 58%, transparent);
+    background: color-mix(in srgb, var(--bg-secondary) 94%, black);
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.32);
   }
 
   .composer-preview img {
@@ -4184,15 +4345,16 @@
     transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease;
   }
 
-  .emoji-picker {
-    padding: 0.3rem 0 0;
+  .composer-preview-remove:hover {
+    background: color-mix(in srgb, #ff6b6b 22%, var(--bg-secondary));
+    color: white;
   }
 
   .chat-shell.compact .emoji-picker {
     gap: 0.26rem;
-    padding: 0.28rem 0.32rem 0.08rem 0.4rem;
+    padding: 0.4rem 0.45rem;
     box-sizing: border-box;
-    width: 100%;
+    width: min(214px, 100%);
     min-width: 0;
     max-width: 100%;
     overflow: hidden;
@@ -4211,18 +4373,18 @@
 
   .chat-shell.compact .reaction-picker-grid {
     display: grid;
-    grid-auto-flow: column;
-    grid-auto-columns: 28px;
-    grid-template-rows: repeat(2, 28px);
+    grid-template-columns: repeat(6, 28px);
+    grid-auto-rows: 28px;
     gap: 0.18rem;
     min-width: 0;
     width: 100%;
     max-width: 100%;
     box-sizing: border-box;
-    overflow-x: auto;
-    overflow-y: hidden;
+    max-height: 152px;
+    overflow-y: auto;
+    overflow-x: hidden;
     align-content: start;
-    padding: 0.02rem 0 0.24rem;
+    padding: 0.02rem 0.1rem 0.1rem 0;
     scrollbar-width: thin;
     scrollbar-color: color-mix(in srgb, var(--accent-primary) 42%, transparent) transparent;
   }
@@ -4237,7 +4399,7 @@
   }
 
   .chat-shell.compact .reaction-picker-grid::-webkit-scrollbar {
-    height: 8px;
+    width: 8px;
   }
 
   .chat-shell.compact .reaction-picker-grid::-webkit-scrollbar-track {
@@ -4323,6 +4485,14 @@
     padding: 0.7rem 0.85rem;
   }
 
+  .chat-input {
+    transition: border-color 0.16s ease, box-shadow 0.16s ease;
+  }
+
+  .chat-input:hover:not(:disabled):not(:focus) {
+    border-color: color-mix(in srgb, var(--border-active) 55%, var(--border-subtle));
+  }
+
   .chat-input:focus {
     border-color: var(--border-active);
     box-shadow: 0 0 0 3px var(--accent-glow);
@@ -4342,7 +4512,9 @@
     color: var(--bg-primary);
     font-size: 0.84rem;
     font-weight: 800;
-    transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease;
+    box-shadow: 0 2px 10px color-mix(in srgb, var(--accent-primary) 26%, transparent),
+      inset 0 1px 0 color-mix(in srgb, white 22%, transparent);
+    transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
   }
 
   .chat-shell.compact .chat-send {
@@ -4356,12 +4528,15 @@
   .chat-send:hover {
     background: linear-gradient(135deg, var(--accent-primary), var(--accent-hover));
     color: var(--bg-primary);
+    box-shadow: 0 4px 16px color-mix(in srgb, var(--accent-primary) 38%, transparent),
+      inset 0 1px 0 color-mix(in srgb, white 22%, transparent);
   }
 
   .chat-send:disabled {
     opacity: 0.45;
     cursor: not-allowed;
     transform: none;
+    box-shadow: none;
   }
 
   .chat-toasts {
@@ -4385,8 +4560,13 @@
     padding: 0.8rem 0.9rem;
     border-radius: 14px;
     background: color-mix(in srgb, var(--bg-secondary) 94%, black);
+    border: 1px solid color-mix(in srgb, var(--border-subtle) 85%, transparent);
     color: var(--chat-text);
     box-shadow: var(--shadow-lg);
+  }
+
+  .chat-toast:hover {
+    border-color: color-mix(in srgb, var(--accent-primary) 38%, transparent);
   }
 
   .chat-toast-swatch {

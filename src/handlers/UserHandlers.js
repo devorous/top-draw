@@ -138,8 +138,22 @@ export function setupUserHandlers(wsClient, app) {
     return numericRole >= 5 || (!!app.currentRoomData?.modInactiveImmune && numericRole >= 4);
   };
 
+  const hasOtherJoinedUsers = () => {
+    for (const [sessionIndex, user] of users) {
+      if (sessionIndex === app.sessionIndex) continue;
+      if (user?.username) return true;
+    }
+    return false;
+  };
+
   const applySelfInactiveState = (afk = app.self?.afk, role = app.self?.role ?? app.selfRole ?? 0) => {
-    app.syncClient?.setInactive(!!afk && !isSelfImmuneToInactiveResync(role));
+    // The resync prompt exists because the server filters draw traffic away
+    // from AFK clients — alone in the room there is nobody whose strokes we
+    // could miss (and the all-AFK snapshot restore is delivered even to AFK
+    // clients), so the canvas cannot go stale and the prompt would only lock
+    // the board pointlessly. Re-evaluated on users/cn/left, so if someone
+    // joins while we are still AFK the prompt appears at that moment.
+    app.syncClient?.setInactive(!!afk && !isSelfImmuneToInactiveResync(role) && hasOtherJoinedUsers());
   };
 
   const rememberRemovedUser = (sessionIndex, user) => {
@@ -469,6 +483,10 @@ export function setupUserHandlers(wsClient, app) {
 
     app.updateChatUserList();
     abortSyncIfRoomIsEmpty();
+    // Roster may have gained/lost other users — re-evaluate the AFK resync
+    // prompt (runs after the empty-room abort so a resync started here when
+    // the room emptied isn't immediately cancelled by this same event).
+    applySelfInactiveState();
 
     // Trigger sync once we see another user in a USERS payload. We don't burn
     // _needsSync on the FIRST users message: it can land in a tiny window where
@@ -620,6 +638,7 @@ export function setupUserHandlers(wsClient, app) {
 
       app.updateChatUserList();
       abortSyncIfRoomIsEmpty();
+      applySelfInactiveState();
     }
   });
 
@@ -756,7 +775,9 @@ export function setupUserHandlers(wsClient, app) {
       announceJoinIfReady(data.sessionIndex, pending?.queuedAt ?? 0);
     }
     app.updateChatUserList();
-
+    // A user joining (or gaining a name) while we're AFK means draw traffic
+    // is now being filtered from us — surface the resync prompt.
+    applySelfInactiveState();
   });
 
   wsClient.on('hide_cursor', (data) => {

@@ -280,7 +280,8 @@
   flex-shrink: 0;
 }
 
-#disconnectBtn {
+#disconnectBtn,
+#roomsBtn {
   flex-shrink: 0;
 }
 
@@ -350,7 +351,7 @@
 }
 
 .boardBtns.force-right-icon-collapse {
-  @include toolbar-icon-collapse('.saveUploadGroup .btn, #inboxBtn, #roomSettingsBtn, #disconnectBtn');
+  @include toolbar-icon-collapse('.saveUploadGroup .btn, #inboxBtn, #roomSettingsBtn, #roomsBtn, #disconnectBtn');
 
   #chatBtn .btnIcon img {
     width: 24px;
@@ -501,7 +502,7 @@
    measurement never fights this layout. */
 html[data-mobile='true'] .boardBtns {
   @include topbar-menu-collapse;
-  @include toolbar-icon-collapse('#chatBtn, #disconnectBtn');
+  @include toolbar-icon-collapse('#chatBtn, #roomsBtn, #disconnectBtn');
 
   #chatBtn .btnIcon img {
     width: 24px;
@@ -522,6 +523,7 @@ html[data-mobile='true'] .boardBtns {
   .btn.menuBtn,
   #zoomResetBtn,
   #chatBtn,
+  #roomsBtn,
   #disconnectBtn {
     min-width: 40px;
   }

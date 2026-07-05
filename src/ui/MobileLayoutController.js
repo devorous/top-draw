@@ -79,7 +79,7 @@ export class MobileLayoutController {
     // File / communication
     moveSection(['#uploadBtn', '#saveBtn', '#inboxBtn']);
     // Room / admin (mostly hidden unless relevant)
-    moveSection(['#adminTopBtn', '#registerRoomBtn', '#roomSettingsBtn']);
+    moveSection(['#adminTopBtn', '#registerRoomBtn', '#roomSettingsBtn', '#roomsBtn']);
   }
 
   /**

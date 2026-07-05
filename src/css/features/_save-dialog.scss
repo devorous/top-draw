@@ -331,25 +331,33 @@
   left: 50%;
   bottom: 16px;
   width: calc(100vw - 32px);
-  max-width: 900px;
+  max-width: 760px;
   transform: translateX(-50%);
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: 14px;
-  padding: 10px 14px;
-  background: color-mix(in srgb, var(--bg-secondary) 92%, transparent);
+  padding: 12px 16px;
+  background: color-mix(in srgb, var(--bg-secondary) 94%, transparent);
   border: 1px solid var(--border-subtle);
-  border-radius: 999px;
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   backdrop-filter: blur(10px);
 }
 
-.saveModeOptionsPanelLead {
+.saveModeStep {
   display: flex;
   align-items: center;
+  gap: 14px;
   min-width: 0;
-  justify-content: flex-start;
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+.saveModeOptionsInfo {
+  flex: 1 1 180px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .saveModeOptionsHint {
@@ -361,12 +369,16 @@
   text-overflow: ellipsis;
 }
 
-.saveModeOptionsPanelBody {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 14px;
-  min-width: 0;
+.saveModeSelectionInfo {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+
+  &:empty {
+    display: none;
+  }
 }
 
 .saveModeOptionsCheckbox {
@@ -392,101 +404,12 @@
   }
 }
 
-.saveModeCaptionPanel {
-  position: absolute;
-  top: 50%;
-  right: 16px;
-  width: calc(100vw - 32px);
-  max-width: 340px;
-  max-height: calc(100vh - 120px);
-  transform: translateY(-50%);
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 14px;
-  background: color-mix(in srgb, var(--bg-secondary) 94%, transparent);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
-  backdrop-filter: blur(10px);
-}
-
-.saveModeOptionsField {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  min-width: 0;
-
-  span {
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--text-primary);
-    line-height: 34px;
-    white-space: nowrap;
-  }
-
-  textarea,
-  input[type="text"] {
-    width: 320px;
-    max-width: 36vw;
-    min-height: 36px;
-    background: color-mix(in srgb, var(--bg-primary) 88%, transparent);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-sm);
-    color: var(--text-primary);
-    padding: 8px 10px;
-    font: inherit;
-
-    &::placeholder {
-      color: var(--text-tertiary);
-    }
-
-    &:focus {
-      outline: none;
-      border-color: var(--accent-primary);
-      box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-primary) 45%, transparent);
-    }
-  }
-
-  textarea {
-    min-height: 56px;
-    resize: vertical;
-  }
-}
-
-.saveModeCaptionField {
-  flex-direction: column;
-  gap: 8px;
-  min-width: 0;
-
-  span {
-    line-height: 1.2;
-    white-space: normal;
-  }
-
-  textarea {
-    width: 100%;
-    max-width: none;
-    min-height: 148px;
-    max-height: calc(100vh - 220px);
-  }
-
-  input[type="text"] {
-    width: 100%;
-    max-width: none;
-  }
-}
-
-.saveModeDescriptionField textarea {
-  min-height: 72px;
-}
-
-.saveModeOptionsPanelFooter {
+.saveModeOptionsActions {
   display: flex;
   align-items: center;
-  justify-content: center;
   gap: 8px;
-  min-width: 0;
+  flex-shrink: 0;
+  margin-left: auto;
 
   .btn {
     padding: 8px 14px;
@@ -522,37 +445,94 @@
   }
 }
 
-@media (max-width: 1200px) {
-  .saveModeCaptionPanel {
-    max-width: 300px;
-    padding: 12px;
-  }
+// Gallery details step — stacked form
+.saveModeStepGallery {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
 
-  .saveModeCaptionField textarea {
-    min-height: 128px;
-  }
-}
-
-@media (max-width: 980px) {
-  .saveModeCaptionPanel {
-    max-width: 260px;
-    padding: 10px;
-  }
-
-  .saveModeCaptionField {
-    gap: 6px;
-  }
-
-  .saveModeCaptionField textarea {
-    min-height: 108px;
-    padding: 7px 9px;
+  .saveModeOptionsActions {
+    margin-left: 0;
+    justify-content: flex-end;
   }
 }
 
-@media (max-width: 768px) {
+.saveModeGalleryFields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px 18px;
+  align-items: end;
+}
+
+.saveModeField {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+
+  span {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  input[type="text"],
+  textarea {
+    width: 100%;
+    min-height: 36px;
+    background: color-mix(in srgb, var(--bg-primary) 88%, transparent);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    padding: 8px 10px;
+    font: inherit;
+    font-size: 13px;
+
+    &::placeholder {
+      color: var(--text-tertiary);
+    }
+
+    &:focus {
+      outline: none;
+      border-color: var(--accent-primary);
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-primary) 45%, transparent);
+    }
+  }
+
+  textarea {
+    min-height: 56px;
+    resize: vertical;
+  }
+}
+
+.saveModeDescriptionField {
+  grid-column: 1 / -1;
+}
+
+.saveModeGalleryToggles {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 6px;
+}
+
+// ========================================
+// Mobile / narrow layout
+// ========================================
+
+@mixin save-mode-compact {
   .saveModeControls {
     top: 12px;
+    left: 12px;
+    transform: none;
     gap: 8px;
+  }
+
+  .saveModeCloseBtn {
+    top: 12px;
+    right: 12px;
   }
 
   .saveModeModeToggle,
@@ -565,70 +545,78 @@
   .saveModeZoomBtn,
   .saveModeZoomResetBtn,
   .saveModeCloseBtn {
-    min-width: 40px;
-    height: 40px;
+    min-width: 44px;
+    height: 44px;
   }
 
   .saveModeZoomResetBtn {
-    min-width: 72px;
+    min-width: 64px;
   }
 
   .saveModeOptionsPanel {
-    left: 50%;
-    bottom: 12px;
-    width: calc(100vw - 24px);
-    border-radius: var(--radius-lg);
-    grid-template-columns: 1fr;
+    bottom: 8px;
+    width: calc(100vw - 16px);
+    padding: 12px;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    max-height: calc(100dvh - 76px);
+    overflow-y: auto;
   }
 
-  .saveModeOptionsPanelLead {
-    grid-column: 1;
-    justify-content: center;
+  .saveModeStepMain {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
   }
 
-  .saveModeOptionsHint {
-    white-space: normal;
+  .saveModeOptionsInfo {
+    flex: 0 0 auto;
+    align-items: center;
     text-align: center;
   }
 
-  .saveModeOptionsPanelBody {
-    grid-column: 1;
+  .saveModeOptionsHint,
+  .saveModeSelectionInfo {
+    white-space: normal;
+  }
+
+  .saveModeStepMain .saveModeOptionsCheckbox {
     justify-content: center;
-    flex-wrap: wrap;
   }
 
-  .saveModeCaptionPanel {
-    top: auto;
-    right: 12px;
-    left: 12px;
-    bottom: 182px;
-    width: auto;
-    transform: none;
-    padding: 12px;
-  }
-
-  .saveModeOptionsField {
-    width: 100%;
-    flex-direction: column;
-    gap: 6px;
-
-    span {
-      line-height: 1.2;
-    }
-
-    textarea,
-    input[type="text"] {
-      width: 100%;
-    }
-  }
-
-  .saveModeOptionsPanelFooter {
-    grid-column: 1;
-    flex-wrap: wrap;
-    justify-content: center;
+  .saveModeOptionsActions {
+    margin-left: 0;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
 
     .btn {
-      flex: 1 1 140px;
+      min-height: 44px;
+      font-size: 13px;
     }
   }
+
+  .saveModeGalleryFields {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .saveModeGalleryToggles {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 8px 18px;
+    padding-bottom: 0;
+    justify-content: center;
+  }
+
+  .saveModeField textarea {
+    min-height: 48px;
+  }
+}
+
+@media (max-width: 768px) {
+  @include save-mode-compact;
+}
+
+html[data-mobile='true'] {
+  @include save-mode-compact;
 }

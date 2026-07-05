@@ -33,6 +33,7 @@ export class LandingPage {
   init() {
     this.els = {
       landingPage: document.getElementById('landingPage'),
+      landingCloseBtn: document.getElementById('landingCloseBtn'),
       landingVersion: document.getElementById('landingVersion'),
       roomList: document.getElementById('roomList'),
       roomIdInput: document.getElementById('roomIdInput'),
@@ -92,6 +93,15 @@ export class LandingPage {
     });
 
     this.els.refreshRoomsBtn?.addEventListener('click', () => this.refreshRooms());
+
+    // In-room mode (opened via the topbar "Rooms" button): a close button and
+    // a backdrop click both dismiss the overlay back to the current board.
+    this.els.landingCloseBtn?.addEventListener('click', () => this.closeInRoom());
+    // Clicking the scrim (the landing page itself, outside the container) in
+    // in-room mode dismisses back to the board.
+    this.els.landingPage?.addEventListener('click', (e) => {
+      if (this._inRoom && e.target === this.els.landingPage) this.closeInRoom();
+    });
 
     this.els.roomIdInput?.addEventListener('keydown', (e) => {
       if (e.key !== 'Enter') return;
@@ -196,20 +206,49 @@ export class LandingPage {
 
   /**
    * Show the landing page and load rooms.
+   * @param {Object} [opts]
+   * @param {boolean} [opts.inRoom=false] - When true, the landing page is shown
+   *   as an embedded overlay on top of an active room (dimmed backdrop + close
+   *   button) instead of the full-screen entry experience.
    */
-  show() {
+  show({ inRoom = false } = {}) {
+    this._inRoom = inRoom;
+
     const overlay = document.getElementById('overlay');
     if (overlay) {
       overlay.style.display = 'flex';
+      // #landingPage provides its own backdrop (opaque for the entry experience,
+      // a light scrim in in-room mode via .landing-in-room), so the overlay
+      // itself stays transparent and unblurred in both cases.
       overlay.style.background = 'transparent';
       overlay.style.backdropFilter = 'none';
     }
 
     if (this.els.landingPage) {
       this.els.landingPage.style.display = 'flex';
+      this.els.landingPage.classList.toggle('landing-in-room', inRoom);
     }
 
-    this.loadRooms();
+    if (this.els.landingCloseBtn) {
+      this.els.landingCloseBtn.style.display = inRoom ? '' : 'none';
+    }
+
+    if (inRoom && !this._escHandler) {
+      this._escHandler = (e) => {
+        if (e.key === 'Escape') this.closeInRoom();
+      };
+      document.addEventListener('keydown', this._escHandler);
+    }
+
+    if (!inRoom) this.loadRooms();
+  }
+
+  /**
+   * Dismiss the in-room room browser without leaving the current room.
+   */
+  closeInRoom() {
+    this._inRoom = false;
+    this.hide();
   }
 
   setVersionLabel() {
@@ -222,7 +261,16 @@ export class LandingPage {
    * Hide the landing page.
    */
   hide() {
+    this._inRoom = false;
+    if (this._escHandler) {
+      document.removeEventListener('keydown', this._escHandler);
+      this._escHandler = null;
+    }
+    if (this.els.landingCloseBtn) {
+      this.els.landingCloseBtn.style.display = 'none';
+    }
     if (this.els.landingPage) {
+      this.els.landingPage.classList.remove('landing-in-room');
       this.els.landingPage.style.display = 'none';
     }
 

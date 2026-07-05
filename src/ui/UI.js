@@ -673,6 +673,7 @@ menuBtn: document.getElementById('menuBtn'),
       connectionText: document.querySelector('.connectionText'),
       connectionRoom: document.getElementById('connectionRoom'),
       disconnectBtn: document.getElementById('disconnectBtn'),
+      roomsBtn: document.getElementById('roomsBtn'),
       userContextMenu: document.getElementById('userContextMenu'),
       modPanel: null, // injected dynamically by Moderation._injectModUI()
       bansBtn: null // injected dynamically by Moderation._injectModUI()
