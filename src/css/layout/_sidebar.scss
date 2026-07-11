@@ -92,6 +92,12 @@ html[data-mobile='true'][data-sidebar-side='left'] #toolOptions {
   }
 }
 
+// While the chat window is open on mobile it owns the screen — the tool
+// rail would only be covered by it anyway. Class toggled by Chat.svelte.
+html[data-mobile='true'].chat-open-mobile #sideMenu {
+  display: none;
+}
+
 html[data-mobile='true'] {
   // No drag-resizing on mobile: fixed rail width, overlay options panel,
   // sections as plain flex children (ResizableSections is skipped in UI.init).

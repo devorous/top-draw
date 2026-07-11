@@ -2,6 +2,7 @@
   import { onMount, tick } from 'svelte';
   import { appState } from '../../state.svelte.js';
   import { isTauriDesktop } from '../../platform/desktop.js';
+  import { isMobile } from '../../platform/mobile.js';
   import { isChatPopoutOpen } from '../../platform/chatPopoutBridge.js';
   import { playSfx } from '../../utils/sfx.js';
   import { DEFAULT_SFX_PREFERENCES, saveAppPreferences } from '../../config/AppPreferences.js';
@@ -111,7 +112,10 @@
 
   let visible = $derived(isPopout || appState.chatVisible);
   let isSmallScreen = $derived(windowWidth < 768);
-  let effectiveChatMode = $derived(isPopout ? 'full' : isSmallScreen ? 'mini' : chatMode);
+  // Small-desktop windows fall back to mini; mobile has its own full-size
+  // layout (html[data-mobile] geometry + hidden tool rail), so mini's
+  // compact controls would only shrink touch targets there.
+  let effectiveChatMode = $derived(isPopout ? 'full' : isSmallScreen && !isMobile() ? 'mini' : chatMode);
   let hideRoomNotifications = $derived(!!appState.currentRoomData?.hideChatNotifications);
   let isDesktopClient = $state(false);
   let desktopWindowApi = null;
@@ -125,6 +129,15 @@
     if (hideRoomNotifications && toasts.length > 0) {
       toasts = [];
     }
+  });
+
+  // Mobile: the chat takes the whole screen's attention — hide the tool
+  // rail while it's open (css keys off this class) so the window can
+  // center full-width.
+  $effect(() => {
+    if (isPopout || !isMobile()) return;
+    document.documentElement.classList.toggle('chat-open-mobile', !!appState.chatVisible);
+    return () => document.documentElement.classList.remove('chat-open-mobile');
   });
   let recipient = $derived.by(() => {
     const selected = appState.dmRecipient;
@@ -1174,6 +1187,12 @@
 
   function applyStoredPositionForMode(mode = chatMode) {
     if (!chatEl) return;
+    // On mobile the chat always opens at its CSS-centered spot; dragging
+    // within the session still works, it just doesn't persist.
+    if (isMobile()) {
+      clearChatPosition();
+      return;
+    }
     const positions = loadChatPositions();
     const saved = positions?.[mode];
     if (!saved || !Number.isFinite(saved.left) || !Number.isFinite(saved.top)) {
@@ -1260,6 +1279,13 @@
 
   function applyStoredSizeForMode(mode = chatMode) {
     if (!chatEl) return;
+    // Mobile sizing is CSS-driven (html[data-mobile] override); stored
+    // desktop geometry would fight it.
+    if (isMobile()) {
+      chatEl.style.width = '';
+      chatEl.style.height = '';
+      return;
+    }
     const positions = loadChatPositions();
     const saved = positions?.[mode];
     if (saved && Number.isFinite(saved.width) && Number.isFinite(saved.height)) {
@@ -2314,7 +2340,7 @@
             </div>
           {/if}
         </div>
-        <button class="chat-send" onclick={handleSend} onpointerup={(e) => e.pointerType !== 'mouse' && handleSend()} disabled={activeView === 'directory'} type="button">Send</button>
+        <button class="chat-send" onclick={handleSend} onpointerup={(e) => e.pointerType !== 'mouse' && handleSend()} disabled={activeView === 'directory'} type="button" aria-label="Send" title="Send"><img class="chat-send-icon" src="/images/send-arrow.svg" alt="" /></button>
       </div>
     </footer>
     {#if !isPopout}
@@ -2512,6 +2538,87 @@
     box-shadow: var(--chat-shadow);
     font-family: 'Inter', sans-serif;
     isolation: isolate;
+  }
+
+  /* Mobile: the tool rail is hidden while the chat is open (see the
+     chat-open-mobile effect), so the window centers in the full viewport.
+     Dragging still wins — inline left/top override these defaults. */
+  :global(html[data-mobile='true']) .chat-shell:not(.popout) {
+    --chat-mobile-w: calc(100vw - 24px);
+    --chat-mobile-h: min(540px, calc(100dvh - 170px));
+    /* !important: the (max-width: 640px) fallback below forces mini
+       geometry with !important; on mobile this sizing must win. left/top
+       stay normal so drag's inline styles still override position. */
+    width: var(--chat-mobile-w) !important;
+    height: var(--chat-mobile-h) !important;
+    min-width: 0;
+    /* mini mode's max-width/height clamp would shrink the phone layout */
+    max-width: none;
+    max-height: none;
+    right: auto;
+    bottom: auto;
+    left: calc((100vw - var(--chat-mobile-w)) / 2);
+    top: calc((100dvh - var(--chat-mobile-h)) / 2);
+  }
+
+  /* Touch ergonomics: a comfortably tall composer, and a 16px input font so
+     mobile browsers don't zoom the page on focus. */
+  :global(html[data-mobile='true']) .chat-shell:not(.popout) textarea.chat-input {
+    min-height: 42px;
+    font-size: 16px;
+  }
+
+  :global(html[data-mobile='true']) .chat-shell:not(.popout) :global(.chat-titlebar button) {
+    min-width: 40px;
+    min-height: 34px;
+  }
+
+  /* Mobile composer: one flat row — [upload] [emoji] [input] [send] — with
+     uniform 44px touch targets, overriding compact mode's two-row grid
+     (stacked tools + a Send button spanning both rows). */
+  :global(html[data-mobile='true']) .chat-shell:not(.popout) .composer-row {
+    grid-template-columns: 44px 44px minmax(0, 1fr) 52px;
+    grid-template-rows: auto;
+    column-gap: 8px;
+    row-gap: 0;
+    align-items: center;
+  }
+
+  :global(html[data-mobile='true']) .chat-shell:not(.popout) .composer-tool,
+  :global(html[data-mobile='true']) .chat-shell:not(.popout) .upload-tool,
+  :global(html[data-mobile='true']) .chat-shell:not(.popout) .emoji-tool {
+    grid-column: auto;
+    grid-row: auto;
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+  }
+
+  :global(html[data-mobile='true']) .chat-shell:not(.popout) .chat-input-wrap {
+    grid-column: auto;
+    grid-row: auto;
+  }
+
+  :global(html[data-mobile='true']) .chat-shell:not(.popout) .chat-input-wrap .chat-input {
+    min-height: 44px;
+    height: 44px;
+    padding: 0.6rem 0.85rem;
+  }
+
+  :global(html[data-mobile='true']) .chat-shell:not(.popout) .chat-send {
+    grid-column: auto;
+    grid-row: auto;
+    width: 52px;
+    min-width: 52px;
+    height: 44px;
+    min-height: 44px;
+    padding: 0;
+    border-radius: 12px;
+  }
+
+  :global(html[data-mobile='true']) .chat-shell:not(.popout) .chat-send-icon {
+    width: 24px;
+    height: 24px;
   }
 
   .chat-shell::before {
@@ -4504,6 +4611,9 @@
   }
 
   .chat-send {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     min-width: 82px;
     min-height: 46px;
     padding: 0 1.05rem;
@@ -4515,6 +4625,24 @@
     box-shadow: 0 2px 10px color-mix(in srgb, var(--accent-primary) 26%, transparent),
       inset 0 1px 0 color-mix(in srgb, white 22%, transparent);
     transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+  }
+
+  .chat-send-icon {
+    width: 24px;
+    height: 24px;
+    display: block;
+    pointer-events: none;
+  }
+
+  /* Compact's Send spans two composer rows — scale the glyph with it. */
+  .chat-shell.compact .chat-send-icon {
+    width: 28px;
+    height: 28px;
+  }
+
+  .chat-shell.mini .chat-send-icon {
+    width: 15px;
+    height: 15px;
   }
 
   .chat-shell.compact .chat-send {

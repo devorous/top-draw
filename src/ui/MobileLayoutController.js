@@ -74,10 +74,13 @@ export class MobileLayoutController {
       if (section.childElementCount > 0) menu.appendChild(section);
     };
 
-    // View controls (zoom in/out + flip as one row, recorder below)
-    moveSection(['.boardBtns .zoomBtns', '#tapeRecBtn']);
+    // Zoom +/- are covered by pinch gestures on mobile and #flipCanvasBtn
+    // stays on the slim bar next to the zoom percent, so the zoom group is
+    // not relocated — only the recorder moves in.
     // File / communication
     moveSection(['#uploadBtn', '#saveBtn', '#inboxBtn']);
+    // Recorder
+    moveSection(['#tapeRecBtn']);
     // Room / admin (mostly hidden unless relevant)
     moveSection(['#adminTopBtn', '#registerRoomBtn', '#roomSettingsBtn', '#roomsBtn']);
   }

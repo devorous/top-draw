@@ -387,56 +387,94 @@
     flex-direction: column;
     position: absolute;
     top: 100%;
-    left: 8px;
-    background: var(--bg-secondary);
+    left: 0;
+    // Match the topbar's glass surface and drop the top/left rounding so the
+    // menu reads as an extension of the bar, not a floating card.
+    background: var(--surface-glass);
+    backdrop-filter: blur(12px);
     border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-md);
-    padding: var(--space-3);
+    border-top: none;
+    border-left: none;
+    border-radius: 0 0 var(--radius-md) 0;
+    padding: var(--space-2);
     box-shadow: var(--shadow-lg);
     z-index: 1200;
     align-items: stretch;
-    min-width: 180px;
-    gap: var(--space-3);
+    min-width: 210px;
+    gap: 2px;
 
     &.show {
       display: flex !important;
       animation: menuFadeIn 0.2s ease;
     }
 
-    .btn {
-      justify-content: flex-start;
-      width: 100%;
-      min-width: 0;
-      height: 36px;
-      padding: 8px;
+    // Uniform dividers between every top-level entry, so native items
+    // (Mirror, Settings, mod buttons) separate the same way the relocated
+    // .mobileMenuSection groups do. !important because the flat-row rule
+    // below paints .btn borders transparent, which would erase the divider
+    // on direct-child buttons like Settings.
+    > * + * {
+      border-top: 1px solid rgba(255, 255, 255, 0.16) !important;
+      padding-top: var(--space-2);
+      margin-top: var(--space-2);
     }
 
+    // Flat menu rows: icon column + label instead of stacked boxed buttons.
+    .btn,
     #mirrorBtn,
-    #flipCanvasBtn,
-    #appSettingsBtn {
+    #appSettingsBtn,
+    #tapeRecBtn,
+    #roomsBtn {
+      justify-content: flex-start;
+      gap: 10px;
       width: 100%;
       min-width: 0;
-      padding: 8px;
+      height: var(--menu-row-height, 36px);
+      padding: 0 10px;
+      background: transparent;
+      border-color: transparent;
+      box-shadow: none;
+
+      &:hover {
+        background: var(--bg-tertiary);
+        border-color: transparent;
+      }
+
+      &.selected {
+        background: var(--accent-primary);
+        color: var(--bg-primary);
+      }
     }
 
-    .btnText,
-    #mirrorBtn .btnText,
-    #flipCanvasBtn .btnText,
-    #appSettingsBtn .btnText {
+    .btnText {
       display: inline !important;
     }
 
-    .btnIcon,
-    #mirrorBtn .btnIcon,
-    #flipCanvasBtn .btnIcon,
-    #appSettingsBtn .btnIcon {
+    // Text-only rows; the recorder's glyph below is the one exception since
+    // it doubles as the recording indicator.
+    .btnIcon {
       display: none !important;
-      margin-right: 8px;
+    }
+
+    // The recorder keeps its glyph as a status light at the row's right edge
+    // so every label left-aligns.
+    #tapeRecBtn .tapeRecGlyph {
+      flex: 0 0 auto;
+      order: 1;
+      margin-left: auto;
+    }
+
+    // Flat-row background above out-specifies #tapeRecBtn.is-recording.
+    #tapeRecBtn.is-recording {
+      background: rgba(239, 68, 68, 0.18);
+      color: #fecaca;
     }
 
     .mirrorContainer, .devContainer {
-      justify-content: space-between;
-      padding: 0 var(--space-1);
+      flex-direction: column;
+      align-items: stretch;
+      gap: 2px;
+      padding: 0;
     }
   }
 }
@@ -496,8 +534,8 @@
    ======================================== */
 
 /* Mobile app mode: the topbar is permanently collapsed — hamburger holds
-   everything except zoom reset, chat and exit. Secondary buttons are moved
-   into #collapsibleBtns at startup by MobileLayoutController, and
+   everything except zoom reset, flip, chat and exit. Secondary buttons are
+   moved into #collapsibleBtns at startup by MobileLayoutController, and
    App.updateTopbarCollapseState() short-circuits so the overflow
    measurement never fights this layout. */
 html[data-mobile='true'] .boardBtns {
@@ -524,38 +562,36 @@ html[data-mobile='true'] .boardBtns {
   #zoomResetBtn,
   #chatBtn,
   #roomsBtn,
-  #disconnectBtn {
+  #disconnectBtn,
+  #flipCanvasBtn.iconBtn {
     min-width: 40px;
   }
 
-  .collapsibleBtns .btn {
-    height: 44px;
+  // Pinch-to-zoom makes the +/- buttons redundant on touch; Flip stays on
+  // the slim bar next to the zoom percent.
+  #minusBtn,
+  #plusBtn {
+    display: none;
   }
 
   .collapsibleBtns {
+    --menu-row-height: 44px;
+    min-width: 240px;
     max-height: calc(100dvh - 60px);
     overflow-y: auto;
 
+    // The slim-bar icon-collapse for #roomsBtn out-specifies the menu's
+    // generic .btnIcon rule; re-hide its icon inside the menu.
+    #roomsBtn .btnIcon {
+      display: none !important;
+    }
+
+    // Dividers between sections come from the shared > * + * rule.
     .mobileMenuSection {
       display: flex;
       flex-direction: column;
       align-items: stretch;
-      gap: var(--space-3);
-      border-top: 1px solid var(--border-subtle);
-      padding-top: var(--space-3);
-    }
-
-    // Relocated zoom/flip buttons stay as one compact row inside the menu.
-    .zoomBtns {
-      display: flex;
-      flex-direction: row;
-      gap: 4px;
-
-      .btn {
-        width: auto;
-        flex: 1 1 0;
-        justify-content: center;
-      }
+      gap: 2px;
     }
   }
 }
