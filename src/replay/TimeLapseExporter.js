@@ -187,6 +187,9 @@ export class TimeLapseExporter {
 
     this._engine = new ReplayEngine();
     this._engine.init(boardW, boardH, wsClient);
+    // Renders are about the artwork: keep mirror guides (never baked by the
+    // replay board) and selection marching ants out of the exported frames.
+    this._engine.renderSelectionOverlay = false;
     if (recording.assets) {
       this._engine.setAssetResolver((source) => {
         if (!source) return null;
@@ -379,6 +382,7 @@ export class TimeLapseExporter {
     // Engine renders at full board size; export canvas crops to region.
     this._engine = new ReplayEngine();
     this._engine.init(boardW, boardH, wsClient);
+    this._engine.renderSelectionOverlay = false;
     if (recording.assets) {
       this._engine.setAssetResolver((source) => {
         if (!source) return null;
@@ -548,6 +552,7 @@ export class TimeLapseExporter {
 
     this._engine = new ReplayEngine();
     this._engine.init(boardW, boardH, wsClient);
+    this._engine.renderSelectionOverlay = false;
     if (recording.assets) {
       this._engine.setAssetResolver((source) => {
         if (!source) return null;

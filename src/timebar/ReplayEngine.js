@@ -9,6 +9,7 @@ import { T, ToolNames } from '../../shared/MessageTypes.js';
 import { unpackColor } from '../../shared/ColorUtils.js';
 import { RemoteUserHandler } from '../remote/RemoteUserHandler.js';
 import { LayerManager } from '../canvas/LayerManager.js';
+import { Board } from '../canvas/Board.js';
 import { ToolManager } from '../tools/Tools.js';
 import { getPreviewTextLayout, getUserTextLineHeight, paintTextRecord } from '../utils/textLayout.js';
 import { getTextFontDefaults } from '../config/textFonts.js';
@@ -998,6 +999,13 @@ export class ReplayEngine {
 
     /** @type {boolean} Whether to draw remote user cursors over the replay */
     this.renderCursors = true;
+    /**
+     * @type {boolean} Whether selection UI (marching ants, pending-selection
+     * rects, the select tool's overlay canvas) is baked into outputCanvas.
+     * True for live replay viewing; the video/frames exporter turns it off so
+     * renders only contain artwork. Floating selection CONTENT always renders.
+     */
+    this.renderSelectionOverlay = true;
     /** @type {number} Playhead timestamp of the most recent action batch (ms) */
     this._currentReplayTs = 0;
     /**
@@ -1035,6 +1043,16 @@ export class ReplayEngine {
     this._snapshotCtx = null;
     /** @type {boolean} True when the snapshot restored full layer/stroke state */
     this._snapshotHasLayerState = false;
+    /**
+     * Users who were mid-stroke (mousedown) when the opening snapshot was
+     * captured. Their in-progress preview pixels are baked into the flat
+     * `topCanvasData` overlay; once every one of those strokes has ended in the
+     * replay (MU/CANCEL, or a fresh MD if the MU fell off the tape), the
+     * overlay is cleared — otherwise the half-stroke would sit on top of the
+     * board forever, surviving even an UNDO of the committed stroke.
+     * @type {Set<number>}
+     */
+    this._snapshotTopOverlayUsers = new Set();
 
     /** @type {Function|null} Called when async operations (blur worker) update the output */
     this.onOutputUpdate = null;
@@ -1290,6 +1308,7 @@ export class ReplayEngine {
     this._patternStateByUser.clear();
     this._vectorTextRecords.clear();
     this._snapshotHasLayerState = false;
+    this._snapshotTopOverlayUsers.clear();
     // Clear global mirror back to OFF so it agrees with the freshly-built
     // _replayBoard (mirror=false, mirrorRegions=[]). T.MIR is a relative toggle,
     // so a stale `this.mirror` left over from a previous replay would (a) desync
@@ -1546,9 +1565,17 @@ export class ReplayEngine {
       }
     }
 
-    // Also load the top canvas (active strokes at snapshot time)
+    // Also load the top canvas (active strokes at snapshot time). Remember
+    // which users those active strokes belong to — the overlay is cleared once
+    // all of them have ended (see _processAction), because the committed
+    // strokes render through the layer system from then on and a permanent
+    // flat overlay would survive UNDO.
     if (snapshot.topCanvasData) {
       await this._loadImageToCanvas(this.topCtx, snapshot.topCanvasData);
+      const states = snapshot.appState?.userDrawingStates || {};
+      for (const [idStr, state] of Object.entries(states)) {
+        if (state?.mousedown) this._snapshotTopOverlayUsers.add(Number(idStr));
+      }
     }
 
     // Import history if available
@@ -2440,11 +2467,14 @@ export class ReplayEngine {
       const hasPendingSelection = !!user.pendingSelection;
 
       if (hasFloatingSelection || hasPendingSelection) {
+        const drawOutline = this.renderSelectionOverlay !== false;
         user.context?.clearRect(0, 0, this.width, this.height);
         if (hasFloatingSelection) {
           activeSelectionLayer = user.activeLayer ?? activeSelectionLayer;
-          selectionHandler.drawFloatingSelection(user);
-        } else {
+          selectionHandler.drawFloatingSelection(user, drawOutline);
+        } else if (drawOutline) {
+          // Pending selections are pure UI (a dashed rect, no content), so
+          // there's nothing to draw when selection overlays are hidden.
           selectionHandler.drawPendingSelection(user);
         }
         user._replaySelectionPreviewActive = true;
@@ -2758,8 +2788,12 @@ export class ReplayEngine {
         this._replayBoard.restoreSnapshot(msg.snapshotLayers);
         // The opening-snapshot base no longer applies once the board has been
         // wholesale-replaced — clear it like CLR does so a later seek rebuild
-        // doesn't repaint stale pixels under the restored state.
+        // doesn't repaint stale pixels under the restored state. Same for the
+        // snapshot's top-canvas overlay: previews captured mid-stroke are
+        // stale over a replaced board.
         this._snapshotCtx?.clearRect(0, 0, this.width, this.height);
+        this.topCtx?.clearRect(0, 0, this.width, this.height);
+        this._snapshotTopOverlayUsers.clear();
       }
       return;
     }
@@ -2781,6 +2815,18 @@ export class ReplayEngine {
     if (userId == null) return;
 
     const user = this._getOrCreateBot(userId);
+
+    // Snapshot top-overlay retirement: MU/CANCEL ends a stroke that was in
+    // progress at snapshot time (MD counts too, in case the matching MU fell
+    // off the tape). When the last such stroke ends, drop the flat overlay —
+    // the stroke now lives in the layer system where UNDO can reach it.
+    if (
+      (msg.t === T.MU || msg.t === T.CANCEL || msg.t === T.MD) &&
+      this._snapshotTopOverlayUsers.delete(userId) &&
+      this._snapshotTopOverlayUsers.size === 0
+    ) {
+      this.topCtx?.clearRect(0, 0, this.width, this.height);
+    }
 
     try {
       switch (msg.t) {
@@ -3274,7 +3320,7 @@ export class ReplayEngine {
       ctx.drawImage(this._replayBoard.upperLayersCanvas, 0, 0);
     }
 
-    if (this._replayBoard.selectionOverlay) {
+    if (this._replayBoard.selectionOverlay && this.renderSelectionOverlay !== false) {
       ctx.drawImage(
         this._replayBoard.selectionOverlay,
         -this._replayBoard.selectionOverlayPadding,
@@ -3311,6 +3357,63 @@ export class ReplayEngine {
       if (!this.isCursorVisible(user)) continue;
       drawReplayCursor(ctx, user, offsetX, offsetY);
     }
+  }
+
+  /**
+   * Draw the replay board's mirror-region outlines + mode guides (and a
+   * centerline for global mirror) onto an arbitrary context, styled like the
+   * live Board.renderMirrorRegions overlay. Regions appear/move/vanish as the
+   * recorded MIRROR_REGION / MIR / SETTINGS messages replay.
+   *
+   * Like drawCursors, deliberately NOT baked into outputCanvas: that canvas is
+   * copied verbatim into real board pixels by restore-to-live, and the video/
+   * frames exporters want artwork-only output — so only the live viewer
+   * (TimeMachine._paintReplayFrame) calls this.
+   *
+   * @param {CanvasRenderingContext2D} ctx - Destination context.
+   * @param {number} [offsetX=0] - Subtracted from region coords (region origin).
+   * @param {number} [offsetY=0]
+   * @returns {void}
+   */
+  drawMirrorGuides(ctx, offsetX = 0, offsetY = 0) {
+    if (!ctx || !this._replayBoard) return;
+    const regions = this._replayBoard.mirrorRegions || [];
+    const globalMirror = !!this._replayBoard.mirror;
+    if (regions.length === 0 && !globalMirror) return;
+
+    ctx.save();
+    ctx.translate(-offsetX, -offsetY);
+
+    if (globalMirror) {
+      // The live UI shows global mirror as a DOM centerline; draw a canvas
+      // equivalent so replays make it obvious why strokes are duplicating.
+      ctx.save();
+      ctx.setLineDash([4, 4]);
+      ctx.lineWidth = 0.75;
+      ctx.strokeStyle = 'rgba(0, 212, 170, 0.85)';
+      ctx.beginPath();
+      ctx.moveTo(this.width / 2, 0);
+      ctx.lineTo(this.width / 2, this.height);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    for (const region of regions) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(0, 212, 170, 0.9)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(region.x, region.y, region.width, region.height);
+
+      if (region.showLine) {
+        ctx.setLineDash([4, 4]);
+        ctx.lineWidth = 0.75;
+        ctx.strokeStyle = 'rgba(0, 212, 170, 0.85)';
+        Board.drawMirrorGuide(ctx, region);
+      }
+      ctx.restore();
+    }
+
+    ctx.restore();
   }
 
   /**

@@ -2,7 +2,7 @@
  * @fileoverview Captures periodic full-board stills while a session is live, so a
  * sparse "time-lapse" webm can be built when the user uploads to the gallery.
  *
- * Design: every ~60s we snapshot the whole composited board (downscaled, stored as
+ * Design: every ~20s we snapshot the whole composited board (downscaled, stored as
  * a webp blob to keep memory small). Frames are full-board, so at save time we crop
  * the SAME board-space rect out of every frame — they self-align with no padding,
  * whether the crop comes from a saved selection or the uploader's drawing bounds.
@@ -12,7 +12,7 @@
  * working inside your crop region should appear), without hooking input paths.
  */
 
-const DEFAULT_INTERVAL_MS = 60_000;
+const DEFAULT_INTERVAL_MS = 20_000;
 const MAX_FRAMES = 120;        // hard cap; older frames are decimated past this
 const STORAGE_MAX_DIM = 1280;  // longest edge of a stored frame (px)
 const STORAGE_QUALITY = 0.7;   // webp quality for stored frames
@@ -76,8 +76,11 @@ export class TimelapseCapturer {
   async renderWebm(boardRect, opts = {}) {
     const cropped = await this.getCroppedFrames(boardRect);
     if (!cropped || cropped.frames.length < 2) return null;
-    const { encodeFramesToWebm } = await import('./timelapseEncoder.js');
-    return encodeFramesToWebm(cropped.frames, { onProgress: opts.onProgress });
+    const { encodeFramesToWebm, normalizedPerFrameMs } = await import('./timelapseEncoder.js');
+    return encodeFramesToWebm(cropped.frames, {
+      perFrameMs: normalizedPerFrameMs(cropped.frames.length),
+      onProgress: opts.onProgress,
+    });
   }
 
   async _tick(force = false) {

@@ -371,7 +371,10 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 9999;
+    /* Must beat #timebarMount (fixed stacking context at z 10000): the mini
+       viewer / recorder are its children, and the dialog is portaled to <body>
+       by ReplayControls — anything below 10000 renders under those modals. */
+    z-index: 10010;
     backdrop-filter: blur(2px);
   }
 
@@ -565,7 +568,7 @@
   .picker-overlay {
     position: fixed;
     inset: 0;
-    z-index: 10001;
+    z-index: 10011;
     cursor: crosshair;
     background: rgba(0, 0, 0, 0.2);
     user-select: none;
@@ -602,12 +605,12 @@
   }
 
   /* Persistent outline shown after the user has picked a region. Lives above
-     the replay canvas (z-index 9998 < dialog 9999) so the dialog stays in
-     front when re-opened, but the outline shows through whenever the dialog
-     is closed for adjustment or a region re-select. */
+     the host modals (#timebarMount context at z 10000) but below the dialog
+     (10010), so the dialog stays in front when re-opened while the outline
+     shows through whenever the dialog is closed for adjustment or re-select. */
   .region-outline {
     position: fixed;
-    z-index: 9998;
+    z-index: 10009;
     pointer-events: none;
     border: 2px dashed #4a90e2;
     box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55), inset 0 0 0 1px rgba(0, 0, 0, 0.55);

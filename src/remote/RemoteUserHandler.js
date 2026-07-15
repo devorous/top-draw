@@ -369,6 +369,14 @@ export class RemoteUserHandler {
         const glitchTool = this.toolManager.getTool('glitchBlur');
         if (glitchTool && user.context) {
           glitchTool.drawPlaceholderAlong(user, user.context, lastPos, pos);
+          // Track mirror regions in realtime like the sender's live stroke
+          // does (_compositeStampWithMirrors) — otherwise the mirrored halves
+          // pop in all at once when GLITCH_RESULT lands.
+          this.board.forEachMirrorRegion({ points: lastPos ? [lastPos, pos] : [pos] }, (region) => {
+            this.board.withMirroredRegionTransform(user.context, region, () => {
+              glitchTool.drawPlaceholderAlong(user, user.context, lastPos, pos);
+            });
+          });
         }
         break;
       }
@@ -627,6 +635,11 @@ export class RemoteUserHandler {
             user.board.style.mixBlendMode = 'normal';
           }
           glitchTool.drawPlaceholderAlong(user, user.context, pos, pos);
+          this.board.forEachMirrorRegion({ point: pos }, (region) => {
+            this.board.withMirroredRegionTransform(user.context, region, () => {
+              glitchTool.drawPlaceholderAlong(user, user.context, pos, pos);
+            });
+          });
         }
         break;
       }
@@ -790,17 +803,11 @@ export class RemoteUserHandler {
 
       case 'line':
         if (activeStrokeCtx) {
+          // drawPreviewOnContext already draws the mirrored copies internally
+          // (unlike drawRect/drawEllipse below) — wrapping it in another
+          // forEachMirrorRegion pass drew every line twice on both sides of
+          // the mirror (mirror-of-mirror lands back on the original).
           this.toolManager.getTool('line').drawPreviewOnContext(activeStrokeCtx, user, user.startPos, pos);
-          this.board.forEachMirrorRegion({ points: [user.startPos, pos] }, (region) => {
-            this.board.withMirrorRegionClip(activeStrokeCtx, region, () => {
-              this.toolManager.getTool('line').drawPreviewOnContext(
-                activeStrokeCtx,
-                user,
-                this.board.mirrorPointToRegion(user.startPos, region),
-                this.board.mirrorPointToRegion(pos, region)
-              );
-            });
-          });
           // Mirror LineTool.onPointerUp margin so the hardness blur halo is
           // included in the dirtyRect, otherwise commitUserStroke crops the
           // halo off and observers' committed stroke disagrees with drawer's.

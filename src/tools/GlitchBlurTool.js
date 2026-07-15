@@ -367,7 +367,12 @@ export class GlitchBlurTool extends Tool {
   }
 
   _broadcastLocalStrokeImages(strokeImages) {
-    if (!strokeImages?.length || !this.board.app?.wsClient || !this.board.app?.connected) return;
+    const app = this.board.app;
+    if (!strokeImages?.length || !app?.wsClient) return;
+    // Offline (Draw Alone) must still emit GLITCH_RESULT: send() records it to
+    // the rolling tape, and replay treats every glitch stroke as remote — it
+    // only renders when the result arrives. Skip only mid-session disconnects.
+    if (!app.connected && !app.isOfflineMode) return;
     const maxDataUrlLength = 3 * 1024 * 1024;
 
     for (const { layerIdx, bounds, cropCanvas, blendMode, blendBakeMode } of strokeImages) {

@@ -355,17 +355,15 @@ export class MirrorRegionController {
         existing.id === this.editingRegionId ? { ...existing, ...region } : existing
       );
       this.board.setMirrorRegions(nextRegions);
-      if (this.wsClient?.connected) {
-        this.wsClient.broadcastMirrorRegion({ action: 'update', region });
-      }
+      // Unconditional like broadcastMirror(): send() no-ops when disconnected
+      // and taps the rolling tape in offline mode so replay sees the region.
+      this.wsClient?.broadcastMirrorRegion({ action: 'update', region });
       this.ui.showToast('Mirror region updated', 1800);
       this.originalEditingRegion = null;
       this.lastEditingPreviewSignature = '';
     } else {
       this.board.setMirrorRegions([...(this.board.mirrorRegions || []), region]);
-      if (this.wsClient?.connected) {
-        this.wsClient.broadcastMirrorRegion({ action: 'create', region });
-      }
+      this.wsClient?.broadcastMirrorRegion({ action: 'create', region });
       this.ui.showToast('Mirror region applied', 1800);
     }
 
@@ -408,9 +406,7 @@ export class MirrorRegionController {
   removeRegion(regionId) {
     const nextRegions = (this.board.mirrorRegions || []).filter(region => region.id !== regionId);
     this.board.setMirrorRegions(nextRegions);
-    if (this.wsClient?.connected) {
-      this.wsClient.broadcastMirrorRegion({ action: 'remove', id: regionId });
-    }
+    this.wsClient?.broadcastMirrorRegion({ action: 'remove', id: regionId });
     if (this.editingRegionId === regionId) {
       this.originalEditingRegion = null;
       this._resetSelectionState();

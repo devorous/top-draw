@@ -206,6 +206,62 @@
     sync();
     return () => cancelAnimationFrame(rafId);
   });
+
+  // ── Region adjust ───────────────────────────────────────────────────────────
+  // The committed outline stays interactive: drag a corner/edge handle to
+  // expand/contract it (the interior stays click-through so the canvas can
+  // still be panned). Deltas are converted from client px to board px via the
+  // canvas's on-screen rect, so it works at any zoom.
+  const RESIZE_HANDLES = ['tl', 'tr', 'bl', 'br', 't', 'b', 'l', 'r'];
+  const HANDLE_CURSORS = {
+    tl: 'nwse-resize', br: 'nwse-resize',
+    tr: 'nesw-resize', bl: 'nesw-resize',
+    t: 'ns-resize', b: 'ns-resize',
+    l: 'ew-resize', r: 'ew-resize',
+  };
+  const MIN_REGION_PX = 8;
+  let regionAdjust = null; // { mode, startX, startY, start, sx, sy }
+
+  function onOutlinePointerDown(e, mode) {
+    if (regionSelecting || !regionRect) return;
+    const c = getCanvas?.();
+    if (!c) return;
+    const r = c.getBoundingClientRect();
+    if (!r.width || !r.height) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    regionAdjust = {
+      mode,
+      startX: e.clientX,
+      startY: e.clientY,
+      start: { ...regionRect },
+      sx: c.width / r.width,
+      sy: c.height / r.height,
+    };
+  }
+
+  function onOutlinePointerMove(e) {
+    if (!regionAdjust) return;
+    const c = getCanvas?.();
+    if (!c) return;
+    const dx = (e.clientX - regionAdjust.startX) * regionAdjust.sx;
+    const dy = (e.clientY - regionAdjust.startY) * regionAdjust.sy;
+    const s0 = regionAdjust.start;
+    const m = regionAdjust.mode;
+    let x1 = s0.x, y1 = s0.y, x2 = s0.x + s0.width, y2 = s0.y + s0.height;
+    if (m.includes('l')) x1 = Math.max(0, Math.min(x2 - MIN_REGION_PX, x1 + dx));
+    if (m.includes('r')) x2 = Math.min(c.width, Math.max(x1 + MIN_REGION_PX, x2 + dx));
+    if (m.includes('t')) y1 = Math.max(0, Math.min(y2 - MIN_REGION_PX, y1 + dy));
+    if (m.includes('b')) y2 = Math.min(c.height, Math.max(y1 + MIN_REGION_PX, y2 + dy));
+    regionRect = { x: x1, y: y1, width: x2 - x1, height: y2 - y1 };
+  }
+
+  function onOutlinePointerUp(e) {
+    if (!regionAdjust) return;
+    regionAdjust = null;
+    e.currentTarget?.releasePointerCapture?.(e.pointerId);
+  }
 </script>
 
 <div class="rp-controls" data-tut="replay-transport">
@@ -305,8 +361,24 @@
 {/if}
 
 {#if regionOutline && !regionSelecting}
-  <div use:portal class="rp-region-outline" style="left:{regionOutline.left}px;top:{regionOutline.top}px;width:{regionOutline.width}px;height:{regionOutline.height}px">
-    <span class="rp-region-tag">Region</span>
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div
+    use:portal
+    class="rp-region-outline"
+    role="presentation"
+    style="left:{regionOutline.left}px;top:{regionOutline.top}px;width:{regionOutline.width}px;height:{regionOutline.height}px"
+    onpointermove={onOutlinePointerMove}
+    onpointerup={onOutlinePointerUp}
+    onpointercancel={onOutlinePointerUp}
+  >
+    {#each RESIZE_HANDLES as h}
+      <div
+        class="rp-region-handle handle-{h}"
+        style="cursor: {HANDLE_CURSORS[h]}"
+        onpointerdown={(e) => onOutlinePointerDown(e, h)}
+      ></div>
+    {/each}
+    <span class="rp-region-tag">Region {Math.round(regionRect?.width ?? 0)}×{Math.round(regionRect?.height ?? 0)}</span>
   </div>
 {/if}
 
@@ -405,15 +477,35 @@
     position: fixed; z-index: 10006; pointer-events: none;
     border: 2px dashed #fff; background: rgba(0, 212, 170, 0.18);
   }
-  /* Above the host modals (z 2000) but below the time-lapse dialog (z 9999). */
+  /* Above every host surface — the mini viewer / recorder live inside
+     #timebarMount, a fixed stacking context at z 10000, so anything portaled to
+     <body> must beat 10000 to show over them. Kept below the picker (10005) and
+     the time-lapse dialog (10010). The outline itself passes pointer events
+     through; only the resize handles are interactive, so the canvas can still
+     be panned by dragging through the region interior. */
   .rp-region-outline {
-    position: fixed; z-index: 3000; pointer-events: none;
+    position: fixed; z-index: 10004; pointer-events: none;
     border: 2px dashed var(--accent-primary, #00d4aa);
     box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55), inset 0 0 0 1px rgba(0, 0, 0, 0.55);
   }
+  .rp-region-handle {
+    position: absolute; width: 12px; height: 12px; pointer-events: auto;
+    background: var(--accent-primary, #00d4aa); border: 1px solid #fff;
+    border-radius: 2px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+    touch-action: none;
+  }
+  .handle-tl { top: -7px; left: -7px; }
+  .handle-tr { top: -7px; right: -7px; }
+  .handle-bl { bottom: -7px; left: -7px; }
+  .handle-br { bottom: -7px; right: -7px; }
+  .handle-t { top: -7px; left: 50%; margin-left: -6px; }
+  .handle-b { bottom: -7px; left: 50%; margin-left: -6px; }
+  .handle-l { left: -7px; top: 50%; margin-top: -6px; }
+  .handle-r { right: -7px; top: 50%; margin-top: -6px; }
   .rp-region-tag {
     position: absolute; top: -20px; left: -2px; background: var(--accent-primary, #00d4aa);
     color: #fff; font-size: 11px; font-weight: 600; padding: 2px 6px; border-radius: 4px 4px 0 0; white-space: nowrap;
+    pointer-events: none;
   }
 
   /* Counteract the fullscreen replay-preview blur + loading overlay while the

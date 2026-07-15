@@ -17,6 +17,22 @@ function estimateBitrate(width, height, fps) {
   return Math.min(16_000_000, Math.max(800_000, bps));
 }
 
+/** Target total clip length used to normalize per-still hold time. */
+const TARGET_CLIP_MS = 6_000;
+
+/**
+ * Per-still hold time that lands the clip near TARGET_CLIP_MS regardless of
+ * how many stills the session produced, clamped so sparse clips don't crawl
+ * (≤700ms/still) and frame-dense ones don't strobe (≥150ms/still).
+ * @param {number} frameCount
+ * @param {number} [targetMs]
+ * @returns {number}
+ */
+export function normalizedPerFrameMs(frameCount, targetMs = TARGET_CLIP_MS) {
+  if (!Number.isFinite(frameCount) || frameCount < 1) return 450;
+  return Math.round(Math.min(700, Math.max(150, targetMs / frameCount)));
+}
+
 /**
  * @param {HTMLCanvasElement[]} frames - same-sized, even-dimensioned canvases
  * @param {Object} [opts]

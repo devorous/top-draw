@@ -30,8 +30,6 @@
 
   // Gallery state
   let items = $state([]);
-  // Card whose time-lapse is currently hovered (grid view). Lazy-loads the video.
-  let hoveredTimelapseId = $state(null);
   const prefersReducedMotion = typeof window !== 'undefined'
     && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
@@ -1285,13 +1283,9 @@
           <div class="grid">
         {#each items as item (item.id)}
           <div class="card" role="button" tabindex="0" onclick={() => openLightbox(item)} onpointerup={(e) => e.pointerType !== 'mouse' && openLightbox(item)} onkeydown={(e) => e.key === 'Enter' && openLightbox(item)}>
-            <div
-              class="card-img"
-              onpointerenter={(e) => { if (e.pointerType === 'mouse' && canPlayTimelapse(item)) hoveredTimelapseId = item.id; }}
-              onpointerleave={() => { if (hoveredTimelapseId === item.id) hoveredTimelapseId = null; }}
-            >
+            <div class="card-img">
               <img src={item.thumbUrl || item.url} alt={item.title || 'artwork'} loading="lazy" class:censored={isNsfw(item) && !isNsfwRevealed(item)}>
-              {#if item.animatedUrl && hoveredTimelapseId === item.id && canPlayTimelapse(item)}
+              {#if item.animatedUrl && canPlayTimelapse(item)}
                 <video
                   class="card-timelapse"
                   src={item.animatedUrl}
@@ -1299,11 +1293,8 @@
                   loop
                   autoplay
                   playsinline
-                  preload="none"
                 ></video>
-              {/if}
-              {#if item.animatedUrl && canPlayTimelapse(item)}
-                <span class="card-timelapse-badge" title="Hover to play time-lapse">▶ lapse</span>
+                <span class="card-timelapse-badge" title="Time-lapse">TIMELAPSE</span>
               {/if}
               {#if isNsfw(item)}
                 <span class="card-badge">NSFW</span>
@@ -1352,6 +1343,17 @@
                 <div class="post-head">
                   <button class="post-thumb" onclick={() => openLightbox(item)} onpointerup={(e) => e.pointerType !== 'mouse' && openLightbox(item)} aria-label={`Open ${item.title || 'image'}`}>
                     <img src={item.thumbUrl || item.url} alt={item.title || 'artwork'} loading="lazy" class:censored={isNsfw(item) && !isNsfwRevealed(item)} />
+                    {#if item.animatedUrl && canPlayTimelapse(item)}
+                      <video
+                        class="card-timelapse"
+                        src={item.animatedUrl}
+                        muted
+                        loop
+                        autoplay
+                        playsinline
+                      ></video>
+                      <span class="card-timelapse-badge" title="Time-lapse">TIMELAPSE</span>
+                    {/if}
                     {#if isNsfw(item) && !isNsfwRevealed(item)}
                       <span class="reveal" onclick={(e) => { e.stopPropagation(); revealNsfw(item); }} onpointerup={(e) => { e.stopPropagation(); e.pointerType !== 'mouse' && revealNsfw(item); }} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); revealNsfw(item); } }} role="button" tabindex="0">
                         <span>NSFW</span><strong>Reveal</strong>

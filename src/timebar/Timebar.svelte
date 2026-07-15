@@ -187,13 +187,11 @@
     letter-spacing: 0.02em;
     cursor: pointer;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-    backdrop-filter: blur(8px);
-    transition: all 0.2s ease;
+    transition: background 0.15s ease, border-color 0.15s ease;
 
     &:hover {
-      background: rgba(160, 174, 192, 0.25);
-      transform: translateY(-1px);
-      box-shadow: 0 6px 20px rgba(160, 174, 192, 0.4);
+      background: rgba(45, 55, 72, 0.95);
+      border-color: #fff;
     }
   }
 
@@ -294,6 +292,20 @@
      scoped here so playback still shows who was drawing where. */
   :global(body.replay-reviewing-mode .cursors .self),
   :global(body.replay-reviewing-mode .cursors .mirrorLine) {
+    display: none !important;
+  }
+
+  /* Live board overlays that sit ABOVE #replayCanvas (z 2) inside #boards:
+     mirror-region rects/guides (z 3), the mirror-region editor (z 4/5/60),
+     the selection marching ants (z 100) and its screen-space handles (z 6).
+     They describe the LIVE board, not the historical one being reviewed, so
+     they must not float over the replay (or over the render-region picker). */
+  :global(body.replay-reviewing-mode #mirrorRegionsLayer),
+  :global(body.replay-reviewing-mode #mirrorRegionOverlay),
+  :global(body.replay-reviewing-mode #mirrorRegionControls),
+  :global(body.replay-reviewing-mode #mirrorRegionPanel),
+  :global(body.replay-reviewing-mode #selectionOverlay),
+  :global(body.replay-reviewing-mode #handleOverlay) {
     display: none !important;
   }
 

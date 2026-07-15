@@ -157,9 +157,11 @@ export class SaveController {
       this.ui.showToast('Saved to gallery!');
 
       // Fire-and-forget: render + attach a time-lapse for entitled users. Not
-      // awaited so the save UI completes immediately; the clip attaches when ready.
-      if (data?.id && this.canUseGalleryTimelapse()) {
-        this._uploadGalleryTimelapse(data.id, metadata.timelapseRegion ?? null, token)
+      // awaited so the save UI completes immediately; the clip attaches when
+      // ready. metadata.timelapse === false means the user opted out in the
+      // save dialog — skip even the fallback render.
+      if (data?.id && metadata.timelapse !== false && this.canUseGalleryTimelapse()) {
+        this._uploadGalleryTimelapse(data.id, metadata.timelapseRegion ?? null, token, metadata.timelapseBlob ?? null)
           .catch(err => console.warn('[Timelapse] upload failed:', err));
       }
     } catch (err) {
@@ -221,13 +223,18 @@ export class SaveController {
    * @param {string} itemId - Gallery item id from the upload response.
    * @param {{x:number,y:number,width:number,height:number}|null} region - board px, null = full board
    * @param {string} token - auth token
+   * @param {Blob|null} [preRendered] - clip already rendered by the save-dialog
+   *   preview (trim applied); when present it's uploaded as-is so the user gets
+   *   exactly what they saw.
    */
-  async _uploadGalleryTimelapse(itemId, region, token) {
-    const capturer = this.app.timelapseCapturer;
-    if (!capturer || capturer.frameCount < 1) return;
-
-    const blob = await capturer.renderWebm(region);
-    if (!blob) return; // not enough distinct frames
+  async _uploadGalleryTimelapse(itemId, region, token, preRendered = null) {
+    let blob = preRendered;
+    if (!blob) {
+      const capturer = this.app.timelapseCapturer;
+      if (!capturer || capturer.frameCount < 1) return;
+      blob = await capturer.renderWebm(region);
+      if (!blob) return; // not enough distinct frames
+    }
 
     const dataUrl = await new Promise((resolve, reject) => {
       const reader = new FileReader();

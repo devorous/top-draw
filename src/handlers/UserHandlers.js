@@ -523,10 +523,20 @@ export function setupUserHandlers(wsClient, app) {
           app.syncClient.hideOverlay();
           app.syncClient.hasCompletedSync = true;
           app.updateRecordingButtonState?.();
-          // Alone in the room: handleSyncComplete() never runs (we skipped
-          // requestSync), so fire the sync-complete side effects here too —
-          // otherwise the rolling DVR tape never starts when you're solo.
-          app.syncClient.onSyncComplete?.();
+          // Alone in the room: no sync ran and the board was never touched, so
+          // do NOT fire onSyncComplete — that resets (wipes + re-anchors) the
+          // rolling DVR tape that has been recording since join, cutting off
+          // the first ~2.5s and potentially anchoring mid-stroke. Just make
+          // sure the tape is running (safety net for paths that skipped the
+          // join-time start).
+          if (
+            app.currentRoomId &&
+            !app.isOfflineMode &&
+            app.rollingTapeRecorder &&
+            !app.rollingTapeRecorder.isEnabled?.()
+          ) {
+            app.rollingTapeRecorder.start(app);
+          }
         }, 2500);
       }
     }

@@ -518,6 +518,140 @@
   padding-bottom: 6px;
 }
 
+// Entitlement-gated: display:flex on the checkbox label would otherwise
+// defeat the hidden attribute.
+.saveModeTimelapseToggle[hidden] {
+  display: none;
+}
+
+// Time-lapse preview window — floats above the options panel while the
+// gallery step is open. JS keeps `bottom` synced to the panel's height.
+.saveModeTimelapseWindow {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 140px; // fallback; overwritten by _positionTimelapseWindow()
+  width: 440px;
+  max-width: calc(100vw - 32px);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: color-mix(in srgb, var(--bg-secondary) 94%, transparent);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  backdrop-filter: blur(10px);
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+.saveModeTimelapseHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+
+  > span:first-child {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+}
+
+.saveModeTimelapsePreview {
+  position: relative;
+  width: 100%;
+  height: 220px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--bg-primary) 88%, transparent);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.saveModeTimelapseVideo {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+.saveModeTimelapseSpinner {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-align: center;
+  background: color-mix(in srgb, var(--bg-primary) 72%, transparent);
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+.saveModeTimelapseSpinnerIcon {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border-subtle);
+  border-top-color: var(--accent-primary);
+  border-radius: 50%;
+  animation: saveModeTimelapseSpin 0.8s linear infinite;
+}
+
+@keyframes saveModeTimelapseSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.saveModeTimelapseTrim {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+
+  label {
+    display: grid;
+    grid-template-columns: 36px 1fr;
+    align-items: center;
+    gap: 8px;
+
+    span {
+      font-size: 11px;
+      color: var(--text-secondary);
+    }
+
+    input[type="range"] {
+      width: 100%;
+      min-width: 0;
+      accent-color: var(--accent-primary);
+    }
+  }
+}
+
+.saveModeTimelapseFrames {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
 // ========================================
 // Mobile / narrow layout
 // ========================================
@@ -610,6 +744,15 @@
 
   .saveModeField textarea {
     min-height: 48px;
+  }
+
+  .saveModeTimelapseWindow {
+    width: calc(100vw - 16px);
+    padding: 10px 12px;
+  }
+
+  .saveModeTimelapsePreview {
+    height: 150px;
   }
 }
 

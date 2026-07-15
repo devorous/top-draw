@@ -105,6 +105,13 @@ export class RollingTapeRecorder {
     /** @type {number} Virtual ts assigned to the last stamped input. */
     this._lastInputVirtual = 0;
 
+    /**
+     * One-shot inbound filter armed around our own "undo to here" restore
+     * broadcast — see {@link RollingTapeRecorder.suppressNextInbound}.
+     * @type {{type: number, until: number} | null}
+     */
+    this._suppressInbound = null;
+
     /** @type {((status: ReturnType<RollingTapeRecorder['getStatus']>) => void) | null} */
     this.onStatusChange = null;
   }
@@ -182,6 +189,7 @@ export class RollingTapeRecorder {
     this._staleReason = null;
     this._clearTimers();
     this._clearBuffers();
+    this._suppressInbound = null;
     this._app = null;
     void reason;
     this._notify();
@@ -252,6 +260,15 @@ export class RollingTapeRecorder {
     if (!this._enabled) return;
     if (!shouldRecord(msg)) return;
 
+    // One-shot suppression (see suppressNextInbound): our own restore echoed
+    // back by the server after an "undo to here" truncation must not land on
+    // the freshly cut tape.
+    const sup = this._suppressInbound;
+    if (sup && dir === 'in' && msg?.t === sup.type) {
+      this._suppressInbound = null;
+      if (Date.now() <= sup.until) return;
+    }
+
     // Drop the server's inbound echo of our own commit-class messages — we
     // already captured the outbound copy. See Recorder._append for the why.
     if (dir === 'in' && msg?.t != null && isCommitType(msg.t)) {
@@ -270,8 +287,10 @@ export class RollingTapeRecorder {
     // Stamp on the compressed activity clock so genuine idle gaps collapse out of
     // the timeline. Any genuinely-sent message (including hover cursor moves)
     // counts as activity; messages the local user makes while reviewing a replay
-    // never reach here (filtered in TimeMachine.recordAction).
-    this._deltas.push({ ts: this._stampInput(), msg: cloned, dir });
+    // never reach here (filtered in TimeMachine.recordAction). The wall stamp
+    // rides along so "undo to here" can map cuts between this tape's activity
+    // clock and the manual Recorder's wall clock (never exported in bundles).
+    this._deltas.push({ ts: this._stampInput(), wall: Date.now(), msg: cloned, dir });
     this._activitySinceVisual = true;
     this._activitySinceIntra = true;
 
@@ -332,6 +351,103 @@ export class RollingTapeRecorder {
       stale: this._stale,
     };
     return bundle;
+  }
+
+  // ── undo-to-here truncation ─────────────────────────────────────────────────
+
+  /**
+   * Drop everything after `virtualTs` from the tape. Used by "undo to here":
+   * once the board is reverted to that moment, the undone tail must not live
+   * on in history — reopening Recent would otherwise replay strokes that no
+   * longer exist, and checkpoints captured after the revert would contradict
+   * the buffered deltas. The live board is expected to already equal the tape
+   * state at the cut; a fresh checkpoint is captured there so the remaining
+   * tape has an exact anchor, and the activity clock is rewound so new inputs
+   * continue seamlessly from the cut.
+   * @param {number} virtualTs - cut point on the tape's activity clock
+   */
+  truncateAfter(virtualTs) {
+    if (!this._enabled) return;
+    const cut = Number(virtualTs);
+    if (!Number.isFinite(cut)) return;
+
+    this._checkpoints = this._checkpoints.filter((cp) => cp.ts <= cut);
+    this._deltas = this._deltas.filter((d) => d.ts <= cut);
+    this._visualCheckpoints = this._visualCheckpoints.filter((cp) => cp.ts <= cut);
+
+    // Rewind the activity clock to the cut so the next input stamps just past
+    // it (monotonic: everything newer was dropped above).
+    this._lastInputWall = Date.now();
+    this._lastInputVirtual = cut;
+    this._activitySinceVisual = false;
+    this._activitySinceIntra = false;
+
+    // The board now equals the tape state at the cut — anchor it exactly.
+    // Also covers the edge where a long review let pruning advance the anchor
+    // past the cut (the filters above would then leave zero checkpoints).
+    this._captureCheckpoint();
+    this._notify();
+  }
+
+  /**
+   * Wall-clock variant of {@link truncateAfter} for cuts made on a wall-clock
+   * tape (a manual Recorder recording or a same-session .ddraw). Board state
+   * only changes with messages, so the last delta at or before the wall cut
+   * marks the same state on the activity clock. A cut that predates every
+   * buffered delta (e.g. restoring from an old .ddraw file) means the whole
+   * window was undone — the tape resets and re-anchors on the restored board.
+   * @param {number} wallTs
+   */
+  truncateAfterWall(wallTs) {
+    if (!this._enabled || this._deltas.length === 0) return;
+    const cutWall = Number(wallTs);
+    if (!Number.isFinite(cutWall)) return;
+    if (this._deltas[this._deltas.length - 1].wall <= cutWall) return; // nothing after the cut
+
+    let virtualCut = null;
+    for (const d of this._deltas) {
+      if (d.wall <= cutWall) virtualCut = d.ts;
+      else break;
+    }
+    if (virtualCut == null) {
+      this.reset('undo-truncate');
+      return;
+    }
+    this.truncateAfter(virtualCut);
+  }
+
+  /**
+   * Best-effort wall-clock time for a point on the tape's activity clock,
+   * mapped through the deltas' wall stamps. Used to cut the manual Recorder
+   * (a wall-clock tape) at the same moment as a rolling-tape undo.
+   * @param {number} virtualTs
+   * @returns {number}
+   */
+  wallTsForVirtual(virtualTs) {
+    let lastAtOrBefore = null;
+    for (const d of this._deltas) {
+      if (d.ts <= virtualTs) lastAtOrBefore = d;
+      else break;
+    }
+    if (lastAtOrBefore?.wall != null) return lastAtOrBefore.wall;
+    // Cut precedes every buffered delta: anything recorded counts as "after".
+    const first = this._deltas[0];
+    if (first?.wall != null) return first.wall - 1;
+    return Date.now();
+  }
+
+  /**
+   * Arm a one-shot filter that drops the next inbound message of `type`.
+   * Armed just before our own "undo to here" restore broadcast: the tape is
+   * truncated at the undo point, and the server's echo of the restore carries
+   * no user id (so it dodges the commit self-echo dedup) — without this it
+   * would re-append a full board image the truncated tape already equals.
+   * @param {number} type - T enum message type
+   * @param {number} [windowMs] - how long the filter stays armed
+   */
+  suppressNextInbound(type, windowMs = 10_000) {
+    if (type == null) return;
+    this._suppressInbound = { type, until: Date.now() + windowMs };
   }
 
   /**

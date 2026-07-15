@@ -50,10 +50,38 @@ export class SaveMode {
     this.transparent = false;
     this.shareToDiscord = false;
     this.tagUsername = true;
+    this.uploadTimelapse = true;
     this.galleryTitle = '';
     this.galleryDescription = '';
     this.preExistingCanvasFixedSelection = false;
     this.step = 'main'; // 'main' or 'gallery'
+
+    // Gallery time-lapse preview state. Two sources: 'stills' uses the sparse
+    // TimelapseCapturer frames (long sessions); 'tape' renders the rolling DVR
+    // tape through TimeLapseExporter (short sessions the capturer barely saw).
+    // The FULL clip is encoded once (`blob`); trimming is a pure playback
+    // window [playStart, playEnd] over that clip, and only at upload is the
+    // trimmed range encoded — once. `timing` maps trim-slider units to clip
+    // seconds; `trimMax` is the slider ceiling (stills: last frame index,
+    // tape: span seconds). `gen` invalidates in-flight crop/encode work.
+    this._tl = {
+      source: null,
+      frames: null,
+      tape: null,
+      region: null,
+      regionKey: null,
+      trimStart: 0,
+      trimEnd: 0,
+      trimMax: 0,
+      timing: null,
+      playStart: 0,
+      playEnd: Infinity,
+      blob: null,
+      url: null,
+      gen: 0,
+      encodePromise: null,
+      exporter: null,
+    };
 
     this._createElements();
     this._setupEventListeners();
@@ -150,6 +178,10 @@ export class SaveMode {
               <input type="checkbox" id="saveModeTagUsername" checked>
               <span>Tag my username</span>
             </label>
+            <label class="saveModeOptionsCheckbox saveModeTimelapseToggle" hidden>
+              <input type="checkbox" id="saveModeUploadTimelapse" checked>
+              <span>Upload Timelapse</span>
+            </label>
           </div>
           <label class="saveModeField saveModeDescriptionField">
             <span>Description</span>
@@ -163,6 +195,29 @@ export class SaveMode {
       </div>
     `;
 
+    // Time-lapse preview window — floats above the options panel during the
+    // gallery step. Separate from the form so the preview can be big.
+    this.timelapseWindow = document.createElement('div');
+    this.timelapseWindow.className = 'saveModeTimelapseWindow';
+    this.timelapseWindow.hidden = true;
+    this.timelapseWindow.innerHTML = `
+      <div class="saveModeTimelapseHeader">
+        <span>Time-lapse</span>
+        <span class="saveModeTimelapseFrames"></span>
+      </div>
+      <div class="saveModeTimelapsePreview">
+        <video class="saveModeTimelapseVideo" loop autoplay playsinline hidden></video>
+        <div class="saveModeTimelapseSpinner">
+          <span class="saveModeTimelapseSpinnerIcon"></span>
+          <span class="saveModeTimelapseSpinnerText">Generating time-lapse…</span>
+        </div>
+      </div>
+      <div class="saveModeTimelapseTrim">
+        <label><span>Start</span><input type="range" id="saveModeTrimStart" min="0" max="1" step="1" value="0"></label>
+        <label><span>End</span><input type="range" id="saveModeTrimEnd" min="0" max="1" step="1" value="1"></label>
+      </div>
+    `;
+
     // Close button (top right)
     const closeBtn = document.createElement('button');
     closeBtn.className = 'saveModeCloseBtn';
@@ -172,6 +227,7 @@ export class SaveMode {
     this.overlay.appendChild(this.snapshotCanvas);
     this.overlay.appendChild(this.selectionCanvas);
     this.overlay.appendChild(controls);
+    this.overlay.appendChild(this.timelapseWindow);
     this.overlay.appendChild(this.optionsPanel);
     this.overlay.appendChild(closeBtn);
 
@@ -199,6 +255,24 @@ export class SaveMode {
     this.stepMain = this.optionsPanel.querySelector('.saveModeStepMain');
     this.stepGallery = this.optionsPanel.querySelector('.saveModeStepGallery');
     this.selectionInfo = this.optionsPanel.querySelector('.saveModeSelectionInfo');
+    this.timelapseBlock = this.timelapseWindow;
+    this.timelapseVideo = this.timelapseWindow.querySelector('.saveModeTimelapseVideo');
+    this.timelapseSpinner = this.timelapseWindow.querySelector('.saveModeTimelapseSpinner');
+    this.timelapseSpinnerText = this.timelapseWindow.querySelector('.saveModeTimelapseSpinnerText');
+    this.timelapseFramesLabel = this.timelapseWindow.querySelector('.saveModeTimelapseFrames');
+    this.trimStartInput = this.timelapseWindow.querySelector('#saveModeTrimStart');
+    this.trimEndInput = this.timelapseWindow.querySelector('#saveModeTrimEnd');
+    this.uploadTimelapseCheckbox = this.optionsPanel.querySelector('#saveModeUploadTimelapse');
+    this.uploadTimelapseToggle = this.optionsPanel.querySelector('.saveModeTimelapseToggle');
+    // Set the property (not just the attribute) so autoplay is allowed.
+    if (this.timelapseVideo) this.timelapseVideo.muted = true;
+
+    // Keep the time-lapse window stacked just above the options panel, whose
+    // height changes as the user types/resizes the description.
+    if (typeof ResizeObserver === 'function') {
+      this._panelResizeObserver = new ResizeObserver(() => this._positionTimelapseWindow());
+      this._panelResizeObserver.observe(this.optionsPanel);
+    }
   }
 
   /**
@@ -270,6 +344,23 @@ export class SaveMode {
       this.galleryDescription = e.target.value;
     });
 
+    this.trimStartInput?.addEventListener('input', () => this._onTrimInput('start'));
+    this.trimEndInput?.addEventListener('input', () => this._onTrimInput('end'));
+    this.uploadTimelapseCheckbox?.addEventListener('change', (e) => this._setUploadTimelapse(e.target.checked));
+
+    // Trim is a playback window over the fully-encoded clip — no re-encode.
+    // Native `loop` wraps to t=0; both that and overshooting the trim end are
+    // snapped back to the window start here.
+    this.timelapseVideo?.addEventListener('timeupdate', () => {
+      const v = this.timelapseVideo;
+      const { playStart = 0, playEnd = Infinity } = this._tl;
+      if (!v || v.hidden || !this._tl.source) return;
+      if (v.currentTime < playStart - 0.05 || v.currentTime >= playEnd) {
+        try { v.currentTime = playStart; } catch { /* not seekable yet */ }
+      }
+    });
+    this.timelapseVideo?.addEventListener('loadedmetadata', () => this._updatePlaybackWindow());
+
     // Escape steps back out of the gallery form, then closes the overlay
     this._keyHandler = (e) => {
       if (e.key === 'Escape' && this.isActive) {
@@ -291,6 +382,9 @@ export class SaveMode {
     this.step = step;
     if (this.stepMain) this.stepMain.hidden = step !== 'main';
     if (this.stepGallery) this.stepGallery.hidden = step !== 'gallery';
+    // The time-lapse window only accompanies the gallery form; its state is
+    // kept so returning to the step doesn't re-render an unchanged crop.
+    if (this.timelapseWindow && step !== 'gallery') this.timelapseWindow.hidden = true;
   }
 
   /**
@@ -302,6 +396,26 @@ export class SaveMode {
       return;
     }
     this._showStep('gallery');
+    // The toggle is only shown to entitled users; everyone else keeps the
+    // plain form and never generates a clip.
+    if (this.uploadTimelapseToggle) {
+      this.uploadTimelapseToggle.hidden = !this.app.canUseGalleryTimelapse?.();
+    }
+    if (this.uploadTimelapseCheckbox) this.uploadTimelapseCheckbox.checked = this.uploadTimelapse;
+    // Render the time-lapse preview in the background while the user types the
+    // title/description, so it's usually ready before they hit Upload.
+    if (this.uploadTimelapse) this._beginTimelapsePreview();
+  }
+
+  /**
+   * Set whether a time-lapse is generated and attached to this upload.
+   * On by default; unchecking hides the preview window and suppresses the
+   * attach entirely (including SaveController's fallback render).
+   */
+  _setUploadTimelapse(enabled) {
+    this.uploadTimelapse = !!enabled;
+    if (this.uploadTimelapse) this._beginTimelapsePreview();
+    else this._resetTimelapsePreview();
   }
 
   /**
@@ -344,6 +458,7 @@ export class SaveMode {
     this.transparent = false;
     this.shareToDiscord = false;
     this.tagUsername = true;
+    this.uploadTimelapse = true;
     this.galleryTitle = '';
     this.galleryDescription = '';
     this.activeTool = 'select';
@@ -352,6 +467,7 @@ export class SaveMode {
     this.optionsPanel.querySelector('#saveModeTagUsername').checked = true;
     if (this.titleInput) this.titleInput.value = '';
     if (this.descriptionInput) this.descriptionInput.value = '';
+    this._resetTimelapsePreview();
     this._showStep('main');
 
     // Size canvases to match board
@@ -987,15 +1103,418 @@ export class SaveMode {
       const saved = await this.app.saveCanvasLocally(canvas, `${prefix}-${ts}.png`, 'Image saved!');
       if (!saved) return;
     } else {
+      // Prefer the previewed clip so the upload matches what the user saw.
+      // If they trimmed, the trimmed range is encoded once, right here.
+      this.ui.showSavingPopup?.('Preparing time-lapse…');
+      const timelapseBlob = await this._currentTimelapseBlob();
       await this.app.handleSaveToGallery(canvas, {
         title: this.galleryTitle.trim(),
         description: (this.galleryDescription || '').trim(),
         tags: this.shareToDiscord ? ['discord'] : [],
-        tagUsername: this.tagUsername
+        tagUsername: this.tagUsername,
+        // Crop the auto time-lapse to what's actually being saved, not the
+        // whole board. Null = full board (also for pre-existing canvases,
+        // which have no board-space mapping).
+        timelapseRegion: this._getBoardSpaceSaveRegion(),
+        timelapseBlob: timelapseBlob || undefined,
+        // false = user turned the Upload Timelapse toggle off — also blocks
+        // SaveController's fallback render, not just the previewed blob.
+        timelapse: this.uploadTimelapse
       });
     }
 
     this.close();
+  }
+
+  /**
+   * The saved area as a board-space rect for the gallery time-lapse crop.
+   * Mirrors _createExportCanvas's selection precedence. Pre-existing canvases
+   * (e.g. handed in by SelectTool) have no board mapping, so they return null
+   * (= full board).
+   * @returns {{x: number, y: number, width: number, height: number}|null}
+   */
+  _getBoardSpaceSaveRegion() {
+    if (this.preExistingCanvas) return null;
+
+    let bounds = null;
+    if (this.mode === 'lasso' && this.lassoPoints.length > 2) {
+      bounds = this._getLassoBounds();
+    } else if (this.selection && this.selection.width > 0 && this.selection.height > 0) {
+      bounds = this.selection;
+    }
+    if (!bounds) return null;
+
+    return {
+      x: Math.round(bounds.x),
+      y: Math.round(bounds.y),
+      width: Math.max(1, Math.round(bounds.width)),
+      height: Math.max(1, Math.round(bounds.height))
+    };
+  }
+
+  /**
+   * Show and populate the gallery-step time-lapse preview.
+   *
+   * Source selection: sessions long enough to have accumulated stills (≥3)
+   * use the sparse capturer frames; anything shorter — the "quick doodle"
+   * case where the 20s capturer saw little or nothing — falls back to the
+   * rolling DVR tape, rendered through TimeLapseExporter into a smooth clip.
+   * Hidden entirely when the user isn't entitled or neither source has content.
+   */
+  async _beginTimelapsePreview() {
+    if (!this.timelapseBlock) return;
+    if (!this.app.canUseGalleryTimelapse?.()) {
+      this._resetTimelapsePreview();
+      return;
+    }
+
+    const capturer = this.app.timelapseCapturer;
+    const region = this._getBoardSpaceSaveRegion();
+    const regionKey = JSON.stringify(region);
+    const stillCount = capturer?.frameCount ?? 0;
+
+    // A stale tape may have gaps (disconnect/AFK filtering) and wouldn't
+    // replay faithfully — stills are trustworthy regardless.
+    const tapeStatus = this.app.rollingTapeRecorder?.getStatus?.() ?? null;
+    const tapeUsable = !!tapeStatus?.hasContent && !tapeStatus.stale;
+
+    if (stillCount < 3 && tapeUsable) {
+      this._beginTapePreview(regionKey, region);
+      return;
+    }
+    await this._beginStillsPreview(capturer, regionKey, region, stillCount);
+  }
+
+  /** Stills source: crop captured frames to the region (cached per region). */
+  async _beginStillsPreview(capturer, regionKey, region, stillCount) {
+    if (!capturer || stillCount < 1) {
+      this._resetTimelapsePreview();
+      return;
+    }
+
+    this.timelapseBlock.hidden = false;
+    this._positionTimelapseWindow();
+    if (this._tl.source === 'stills' && this._tl.frames && this._tl.regionKey === regionKey) {
+      // Same crop as last time (user went Back and returned) — keep the
+      // current preview and trim; only retry if the last encode failed.
+      if (!this._tl.blob) this._encodeTimelapsePreview();
+      return;
+    }
+
+    this._showTimelapseSpinner();
+    const gen = ++this._tl.gen;
+    let cropped = null;
+    try {
+      cropped = await capturer.getCroppedFrames(region);
+    } catch (err) {
+      console.warn('[Timelapse] preview crop failed:', err);
+    }
+    if (gen !== this._tl.gen) return; // superseded or dialog closed
+    if (!cropped || cropped.frames.length < 2) {
+      // Not enough distinct moments for a clip — no preview, no upload.
+      this._resetTimelapsePreview();
+      return;
+    }
+
+    this._tl.source = 'stills';
+    this._tl.frames = cropped.frames;
+    this._tl.tape = null;
+    this._tl.region = region;
+    this._tl.regionKey = regionKey;
+    this._tl.blob = null;
+    this._configureTrimSliders(cropped.frames.length - 1);
+    this._encodeTimelapsePreview();
+  }
+
+  /**
+   * Tape source: freeze the rolling DVR tape once and render trim ranges of it.
+   * Trim sliders are whole seconds on the tape's (dead-air-compressed) clock.
+   */
+  _beginTapePreview(regionKey, region) {
+    this.timelapseBlock.hidden = false;
+    this._positionTimelapseWindow();
+    if (this._tl.source === 'tape' && this._tl.tape && this._tl.regionKey === regionKey) {
+      if (!this._tl.blob) this._encodeTimelapsePreview();
+      return;
+    }
+
+    const recording = this.app.rollingTapeRecorder?.snapshotRecording?.();
+    if (!recording || !recording.openingSnapshot || !(recording.deltas?.length > 0)) {
+      this._resetTimelapsePreview();
+      return;
+    }
+
+    this._tl.source = 'tape';
+    this._tl.tape = recording;
+    this._tl.frames = null;
+    this._tl.region = region;
+    this._tl.regionKey = regionKey;
+    this._tl.blob = null;
+    const spanSec = Math.max(1, Math.ceil(((recording.endedAt ?? recording.startedAt) - recording.startedAt) / 1000));
+    this._configureTrimSliders(spanSec);
+    this._encodeTimelapsePreview();
+  }
+
+  /** Reset both trim sliders to the full [0, max] range. */
+  _configureTrimSliders(max) {
+    this._tl.trimStart = 0;
+    this._tl.trimEnd = max;
+    this._tl.trimMax = max;
+    if (this.trimStartInput) {
+      this.trimStartInput.max = String(max);
+      this.trimStartInput.value = '0';
+    }
+    if (this.trimEndInput) {
+      this.trimEndInput.max = String(max);
+      this.trimEndInput.value = String(max);
+    }
+    this._updateTrimLabel();
+    this._updatePlaybackWindow();
+  }
+
+  /**
+   * Clamp trim sliders (always keep a non-empty range) and move the preview's
+   * playback window. No re-encode — the full clip already exists; the trimmed
+   * range is only encoded once, at upload.
+   */
+  _onTrimInput(which) {
+    if (!this._tl.source || !this.trimStartInput || !this.trimEndInput) return;
+    const max = this._tl.trimMax || 1;
+    let start = Math.round(Number(this.trimStartInput.value)) || 0;
+    let end = Math.round(Number(this.trimEndInput.value)) || 0;
+    if (which === 'start') start = Math.min(start, end - 1);
+    else end = Math.max(end, start + 1);
+    start = Math.max(0, Math.min(start, max - 1));
+    end = Math.max(1, Math.min(end, max));
+    this.trimStartInput.value = String(start);
+    this.trimEndInput.value = String(end);
+    this._tl.trimStart = start;
+    this._tl.trimEnd = end;
+    this._updateTrimLabel();
+    this._updatePlaybackWindow();
+  }
+
+  _updateTrimLabel() {
+    if (!this.timelapseFramesLabel) return;
+    if (this._tl.source === 'stills' && this._tl.frames) {
+      const count = this._tl.trimEnd - this._tl.trimStart + 1;
+      this.timelapseFramesLabel.textContent = `${count} of ${this._tl.frames.length} snapshots`;
+    } else if (this._tl.source === 'tape') {
+      this.timelapseFramesLabel.textContent = `${this._tl.trimEnd - this._tl.trimStart}s of ${this._tl.trimMax}s`;
+    }
+  }
+
+  /**
+   * Map the trim sliders to seconds within the full encoded clip and snap the
+   * preview into that window. Trim at the far end runs into the clip's final
+   * hold, so playEnd stays Infinity there (native loop handles the wrap).
+   */
+  _updatePlaybackWindow() {
+    const t = this._tl.timing;
+    if (!t) return;
+    let start = 0;
+    let end = Infinity;
+    if (this._tl.source === 'stills') {
+      start = this._tl.trimStart * t.perFrameSec;
+      if (this._tl.trimEnd < this._tl.trimMax) end = (this._tl.trimEnd + 1) * t.perFrameSec;
+    } else if (this._tl.source === 'tape') {
+      const frac = (v) => (this._tl.trimMax > 0 ? v / this._tl.trimMax : 0);
+      start = frac(this._tl.trimStart) * t.contentSec;
+      if (this._tl.trimEnd < this._tl.trimMax) end = frac(this._tl.trimEnd) * t.contentSec;
+    }
+    this._tl.playStart = start;
+    this._tl.playEnd = end;
+    const v = this.timelapseVideo;
+    if (v && !v.hidden && v.readyState >= 1) {
+      try { v.currentTime = start; } catch { /* not seekable yet */ }
+    }
+  }
+
+  /** Keep the time-lapse window sitting just above the options panel. */
+  _positionTimelapseWindow() {
+    if (!this.timelapseWindow || this.timelapseWindow.hidden || !this.optionsPanel) return;
+    const overlayRect = this.overlay.getBoundingClientRect();
+    const panelRect = this.optionsPanel.getBoundingClientRect();
+    if (!overlayRect.height || !panelRect.height) return;
+    this.timelapseWindow.style.bottom = `${Math.round(overlayRect.bottom - panelRect.top) + 10}px`;
+  }
+
+  _showTimelapseSpinner(progress = null) {
+    if (this.timelapseSpinner) this.timelapseSpinner.hidden = false;
+    if (this.timelapseSpinnerText) {
+      this.timelapseSpinnerText.textContent = progress == null
+        ? 'Generating time-lapse…'
+        : `Generating time-lapse… ${Math.round(progress * 100)}%`;
+    }
+  }
+
+  /**
+   * Encode the FULL clip for the current source/region — done once per crop;
+   * trimming never re-enters here. The newest call wins via the gen token.
+   */
+  _encodeTimelapsePreview() {
+    this._tl.exporter?.cancel?.();
+    this._tl.exporter = null;
+    if (this._tl.source === 'tape') this._encodeTapePreview();
+    else this._encodeStillsPreview();
+  }
+
+  _encodeStillsPreview() {
+    const { frames } = this._tl;
+    if (!frames || frames.length < 2) return;
+
+    const gen = ++this._tl.gen;
+    this._showTimelapseSpinner();
+    this._tl.encodePromise = (async () => {
+      const { encodeFramesToWebm, normalizedPerFrameMs } = await import('../timebar/timelapseEncoder.js');
+      const perFrameMs = normalizedPerFrameMs(frames.length);
+      const blob = await encodeFramesToWebm(frames, { perFrameMs });
+      if (gen === this._tl.gen) this._tl.timing = { perFrameSec: perFrameMs / 1000 };
+      return this._finishPreviewEncode(gen, blob);
+    })().catch((err) => {
+      console.warn('[Timelapse] preview encode failed:', err);
+      if (gen === this._tl.gen) this._resetTimelapsePreview();
+      return null;
+    });
+  }
+
+  _encodeTapePreview() {
+    const recording = this._tl.tape;
+    if (!recording) return;
+
+    const gen = ++this._tl.gen;
+    this._showTimelapseSpinner();
+    this._tl.encodePromise = (async () => {
+      const { TimeLapseExporter, compressedTapeDurationMs } = await import('../replay/TimeLapseExporter.js');
+      const durMs = compressedTapeDurationMs(recording);
+      if (durMs < 400) {
+        // Tape holds no meaningful activity.
+        if (gen === this._tl.gen) this._resetTimelapsePreview();
+        return null;
+      }
+      // Speed that lands the clip near ~6s; never slower than real time.
+      const speed = Math.max(1, durMs / 6000);
+      const exporter = new TimeLapseExporter({
+        recording,
+        wsClient: this.app.wsClient,
+        speed,
+        fps: 30,
+        output: 'video',
+        region: this._tl.region,
+        onProgress: (p) => { if (gen === this._tl.gen) this._showTimelapseSpinner(p); },
+      });
+      if (gen !== this._tl.gen) return null;
+      this._tl.exporter = exporter;
+      const result = await exporter.export();
+      if (this._tl.exporter === exporter) this._tl.exporter = null;
+      if (gen === this._tl.gen) this._tl.timing = { contentSec: durMs / speed / 1000 };
+      return this._finishPreviewEncode(gen, result?.blob ?? null);
+    })().catch((err) => {
+      console.warn('[Timelapse] tape preview render failed:', err);
+      if (gen === this._tl.gen) this._resetTimelapsePreview();
+      return null;
+    });
+  }
+
+  /** Common tail of both encode paths: publish the blob into the preview UI. */
+  _finishPreviewEncode(gen, blob) {
+    if (gen !== this._tl.gen) return null;
+    this._tl.blob = blob;
+    if (blob && this.timelapseVideo) {
+      if (this._tl.url) URL.revokeObjectURL(this._tl.url);
+      this._tl.url = URL.createObjectURL(blob);
+      this.timelapseVideo.src = this._tl.url;
+      this.timelapseVideo.hidden = false;
+      if (this.timelapseSpinner) this.timelapseSpinner.hidden = true;
+      this._updatePlaybackWindow();
+    } else if (!blob) {
+      // Encoder unavailable/cancelled — hide the preview; upload falls back silently.
+      this._resetTimelapsePreview();
+    }
+    return blob;
+  }
+
+  /**
+   * Encode the trimmed range once, at upload time. Falls back to the full
+   * clip if the trim encode fails — better a longer clip than none.
+   * @returns {Promise<Blob|null>}
+   */
+  async _encodeTrimmedClip() {
+    try {
+      if (this._tl.source === 'stills') {
+        const slice = this._tl.frames.slice(this._tl.trimStart, this._tl.trimEnd + 1);
+        if (slice.length < 2) return this._tl.blob;
+        const { encodeFramesToWebm, normalizedPerFrameMs } = await import('../timebar/timelapseEncoder.js');
+        const blob = await encodeFramesToWebm(slice, { perFrameMs: normalizedPerFrameMs(slice.length) });
+        return blob ?? this._tl.blob;
+      }
+      const recording = this._tl.tape;
+      const rangeStartTs = recording.startedAt + this._tl.trimStart * 1000;
+      const rangeEndTs = recording.startedAt + this._tl.trimEnd * 1000;
+      const { TimeLapseExporter, compressedTapeDurationMs } = await import('../replay/TimeLapseExporter.js');
+      const durMs = compressedTapeDurationMs(recording, rangeStartTs, rangeEndTs);
+      if (durMs < 400) return this._tl.blob;
+      const speed = Math.max(1, durMs / 6000);
+      const exporter = new TimeLapseExporter({
+        recording,
+        wsClient: this.app.wsClient,
+        speed,
+        fps: 30,
+        output: 'video',
+        region: this._tl.region,
+        rangeStartTs,
+        rangeEndTs,
+      });
+      const result = await exporter.export();
+      return result?.blob ?? this._tl.blob;
+    } catch (err) {
+      console.warn('[Timelapse] trim encode failed, uploading full clip:', err);
+      return this._tl.blob;
+    }
+  }
+
+  /**
+   * The clip to upload: waits out the in-flight full encode, then — only if
+   * the user actually trimmed — encodes the trimmed range once. Null when no
+   * preview exists (SaveController then falls back to its own render).
+   * @returns {Promise<Blob|null>}
+   */
+  async _currentTimelapseBlob() {
+    if (!this._tl.source) return null;
+    if (this._tl.encodePromise) {
+      try { await this._tl.encodePromise; } catch { /* fall through */ }
+    }
+    if (!this._tl.blob) return null;
+    const isFullRange = this._tl.trimStart <= 0 && this._tl.trimEnd >= this._tl.trimMax;
+    return isFullRange ? this._tl.blob : this._encodeTrimmedClip();
+  }
+
+  /** Hide the preview block and drop all cached/derived time-lapse state. */
+  _resetTimelapsePreview() {
+    this._tl.gen++;
+    this._tl.exporter?.cancel?.();
+    this._tl.exporter = null;
+    this._tl.source = null;
+    this._tl.frames = null;
+    this._tl.tape = null;
+    this._tl.region = null;
+    this._tl.regionKey = null;
+    this._tl.blob = null;
+    this._tl.timing = null;
+    this._tl.playStart = 0;
+    this._tl.playEnd = Infinity;
+    this._tl.encodePromise = null;
+    if (this._tl.url) {
+      URL.revokeObjectURL(this._tl.url);
+      this._tl.url = null;
+    }
+    if (this.timelapseVideo) {
+      this.timelapseVideo.hidden = true;
+      this.timelapseVideo.removeAttribute('src');
+      this.timelapseVideo.load?.();
+    }
+    this._showTimelapseSpinner();
+    if (this.timelapseBlock) this.timelapseBlock.hidden = true;
   }
 
   async _performCopy() {
@@ -1142,6 +1661,7 @@ export class SaveMode {
     this.transparent = false;
     this.shareToDiscord = false;
     this.tagUsername = true;
+    this.uploadTimelapse = true;
     this.galleryTitle = '';
     this.galleryDescription = '';
     this.activeTool = fixedSelection ? 'pan' : 'select';
@@ -1150,6 +1670,7 @@ export class SaveMode {
     this.optionsPanel.querySelector('#saveModeTagUsername').checked = true;
     if (this.titleInput) this.titleInput.value = '';
     if (this.descriptionInput) this.descriptionInput.value = '';
+    this._resetTimelapsePreview();
     this._showStep('main');
 
     // Size canvases to match the pre-existing canvas
@@ -1239,6 +1760,7 @@ export class SaveMode {
     this.activeTool = 'select';
     this._setView(1, 0, 0, true);
     this._syncControlState();
+    this._resetTimelapsePreview();
     this._showStep('main');
 
     // Restore mode toggle visibility
@@ -1257,6 +1779,8 @@ export class SaveMode {
   destroy() {
     document.removeEventListener('keydown', this._keyHandler);
     this._stopMarchingAnts();
+    this._panelResizeObserver?.disconnect();
+    this._resetTimelapsePreview();
     if (this.overlay && this.overlay.parentNode) {
       this.overlay.parentNode.removeChild(this.overlay);
     }

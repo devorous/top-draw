@@ -333,11 +333,13 @@ class TimeMachineState {
     this._replayCtx.filter = 'none';
     this._replayCtx.imageSmoothingEnabled = true;
     this._replayCtx.drawImage(this._replayEngine.outputCanvas, 0, 0);
-    // Overlay ephemeral vector text (faded by playhead age) then bot cursors on
-    // top of the crisp output. Drawn here (not baked into the engine's
-    // outputCanvas) so restore-to-live can't stamp them into real board pixels.
+    // Overlay mirror-region guides, then ephemeral vector text (faded by
+    // playhead age), then bot cursors on top of the crisp output. Drawn here
+    // (not baked into the engine's outputCanvas) so restore-to-live can't
+    // stamp them into real board pixels and exports stay artwork-only.
     // Mirrored into the embed canvas by _blitToEmbed below, so the mini-player
     // gets them too.
+    this._replayEngine.drawMirrorGuides(this._replayCtx);
     this._replayEngine.drawVectorText(this._replayCtx);
     this._replayEngine.drawCursors(this._replayCtx);
     // Painting from the replay engine output means we're crisp — drop the preview flag.
@@ -1326,14 +1328,27 @@ class TimeMachineState {
     const liveBoard = this._board;
     if (!src || !liveBoard) return;
 
-    // The board is reverted to the replay state at the current position. This
-    // restore is broadcast as a BOARD_SNAPSHOT_RESTORE, which the rolling DVR
-    // tape records and the replay engine re-applies — so it lands as a new event
-    // at the END of the timeline. Nothing before or after the undo point is
-    // lost; the history stays fully intact and scrubbable.
+    // Undo point in the viewed recording's time domain, captured before
+    // catchUp() resets the playhead.
+    const cutTs = this.currentTime;
+
+    // The board is reverted to the replay state at the current position, and
+    // the undone tail is CUT from the live history tapes (rolling DVR tape +
+    // any in-progress manual recording) — see _truncateLiveTapesAfterUndo.
+    // Leaving the tapes intact would keep replaying strokes that no longer
+    // exist on the board, so reopening History after an undo showed the whole
+    // undone segment as if the undo never happened. When connected the restore
+    // still broadcasts as a BOARD_SNAPSHOT_RESTORE so collaborators follow.
     if (window.app?.connected && window.app?.snapshotManager?.broadcastReplayCanvasRestore) {
+      // The server echoes the sequenced restore back to us without a user id
+      // (dodging the recorders' commit self-echo dedup). The truncated tapes
+      // already equal the restored state, so swallow that echo instead of
+      // re-appending a full board image to the freshly cut tapes.
+      window.app.rollingTapeRecorder?.suppressNextInbound?.(T.BOARD_SNAPSHOT_RESTORE);
+      window.app.recorder?.suppressNextInbound?.(T.BOARD_SNAPSHOT_RESTORE);
       const sent = await window.app.snapshotManager.broadcastReplayCanvasRestore(src);
       if (sent) {
+        this._truncateLiveTapesAfterUndo(cutTs);
         this.catchUp();
         return true;
       }
@@ -1346,8 +1361,48 @@ class TimeMachineState {
     }
     liveBoard.markCompositeFull?.();
     liveBoard.compositeAllLayers?.();
+    this._truncateLiveTapesAfterUndo(cutTs);
     this.catchUp();
     return true;
+  }
+
+  /**
+   * After a full-board "undo to here", cut the undone tail out of the live
+   * history tapes. Both the rolling DVR tape and an in-progress manual
+   * recording still hold everything past the undo point; left alone they'd
+   * replay strokes that no longer exist (and checkpoints captured after the
+   * revert would contradict the buffered deltas — the "undone history stays
+   * in the loop" bug). Region undos are NOT truncated: they revert only part
+   * of the board, so the rest of the timeline is still valid — the recorded
+   * region-restore event keeps those tapes coherent.
+   *
+   * `cutTs` arrives in the viewed recording's time domain: the rolling tape's
+   * compressed activity clock for Recent tapes (`rolling: true`), wall clock
+   * for recorder tapes and .ddraw files. Each live tape converts through the
+   * rolling deltas' wall stamps as needed; a wall cut that predates the whole
+   * rolling window (an old .ddraw) resets/re-bases the tape on the restored
+   * board instead.
+   * @param {number} cutTs - undo point in this._localRecording's ts domain
+   * @private
+   */
+  _truncateLiveTapesAfterUndo(cutTs) {
+    if (!Number.isFinite(cutTs)) return;
+    const app = (typeof window !== 'undefined' ? window.app : null);
+    const rolling = app?.rollingTapeRecorder;
+    const recorder = app?.recorder;
+
+    if (this._localRecording?.rolling) {
+      // Map to wall clock BEFORE truncating — the mapping reads the very
+      // deltas the truncation drops.
+      const cutWall = rolling?.wallTsForVirtual?.(cutTs);
+      rolling?.truncateAfter?.(cutTs);
+      if (recorder?.isRecording?.() && Number.isFinite(cutWall)) {
+        recorder.truncateAfter(cutWall);
+      }
+    } else {
+      if (recorder?.isRecording?.()) recorder.truncateAfter(cutTs);
+      rolling?.truncateAfterWall?.(cutTs);
+    }
   }
 
   /**

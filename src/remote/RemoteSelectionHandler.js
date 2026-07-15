@@ -1667,7 +1667,7 @@ export class RemoteSelectionHandler {
     }
   }
 
-  drawFloatingSelection(user) {
+  drawFloatingSelection(user, drawOutline = true) {
     if (!user.floatingCanvas || !user.selection) return;
     if (user.pendingImageLoad) return;
 
@@ -1708,8 +1708,9 @@ export class RemoteSelectionHandler {
       ctx.drawImage(user.floatingCanvas, s.x, s.y, s.width, s.height);
     }
 
-    // Draw animated marching ants border
-    if (c) {
+    // Draw animated marching ants border (skipped by replay renders, which
+    // want the floating content without the selection UI)
+    if (c && drawOutline) {
       this._drawFloatingOutlineLikeLocal(user);
     }
 

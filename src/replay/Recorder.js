@@ -81,6 +81,12 @@ export class Recorder {
     this._activitySinceVisual = false;
     /** @type {Object | null} */
     this._app = null;
+    /**
+     * One-shot inbound filter armed around our own "undo to here" restore
+     * broadcast — see {@link Recorder.suppressNextInbound}.
+     * @type {{type: number, until: number} | null}
+     */
+    this._suppressInbound = null;
     /** @type {((rec: ReplayRecording|null) => void) | null} */
     this.onStateChange = null;
   }
@@ -142,6 +148,7 @@ export class Recorder {
     };
     this.state = 'recording';
     this._activitySinceVisual = false;
+    this._suppressInbound = null;
 
     this._scheduleIntraCheckpoint();
     this._scheduleVisualCheckpoint();
@@ -234,6 +241,62 @@ export class Recorder {
   }
 
   /**
+   * Drop everything recorded after `wallTs` — the recorder's half of "undo to
+   * here". The live board has just been reverted to that moment's state, so
+   * the undone tail must not survive on the tape (stopping and replaying the
+   * recording would resurrect strokes that no longer exist on the board).
+   * A fresh intra-checkpoint of the restored board is captured so post-undo
+   * seeks have a base on the far side of the review gap. If the cut predates
+   * the recording entirely, the whole tape was undone: it re-bases on the
+   * restored board (fresh opening snapshot, empty delta list) and recording
+   * continues.
+   * @param {number} wallTs - cut point, wall-clock ms
+   */
+  truncateAfter(wallTs) {
+    if (this.state !== 'recording' || !this.recording) return;
+    const cut = Number(wallTs);
+    if (!Number.isFinite(cut)) return;
+    const rec = this.recording;
+
+    if (cut < rec.startedAt) {
+      try {
+        rec.openingSnapshot = captureOpeningSnapshot(this._app);
+        rec.startedAt = Date.now();
+      } catch (err) {
+        console.warn('[Recorder] re-base snapshot capture failed:', err);
+      }
+      rec.deltas = [];
+      rec.intraCheckpoints = [];
+      rec.visualCheckpoints = [];
+      this._activitySinceVisual = false;
+      this._scheduleMaxLengthStop();
+      this._notifyStateChange();
+      return;
+    }
+
+    rec.deltas = rec.deltas.filter((d) => d.ts <= cut);
+    rec.intraCheckpoints = rec.intraCheckpoints.filter((cp) => cp.ts <= cut);
+    rec.visualCheckpoints = rec.visualCheckpoints.filter((cp) => cp.ts <= cut);
+    this._activitySinceVisual = false;
+    this._captureIntraCheckpoint();
+    this._notifyStateChange();
+  }
+
+  /**
+   * Arm a one-shot filter that drops the next inbound message of `type`.
+   * Armed just before our own "undo to here" restore broadcast: the tape is
+   * truncated at the undo point, and the server's echo of the restore carries
+   * no user id (so it dodges the commit self-echo dedup) — without this it
+   * would re-append a full board image the truncated tape already equals.
+   * @param {number} type - T enum message type
+   * @param {number} [windowMs] - how long the filter stays armed
+   */
+  suppressNextInbound(type, windowMs = 10_000) {
+    if (type == null) return;
+    this._suppressInbound = { type, until: Date.now() + windowMs };
+  }
+
+  /**
    * Called by TimeMachine.recordAction when WebSocketClient sees an inbound
    * message. `msg` is the decoded JSON (post-protobuf).
    * @param {Object} msg
@@ -251,6 +314,15 @@ export class Recorder {
   _append(msg, dir) {
     if (this.state !== 'recording' || !this.recording) return;
     if (!shouldRecord(msg)) return;
+
+    // One-shot suppression (see suppressNextInbound): our own restore echoed
+    // back by the server after an "undo to here" truncation must not land on
+    // the freshly cut tape.
+    const sup = this._suppressInbound;
+    if (sup && dir === 'in' && msg?.t === sup.type) {
+      this._suppressInbound = null;
+      if (Date.now() <= sup.until) return;
+    }
 
     // The server echoes commit-class messages (MU, FILL, SEL_COMMIT, UNDO, …)
     // back to the sender so its strokeLog stays in sync. We see the same
