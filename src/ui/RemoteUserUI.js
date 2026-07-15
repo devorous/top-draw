@@ -557,6 +557,7 @@ export class RemoteUserUI {
     this.createUserBoard(userId);
 
     this.cursors.set(userId, { cursor, circle, square, crosshair, text, textInput, name });
+    if (userData.isSupporter) this.setRemoteUserSupporter(userId, true);
     this.updateRemoteLayerVisibility(
       userId,
       !window.app?.board?.layerManager?.isLayerVisible?.(userData.activeLayer ?? 0)
@@ -1086,6 +1087,20 @@ export class RemoteUserUI {
         group.headerColorEl.style.backgroundColor = `rgba(${color.join(',')})`;
         break;
       }
+    }
+  }
+
+  /**
+   * Toggle supporter gold styling on a remote user's cursor and name label.
+   * @param {string} userId - User's session ID
+   * @param {boolean} isSupporter - Whether the user is an active supporter
+   */
+  setRemoteUserSupporter(userId, isSupporter) {
+    const cursorElements = this.cursors.get(userId);
+    if (!cursorElements) return;
+    const on = !!isSupporter;
+    for (const el of [cursorElements.circle, cursorElements.square, cursorElements.crosshair, cursorElements.name]) {
+      el?.classList.toggle('supporter', on);
     }
   }
 

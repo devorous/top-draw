@@ -782,7 +782,12 @@ export class ProfileDialog {
     // For the user's own profile, fall back to in-app self state for Discord
     // link status so the badge shows even if this fetch predates it.
     const selfHasDiscord = (typeof window !== 'undefined') ? window.app?.self?.hasDiscord : false;
-    const badgeData = { ...data, hasDiscord: (data.hasDiscord ?? (isOwn ? selfHasDiscord : false)) || false };
+    const selfIsSupporter = (typeof window !== 'undefined') ? window.app?.self?.isSupporter : false;
+    const badgeData = {
+      ...data,
+      hasDiscord: (data.hasDiscord ?? (isOwn ? selfHasDiscord : false)) || false,
+      isSupporter: (data.isSupporter ?? (isOwn ? selfIsSupporter : false)) || false
+    };
     const currentBadgeId = effectiveBadgeId(badgeData);
     const badgeIcon = (id) => {
       const def = BADGES[id];

@@ -290,6 +290,20 @@
   position: relative;
 }
 
+// Supporter purchase button — deliberately louder than its neighbours.
+#supportBtn {
+  flex-shrink: 0;
+  color: var(--supporter-gold);
+  border: 1px solid color-mix(in srgb, var(--supporter-gold) 55%, transparent);
+  border-radius: 999px;
+  padding: 0 12px;
+  font-weight: 700;
+
+  &:hover {
+    background: color-mix(in srgb, var(--supporter-gold) 16%, transparent);
+  }
+}
+
 #chatBtn .chatBadge,
 #inboxBtn .chatBadge {
   position: absolute;
@@ -351,7 +365,7 @@
 }
 
 .boardBtns.force-right-icon-collapse {
-  @include toolbar-icon-collapse('.saveUploadGroup .btn, #inboxBtn, #roomSettingsBtn, #roomsBtn, #disconnectBtn');
+  @include toolbar-icon-collapse('.saveUploadGroup .btn, #inboxBtn, #supportBtn, #roomSettingsBtn, #roomsBtn, #disconnectBtn');
 
   #chatBtn .btnIcon img {
     width: 24px;

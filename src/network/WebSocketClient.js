@@ -907,6 +907,7 @@ export class WebSocketClient {
           isMuted: !!u.mt,
           hasDiscord: !!u.hdsc,
           selectedBadge: u.bdg || '',
+          isSupporter: !!u.sup,
           visibleIp: u.vip || ''
         }));
         this.emit('users', { users });
@@ -1495,7 +1496,8 @@ export class WebSocketClient {
           hasDiscord: data.authHasDiscord || false,
           needsUsernameSetup: data.authNeedsUsernameSetup || false,
           suggestedUsername: data.authSuggestedUsername || '',
-          selectedBadge: data.authBadge || ''
+          selectedBadge: data.authBadge || '',
+          isSupporter: !!data.authSupporter
         });
         break;
 

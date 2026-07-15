@@ -153,6 +153,7 @@ export class SessionManager {
       name,
       registeredName: '',
       hasDiscord: false,
+      isSupporter: false,
       text: '',
       imageBrush: null,
       patternBrush: null,

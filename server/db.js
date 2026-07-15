@@ -78,6 +78,10 @@ export async function connectDB() {
     await safeCreateIndex('users', { username: 1 }, { unique: true, collation: { locale: 'en', strength: 2 } });
     await safeCreateIndex('users', { email: 1 }, { sparse: true, collation: { locale: 'en', strength: 2 } });
     await safeCreateIndex('users', { 'discord.id': 1 }, { unique: true, sparse: true });
+    await safeCreateIndex('users', { stripeCustomerId: 1 }, { unique: true, sparse: true });
+    // Stripe webhook idempotency — unique event id, 90-day TTL
+    await safeCreateIndex('stripe_events', { eventId: 1 }, { unique: true });
+    await safeCreateIndex('stripe_events', { receivedAt: 1 }, { expireAfterSeconds: 60 * 60 * 24 * 90 });
     await safeCreateIndex('discord_oauth_states', { stateHash: 1 }, { unique: true });
     await safeCreateIndex('discord_oauth_states', { expiresAt: 1 }, { expireAfterSeconds: 0 });
     await safeCreateIndex('discord_release_posts', { version: 1 }, { unique: true });

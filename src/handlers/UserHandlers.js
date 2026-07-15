@@ -271,6 +271,10 @@ export function setupUserHandlers(wsClient, app) {
           if (userData.selectedBadge !== undefined) app.self.selectedBadge = userData.selectedBadge || '';
           app.ui.updateSelfBadges?.(app.self);
         }
+        if (userData.isSupporter !== undefined && !!userData.isSupporter !== app.self.isSupporter) {
+          app.self.isSupporter = !!userData.isSupporter;
+          app.ui.setSelfSupporter?.(app.self.isSupporter);
+        }
         if (userData.globalRole !== undefined) {
           app.self.globalRole = userData.globalRole || 0;
           appState.selfGlobalRole = app.self.globalRole;
@@ -451,6 +455,10 @@ export function setupUserHandlers(wsClient, app) {
           if (userData.hasDiscord !== undefined) user.hasDiscord = !!userData.hasDiscord;
           user.selectedBadge = nextSelectedBadge;
           ui.updateRemoteBadges?.(userData.sessionIndex, user);
+        }
+        if (userData.isSupporter !== undefined && !!userData.isSupporter !== user.isSupporter) {
+          user.isSupporter = !!userData.isSupporter;
+          ui.setRemoteUserSupporter?.(userData.sessionIndex, user.isSupporter);
         }
         if (userData.visibleIp !== undefined) {
           user.visibleIp = userData.visibleIp || '';

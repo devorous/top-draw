@@ -25,6 +25,8 @@ import { startElection, stopElection } from './uploaderElection.js';
 import { handleProbeChunk, cancelProbesForSocket, startProbe as startBandwidthProbe } from './bandwidthProbe.js';
 import { hashPassword, verifyPassword, generateToken, verifyToken } from './auth.js';
 import { getUserFromToken } from './authUser.js';
+import { isSupporterActive } from './supporter.js';
+import { handleCreateCheckoutSession, handleCreatePortalSession, handleStripeWebhook, setSupporterChangeNotifier } from './stripeRoutes.js';
 import { issueModAction, revokeModAction, revokeMatchingModActions, updateModActionReason, getModEntries, obfuscateIp, checkBan, checkMute, checkShadowBan } from './moderation.js';
 import { ENABLE_SERVER_REPLAY_DB } from './replayConfig.js';
 import { T, Tool, ToolNames, ToolToEnum } from '../shared/MessageTypes.js';
@@ -953,6 +955,20 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  // Stripe supporter subscriptions
+  if (path === '/api/stripe/create-checkout-session' && req.method === 'POST') {
+    await handleCreateCheckoutSession(req, res);
+    return;
+  }
+  if (path === '/api/stripe/create-portal-session' && req.method === 'POST') {
+    await handleCreatePortalSession(req, res);
+    return;
+  }
+  if (path === '/api/stripe/webhook' && req.method === 'POST') {
+    await handleStripeWebhook(req, res);
+    return;
+  }
+
   // User profile route
   const userMatch = path.match(/^\/api\/users\/([a-zA-Z0-9_-]+)$/);
   if (userMatch && req.method === 'GET') {
@@ -1385,6 +1401,7 @@ function mapUsersForBroadcast(users, viewer = null, room = null) {
         mt: !!u.isMuted,
         hdsc: !!u.hasDiscord,
         bdg: u.selectedBadge || '',
+        sup: !!u.isSupporter,
         vip: room ? getVisibleIpForViewer(viewer, u, room) : '',
         fpId: u.fingerprintId || '' // Include fingerprintId for persistent user tracking
       };
@@ -1620,6 +1637,25 @@ async function init() {
   });
   console.log('[Server] RoomManager initialized');
   initAsnCheck();
+
+  // Push supporter status changes from Stripe webhooks to live sessions so
+  // gold cosmetics apply/lapse without a re-login.
+  setSupporterChangeNotifier((userId, isSupporter) => {
+    const roomsNeedingRefresh = new Set();
+    for (const client of wss.clients) {
+      if (client.userId !== String(userId)) continue;
+      const clientRoom = roomManager.getRoomByClient(client);
+      if (!clientRoom) continue;
+      const roomUser = clientRoom.sessionManager.getUser(client.sessionIndex);
+      if (roomUser && roomUser.isSupporter !== isSupporter) {
+        roomUser.isSupporter = isSupporter;
+        roomsNeedingRefresh.add(clientRoom);
+      }
+    }
+    for (const refreshRoom of roomsNeedingRefresh) {
+      broadcastUsersForRoom(refreshRoom);
+    }
+  });
 
   // Set up floating art broadcaster for gallery likes
   setFloatingArtBroadcaster((tags, item) => {
@@ -1925,6 +1961,7 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
       if (requested === 'none') badge = 'none';
       else if (SELECTABLE_BADGES.has(requested)) badge = requested;
       else if (requested === 'discord' && user.hasDiscord) badge = 'discord';
+      else if (requested === 'supporter' && user.isSupporter) badge = 'supporter';
       if (user.selectedBadge === badge) return;
       user.selectedBadge = badge;
       // Persistence is handled by the PATCH /api/users/me/profile request the
@@ -4897,6 +4934,7 @@ wss.on('connection', async (ws, req) => {
               user.registeredName = userDoc.username;
               user.hasDiscord = !!userDoc.discord?.id;
               user.selectedBadge = userDoc.selectedBadge || '';
+              user.isSupporter = isSupporterActive(userDoc);
               user.isMuted = !!ws.isMuted;
               user.isShadowBanned = !!ws.isShadowBanned;
               user.isVPN = !!ws.isVPN;
@@ -4920,7 +4958,8 @@ wss.on('connection', async (ws, req) => {
               authHasDiscord: !!userDoc.discord?.id,
               authNeedsUsernameSetup: !!userDoc.discord?.id && !userDoc.passwordHash && !userDoc.discord?.usernameSetupCompleted,
               authSuggestedUsername: userDoc.discord?.username || '',
-              authBadge: userDoc.selectedBadge || ''
+              authBadge: userDoc.selectedBadge || '',
+              authSupporter: isSupporterActive(userDoc)
             });
 
             await recordConnectionEvent(db, {

@@ -4,6 +4,7 @@ import { ObjectId } from 'mongodb';
 import { getDB } from './db.js';
 import { getRequestUser, getBearerToken, getUserFromToken } from './authUser.js';
 import { corsHeaders, writeJson, readRequestBody } from './httpUtils.js';
+import { isSupporterActive } from './supporter.js';
 
 const CORS_HEADERS = corsHeaders('GET, POST, PATCH, OPTIONS');
 
@@ -86,6 +87,7 @@ export async function handleUserProfile(req, res, username) {
       status: user.status || '',
       selectedBadge: user.selectedBadge || '',
       hasDiscord: !!user.discord?.id,
+      isSupporter: isSupporterActive(user),
       distanceDrawn: user.distanceDrawn || 0,
       totalStrokes: user.totalStrokes || 0,
       timeSpentMs: user.timeSpentMs || 0,
@@ -118,7 +120,7 @@ export async function handleUpdateProfile(req, res) {
   const db = getDB();
   if (!db) return json(res, 503, { error: 'Database not available' });
 
-  const me = await getRequestUser(req, { projection: { _id: 1, discord: 1 } });
+  const me = await getRequestUser(req, { projection: { _id: 1, discord: 1, supporterUntil: 1 } });
   if (!me) return json(res, 401, { error: 'Authentication required' });
 
   let payload;
@@ -166,6 +168,8 @@ export async function handleUpdateProfile(req, res) {
       updates.selectedBadge = badge;
     } else if (badge === 'discord' && !!me.discord?.id) {
       updates.selectedBadge = 'discord';
+    } else if (badge === 'supporter' && isSupporterActive(me)) {
+      updates.selectedBadge = 'supporter';
     } else {
       return json(res, 400, { error: 'Unknown badge' });
     }

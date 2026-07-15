@@ -1349,6 +1349,7 @@ export class ReplayEngine {
     for (const [id, u] of this.botUsers) {
       botStates[id] = {
         username: u.username,
+        isSupporter: u.isSupporter,
         role: u.role,
         x: u.x, y: u.y,
         size: u.size,
@@ -2187,6 +2188,7 @@ export class ReplayEngine {
 
     const bot = new User(id, {
       username: state.username || `User ${id}`,
+      isSupporter: !!state.isSupporter,
       role: state.role ?? 0,
       x: state.x || 0,
       y: state.y || 0,

@@ -494,6 +494,7 @@ menuBtn: document.getElementById('menuBtn'),
       tapeRecElapsed: document.getElementById('tapeRecElapsed'),
       adminTopBtn: document.getElementById('adminTopBtn'),
       inboxBtn: document.getElementById('inboxBtn'),
+      supportBtn: document.getElementById('supportBtn'),
       saveBtn: document.getElementById('saveBtn'),
       historyBtn: document.getElementById('historyBtn'),
 
@@ -2295,6 +2296,26 @@ menuBtn: document.getElementById('menuBtn'),
 
   setRemoteUserMuted(userId, muted) {
     return this.remoteUserUI.setRemoteUserMuted(userId, muted);
+  }
+
+  setRemoteUserSupporter(userId, isSupporter) {
+    return this.remoteUserUI?.setRemoteUserSupporter(userId, isSupporter);
+  }
+
+  /**
+   * Toggle supporter gold styling on the local user's own cursor and name label.
+   * @param {boolean} isSupporter - Whether the local user is an active supporter
+   */
+  setSelfSupporter(isSupporter) {
+    const on = !!isSupporter;
+    for (const el of [
+      this.elements.selfCircle,
+      this.elements.selfSquare,
+      this.elements.selfCrosshair,
+      this.elements.selfName
+    ]) {
+      el?.classList.toggle('supporter', on);
+    }
   }
 
   removeRemoteUser(userId) {

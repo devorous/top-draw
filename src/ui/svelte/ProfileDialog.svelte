@@ -12,7 +12,12 @@
   let badgeData = $derived((() => {
     const d = data || {};
     const selfHasDiscord = (typeof window !== 'undefined') ? window.app?.self?.hasDiscord : false;
-    return { ...d, hasDiscord: (d.hasDiscord ?? (d.isOwn ? selfHasDiscord : false)) || false };
+    const selfIsSupporter = (typeof window !== 'undefined') ? window.app?.self?.isSupporter : false;
+    return {
+      ...d,
+      hasDiscord: (d.hasDiscord ?? (d.isOwn ? selfHasDiscord : false)) || false,
+      isSupporter: (d.isSupporter ?? (d.isOwn ? selfIsSupporter : false)) || false
+    };
   })());
   let badgeOptions = $derived(badgePickerOptions(badgeData));
   let currentBadgeId = $derived(effectiveBadgeId(badgeData));

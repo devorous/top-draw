@@ -70,6 +70,8 @@ export function setupAuthModHandlers(wsClient, app) {
   wsClient.on('auth_result', (data) => {
     if (data.success && data.username) {
       app.self.registeredName = data.username;
+      app.self.isSupporter = !!data.isSupporter;
+      ui.setSelfSupporter?.(app.self.isSupporter);
     }
 
     // Detect a live role update (promotion/demotion) while already in a room.

@@ -31,6 +31,7 @@ import { SaveController } from './ui/SaveController.js';
 import { PatternOptionsController } from './ui/PatternOptionsController.js';
 import { RecordingController } from './ui/RecordingController.js';
 import { UpdateNoticeController } from './ui/UpdateNoticeController.js';
+import { supporterDialog } from './ui/SupporterDialog.js';
 import { ChatController } from './ui/ChatController.js';
 import { ToolLockManager } from './tools/ToolLockManager.js';
 import { InputBufferManager } from './input/InputBufferManager.js';
@@ -1237,6 +1238,11 @@ export class DrawingApp {
       if (this.selfRole < 1) return;
       appState.messengerVisible = !appState.messengerVisible;
     });
+    if (elements.supportBtn) {
+      elements.supportBtn.addEventListener('click', () => supporterDialog.show());
+    }
+    document.getElementById('landingSupportBtn')?.addEventListener('click', () => supporterDialog.show());
+    supporterDialog.handleCheckoutReturn();
     elements.selfListUser.addEventListener('click', () => this.handleRenameself());
 
     this.ensureAppSettingsButton();

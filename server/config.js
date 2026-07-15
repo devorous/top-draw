@@ -87,6 +87,32 @@ export function getMongoUri() {
   return getEnv('MONGODB_URI') || DEFAULT_LOCAL_MONGODB_URI;
 }
 
+// --- Stripe (supporter subscriptions) ---
+// Stripe is optional: when STRIPE_SECRET_KEY is unset the supporter purchase
+// endpoints report 503 and the rest of the server runs normally.
+
+export function getStripeSecretKey() {
+  return getEnv('STRIPE_SECRET_KEY');
+}
+
+export function getStripeWebhookSecret() {
+  return getEnv('STRIPE_WEBHOOK_SECRET');
+}
+
+export function getStripePriceId() {
+  return getEnv('STRIPE_PRICE_ID');
+}
+
+// Non-recurring price for one-time support (optional — the one-time button
+// reports unavailable without it).
+export function getStripeOnetimePriceId() {
+  return getEnv('STRIPE_ONETIME_PRICE_ID');
+}
+
+export function isStripeEnabled() {
+  return !!getStripeSecretKey();
+}
+
 function hasCompleteR2Config(prefix = '') {
   const accessKeyNames = prefix ? [`${prefix}_ACCESS_KEY_ID`, 'R2_ACCESS_KEY_ID'] : ['R2_ACCESS_KEY_ID'];
   const secretNames = prefix
@@ -133,6 +159,13 @@ export function validateProductionConfig() {
   }
 
   validateProductionR2(errors);
+
+  // Stripe is opt-in, but a partially configured Stripe is a bug: the webhook
+  // would be unverifiable or checkout sessions would fail at runtime.
+  if (getEnv('STRIPE_SECRET_KEY')) {
+    if (!getEnv('STRIPE_WEBHOOK_SECRET')) errors.push('STRIPE_WEBHOOK_SECRET is required when STRIPE_SECRET_KEY is set');
+    if (!getEnv('STRIPE_PRICE_ID')) errors.push('STRIPE_PRICE_ID is required when STRIPE_SECRET_KEY is set');
+  }
 
   if (errors.length > 0) {
     throw new Error(`Production configuration is invalid:\n- ${errors.join('\n- ')}`);

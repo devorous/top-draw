@@ -19,6 +19,12 @@ export const BADGES = Object.freeze({
     color: '#5865f2',
     svg: DISCORD_SVG,
   },
+  supporter: {
+    id: 'supporter',
+    label: 'Supporter',
+    img: '/images/pepper-gold.png',
+    supporterOnly: true,
+  },
   flock: {
     id: 'flock',
     label: 'Flock',
@@ -43,6 +49,7 @@ export const BADGE_NONE = 'none';
  */
 function canSelectBadge(id, userData) {
   if (id === 'discord') return !!userData?.hasDiscord;
+  if (BADGES[id]?.supporterOnly) return !!userData?.isSupporter;
   return !!BADGES[id]?.selectable;
 }
 
@@ -54,6 +61,7 @@ function canSelectBadge(id, userData) {
 export function badgePickerOptions(userData) {
   const out = [];
   if (userData?.hasDiscord) out.push({ id: 'discord', label: BADGES.discord.label });
+  if (userData?.isSupporter) out.push({ id: 'supporter', label: BADGES.supporter.label });
   for (const def of Object.values(BADGES)) {
     if (def.selectable) out.push({ id: def.id, label: def.label });
   }

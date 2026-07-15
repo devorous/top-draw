@@ -233,6 +233,7 @@ message Msg {
     uint32 globalRole = 35; // Account/global role, including Noble/Holy/Deity
     uint32 roomRole = 36;   // Room-specific role for this room
     string bdg = 37;        // Selected cosmetic badge id (e.g. 'flock', 'pepper')
+    bool sup = 38;          // Whether this user is an active supporter (gold cosmetics)
   }
   repeated U us = 17;   // Users array
 
@@ -279,6 +280,7 @@ message Msg {
   bool auth_needs_username_setup = 162; // Whether the user should pick a DDraw username
   string auth_suggested_username = 163; // Suggested username for setup flows
   string auth_badge = 198;             // AUTH_RESULT: the user's saved selectedBadge id
+  bool auth_supporter = 199;           // AUTH_RESULT: whether the account has an active supporter subscription
 
   // === Moderation Fields (34-42) ===
   uint32 mod_action_type  = 34;  // 0=kick, 1=mute, 2=ban, 3=unmute, 4=unban

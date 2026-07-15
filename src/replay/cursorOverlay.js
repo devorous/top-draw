@@ -27,6 +27,10 @@ const SELECT_TOOLS = new Set(['select']);
 const SQUARE_TOOLS = new Set(['blur', 'glitchBlur', 'imageBrush', 'pixel']);
 const NO_SHAPE_TOOLS = new Set(['text']);
 
+// Supporter gold, mirroring --supporter-gold in _variables.scss (canvas can't
+// resolve CSS vars, so the value is duplicated here).
+const SUPPORTER_GOLD = 'rgba(245, 197, 66, 1)';
+
 /**
  * Brighten a color toward white until it clears a luminance floor, so a dark
  * (e.g. near-black) brush color still produces a readable label.
@@ -67,7 +71,10 @@ export function drawReplayCursor(ctx, user, offsetX = 0, offsetY = 0) {
 
   const c = Array.isArray(user.color) ? user.color : [120, 120, 120, 1];
   const alpha = typeof c[3] === 'number' ? c[3] : 1;
-  const strokeStr = `rgba(${c[0] | 0}, ${c[1] | 0}, ${c[2] | 0}, ${alpha})`;
+  const isSupporter = !!user.isSupporter;
+  const strokeStr = isSupporter
+    ? SUPPORTER_GOLD
+    : `rgba(${c[0] | 0}, ${c[1] | 0}, ${c[2] | 0}, ${alpha})`;
   const tool = user.tool || 'brush';
 
   ctx.save();
@@ -120,7 +127,7 @@ export function drawReplayCursor(ctx, user, offsetX = 0, offsetY = 0) {
   ctx.lineWidth = 1;
   ctx.strokeStyle = 'rgba(0, 0, 0, 0.55)';
   ctx.strokeText(name, cx, cy - size - 4);
-  ctx.fillStyle = brightenForReadability(c);
+  ctx.fillStyle = isSupporter ? SUPPORTER_GOLD : brightenForReadability(c);
   ctx.fillText(name, cx, cy - size - 4);
 
   ctx.restore();

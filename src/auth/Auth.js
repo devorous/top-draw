@@ -1568,7 +1568,8 @@ export class Auth {
           hasDiscord: !!data.hasDiscord,
           needsUsernameSetup: !!data.needsUsernameSetup,
           suggestedUsername: data.suggestedUsername || '',
-          selectedBadge: data.selectedBadge || ''
+          selectedBadge: data.selectedBadge || '',
+          isSupporter: !!data.isSupporter
         };
         this.showLoggedInState(username, {
           hasDiscord: !!data.hasDiscord,

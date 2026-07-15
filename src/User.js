@@ -77,6 +77,7 @@ export class User {
     this.roomRole = options.roomRole || 0;
     this.hasDiscord = !!options.hasDiscord;
     this.selectedBadge = options.selectedBadge || '';
+    this.isSupporter = !!options.isSupporter;
     this.isMuted = options.isMuted || false;
     this.ipHash = options.ipHash || options.iph || '';
     this.visibleIp = options.visibleIp || '';
@@ -376,6 +377,7 @@ export class User {
       text: this.text,
       cursorStyle: this.cursorStyle,
       username: this.username,
+      isSupporter: this.isSupporter,
       blendMode: this.blendMode,
       blendBakeMode: this.blendBakeMode,
       activeLayer: this.activeLayer,
@@ -400,7 +402,7 @@ export class User {
    * @returns {void}
    */
   updateFrom(data) {
-    const fields = ['x', 'y', 'size', 'pressure', 'spacing', 'smoothing', 'opacity', 'hardness', 'blurRadius', 'color', 'tool', 'text', 'cursorStyle', 'username', 'blendMode', 'blendBakeMode', 'activeLayer', 'patternScale', 'patternShape', 'patternName', 'patternRotation', 'patternSpacing', 'font', 'textPositionMultiplier', 'textPositionOffset', 'hasDiscord'];
+    const fields = ['x', 'y', 'size', 'pressure', 'spacing', 'smoothing', 'opacity', 'hardness', 'blurRadius', 'color', 'tool', 'text', 'cursorStyle', 'username', 'blendMode', 'blendBakeMode', 'activeLayer', 'patternScale', 'patternShape', 'patternName', 'patternRotation', 'patternSpacing', 'font', 'textPositionMultiplier', 'textPositionOffset', 'hasDiscord', 'isSupporter'];
       fields.forEach(field => {
         if (data[field] !== undefined) {
           if (field === 'font') {

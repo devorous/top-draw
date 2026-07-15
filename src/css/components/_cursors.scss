@@ -55,6 +55,25 @@
   text-rendering: geometricPrecision;
 }
 
+/* Supporter gold cosmetics: class applied by RemoteUserUI.setRemoteUserSupporter /
+   UI.setSelfSupporter. CSS stroke wins over the SVG stroke attribute set by
+   updateRemoteColor, so gold persists across color changes. */
+#cursorsSvg .circle.supporter,
+#cursorsSvg .square.supporter {
+  stroke: var(--supporter-gold);
+  filter: drop-shadow(0 0 3px var(--supporter-gold-glow));
+}
+
+#cursorsSvg .crosshair.supporter line {
+  stroke: var(--supporter-gold);
+}
+
+.name.supporter {
+  color: var(--supporter-gold);
+  font-weight: 600;
+  text-shadow: 0 0 4px var(--supporter-gold-glow);
+}
+
 .text {
   position: absolute;
   top: 95px;
