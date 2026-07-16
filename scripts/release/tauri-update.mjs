@@ -386,7 +386,10 @@ async function main() {
 
     await runCommand('npm.cmd', ['run', 'tauri:build'], {
       TAURI_UPDATER_PUBLIC_KEY: publicKey,
-      TAURI_UPDATER_ENDPOINT: endpoint
+      TAURI_UPDATER_ENDPOINT: endpoint,
+      // The signing key has no password; without this the Tauri CLI stops to
+      // prompt for one on every build. Must be defined (empty), not unset.
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: process.env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD ?? ''
     });
   }
 

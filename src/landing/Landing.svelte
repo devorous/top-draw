@@ -31,8 +31,8 @@
     { file: 'art-4.png', id: '69ed7628262018b8d40ec4d4', author: 'pemi', tilt: 2.5 },
     { file: 'art-5.png', id: '69ed76b4262018b8d40ec4d5', author: 'Towa', tilt: -2 },
     { file: 'art-6.png', id: '69ed35a4262018b8d40ec488', author: 'maim', tilt: 1.5 },
-    { file: 'art-7.png', id: '69ebb64c6ae06e5a90402722', author: 'maim', tilt: -2.5 },
-    { file: 'art-8.png', id: '69ea7f80ed26a4494fca512b', author: 'maim', tilt: 2 },
+    { file: 'art-7.png', id: '69e9678dbba6d2220801c3cf', author: 'Thoth', tilt: -2.5 },
+    { file: 'art-8.png', id: '69e58e914caf3734139e5ec4', author: 'pemi', tilt: 2 },
   ];
 
   const features = [
@@ -43,7 +43,7 @@
   ];
 
   const whyDdraw = [
-    { title: 'Privacy First', desc: 'Your secrets are safe with us. Our messenger uses end-to-end encryption, and rooms are ephemeral. We don\'t peek, and we definitely don\'t track your every move.' },
+    { title: 'Privacy First', desc: 'Your secrets are safe with us. Our messenger uses end-to-end encryption, and rooms are ephemeral.' },
     { title: 'No Nonsense', desc: 'No paywalls, no "premium brushes," and no annoying ads. It\'s a pure creative space built for the love of digital art.' },
   ];
 
@@ -206,7 +206,7 @@
   <section class="art-strip-section">
     <div class="section-header center">
       <p class="label-goofy">Made in DDraw</p>
-      <h2>Real art, real rooms</h2>
+      <h2>Arts</h2>
     </div>
     <div class="art-strip">
       {#each galleryArt as a}
@@ -695,7 +695,8 @@
   .label-goofy { color: #ffdd00; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 1rem; }
   .marquee-section { padding: 5rem 0 2rem; overflow: hidden; }
   .marquee-section .section-header { padding: 0 2rem; margin-bottom: 2.5rem; }
-  .marquee { overflow: hidden; }
+  /* Vertical padding so the ±1.2deg card tilt isn't clipped by overflow: hidden */
+  .marquee { overflow: hidden; padding: 12px 0; }
   .marquee-track {
     display: flex;
     width: max-content;
@@ -746,7 +747,7 @@
   .marquee-card:hover .marquee-caption p { max-height: 8em; opacity: 1; }
   @media (prefers-reduced-motion: reduce) {
     .marquee-track { animation: none; width: auto; }
-    .marquee { overflow-x: auto; scroll-snap-type: x mandatory; padding: 0 2rem 1rem; }
+    .marquee { overflow-x: auto; scroll-snap-type: x mandatory; padding: 12px 2rem 1rem; }
     .marquee-card { scroll-snap-align: center; }
     .marquee-card.marquee-dupe { display: none; }
   }

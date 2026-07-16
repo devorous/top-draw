@@ -1294,30 +1294,63 @@ export async function handleFloatingArtList(req, res) {
         : { $exists: true }
     };
 
-    // Monthly rotation: only surface items created during the current calendar month.
-    // Resets automatically at the start of each month.
+    // All-time popular art, with a freshness boost: recent pieces (last 30 days)
+    // qualify at the caller's minLikes, older pieces need POPULAR_MIN_LIKES.
+    // Score = likes + a boost that starts at POPULAR_MIN_LIKES and decays to 0
+    // over the window, so brand-new art competes evenly with 3-like classics.
+    const POPULAR_MIN_LIKES = 3;
+    const RECENT_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
     const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const recentCutoff = new Date(now.getTime() - RECENT_WINDOW_MS);
 
     const [includedItems, taggedItems] = await Promise.all([
       includeIds.length > 0
         ? db.collection('gallery')
-            .find({
-              _id: { $in: includeIds.map(id => new ObjectId(id)) },
-              createdAt: { $gte: startOfMonth }
-            })
+            .find({ _id: { $in: includeIds.map(id => new ObjectId(id)) } })
             .toArray()
         : Promise.resolve([]),
       db.collection('gallery')
-        .find({
-          ...baseQuery,
-        tags: roomTag,
-        likesCount: { $gte: minLikes },
-        createdAt: { $gte: startOfMonth }
-      })
-      .sort({ likesCount: -1, createdAt: -1 })
-      .limit(limit)
-      .toArray()
+        .aggregate([
+          {
+            $match: {
+              ...baseQuery,
+              tags: roomTag,
+              $or: [
+                { createdAt: { $gte: recentCutoff }, likesCount: { $gte: minLikes } },
+                { likesCount: { $gte: Math.max(minLikes, POPULAR_MIN_LIKES) } }
+              ]
+            }
+          },
+          {
+            $addFields: {
+              _score: {
+                $add: [
+                  { $ifNull: ['$likesCount', 0] },
+                  {
+                    $multiply: [
+                      POPULAR_MIN_LIKES,
+                      {
+                        $max: [
+                          0,
+                          {
+                            $subtract: [
+                              1,
+                              { $divide: [{ $subtract: [now, '$createdAt'] }, RECENT_WINDOW_MS] }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          { $sort: { _score: -1, createdAt: -1 } },
+          { $limit: limit },
+          { $unset: '_score' }
+        ])
+        .toArray()
     ]);
 
     const merged = [];
