@@ -1238,11 +1238,22 @@ export class DrawingApp {
       if (this.selfRole < 1) return;
       appState.messengerVisible = !appState.messengerVisible;
     });
-    if (elements.supportBtn) {
-      elements.supportBtn.addEventListener('click', () => supporterDialog.show());
+    // Flip to true once Stripe is fully configured (keys, prices, webhook).
+    const SUPPORTER_PURCHASES_ENABLED = false;
+    const landingSupportBtn = document.getElementById('landingSupportBtn');
+    if (SUPPORTER_PURCHASES_ENABLED) {
+      if (elements.supportBtn) {
+        elements.supportBtn.addEventListener('click', () => supporterDialog.show());
+      }
+      landingSupportBtn?.addEventListener('click', () => supporterDialog.show());
+      supporterDialog.handleCheckoutReturn();
+    } else {
+      // Hide support buttons entirely until supporter purchases are ready.
+      [elements.supportBtn, landingSupportBtn].forEach(btn => {
+        if (!btn) return;
+        btn.style.display = 'none';
+      });
     }
-    document.getElementById('landingSupportBtn')?.addEventListener('click', () => supporterDialog.show());
-    supporterDialog.handleCheckoutReturn();
     elements.selfListUser.addEventListener('click', () => this.handleRenameself());
 
     this.ensureAppSettingsButton();

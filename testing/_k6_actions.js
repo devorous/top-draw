@@ -283,7 +283,9 @@ export function applyTextWithFont(socket, u, x, y, text, font, opts = {}) {
  * Perform a flood fill at (x, y) with the current color.
  */
 export function applyFloodFill(socket, u, x, y, color) {
-  const msg = { t: T.FILL, u, ps: [x, y] };
+  // FILL's point travels in sx/sy — clients decode data.sx/data.sy
+  // (WebSocketClient case T.FILL); a ps-based FILL silently no-ops.
+  const msg = { t: T.FILL, u, sx: Math.round(x), sy: Math.round(y) };
   if (color !== undefined) msg.c = color;
   socket.sendBinary(buildMsg(msg));
 }

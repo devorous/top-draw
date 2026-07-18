@@ -444,29 +444,7 @@ export class WebSocketClient {
             data.ps = decodePs(data.ps);
           }
 
-          // Record decoded message for TimeMachine (JSON, not protobuf)
-          if (window.app?.TimeMachine) {
-            window.app.TimeMachine.recordAction(data, 'inbound');
-          }
-
-          // Stroke fingerprint log — hash the exact wire bytes the server hashed.
-          // Gate on seq presence: only sequenced broadcasts (seq ≥ 1) belong in
-          // the log. Commit-type messages delivered out-of-band without a seq
-          // (e.g. the private join-sync BOARD_SNAPSHOT_RESTORE) must NOT be
-          // logged, or they'd appear as a phantom seq:0 "extra" and desync
-          // parity permanently (the old COMPRESS_USER_STROKES failure mode).
-          if (isCommitType(data.t) && data.seq) {
-            this.strokeLog.record({
-              seq: data.seq,
-              t: data.t,
-              userId: data.u,
-              bytes: raw,
-            });
-            const _sq = Number(data.seq);
-            if (_sq > this.lastProcessedSeq) this.lastProcessedSeq = _sq;
-          }
-
-          this.handleMessage(data);
+          this.handleMessage(data, raw);
         }
       } catch (err) {
         console.error('Failed to decode message:', err);
@@ -574,13 +552,54 @@ export class WebSocketClient {
    * @param {Object} data - The decoded message payload.
    * @returns {void}
    */
-  handleMessage(data) {
+  handleMessage(data, raw = null) {
     if (this._batchableMessages.has(data.t)) {
-      this._messageQueue.push(data);
+      // The TimeMachine tap happens at DRAIN time, not here: the queue may
+      // still hold earlier undrained messages, and tapping on arrival would
+      // write this message into the replay tape ahead of messages that are
+      // applied before it. (Live rendering hides that reorder because stroke
+      // compositing sorts by seq; replay applies the tape order literally, so
+      // order-sensitive actions like UNDO/REDO would target the wrong stroke.)
+      this._messageQueue.push(raw ? { data, raw } : data);
       this._scheduleProcessing();
       return;
     }
+    this._tapInbound(data, raw);
     this._processMessage(data);
+  }
+
+  /**
+   * Records an inbound message on the TimeMachine tap and the stroke
+   * fingerprint log. Must be called in APPLICATION order — immediately before
+   * the message is processed — so replay tapes are faithful to what the live
+   * canvas did.
+   *
+   * Stroke fingerprint log gating: hash the exact wire bytes the server
+   * hashed, and only for sequenced broadcasts (seq ≥ 1). Commit-type messages
+   * delivered out-of-band without a seq (e.g. the private join-sync
+   * BOARD_SNAPSHOT_RESTORE) must NOT be logged, or they'd appear as a phantom
+   * seq:0 "extra" and desync parity permanently (the old
+   * COMPRESS_USER_STROKES failure mode).
+   *
+   * @private
+   * @param {Object} data - Decoded message.
+   * @param {Uint8Array|null} raw - Exact wire bytes for this single message.
+   * @returns {void}
+   */
+  _tapInbound(data, raw) {
+    if (window.app?.TimeMachine) {
+      window.app.TimeMachine.recordAction(data, 'inbound');
+    }
+    if (raw && isCommitType(data.t) && data.seq) {
+      this.strokeLog.record({
+        seq: data.seq,
+        t: data.t,
+        userId: data.u,
+        bytes: raw,
+      });
+      const _sq = Number(data.seq);
+      if (_sq > this.lastProcessedSeq) this.lastProcessedSeq = _sq;
+    }
   }
 
   _parseFloatingGalleryVoronoi(rawJson) {
@@ -680,29 +699,22 @@ export class WebSocketClient {
           if (Array.isArray(data.ps) && data.ps.length >= 2) {
             data.ps = decodePs(data.ps);
           }
-          if (window.app?.TimeMachine) {
-            window.app.TimeMachine.recordAction(data, 'inbound');
-          }
-          // Stroke fingerprint log — uses the per-message slice from
-          // _decodeBatchedFrame, which is the exact wire bytes the server
-          // produced for this single message. Gate on seq presence (see the
-          // direct-decode path above) so unsequenced commits never pollute it.
-          if (isCommitType(data.t) && data.seq) {
-            this.strokeLog.record({
-              seq: data.seq,
-              t: data.t,
-              userId: data.u,
-              bytes: item,
-            });
-            const _sq = Number(data.seq);
-            if (_sq > this.lastProcessedSeq) this.lastProcessedSeq = _sq;
-          }
+          // Tap at drain time = application order (see _tapInbound). `item`
+          // is the per-message slice from _decodeBatchedFrame — the exact
+          // wire bytes the server produced for this single message.
+          this._tapInbound(data, item);
         } catch (err) {
           console.error('Failed to decode batched message:', err);
           processed++;
           if (!forceDrain && performance.now() - start > BUDGET_MS) break;
           continue;
         }
+      } else if (item && item.raw instanceof Uint8Array) {
+        // Pre-decoded single-frame message deferred by handleMessage; its tap
+        // was deliberately postponed to here so the tape order matches the
+        // order messages are actually applied.
+        data = item.data;
+        this._tapInbound(data, item.raw);
       } else {
         data = item;
       }

@@ -12,6 +12,15 @@ import { debug } from '../utils/debug.js';
  * from an existing user to a newly joined user.
  */
 export class SyncClient {
+  /**
+   * Client event names of the per-user tool-state ("C*") messages. Mirrors the
+   * server's StrokeTape tool-state set. These are idempotent state setters and
+   * are exempt from replayBuffer's (event, seq) dedup — see replayBuffer.
+   */
+  static _TOOL_STATE_EVENTS = new Set([
+    'ct', 'cc', 'cs', 'cp', 'csp', 'csm', 'chd', 'cbr', 'cl', 'cbm', 'cf', 'cthn', 'csim',
+  ]);
+
   constructor() {
     /** @type {number} */
     this.SYNC_IDLE_TIMEOUT_MS = 15000;
@@ -980,7 +989,35 @@ export class SyncClient {
       }
     }
 
-    for (const { eventName, data } of this.eventBuffer) {
+    // Dedup by (event, seq): the server assigns every room broadcast a unique
+    // seq, and the sync tail replays ORIGINAL wire bytes — so a message that
+    // reached us both live (buffered) and via the tail appears here twice with
+    // identical content. Applying both would duplicate strokes/commits. Keep
+    // the LAST occurrence: the tail copy sits inside its stroke's full
+    // preamble, whereas an earlier live copy may be a mid-stroke fragment
+    // buffered before the tail (applying it first would put MM continuations
+    // ahead of their MD). Events without a seq (targeted/out-of-band) are
+    // never deduped.
+    // Tool-state events are EXEMPT from dedup: they are idempotent state
+    // setters, and the join serve intentionally re-sends each user's latest
+    // tool-state frames at the end of the sync (SyncCoordinator step 2c). A
+    // frame appearing both inside a tail stroke's preamble and in that final
+    // snapshot must apply at BOTH positions — deduping to the last occurrence
+    // would strip the config out of the earlier stroke's preamble and render
+    // it with the previous stroke's color/size.
+    const TOOL_STATE_EVENTS = SyncClient._TOOL_STATE_EVENTS;
+    const lastIndexByKey = new Map();
+    for (let i = 0; i < this.eventBuffer.length; i++) {
+      const { eventName, data } = this.eventBuffer[i];
+      if (data?.seq && !TOOL_STATE_EVENTS.has(eventName)) {
+        lastIndexByKey.set(`${eventName}:${data.seq}`, i);
+      }
+    }
+    for (let i = 0; i < this.eventBuffer.length; i++) {
+      const { eventName, data } = this.eventBuffer[i];
+      const seq = data?.seq;
+      if (seq && !TOOL_STATE_EVENTS.has(eventName) &&
+          lastIndexByKey.get(`${eventName}:${seq}`) !== i) continue;
       const handler = this.handlerMap.get(eventName);
       if (handler) {
         handler(data);

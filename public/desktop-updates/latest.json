@@ -1,11 +1,11 @@
 {
-  "version": "1.11.0-beta",
+  "version": "1.11.1-beta",
   "notes": "I've polished the new replay system and fixed some issues with the app not connecting properly for both user profiles and gallery.",
-  "pub_date": "2026-07-16T03:23:24.944Z",
+  "pub_date": "2026-07-18T17:38:33.854Z",
   "platforms": {
     "windows-x86_64": {
-      "url": "https://www.ddraw.ca/desktop-updates/windows-x86_64/Ddraw_1.11.0-beta_x64-setup.exe",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQ01XR1piUDlNemlkTk5SWm1WRG9udFZzQ29Sc3pobjFTdDYrdHM0OXl6TkxmWk5wWm5wN3ZsRHA0WDhuMU1rNUF2UVFmajcrVG9mTjVVUFlJbkxBZjFSWVc2czJGZ2dzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg0MTcyMjg0CWZpbGU6RGRyYXdfMS4xMS4wLWJldGFfeDY0LXNldHVwLmV4ZQpwbEk3dlBKb2VDLzQxSm1lZHNXTnQ3YXN5dDkxSHZEOXp1Tzh2QjArNCtmNjBkcWpGQW1jVmVJb0J5anoydi8zWjc1RitqNnNOaERkcm1XaWlyQW1EZz09Cg=="
+      "url": "https://www.ddraw.ca/desktop-updates/windows-x86_64/Ddraw_1.11.1-beta_x64-setup.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQ01XR1piUDlNempKY2JvblphMllyZDlnekVkTU9yd2V4ZEV3R1NOZmZwSXYvYytaLzFoRUpjZDhzNStHcDRlTVJYUzBRbU9MN1ZwWHFSa08xbU1FNlFSZjdTQTFVdEFRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg0Mzk2NDE0CWZpbGU6RGRyYXdfMS4xMS4xLWJldGFfeDY0LXNldHVwLmV4ZQp3S2JubVNsZ2ZaanN5Nk15bGd5ZXE1dWsyN0tKbXVaV1BVdU04RmdCVEdyVURmMklwRkhzUWk4cmVtb1dEdlEvOGxaUFpYb29qZ3hLUVcwNlRrcXhCQT09Cg=="
     }
   }
 }

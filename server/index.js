@@ -30,7 +30,7 @@ import { handleCreateCheckoutSession, handleCreatePortalSession, handleStripeWeb
 import { issueModAction, revokeModAction, revokeMatchingModActions, updateModActionReason, getModEntries, obfuscateIp, checkBan, checkMute, checkShadowBan } from './moderation.js';
 import { ENABLE_SERVER_REPLAY_DB } from './replayConfig.js';
 import { T, Tool, ToolNames, ToolToEnum } from '../shared/MessageTypes.js';
-import { isCommitType } from '../shared/StrokeFingerprint.js';
+import { isCommitType, COMMIT_KIND } from '../shared/StrokeFingerprint.js';
 import { packColor, unpackColor } from '../shared/ColorUtils.js';
 import { BOARD_SIZE_PRESETS } from '../shared/boardSizes.js';
 import { SessionManager, Role, RoleNames } from './SessionManager.js';
@@ -1816,6 +1816,37 @@ function shouldSkipInactiveRecipient(room, client, messageType) {
   return !!user?.afk && !room.sessionManager.isUserImmuneToInactivity(client.sessionIndex, user);
 }
 
+// Room CONTENT types that the checkpoint+tail join sync fully reproduces:
+// stroke geometry (MD/MM/CANCEL), tool-state changes (mirrors
+// StrokeTape.buildToolStateSet), selection setup (mirrors
+// buildSelectionStateSet + SEL_CANCEL), and every commit type. A client that
+// is still waiting for its join sync must NOT receive these live — the tail
+// will deliver them — or everything committed during the join window is
+// applied twice. Presence/chat/settings traffic is NOT in this set and flows
+// to the joiner immediately.
+const JOIN_SYNC_SUPPRESSED_TYPES = new Set([
+  T.MD, T.MM, T.CANCEL,
+  T.CT, T.CC, T.CS, T.CP, T.CSP, T.CSM, T.CHD, T.CBR,
+  T.CL, T.CBM, T.CF, T.CTHN, T.CSIM,
+  T.SEL_LIFT, T.SEL_MOVE, T.SEL_PENDING, T.SEL_MASK, T.SEL_CANCEL,
+  ...Object.keys(COMMIT_KIND).map(Number),
+]);
+
+// Safety valve: if a client never completes its join sync (crashed mid-join,
+// legacy client that never sends SYNC_REQUEST), stop suppressing after this
+// long rather than leaving it deaf to draw traffic forever.
+const JOIN_SYNC_SUPPRESS_MAX_MS = 20_000;
+
+function shouldSkipJoinSyncPending(client, messageType) {
+  if (!client.joinSyncPendingSince) return false;
+  if (!JOIN_SYNC_SUPPRESSED_TYPES.has(messageType)) return false;
+  if (Date.now() - client.joinSyncPendingSince > JOIN_SYNC_SUPPRESS_MAX_MS) {
+    client.joinSyncPendingSince = null;
+    return false;
+  }
+  return true;
+}
+
 const MUTED_BLOCKED = new Set([
   T.MM, T.MD, T.MU, T.KP, T.TEXT_APPLY, T.CLR,
   T.SEL_LIFT, T.SEL_MOVE, T.SEL_COMMIT, T.SEL_DELETE, T.SEL_FILL, T.SEL_STAMP, T.SEL_FLIP, T.SEL_MERGE, T.SEL_CANCEL, T.SEL_TO_BRUSH, T.SEL_MASK, T.OBSCURE_REGION,
@@ -2691,6 +2722,9 @@ function broadcastToRoom(room, payload, excludeIndex = null) {
       if (excludeIndex != null && client.sessionIndex == excludeIndex && !echoCommitsToSender) {
         return;
       }
+      if (shouldSkipJoinSyncPending(client, payload.t)) {
+        return;
+      }
       if (shouldBatch) {
         if (shouldSkipInactiveRecipient(room, client, payload.t)) {
           return;
@@ -2746,6 +2780,9 @@ function broadcastSequencedRestore(room, payload) {
 
   room.clients.forEach((client) => {
     if (client.readyState !== WebSocket.OPEN) return;
+    // A joiner mid-sync gets the restore via its command tail (it's a commit
+    // in the strokeLog) — sending it live too would double-apply it.
+    if (shouldSkipJoinSyncPending(client, payload.t)) return;
     // Drain any queued batchable messages (MM/MU/...) first so they precede
     // the restore in this client's receive order — same per-client ordering
     // the live stream already relies on.
@@ -3006,6 +3043,22 @@ wss.on('connection', async (ws, req) => {
       room.broadcastSequencedRestore = (payload) => broadcastSequencedRestore(room, payload);
     }
     debug(`[Room.Connection] About to add client to room: ${roomId}, current client count: ${room.getClientCount()}`);
+    // Suppress room CONTENT broadcasts (draw stream / commits — everything the
+    // checkpoint+tail join sync reproduces) until SyncCoordinator serves the
+    // tail. Without this, strokes committed between joining the client set and
+    // the tail's latestSeq read arrive TWICE (once live, once via the tail) —
+    // and strokes straddling the join commit an extra truncated copy. Cleared
+    // synchronously with the tail-seq read in _serveCheckpointJoin.
+    //
+    // Only armed when the room already has peers: a lone first joiner never
+    // sends SYNC_REQUEST (the client's truly-alone fallback just marks sync
+    // complete), so an unconditional flag would leave it deaf to content
+    // until the safety valve. With no peers there is no prior traffic to
+    // duplicate anyway. If bots/users pour in right after and the client DOES
+    // request a sync, _serveCheckpointJoin re-arms suppression itself.
+    if (room.getClientCount() > 0) {
+      ws.joinSyncPendingSince = Date.now();
+    }
     room.addClient(ws);
 
     debug(`[Room.Connection] Client joined room: ${roomId}, total clients after addClient: ${room.getClientCount()}`);

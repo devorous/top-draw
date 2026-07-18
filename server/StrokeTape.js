@@ -222,6 +222,24 @@ export class StrokeTape {
   }
 
   /**
+   * Latest tool-state frames per user (the running per-user snapshot). Sent at
+   * the END of a join serve so the joiner leaves sync with every user's
+   * CURRENT tool state. This closes the join-suppression hole: a tool-state
+   * frame broadcast while the joiner's live feed was suppressed, for a stroke
+   * that had not yet begun at the barrier, is in neither the committed tail
+   * (no commit yet) nor a pending bundle (no MD yet) — without this resend the
+   * joiner renders that user's next stroke with stale color/size/tool.
+   * @returns {Array<{userId: number, frames: Uint8Array[]}>}
+   */
+  getToolStateBundles() {
+    const out = [];
+    for (const [userId, st] of this._toolState) {
+      if (st.size > 0) out.push({ userId, frames: Array.from(st.values()) });
+    }
+    return out;
+  }
+
+  /**
    * Drop bundles with seq < cutoffSeq. Mirrors StrokeFingerprintLog.truncateBefore
    * so the geometry tape and the commit log stay bounded together at checkpoints.
    * Keys are inserted in ascending seq order, so we can stop at the first kept key.

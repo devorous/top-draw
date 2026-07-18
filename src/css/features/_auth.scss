@@ -365,17 +365,17 @@ body.desktop-window-chrome #overlay {
   pointer-events: auto;
 }
 
-// Supporter CTA on the landing screen — gold and full-width so it stands out
-// from the utility buttons below it.
+// Supporter CTA on the landing screen — accented and full-width so it stands
+// out from the utility buttons below it.
 #landingSupportBtn {
   width: 100%;
   grid-column: 1 / -1; // full row of the 2-column secondary-actions grid
-  color: var(--supporter-gold);
-  border: 1px solid color-mix(in srgb, var(--supporter-gold) 55%, transparent);
+  color: var(--accent-primary);
+  border: 1px solid color-mix(in srgb, var(--accent-primary) 55%, transparent);
   font-weight: 700;
 
   &:hover {
-    background: color-mix(in srgb, var(--supporter-gold) 16%, transparent);
+    background: color-mix(in srgb, var(--accent-primary) 16%, transparent);
   }
 }
 

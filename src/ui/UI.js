@@ -2503,7 +2503,7 @@ menuBtn: document.getElementById('menuBtn'),
     el.innerHTML = `
       <div class="snapshotJoinToast__body">
         <div class="snapshotJoinToast__title">Try gallery time-lapse?</div>
-        <div class="snapshotJoinToast__meta">Your gallery uploads can include an animated time-lapse of your drawing. It's on by default — you can change this anytime in Settings.</div>
+        <div class="snapshotJoinToast__meta">Your gallery uploads can include an animated time-lapse of your drawing. It's on by default; you can change this anytime in Settings.</div>
         <div class="snapshotJoinToast__actions">
           <button class="snapshotJoinToast__load btn primary small">Sounds good</button>
           <button class="snapshotJoinToast__dismiss btn secondary small">No thanks</button>

@@ -324,7 +324,9 @@ async function main() {
         try {
           const b64 = fs.readFileSync(path.join(DDRAW_DIR, f)).toString('base64');
           const info = await loadDdrawFromBase64(smokeTab.page, b64, CODEC_URL);
-          await waitReplaySettled(smokeTab.page);
+          // Big archival files (e.g. big.ddraw: 17.6 MB / 83k deltas) need well
+          // over the parity default to finish the background seek-to-end.
+          await waitReplaySettled(smokeTab.page, 90_000);
           const snaps = await smokeTab.page.evaluate(captureReplayLayerSnapshotsInPage);
           const painted = paintedGroups(snaps);
           const ok = painted > 0;

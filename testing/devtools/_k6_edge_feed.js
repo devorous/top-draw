@@ -28,6 +28,10 @@
  *   selection_blend    Base strokes, then CBM blend-mode strokes (multiply /
  *                      screen), then a SEL_LIFT → SEL_MOVE (translate) →
  *                      SEL_COMMIT transform over the VU's own region.
+ *   mixed_tools        Full tool-state churn per VU: brush/shapes, an eraser
+ *                      pass, multiply/screen blend strokes, one flood fill
+ *                      (VU 1), a pixel-text stamp, and a selection translate.
+ *                      Built for mid-flood JOIN testing (join_timing_suite).
  *
  * Env:
  *   ROOM         room to join                 (default: edge_feed)
@@ -111,7 +115,13 @@ export default function () {
 
     const sx = clampX(homeX + randInt(-REGION / 3, REGION / 3));
     const sy = clampY(homeY + randInt(-REGION / 3, REGION / 3));
-    steps.push({ t: T.MD, u, ps: [sx, sy] });
+    // Blend mode must ride ON the MD, like real clients (broadcastMouseDown):
+    // the server sanitizes MD.bm even when absent (proto3 default '' →
+    // 'source-over'), and handleMouseDown applies MD.bm over any prior CBM —
+    // a CBM alone is silently clobbered back to source-over at mousedown.
+    const md = { t: T.MD, u, ps: [sx, sy] };
+    if (blendMode !== undefined) md.bm = blendMode;
+    steps.push(md);
 
     if (!forceBrush && SHAPE_SET.has(tool)) {
       const ex = clampX(sx + randInt(-REGION / 2, REGION / 2));
@@ -178,6 +188,58 @@ export default function () {
         cbt: [rx, ry, rw, rh],
       });
       steps.push({ t: T.SEL_COMMIT, u, ly: 0 });
+      return steps;
+    }
+
+    if (SCENARIO === 'mixed_tools') {
+      // Full tool-state churn: brush/shapes, eraser, blend modes, flood fill,
+      // pixel text, selection translate. Exercises every per-user config type
+      // (CT/CC/CS/CHD/CBM/CF) around a mid-flood join window.
+      for (let s = 0; s < 3; s++) steps.push(...strokeSteps(u));
+      // Eraser pass across own region (hard destination-out brush).
+      steps.push({ t: T.CT, u, l: Tool.ERASE });
+      steps.push({ t: T.CS, u, s: randInt(1500, 2500) });
+      steps.push({ t: T.CHD, u, hd: 100 });
+      const ex = clampX(homeX - REGION / 4), ey = clampY(homeY - REGION / 4);
+      steps.push({ t: T.MD, u, ps: [ex, ey] });
+      steps.push({ t: T.MM, u, ps: [clampX(ex + 120), clampY(ey + 80)], stroke_ts: 1 });
+      steps.push({ t: T.MM, u, ps: [clampX(ex + 200), clampY(ey + 40)] });
+      steps.push({ t: T.MU, u });
+      // Blended strokes, then back to normal.
+      steps.push(...strokeSteps(u, { forceBrush: true, blendMode: 'multiply' }));
+      steps.push(...strokeSteps(u, { forceBrush: true, blendMode: 'screen' }));
+      steps.push({ t: T.CBM, u, bm: 'source-over' });
+      // One background flood fill (VU 1 only — a full-canvas fill per VU would
+      // dominate the run). Committed client-side from composited state, so it
+      // doubles as a consistency check of everything beneath it.
+      if (__VU === 1) {
+        steps.push({ t: T.CC, u, c: randColor() });
+        // FILL carries its point in sx/sy (not ps — see WebSocketClient T.FILL).
+        steps.push({ t: T.FILL, u, sx: Math.round(clampX(homeX)), sy: Math.round(clampY(homeY)) });
+      }
+      // Pixel text stamp (self-contained TEXT_APPLY carries its font).
+      steps.push({ t: T.CF, u, fo: 'Arial', tm: 1.0, to: 0.0 });
+      steps.push({
+        t: T.TEXT_APPLY, u, g: `EDGE_${u}`, fo: 'Arial',
+        ps: [Math.round(clampX(homeX - 60)), Math.round(clampY(homeY + REGION / 4))],
+        text_id: `txt_${u}_k6`, text_pixel: 1, text_lifetime_ms: 0, text_fade_ms: 0,
+      });
+      // Selection translate over the home region.
+      steps.push({ t: T.CT, u, l: Tool.SELECT });
+      const rx = Math.round(clampX(homeX - REGION / 3));
+      const ry = Math.round(clampY(homeY - REGION / 3));
+      const rw = Math.round(REGION / 2), rh = Math.round(REGION / 2);
+      steps.push({ t: T.SEL_LIFT, u, sx: rx, sy: ry, sw: rw, sh: rh });
+      const dx = 70, dy = 50;
+      steps.push({
+        t: T.SEL_MOVE, u,
+        cr: [rx + dx, ry + dy, rx + rw + dx, ry + dy, rx + rw + dx, ry + rh + dy, rx + dx, ry + rh + dy],
+        cb: [rx, ry, rw, rh],
+        cbt: [rx, ry, rw, rh],
+      });
+      steps.push({ t: T.SEL_COMMIT, u, ly: 0 });
+      // Trailing strokes so a join after the special ops still sees churn.
+      for (let s = 0; s < 2; s++) steps.push(...strokeSteps(u));
       return steps;
     }
 

@@ -44,7 +44,9 @@ export class SyncCoordinator {
     console.log(`[Sync] User ${requesterSessionIndex} requested checkpoint-based sync`);
     this._serveCheckpointJoin(ws, requesterSessionIndex).catch((err) => {
       console.error(`[Sync] Checkpoint join failed for ${requesterSessionIndex}:`, err);
-      // Never leave the joiner hanging on the client-side idle timeout.
+      // Reopen live content broadcasts and never leave the joiner hanging on
+      // the client-side idle timeout.
+      ws.joinSyncPendingSince = null;
       if (ws.readyState === WebSocket.OPEN) this.sendTo(ws, { t: T.SYNC_COMPLETE });
     });
   }
@@ -58,6 +60,14 @@ export class SyncCoordinator {
    */
   async _serveCheckpointJoin(ws, requesterSessionIndex) {
     if (ws.readyState !== WebSocket.OPEN) return;
+
+    // (Re-)arm live content suppression for the duration of the serve. Fresh
+    // joiners already carry the flag from room join; RESYNCS (AFK return,
+    // manual resync) don't, and without this every commit broadcast between
+    // here and the barrier below would reach the client both live and via the
+    // tail. The client resets its board + event buffer when it issues the
+    // request, so content sent before the request arrived is already discarded.
+    ws.joinSyncPendingSince = Date.now();
 
     const log = this.room?.strokeLog;
     const tape = this.room?.strokeTape;
@@ -113,6 +123,18 @@ export class SyncCoordinator {
       }
     }
 
+    // ── Live-broadcast barrier ──
+    // From room-join until here the server suppresses room CONTENT broadcasts
+    // to this ws (index.js shouldSkipJoinSyncPending) so nothing committed
+    // before the tail's latestSeq read reaches the joiner twice. Everything
+    // from this line through the tail + pending-bundle sends is synchronous
+    // (no awaits), so no broadcast can interleave: commits ≤ latestSeq arrive
+    // only via the tail, commits after it only via live broadcast, and
+    // in-flight stroke preambles (pendingBundles) precede their live MM/MU
+    // continuation. Clearing the flag any later (e.g. at SYNC_COMPLETE after
+    // another await) would reopen the duplicate window.
+    ws.joinSyncPendingSince = null;
+
     const latestSeqForMetadata = log?.getSummary?.().latestSeq || 0;
     const entriesForMetadata = latestSeqForMetadata > baseSeq && log
       ? log.getRange(baseSeq + 1, latestSeqForMetadata)
@@ -127,10 +149,13 @@ export class SyncCoordinator {
     // the joiner re-begins each active stroke with the right tool state.
     const pendingBundles = tape?.getPendingBundles?.() || [];
     const pendingMessageCount = pendingBundles.reduce((total, b) => total + b.frames.length, 0);
+    // Latest tool state per user, re-sent at the end of the serve (see 2c).
+    const toolStateBundles = tape?.getToolStateBundles?.() || [];
+    const toolStateMessageCount = toolStateBundles.reduce((total, b) => total + b.frames.length, 0);
     const [boardHeight, boardWidth] = getBoardDimensionsForSize(this.room?.settings?.boardSize);
     this.sendTo(ws, {
       t: T.SYNC_METADATA,
-      syncTotal: checkpointMessageCount + tailMessageCount + pendingMessageCount,
+      syncTotal: checkpointMessageCount + tailMessageCount + pendingMessageCount + toolStateMessageCount,
       boardWidth,
       boardHeight
     });
@@ -170,6 +195,20 @@ export class SyncCoordinator {
         pendingStrokes++;
       }
       console.log(`[Sync] Replayed ${pendingStrokes} in-flight stroke(s) to ${requesterSessionIndex}`);
+    }
+
+    // 2c. Re-send every user's LATEST tool state. A tool-state frame broadcast
+    //     during this joiner's suppression window for a stroke that has not
+    //     yet begun is in neither the tail nor a pending bundle — without this
+    //     the joiner draws that user's next stroke with stale color/size/tool.
+    //     Sent last so it wins over older tail/pending config; frames carry
+    //     their original seqs and the client applies tool-state events at
+    //     every buffered position (they are exempt from replay dedup).
+    if (toolStateBundles.length > 0) {
+      for (const { frames } of toolStateBundles) {
+        if (ws.readyState !== WebSocket.OPEN) return;
+        for (const frame of frames) this.sendTo(ws, frame);
+      }
     }
 
     // 3. Live floating selections / masks / obscure regions, then complete.
