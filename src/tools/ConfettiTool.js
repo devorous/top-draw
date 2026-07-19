@@ -57,38 +57,44 @@ export class ConfettiTool extends Tool {
     user._confettiDirtyBounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
     user._confettiStrokePoints = [{ x: pos.x, y: pos.y }];
     this.emit(user, pos, 0, this._strokeSeed);
-    this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
+    this.lastStampPos.set(user.id, { x: pos.x, y: pos.y, dist: 0 });
     delete user._confettiStrokeSeed;
   }
 
   onPointerMove(user, pos) {
     if (!user.mousedown || user.panning) return;
 
-    const lastStamp = this.lastStampPos.get(user.id);
-    if (!lastStamp) {
+    const progress = this.lastStampPos.get(user.id);
+    if (!progress) {
       // No seed is buffered/transmitted for this first-move stamp, so derive it
       // deterministically from position — matches what receivers compute.
       this.emit(user, pos, 0, this.seedFromPos(pos.x, pos.y));
-      this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
+      this.lastStampPos.set(user.id, { x: pos.x, y: pos.y, dist: 0 });
       this.board.requestUpdate();
       return;
     }
 
-    const dx = pos.x - lastStamp.x;
-    const dy = pos.y - lastStamp.y;
-    const distance = Math.hypot(dx, dy);
+    const dx = pos.x - progress.x;
+    const dy = pos.y - progress.y;
+    const segment = Math.hypot(dx, dy);
+    if (segment === 0) return;
+
     const spacing = this.getSpacing(user);
-
-    if (distance < spacing) return;
-
-    const steps = Math.max(1, Math.floor(distance / spacing));
     const angle = Math.atan2(dy, dx);
 
-    for (let i = 1; i <= steps; i++) {
-      const t = i / steps;
+    // Stamps are placed by cumulative path distance: the residual traveled
+    // since the last stamp carries across move events, so wandering the pointer
+    // covers the same total distance whether it moves straight or curls back.
+    let traveled = progress.dist ?? 0;
+    let consumed = 0;
+    let stamped = false;
+    while (traveled + (segment - consumed) >= spacing) {
+      consumed += spacing - traveled;
+      traveled = 0;
+      const t = consumed / segment;
       const interp = {
-        x: lastStamp.x + dx * t,
-        y: lastStamp.y + dy * t
+        x: progress.x + dx * t,
+        y: progress.y + dy * t
       };
       // Position-derived seed (not Math.random): the local drawer buffers/
       // transmits it, AND the seedless remote-render path (renderRemoteMove →
@@ -99,10 +105,15 @@ export class ConfettiTool extends Tool {
       this.stampBuffer.push(interp.x, interp.y);
       this.seedBuffer.push(seed);
       this._getStrokePoints(user).push(interp);
+      stamped = true;
     }
+    traveled += segment - consumed;
 
-    this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
-    this.board.requestUpdate();
+    progress.x = pos.x;
+    progress.y = pos.y;
+    progress.dist = traveled;
+
+    if (stamped) this.board.requestUpdate();
   }
 
   onPointerUp(user) {
