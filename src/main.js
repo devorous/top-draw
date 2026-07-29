@@ -128,6 +128,70 @@ function updateShellStatus(status, text) {
 
 window.updateLandingShellStatus = updateShellStatus;
 
+/**
+ * Detects embed mode from the URL: /embed or /embed/<roomName>.
+ * @returns {{embed: boolean, room: string|null}}
+ */
+function getEmbedTarget() {
+  const match = window.location.pathname.match(/^\/embed(?:\/([a-zA-Z0-9_-]+))?\/?$/);
+  if (!match) return { embed: false, room: null };
+  return { embed: true, room: match[1] || null };
+}
+
+/**
+ * Removes the loading screen and reveals the app canvas for embed mode.
+ * Unlike revealLandingShell, this never shows the landing page/overlay —
+ * the embed auto-joins its room (or offline) instead.
+ */
+function revealEmbedShell() {
+  const mainContent = document.getElementById('main');
+  const loadingScreen = document.getElementById('app-loading-screen');
+  const styleTag = document.getElementById('initial-loading-style');
+
+  if (mainContent) {
+    mainContent.style.opacity = '1';
+    mainContent.style.transition = 'opacity 0.35s ease-out';
+  }
+  if (loadingScreen) {
+    loadingScreen.style.opacity = '0';
+    setTimeout(() => {
+      loadingScreen.remove();
+      styleTag?.remove();
+    }, 350);
+  } else {
+    styleTag?.remove();
+  }
+}
+
+/**
+ * Boots the app directly into a room (or offline) without the landing page.
+ * @param {string|null} room - Room name from the URL, or null/"offline" for solo.
+ */
+async function initEmbed(room) {
+  updateShellStatus('connecting', 'Loading app...');
+  scheduleStartupUpdateCheck();
+
+  try {
+    const readyApp = await bootApp();
+    if (room && room !== 'offline') {
+      await readyApp.startLandingJoin(room);
+    } else {
+      await readyApp.handleOffline();
+    }
+    revealEmbedShell();
+  } catch (err) {
+    console.error('Failed to initialize embed app:', err);
+    updateShellStatus('disconnected', 'Failed to load');
+    // Fall back to offline so the embed still shows a usable canvas.
+    try {
+      if (app) await app.handleOffline();
+      revealEmbedShell();
+    } catch {
+      // Nothing more we can do; loading screen stays with the error status.
+    }
+  }
+}
+
 function revealLandingShell() {
   const mainContent = document.getElementById('main');
   const loadingScreen = document.getElementById('app-loading-screen');
@@ -359,6 +423,12 @@ function attachDeferredLandingHandlers() {
 }
 
 async function init() {
+  const embedTarget = getEmbedTarget();
+  if (embedTarget.embed) {
+    void initEmbed(embedTarget.room);
+    return;
+  }
+
   revealLandingShell();
   attachDeferredLandingHandlers();
 

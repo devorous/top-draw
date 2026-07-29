@@ -2306,7 +2306,10 @@ export class DrawingApp {
       this.landingPage.hide();
     }
 
-    const newPath = resolvedRoomId === 'offline' ? '/go/offline' : `/go/${resolvedRoomId}`;
+    const embedMode = typeof document !== 'undefined' && document.documentElement?.dataset?.embed === 'true';
+    const newPath = embedMode
+      ? (resolvedRoomId === 'offline' ? '/embed' : `/embed/${resolvedRoomId}`)
+      : (resolvedRoomId === 'offline' ? '/go/offline' : `/go/${resolvedRoomId}`);
     if (window.location.pathname !== newPath) {
       window.history.pushState({ room: resolvedRoomId }, '', newPath);
     }
@@ -2450,9 +2453,12 @@ export class DrawingApp {
     this.rollingTapeRecorder.start(this);
     this.updateRecordingButtonState();
 
-    // Update URL to /go/offline
-    if (window.location.pathname !== '/go/offline') {
-      window.history.pushState({ room: 'offline' }, '', '/go/offline');
+    // Update URL to /go/offline (or /embed when running as an embed)
+    const offlinePath = (typeof document !== 'undefined' && document.documentElement?.dataset?.embed === 'true')
+      ? '/embed'
+      : '/go/offline';
+    if (window.location.pathname !== offlinePath) {
+      window.history.pushState({ room: 'offline' }, '', offlinePath);
     }
   }
 

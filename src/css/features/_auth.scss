@@ -905,49 +905,39 @@ body.desktop-window-chrome #landingPage {
   }
 }
 
+// A <details> collapsed to a single "What's new?" row. Expanded, the list is
+// ~170px tall, which is more than the landing page has to spare — it pushed
+// #landingPage (overflow-y: auto) into a scrollbar on any screen under ~950px.
 .landingChangelogWindow {
   width: 100%;
   max-width: 1000px;
   margin: 16px auto 0;
   align-self: center;
-  padding: 18px 24px;
   background: color-mix(in srgb, var(--bg-secondary) 88%, black 12%);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
 
-  // Keep the changelog at its natural height instead of letting flexbox
-  // crush it — if the viewport is short, the whole landing page scrolls
-  // (#landingPage is overflow-y: auto) rather than squishing this section.
+  // Never let flexbox crush the panel — the page scrolls instead.
   flex: 0 0 auto;
   min-height: 0;
-  display: flex;
-  flex-direction: column;
-
-  h3 {
-    margin: 0 0 12px 0;
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text-secondary);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    flex: 0 0 auto;
-  }
 
   ul {
     margin: 0;
-    padding-left: 18px;
+    padding: 0 24px 18px 42px;
     columns: 2;
     column-gap: 32px;
     color: var(--text-muted);
     font-size: 13px;
     line-height: 1.5;
-    flex: 1 1 auto;
-    min-height: 0;
-    // Cap height so the changelog shrinks (with internal scroll)
-    // before pushing the login dialog around at short viewports.
+    // Cap height so a long changelog scrolls internally instead of pushing
+    // the login dialog around at short viewports.
     max-height: clamp(120px, 32vh, 420px);
     overflow-y: auto;
+  }
+
+  &[open] ul {
+    animation: landingChangelogReveal var(--transition-normal) ease;
   }
 
   li {
@@ -958,6 +948,58 @@ body.desktop-window-chrome #landingPage {
   li::marker {
     color: var(--accent-primary);
   }
+}
+
+@keyframes landingChangelogReveal {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+.landingChangelogToggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 24px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  user-select: none;
+  // Drop the default disclosure triangle in favour of the chevron below.
+  list-style: none;
+  transition: color var(--transition-fast);
+
+  &::-webkit-details-marker {
+    display: none;
+  }
+
+  &:hover {
+    color: var(--text-primary);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: -2px;
+    border-radius: var(--radius-lg);
+  }
+}
+
+.landingChangelogChevron {
+  margin-left: auto;
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: translateY(-2px) rotate(45deg);
+  transition: transform var(--transition-normal) ease;
+}
+
+.landingChangelogWindow[open] .landingChangelogChevron {
+  transform: translateY(1px) rotate(-135deg);
 }
 
 .landingPanel {
@@ -1885,12 +1927,13 @@ body.desktop-window-chrome #landingPage {
     overflow-x: hidden;
   }
 
-  .landingChangelogWindow {
-    padding: 16px 18px;
+  .landingChangelogWindow ul {
+    columns: 1;
+    padding: 0 18px 16px 34px;
+  }
 
-    ul {
-      columns: 1;
-    }
+  .landingChangelogToggle {
+    padding: 14px 18px;
   }
 
   .landingAuth {
