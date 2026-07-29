@@ -668,6 +668,17 @@ html[data-mobile='true'] {
   flex-direction: column;
 }
 
+/* Shape "Draw Mode" ("Corner to Corner" / "Center Scaling") — the labels are
+   too long to sit side-by-side in the sidebar, so stack them full-width. */
+#shapeModeOptions .radio-group {
+  flex-direction: column;
+}
+
+#shapeModeOptions .radio-option {
+  flex: 1 1 auto;
+  width: 100%;
+}
+
 /* Blend Mode Select */
 .blendModeSelect {
   width: 100%;
