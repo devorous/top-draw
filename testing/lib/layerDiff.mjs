@@ -53,20 +53,51 @@ export function captureLayerSnapshotsInPage() {
   const out = [];
   for (let gi = 0; gi < lm.layerGroups.length; gi++) {
     const group = lm.layerGroups[gi];
-    const empty = group.strokeStack.length === 0 && !group.flatCanvas;
+    // A group holds content in THREE places, not two. `bakedSequences` is the
+    // one that is easy to forget: `_compressStrokesToGroup` moves a run of
+    // strokes out of `strokeStack` into it, and on layers 1-2 (which have no
+    // `flatCanvas`) that is where nearly everything ends up.
+    const empty = group.strokeStack.length === 0
+      && !group.flatCanvas
+      && (group.bakedSequences?.length || 0) === 0
+      && (group.activeStrokeByUser?.size || 0) === 0;
     if (empty) continue;
 
     const cvs = document.createElement('canvas');
     cvs.width = lm.width;
     cvs.height = lm.height;
     const ctx = cvs.getContext('2d');
-    if (group.flatCanvas) ctx.drawImage(group.flatCanvas, 0, 0);
-    const sorted = [...group.strokeStack].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
-    for (const s of sorted) {
-      if (!s.canvas) continue;
-      ctx.globalCompositeOperation = s.blendMode || 'source-over';
-      ctx.drawImage(s.canvas, s.x || 0, s.y || 0);
-    }
+
+    // ── Ask the PRODUCT to composite, rather than reimplementing it ──────────
+    //
+    // This used to rebuild the layer by hand: draw `flatCanvas`, then replay
+    // `strokeStack` in sorted order. That is a second implementation of the
+    // compositor living in the test tree, and it drifted from the real one
+    // twice, both times silently and both times only on paths nothing exercised:
+    //
+    //   1. it sorted the live stack by `timestamp`, while the product sorts by
+    //      `seq` (LayerManager._sortStrokeStack) — arrival order vs
+    //      authoritative order, so each client rebuilt a different z-order and
+    //      the diff reported divergence the real boards did not have;
+    //   2. it never read `bakedSequences` at all, so once
+    //      `_compressStrokesToGroup` moved strokes there the oracle simply
+    //      stopped seeing them — and a group whose content had ALL been
+    //      compressed looked *empty*, so two boards agreed at 100% on a layer
+    //      neither of them was actually comparing.
+    //
+    // `compositeLayerRange` is the same call `Board.compositeAllLayers` makes,
+    // and it dispatches between four different group paths (flatCanvas /
+    // isolated / sequential / plain) depending on destination-out and complex
+    // blends. Reproducing that faithfully in a harness is not realistic; calling
+    // it is exact by construction and cannot drift again.
+    //
+    // `backgroundColor` is passed as null so the capture stays transparent and
+    // `lm.backgroundColor` is not mutated. `needsComposite` is saved/restored
+    // because the call clears it, and suppressing a pending composite on a live
+    // board would be a real side effect of measuring it.
+    const prevNeedsComposite = lm.needsComposite;
+    lm.compositeLayerRange(ctx, gi, gi + 1, null, null);
+    lm.needsComposite = prevNeedsComposite;
     ctx.globalCompositeOperation = 'source-over';
 
     const imageData = ctx.getImageData(0, 0, cvs.width, cvs.height);
@@ -124,20 +155,51 @@ export function captureReplayLayerSnapshotsInPage() {
   const out = [];
   for (let gi = 0; gi < lm.layerGroups.length; gi++) {
     const group = lm.layerGroups[gi];
-    const empty = group.strokeStack.length === 0 && !group.flatCanvas;
+    // A group holds content in THREE places, not two. `bakedSequences` is the
+    // one that is easy to forget: `_compressStrokesToGroup` moves a run of
+    // strokes out of `strokeStack` into it, and on layers 1-2 (which have no
+    // `flatCanvas`) that is where nearly everything ends up.
+    const empty = group.strokeStack.length === 0
+      && !group.flatCanvas
+      && (group.bakedSequences?.length || 0) === 0
+      && (group.activeStrokeByUser?.size || 0) === 0;
     if (empty) continue;
 
     const cvs = document.createElement('canvas');
     cvs.width = lm.width;
     cvs.height = lm.height;
     const ctx = cvs.getContext('2d');
-    if (group.flatCanvas) ctx.drawImage(group.flatCanvas, 0, 0);
-    const sorted = [...group.strokeStack].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
-    for (const s of sorted) {
-      if (!s.canvas) continue;
-      ctx.globalCompositeOperation = s.blendMode || 'source-over';
-      ctx.drawImage(s.canvas, s.x || 0, s.y || 0);
-    }
+
+    // ── Ask the PRODUCT to composite, rather than reimplementing it ──────────
+    //
+    // This used to rebuild the layer by hand: draw `flatCanvas`, then replay
+    // `strokeStack` in sorted order. That is a second implementation of the
+    // compositor living in the test tree, and it drifted from the real one
+    // twice, both times silently and both times only on paths nothing exercised:
+    //
+    //   1. it sorted the live stack by `timestamp`, while the product sorts by
+    //      `seq` (LayerManager._sortStrokeStack) — arrival order vs
+    //      authoritative order, so each client rebuilt a different z-order and
+    //      the diff reported divergence the real boards did not have;
+    //   2. it never read `bakedSequences` at all, so once
+    //      `_compressStrokesToGroup` moved strokes there the oracle simply
+    //      stopped seeing them — and a group whose content had ALL been
+    //      compressed looked *empty*, so two boards agreed at 100% on a layer
+    //      neither of them was actually comparing.
+    //
+    // `compositeLayerRange` is the same call `Board.compositeAllLayers` makes,
+    // and it dispatches between four different group paths (flatCanvas /
+    // isolated / sequential / plain) depending on destination-out and complex
+    // blends. Reproducing that faithfully in a harness is not realistic; calling
+    // it is exact by construction and cannot drift again.
+    //
+    // `backgroundColor` is passed as null so the capture stays transparent and
+    // `lm.backgroundColor` is not mutated. `needsComposite` is saved/restored
+    // because the call clears it, and suppressing a pending composite on a live
+    // board would be a real side effect of measuring it.
+    const prevNeedsComposite = lm.needsComposite;
+    lm.compositeLayerRange(ctx, gi, gi + 1, null, null);
+    lm.needsComposite = prevNeedsComposite;
     ctx.globalCompositeOperation = 'source-over';
 
     const imageData = ctx.getImageData(0, 0, cvs.width, cvs.height);
@@ -186,6 +248,140 @@ export function captureReplayLayerSnapshotsInPage() {
  * Capture LayerManager stroke metadata (per-user counts, bake state, totals).
  * @returns {{ total: number, baked: number, groups: Object[], maxPerUser: number }}
  */
+/**
+ * Per-group composite INPUTS, in the order they are drawn.
+ *
+ * A pixel percentage says two boards differ; this says which stroke moved. The
+ * live and replay LayerManagers order their stacks by different keys — live by
+ * `seq` (server-authoritative), replay by `timestamp` because `ReplayEngine`
+ * deliberately commits everything at seq 0 (see its `case T.SEL_DELETE`) — so a
+ * live↔replay pixel gap is most often a z-order difference, and z-order is
+ * invisible in a match%. Dumping the ordered inputs makes it readable.
+ *
+ * `bm` matters as much as order: a `destination-out` erase that sorts to a
+ * different depth stops erasing what it should, which is exactly the signature
+ * of "live has a hole here, replay has ink".
+ *
+ * @param {object} lm - a LayerManager (live board's or the replay engine's)
+ */
+function layerStructure(lm) {
+  if (!lm || !lm.layerGroups) return [];
+  const brief = (s) => ({
+    u: s.userId,
+    seq: s.seq ?? null,
+    bm: s.blendMode || 'source-over',
+    x: Math.round(s.x || 0), y: Math.round(s.y || 0),
+    w: Math.round(s.width || 0), h: Math.round(s.height || 0),
+  });
+  return lm.layerGroups.map((g, gi) => ({
+    groupIdx: gi,
+    hasFlat: !!g.flatCanvas,
+    flatRecs: (g.flatStrokeRecords || []).map(brief),
+    bakedSeqs: (g.bakedSequences || []).slice(),
+    live: [...(g.strokeStack || [])]
+      .sort((a, b) => {
+        const sa = a.seq || Number.MAX_SAFE_INTEGER;
+        const sb = b.seq || Number.MAX_SAFE_INTEGER;
+        if (sa !== sb) return sa - sb;
+        return (a.timestamp || 0) - (b.timestamp || 0);
+      })
+      .map(brief),
+  }));
+}
+
+/**
+ * Whole-board composite, as ONE snapshot in the same shape `diffSnapshots`
+ * expects (a single-element array, so both oracles share the diff code).
+ *
+ * Use this — not the per-layer capture — for **live ↔ replay**. The two are not
+ * required to distribute content across layer groups the same way, and when the
+ * recording's checkpoints are flat composite PNGs (`openingSnapshot.canvasData`,
+ * no per-layer payload) the replay legitimately restores the whole board into
+ * group 0 and replays zero actions. A per-group diff then reports ~70% for a
+ * board that is visually identical, because it is comparing "layer 0" against
+ * "all layers flattened" and counting the live board's layers 1-2 as missing.
+ *
+ * Per-layer capture stays correct for **live ↔ live**, where every client builds
+ * the same structure from the same messages and a per-group diff localises a
+ * divergence to a layer.
+ *
+ * @param {object} lm
+ * @param {Array<number>|null} bg - background colour, or null for transparent
+ */
+function compositeWhole(lm, bg) {
+  if (!lm || !lm.layerGroups) return [];
+  const cvs = document.createElement('canvas');
+  cvs.width = lm.width;
+  cvs.height = lm.height;
+  const ctx = cvs.getContext('2d');
+  const prevNeedsComposite = lm.needsComposite;
+  lm.compositeLayerRange(ctx, 0, lm.layerGroups.length, bg || null, null);
+  lm.needsComposite = prevNeedsComposite;
+  ctx.globalCompositeOperation = 'source-over';
+
+  const imageData = ctx.getImageData(0, 0, cvs.width, cvs.height);
+  const data = imageData.data;
+  const w = cvs.width, h = cvs.height;
+  let minX = w, minY = h, maxX = -1, maxY = -1;
+  for (let y = 0; y < h; y++) {
+    const row = y * w * 4;
+    for (let x = 0; x < w; x++) {
+      if (data[row + x * 4 + 3] > 0) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+  if (maxX < 0) return [{ groupIdx: 0, canvasW: w, canvasH: h, strokeStackLen: 0, hasBaked: false, bbox: null, bboxPixelsB64: null }];
+  const bbox = { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 };
+  const cropped = ctx.getImageData(bbox.x, bbox.y, bbox.w, bbox.h);
+  const u8 = new Uint8Array(cropped.data.buffer);
+  let binary = '';
+  const CHUNK = 0x8000;
+  for (let i = 0; i < u8.length; i += CHUNK) binary += String.fromCharCode.apply(null, u8.subarray(i, i + CHUNK));
+  return [{
+    groupIdx: 0, canvasW: w, canvasH: h,
+    strokeStackLen: 0, hasBaked: true,
+    bbox, bboxPixelsB64: btoa(binary),
+  }];
+}
+
+/** In-page expression for the whole-board composite (live or replay manager). */
+export function makeCompositeEvaluator(useReplay) {
+  return `(() => {
+    const compositeWhole = ${compositeWhole.toString()};
+    const lm = ${useReplay
+      ? 'window.app?.TimeMachine?.getReplayLayerManager?.()'
+      : 'window.app?.board?.layerManager'};
+    return compositeWhole(lm, null);
+  })()`;
+}
+
+/**
+ * Build an in-page expression returning the structure for the live board's or
+ * the replay engine's LayerManager.
+ *
+ * `page.evaluate` serialises only the function it is given, so a helper
+ * referenced by name is undefined in the page. Inlining `layerStructure`'s
+ * source keeps ONE definition rather than two copies that silently drift apart —
+ * which matters here because the sort must stay identical to the capture
+ * functions above or the dump would explain a diff that the diff did not have.
+ *
+ * @param {boolean} useReplay - read the replay engine's manager instead of live
+ * @returns {string} expression for `page.evaluate(...)`
+ */
+export function makeStructureEvaluator(useReplay) {
+  return `(() => {
+    const layerStructure = ${layerStructure.toString()};
+    const lm = ${useReplay
+      ? 'window.app?.TimeMachine?.getReplayLayerManager?.()'
+      : 'window.app?.board?.layerManager'};
+    return layerStructure(lm);
+  })()`;
+}
+
 export function strokeMetadataInPage() {
   const lm = window.app.board.layerManager;
   const groups = [];

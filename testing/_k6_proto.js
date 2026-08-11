@@ -168,7 +168,7 @@ function pushString(parts, fieldNumber, str) {
 /**
  * Builds a binary Protobuf message with the application's schema.
  * Recognized fields (see public/messages.proto):
- *   t, u, ps, p, s, l, c, a, m, n, g
+ *   t, u, ps, rs, p, s, l, c, a, m, n, g
  *   sx, sy, sw, sh, cr (selection / homography)
  *   sp, sm, hd, br, ly, bm, bbm (tool settings)
  *   stroke_ts, stroke_redo, stroke_redo_batch
@@ -198,6 +198,11 @@ export function buildMsg(fields) {
 
   if (fields.p !== undefined)  pushVarint(parts, 4, fields.p);
   if (fields.s !== undefined)  pushVarint(parts, 5, fields.s);
+  // Stamp metadata, one entry per point pair in `ps`: radii for pen/blur,
+  // deterministic seeds for confetti. Real clients send this on every
+  // broadcastStampMove / broadcastMouseDown; without it a bot's stamped
+  // strokes render at a single uniform width on every receiver.
+  if (fields.rs !== undefined) pushPackedFloats(parts, 13, fields.rs);
   if (fields.l !== undefined)  pushVarint(parts, 6, fields.l);
   if (fields.c !== undefined)  pushFixed32(parts, 7, fields.c);
   if (fields.a !== undefined)  pushVarint(parts, 8, fields.a ? 1 : 0);

@@ -1253,6 +1253,38 @@ export class Board {
   }
 
   /**
+   * The extra shapes a selection erase must also clear because the global
+   * mirror is on — the reflected counterpart of the selected area.
+   *
+   * Shared by the local erase (SelectTool.deleteSelection) and the remote one
+   * (RemoteSelectionHandler.handleSelectionDelete) so the two cannot drift.
+   * They did: only the local side mirrored, so the reflected half of a cleared
+   * area stayed on every other client's board forever.
+   *
+   * Only the global vertical mirror is handled. Mirror *regions* can rotate or
+   * radially repeat, which turns a rectangle into a shape a rect-and-lasso
+   * erase cannot express; those are not mirrored on either side, so both sides
+   * still agree.
+   *
+   * @param {{x:number,y:number,width:number,height:number}} s - Selection rect.
+   * @param {Array<{x:number,y:number}>|null} lassoPath - Lasso path, if any.
+   * @param {boolean} [mirrored] - Whether the mirror was on for THIS operation.
+   *   Receivers must pass the flag carried by the message rather than rely on
+   *   their own `board.mirror`: a joiner replaying a tail has not necessarily
+   *   applied the room's mirror toggle yet (MIR is not a commit and is not in
+   *   the stroke log), so it would skip the mirrored erase entirely.
+   * @returns {Array<{s:Object, lassoPath:Array|null}>}
+   */
+  getMirroredSelectionShapes(s, lassoPath = null, mirrored = this.mirror) {
+    if (!mirrored || !s) return [];
+    const bw = this.getWidth();
+    return [{
+      s: { x: bw - s.x - s.width, y: s.y, width: s.width, height: s.height },
+      lassoPath: lassoPath ? lassoPath.map(p => ({ x: bw - p.x, y: p.y })) : null
+    }];
+  }
+
+  /**
    * Clips drawing operations to a mirror region.
    * @param {CanvasRenderingContext2D} ctx
    * @param {Object} region
@@ -2646,10 +2678,12 @@ export class Board {
    * Undo the most recent stroke for userId across all layers.
    * @param {number} _layerIndex - Unused; kept for compatibility
    * @param {number} userId - User ID
+   * @param {number} [targetSeq=0] - Undo the stroke with this authoritative seq
+   *   rather than resolving "the latest" locally. See undoLastStrokeGlobal.
    */
-  undo(_layerIndex, userId) {
+  undo(_layerIndex, userId, targetSeq = 0) {
     if (!this.layerManager) return null;
-    const batch = this.layerManager.undoLastStrokeGlobal(userId);
+    const batch = this.layerManager.undoLastStrokeGlobal(userId, targetSeq);
     let tilesToRecheck = null;
     let needsFullRedraw = false;
 

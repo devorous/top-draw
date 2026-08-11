@@ -19,6 +19,7 @@
 import { captureOpeningSnapshot } from './snapshotCapture.js';
 import { shouldRecord } from './messageAllowlist.js';
 import { isCommitType } from '../../shared/StrokeFingerprint.js';
+import { T } from '../../shared/MessageTypes.js';
 
 const RECORDING_VERSION = 2;
 
@@ -271,7 +272,9 @@ export class RollingTapeRecorder {
 
     // Drop the server's inbound echo of our own commit-class messages — we
     // already captured the outbound copy. See Recorder._append for the why.
-    if (dir === 'in' && msg?.t != null && isCommitType(msg.t)) {
+    // SEL_LIFT echoes to its sender as well but is not a COMMIT_KIND type — see
+    // the same guard in Recorder._append.
+    if (dir === 'in' && msg?.t != null && (isCommitType(msg.t) || msg.t === T.SEL_LIFT)) {
       const selfIdx = this._app?.wsClient?.sessionIndex
                    ?? this._app?.sessionIndex
                    ?? null;

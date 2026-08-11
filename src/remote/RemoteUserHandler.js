@@ -155,6 +155,10 @@ export class RemoteUserHandler {
 
     // Pattern tool doesn't depend on radii - handle separately
     if (!user.panning && user.mousedown && user.tool === 'pattern') {
+      if (user._patternPendingStrokes) {
+        user._patternPendingStrokes.push({ type: 'stamps', pts: [...smoothedPoints] });
+        return;
+      }
       const tool = this.toolManager.getTool('pattern');
       if (tool) tool.remoteStampMask(user, smoothedPoints);
       this._syncLayeredRemotePreview(user);
@@ -706,6 +710,11 @@ export class RemoteUserHandler {
 
       case 'pattern':
         if (!user.panning) {
+          // Buffer until the pattern image decodes — see handlePatternBrushLoad.
+          if (user._patternPendingStrokes) {
+            user._patternPendingStrokes.push({ type: 'down', pos: { ...pos } });
+            return;
+          }
           const patternTool = this.toolManager.getTool('pattern');
           if (patternTool) {
             patternTool.remoteBeginStroke(user, pos);
@@ -763,6 +772,16 @@ export class RemoteUserHandler {
     if (user.tool === 'imageBrush' && user.imageBrush?._pendingStrokes) {
       user.imageBrush._pendingStrokes.push({ type: 'up', seq });
       user.mousedown = false; // Stop further mouse move processing
+      return;
+    }
+
+    // Same for a pattern stroke still waiting on its image to decode. Returning
+    // before the commit machinery leaves the active stroke open; replayPending
+    // re-enters here once the tile can actually be built, so the commit happens
+    // with real pixels and this MU's authoritative seq.
+    if (user.tool === 'pattern' && user._patternPendingStrokes) {
+      user._patternPendingStrokes.push({ type: 'up', seq });
+      user.mousedown = false;
       return;
     }
 
@@ -834,7 +853,11 @@ export class RemoteUserHandler {
             });
           });
           const rectMargin = this._brushMargin(user);
-          const rectBounds = rectangleTool.getRectBounds(user.startPos, pos, false);
+          // Same mode the paint above resolved from the user, or the dirty rect
+          // crops the committed record to different bounds than were drawn.
+          const rectBounds = rectangleTool.getRectBounds(
+            user.startPos, pos, false, user.shapeDrawMode
+          );
           this._expandDirtyRectFromRect(user, rectBounds, rectMargin);
         }
         break;
@@ -854,7 +877,9 @@ export class RemoteUserHandler {
             });
           });
           const circleMargin = this._brushMargin(user);
-          const ellipse = circleTool.getEllipseParams(user.startPos, pos, false);
+          const ellipse = circleTool.getEllipseParams(
+            user.startPos, pos, false, user.shapeDrawMode
+          );
           this._expandDirtyRectFromRect(user, {
             x: ellipse.cx - ellipse.rx,
             y: ellipse.cy - ellipse.ry,
@@ -1301,7 +1326,12 @@ export class RemoteUserHandler {
       this.board.applySelectionMaskClipForStroke(layerIndex, user.id);
       this.toolManager.getTool('text').drawText(textUser);
       this.board.releaseSelectionMaskClipForStroke(layerIndex, user.id);
-      this.board.layerManager.commitUserStroke(layerIndex, user.id);
+      // Authoritative per-broadcast seq from TEXT_APPLY. At seq 0 the bake sorts
+      // to the top of the stack (_sortStrokeStack maps 0 to MAX_SAFE_INTEGER) and
+      // ties break on this client's own clock, so text landed in a different
+      // z-order on every client. The drawer reconciles its own copy to the same
+      // seq on the self echo.
+      this.board.layerManager.commitUserStroke(layerIndex, user.id, { seq: data.seq || 0 });
     } else {
       // Vector path — add to ephemeral SVG overlay.
       const id = data.id || `t_${user.id ?? 0}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -1410,8 +1440,12 @@ export class RemoteUserHandler {
         } else if (entry.type === 'stamps') {
           tool.applyStamps(user, entry.pts);
         } else if (entry.type === 'up') {
-          user.mousedown = true; 
-          this.handleMouseUp(user);
+          user.mousedown = true;
+          // The buffered entry captured the MU's authoritative seq precisely so
+          // the replayed commit could keep it; handleMouseUp(user) defaults it to
+          // 0, which sorts the stroke to the top of the stack and orders it by
+          // this client's clock instead of the server's.
+          this.handleMouseUp(user, entry.seq);
         }
       }
       
@@ -1506,11 +1540,49 @@ export class RemoteUserHandler {
     const patternTool = this.toolManager.getTool('pattern');
     if (patternTool) patternTool._tileCache.clear();
 
+    // Strokes that arrive while the image is still decoding are buffered here and
+    // replayed once it is ready — the same race the image brush already handles
+    // via _pendingStrokes. Without it the whole gesture ran against a null tile
+    // (_getPatternTile needs the decoded image), painted nothing, and committed an
+    // empty dirtyRect that is silently discarded: the drawer had a pattern stroke
+    // that simply did not exist on any observer.
+    //
+    // The buffer lives on the USER, not on brushData, so `user.patternBrush` stays
+    // unset until the image is genuinely usable — anything else that asks whether
+    // this user has a pattern (notably pattern-mode FILL) keeps reading the same
+    // readiness signal it reads today.
+    user._patternPendingStrokes = [];
+
+    const replayPending = () => {
+      const pending = user._patternPendingStrokes;
+      delete user._patternPendingStrokes;
+      if (!pending || pending.length === 0) return;
+      const tool = this.toolManager.getTool('pattern');
+      if (!tool) return;
+      for (const entry of pending) {
+        if (entry.type === 'down') {
+          user.mousedown = true;
+          tool.remoteBeginStroke(user, entry.pos);
+        } else if (entry.type === 'stamps') {
+          tool.remoteStampMask(user, entry.pts);
+        } else if (entry.type === 'up') {
+          user.mousedown = true;
+          this.handleMouseUp(user, entry.seq);
+        }
+      }
+    };
+
+    // On failure the gesture is replayed too. It still paints nothing (there is no
+    // tile), but it runs the commit path and closes the stroke out, instead of
+    // leaving an active stroke open forever because its MU was swallowed.
     if (brushData.type === 'gbr' || brushData.type === 'image' || brushData.type === 'svg') {
       this._loadBrushImage(brushData, () => {
         user.patternBrush = brushData;
+        patternTool?._tileCache.clear();
+        replayPending();
       }, () => {
         console.error(`[PatternBrush] Failed to load brush image for remote user ${user.id}`);
+        replayPending();
       });
     } else if (brushData.type === 'gih' && brushData.gBrushes && brushData.gBrushes.length > 0) {
       let loadedCount = 0;
@@ -1522,10 +1594,13 @@ export class RemoteUserHandler {
           if (loadedCount === totalImages) {
             brushData.images = images;
             user.patternBrush = brushData;
+            patternTool?._tileCache.clear();
+            replayPending();
           }
         };
         img.onerror = () => {
           console.error(`[PatternBrush] Failed to load GIH image ${idx} for remote user ${user.id}`);
+          replayPending();
         };
         img.src = brush.gimpUrl;
         return img;

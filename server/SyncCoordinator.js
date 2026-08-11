@@ -116,9 +116,26 @@ export class SyncCoordinator {
         // seq with no gap. If the log's earliest retained entry sits above
         // baseSeq+1, the strokes in between are in neither — surface it loudly
         // rather than losing pixels silently.
-        const firstRetainedSeq = log?.entries?.length ? log.entries[0].seq : 0;
-        if (firstRetainedSeq > baseSeq + 1) {
-          console.warn(`[Sync] CHECKPOINT GAP for ${requesterSessionIndex}: served seq ${baseSeq} but log base is ${firstRetainedSeq} — strokes (${baseSeq}, ${firstRetainedSeq}) are unrecoverable for this joiner`);
+        //
+        // Read this off what the log has actually DROPPED, not off its first
+        // retained entry. The log records only commit types, while the server
+        // allocates a seq for every broadcast — MM outnumbers commits by roughly
+        // 68:1 — so `entries[0].seq` sits an arbitrary distance above baseSeq
+        // simply because no commit happened in between. The old check
+        // (`firstRetainedSeq > baseSeq + 1`) therefore fired on essentially
+        // EVERY checkpoint-served join: measured 3 of 3 in one soak, reporting
+        // "unrecoverable" gaps of 29 and 86 seqs that contained no commits at
+        // all. It could only have gone green if a commit happened to land on the
+        // very next seq after the checkpoint, which is not a thing that has to
+        // be true. `droppedThroughSeq` is the real invariant: a commit above the
+        // served image's watermark is gone from the tail, which is genuine loss
+        // (cap overflow, or a truncation against a higher base than the snapshot
+        // actually served — Issue 6).
+        const droppedThrough = log?.droppedThroughSeq || 0;
+        if (droppedThrough > baseSeq) {
+          console.warn(`[Sync] CHECKPOINT GAP for ${requesterSessionIndex}: served seq ${baseSeq} but the `
+            + `command log has dropped commits through seq ${droppedThrough} — commits in `
+            + `(${baseSeq}, ${droppedThrough}] are in neither the image nor the tail`);
         }
       }
     }

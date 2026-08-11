@@ -32,7 +32,18 @@ export function setupWebSocketHandlers(app) {
       // 'fill' self branch is reconcile-only (it assigns the authoritative FILL
       // seq to the already-committed local fill stroke; it does NOT recompute or
       // re-draw the fill) — see the 'fill' handler in DrawingHandlers.js.
-      const allowSelf = eventName === 'mu' || eventName === 'undo' || eventName === 'fill' || eventName === 'glitch_result' || eventName === 'sel_delete';
+      //
+      // NOTE this is a SECOND self-echo gate, independent of the one in
+      // WebSocketClient._processMessage. A commit type must be exempted in BOTH
+      // to reach its handler: exempting it there only, and forgetting here, gives
+      // the worst of both worlds — observers sequence the commit from the
+      // broadcast while the drawer's own copy is never reconciled and stays at
+      // seq 0, so the two disagree permanently once it bakes.
+      // 'text_apply' is reconcile-only for self — see DrawingHandlers.js.
+      // 'sel_lift'/'sel_commit'/'sel_stamp'/'sel_fill' likewise: the lift-erase
+      // and the stamp it pairs with are sequenced together, so both halves need
+      // their echo to reconcile against — see SelectionHandlers.js.
+      const allowSelf = eventName === 'mu' || eventName === 'undo' || eventName === 'fill' || eventName === 'glitch_result' || eventName === 'sel_delete' || eventName === 'sel_merge' || eventName === 'text_apply' || eventName === 'sel_lift' || eventName === 'sel_commit' || eventName === 'sel_stamp' || eventName === 'sel_fill';
       if (data && data.sessionIndex === app.sessionIndex && !allowSelf) {
         return;
       }

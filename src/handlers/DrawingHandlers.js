@@ -251,9 +251,19 @@ export function setupDrawingHandlers(wrapHandler, app) {
 
   wrapHandler('text_apply', (data) => {
     const user = users.get(data.sessionIndex);
-    if (user) {
-      remoteUserHandler.handleTextApply(user, data);
+    if (!user) return;
+
+    // Self echo: the raster path already committed this text bake optimistically
+    // (tagged pendingCommitEcho='text_apply'). Re-drawing it here would double it,
+    // so reconcile that stroke to the authoritative seq every observer commits it
+    // with and stop. Reconcile only — no canvas work. The vector path tags nothing,
+    // so this is a no-op for it.
+    if (data.sessionIndex === app.sessionIndex) {
+      app.board?.layerManager?.reconcileLocalCommitStroke(user.id, data.seq || 0, 'text_apply');
+      return;
     }
+
+    remoteUserHandler.handleTextApply(user, data);
   });
 
   wrapHandler('text_remove', (data) => {
@@ -343,7 +353,12 @@ export function setupDrawingHandlers(wrapHandler, app) {
   });
 
   wrapHandler('csdm', (data) => {
-    app.applyShapeDrawMode(data.shapeDrawMode, { broadcast: false, persist: true });
+    // Shape draw mode belongs to the user who set it. This used to call
+    // app.applyShapeDrawMode, which rewrote THIS client's mode, radio buttons
+    // and localStorage from someone else's preference — and still left remote
+    // shapes rendering with the observer's mode rather than the drawer's.
+    const user = users.get(data.sessionIndex);
+    if (user) user.shapeDrawMode = app.normalizeShapeDrawMode(data.shapeDrawMode);
   });
 
   wrapHandler('glitch_result', (data) => {
@@ -380,11 +395,44 @@ export function setupDrawingHandlers(wrapHandler, app) {
     img.src = data.imageData;
   });
 
+  /**
+   * Remote UNDO/REDO must not overtake a selection commit that is still waiting
+   * on SEL_LIFT's image decode.
+   *
+   * `RemoteSelectionHandler._queueIfLoading` defers SEL_COMMIT (and the other
+   * selection verbs) onto `user.pendingImageLoad` while the lifted PNG decodes.
+   * UNDO had no such gate, so it ran BEFORE the stamp it targets existed:
+   * `board.undo` found nothing (or the wrong stroke), then the queued
+   * SEL_COMMIT landed afterwards and the "undone" stamp survived.
+   *
+   * Live clients dodge this because real time between messages lets the decode
+   * finish; a JOINER replays the command tail back-to-back and loses the race —
+   * which is exactly why this presented as a late-join-only failure
+   * (`move_commit_then_undo`: joiner kept an extra `S0…r` commit stamp).
+   *
+   * Chaining onto the same promise also preserves order: SEL_COMMIT was queued
+   * first, so it runs first. This is the selection-side twin of the
+   * pendingGlitchSeq guard below, which handles the same hazard for the other
+   * asynchronously-committed stroke type.
+   *
+   * @returns {boolean} true when deferred (caller should return)
+   */
+  const deferBehindSelectionDecode = (user, action) =>
+    !!remoteUserHandler.selectionHandler?._queueIfLoading?.(user, action);
+
   wrapHandler('undo', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
       if (user.id === app.sessionIndex) return;
 
+      const targetSeq = data.targetSeq || 0;
+      if (deferBehindSelectionDecode(user, () => applyRemoteUndo(user, targetSeq))) return;
+      applyRemoteUndo(user, targetSeq);
+    }
+  });
+
+  function applyRemoteUndo(user, targetSeq = 0) {
+    {
       const layerGroups = board.layerManager?.layerGroups || [];
 
       if (user.tool === 'glitchBlur') {
@@ -434,16 +482,19 @@ export function setupDrawingHandlers(wrapHandler, app) {
         return;
       }
 
-      const undone = board.undo(user.activeLayer, user.id);
+      const undone = board.undo(user.activeLayer, user.id, targetSeq);
       if (!undone && user.tool === 'glitchBlur') {
         remoteUserHandler.markPendingGlitchUndo(user.id);
       }
     }
-  });
+  }
 
   wrapHandler('redo', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
+      // Same ordering hazard as UNDO — a redo that overtakes a pending selection
+      // commit re-applies against a stack that does not have it yet.
+      if (deferBehindSelectionDecode(user, () => board.redo(user.id))) return;
       board.redo(user.id);
     }
   });

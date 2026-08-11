@@ -28,6 +28,7 @@ export const T = {
   GPT: 82, CPM: 84,
   CSDM: 91, TEXT_APPLY: 90, CF: 116,
   IMAGE_TOOL: 134,
+  SEL_MERGE: 136,
 };
 
 // ─── Tool enum (matches proto Tool enum) ────────────────────────────────────
@@ -112,16 +113,27 @@ export const COMMON_COLORS = [
 export const TINY_PNG_B64 =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII=';
 
-// Available GIMP brushes shipped with the app.
-export const GIMP_BRUSHES = ['pepper.gbr', 'pixel.gbr', 'galaxy_small.gbr'];
+// NOTE: there is deliberately no list of shipped brush filenames here any more.
+// Bots used to send `{url: 'brushes/pepper.gbr'}` for both the image and pattern
+// brushes, which looks right and is not: receivers load a brush with
+// `new Image(); image.src = brushData.gimpUrl`, and a .gbr is a GIMP binary no
+// <img> can decode. The real client parses the .gbr itself and ships the result
+// as a data URL in `gimpUrl`. Bots have no parser, so they carry their own
+// ready-made bitmap instead — see PATTERN_TILE_PNG / PATTERN_TILE_SVG.
 
 // ─── Random helpers ─────────────────────────────────────────────────────────
 
-export function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
-export function randInt(min, max) { return min + Math.floor(Math.random() * (max - min + 1)); }
-export function randColor() {
-  if (Math.random() < 0.7) return pick(COMMON_COLORS);
-  const r = randInt(0, 255), g = randInt(0, 255), b = randInt(0, 255);
+// Every random helper takes an optional `rng`. k6's Math.random cannot be
+// seeded, so a feed that wants reproducible runs has to thread its own
+// generator all the way down — including into configureTool, which makes more
+// random choices (hardness, smoothing, spacing, pattern/confetti payloads) than
+// the caller does. Leaving even one of them on Math.random is enough to make a
+// seeded run diverge, which is worse than an honestly unseeded one.
+export function pick(arr, rng = Math.random) { return arr[Math.floor(rng() * arr.length)]; }
+export function randInt(min, max, rng = Math.random) { return min + Math.floor(rng() * (max - min + 1)); }
+export function randColor(rng = Math.random) {
+  if (rng() < 0.7) return pick(COMMON_COLORS, rng);
+  const r = randInt(0, 255, rng), g = randInt(0, 255, rng), b = randInt(0, 255, rng);
   return ((r << 24) | (g << 16) | (b << 8) | 0xFF) >>> 0;
 }
 
@@ -130,39 +142,113 @@ export function randColor() {
 /**
  * Build a confetti settings JSON payload for IMAGE_TOOL.
  */
-export function makeConfettiPayload() {
+export function makeConfettiPayload(rng = Math.random) {
   const shapes = ['circle', 'square', 'image'];
   const colorModes = ['active', 'random', 'image'];
   const rotationModes = ['random', 'fixed', 'follow'];
   return JSON.stringify({
-    confettiParticles:         randInt(3, 12),
-    confettiParticleSize:      randInt(6, 22),
-    confettiSizeVariation:     randInt(0, 100),
-    confettiOpacityRandomness: randInt(0, 100),
-    confettiSpacing:           randInt(10, 50),
-    confettiShape:             pick(shapes),
-    confettiColorMode:         pick(colorModes),
-    confettiRotationMode:      pick(rotationModes),
+    confettiParticles:         randInt(3, 12, rng),
+    confettiParticleSize:      randInt(6, 22, rng),
+    confettiSizeVariation:     randInt(0, 100, rng),
+    confettiOpacityRandomness: randInt(0, 100, rng),
+    confettiSpacing:           randInt(10, 50, rng),
+    confettiShape:             pick(shapes, rng),
+    confettiColorMode:         pick(colorModes, rng),
+    confettiRotationMode:      pick(rotationModes, rng),
   });
 }
 
+// A self-contained 16x16 RGBA checkerboard. Pattern/image brushes are loaded on
+// the receiver with `new Image(); image.src = brushData.gimpUrl`, so the payload
+// has to carry a URL an Image can actually decode. A path like `brushes/x.gbr`
+// is NOT one: .gbr is a GIMP binary that the real client parses to a canvas and
+// re-exports as a data URL, which is what `gimpUrl` holds. A data URL keeps the
+// bots independent of anything the server has to serve.
+export const PATTERN_TILE_PNG =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAALElEQVR4nGN4FqXxHxlr2JxAwYTkGYaBAaRqQJcfDgYMfCwMvAEDHwsDbgAAxx1JH3Ak+ocAAAAASUVORK5CYII=';
+
+// A trivial two-tone SVG, for the `type: 'svg'` branch. That branch takes a
+// different route on the receiver — `_loadBrushImage` builds a Blob from
+// `svgContent` instead of reading `gimpUrl`, and `_getPatternTile` renders it at
+// maxDim 200 with a compensating `scale *= 0.2` — so a feed that only ever sends
+// raster brushes leaves all of it untested.
+export const PATTERN_TILE_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32">'
+  + '<rect width="32" height="32" fill="#1e6fd9"/>'
+  + '<circle cx="16" cy="16" r="10" fill="#ffcf3f"/></svg>';
+
 /**
- * Build a pattern brush JSON payload for GPT / IMAGE_TOOL.
+ * Build a pattern brush JSON payload for GPT.
+ *
+ * Must mirror `PatternOptionsController._buildPatternPayload`, because
+ * `RemoteUserHandler.handlePatternBrushLoad` reads `patternData.brush` FIRST and
+ * returns outright when it is absent:
+ *
+ *     const brushData = patternData.brush;
+ *     if (!brushData) return;                 // ← the old payload died here
+ *
+ * The previous shape was `{url, scale, rotation, blendMode}` — no `brush` key at
+ * all — so `user.patternBrush` was never assigned on any receiver. Every
+ * consumer is gated on it (`PatternTool.drawStamp` bails when `_getPatternTile`
+ * returns null, `usePattern = user.patternMode && user.patternBrush`), which
+ * means every PATTERN-tool stroke the bots have ever sent committed ZERO pixels
+ * while still showing up in the coverage report as a tool that ran. A tool that
+ * paints nothing can never disagree, so it also quietly inflated every pixel
+ * parity number this feed has produced.
+ *
+ * `scale` is a PERCENT here (the client divides by 100), not a multiplier — the
+ * old payload's 0.5–2.0 was a 0.5%–2% scale, off by 100x even if it had loaded.
  */
-export function makePatternPayload() {
+export function makePatternPayload(rng = Math.random) {
+  const useSvg = rng() < 0.35;
+  const brush = useSvg
+    ? { type: 'svg', brushName: 'k6_svg_tile', fileName: 'k6_svg_tile.svg',
+        width: 32, height: 32, svgContent: PATTERN_TILE_SVG }
+    : { type: 'image', brushName: 'k6_png_tile', fileName: 'k6_png_tile.png',
+        width: 16, height: 16, gimpUrl: PATTERN_TILE_PNG };
   return JSON.stringify({
-    url: `brushes/${pick(GIMP_BRUSHES)}`,
-    scale: 0.5 + Math.random() * 1.5,
-    rotation: Math.random() * 360,
-    blendMode: pick(BLEND_MODES),
+    brush,
+    scale:     randInt(50, 300, rng),
+    rotation:  randInt(0, 359, rng),
+    spacing:   randInt(0, 24, rng),
+    offsetX:   randInt(0, 32, rng),
+    offsetY:   randInt(0, 32, rng),
+    // 'tinted' folds user.color into the tile cache key, so the same brush must
+    // produce a different tile per colour — a cache-key bug shows up only here.
+    colorMode: pick(['original', 'tinted'], rng),
   });
 }
 
 /**
- * Build an image-brush (GIMP) JSON payload for GMP message.
+ * Build an image-brush (GIMP) JSON payload for the GMP message.
+ *
+ * Mirrors `PatternOptionsController._buildImageBrushPayload`, which is FLAT —
+ * no `brush` wrapper, unlike the pattern payload above. `handleBrushLoad`
+ * assigns `user.imageBrush = brushData` verbatim, then only calls
+ * `_loadBrushImage` when `brushData.type` is 'gbr' | 'image' | 'svg'.
+ *
+ * The old `{url: 'brushes/pepper.gbr'}` had no `type`, so it satisfied the
+ * truthiness check in `_moveStroke` (`!user.imageBrush` passes) while never
+ * loading an image: `ImageBrushTool.drawStamp` resolves `image`/`width`/`height`
+ * from a `brush.type` switch, so with no type it stamps nothing. Same silent
+ * no-op as the pattern brush, and the `_pendingStrokes` buffer that exists to
+ * replay strokes racing the decode was never drained either.
+ *
+ * `width`/`height` must match the bitmap: `drawStamp` sizes 'gbr' stamps from
+ * the payload's dimensions, not from the decoded image.
  */
-export function makeGimpPayload() {
-  return JSON.stringify({ url: `brushes/${pick(GIMP_BRUSHES)}` });
+export function makeGimpPayload(rng = Math.random) {
+  return JSON.stringify({
+    type: 'gbr',
+    brushName: 'k6_gbr_tile',
+    fileName: 'k6_gbr_tile.gbr',
+    width: 16,
+    height: 16,
+    gimpUrl: PATTERN_TILE_PNG,
+    colorDepth: 4,
+    // 'tinted' drives ImageBrushTool._tintCache; 'original' skips it entirely.
+    colorMode: pick(['original', 'tinted'], rng),
+  });
 }
 
 // ─── Action helpers — each sends a coherent group of messages ───────────────
@@ -183,13 +269,19 @@ export function makeGimpPayload() {
  *   patternData, confettiData, gimpData
  */
 export function configureTool(socket, u, tool, opts = {}) {
-  const color    = opts.color    ?? randColor();
-  const size     = opts.size     ?? randInt(500, 3500);
-  const hardness = opts.hardness ?? randInt(20, 100);
-  const smoothing= opts.smoothing?? randInt(0, 50);
-  const spacing  = opts.spacing  ?? randInt(100, 600);
+  const rng      = opts.rng      ?? Math.random;
+  const color    = opts.color    ?? randColor(rng);
+  const size     = opts.size     ?? randInt(500, 3500, rng);
+  const hardness = opts.hardness ?? randInt(20, 100, rng);
+  const smoothing= opts.smoothing?? randInt(0, 50, rng);
+  const spacing  = opts.spacing  ?? randInt(100, 600, rng);
 
-  socket.sendBinary(buildMsg({ t: T.CT, u, l: tool }));
+  // `a` = eraseAll. Set only for the eraser, and only when the caller asks:
+  // it routes the receiver through `board.beginStrokeAllLayers`, a genuinely
+  // different commit path from the single-layer eraser.
+  const ct = { t: T.CT, u, l: tool };
+  if (tool === Tool.ERASE && opts.eraseAll) ct.a = true;
+  socket.sendBinary(buildMsg(ct));
   socket.sendBinary(buildMsg({ t: T.CC, u, c: color }));
   socket.sendBinary(buildMsg({ t: T.CS, u, s: size }));
   socket.sendBinary(buildMsg({ t: T.CHD, u, hd: hardness }));
@@ -200,33 +292,73 @@ export function configureTool(socket, u, tool, opts = {}) {
     socket.sendBinary(buildMsg({ t: T.CL, u, ly: opts.activeLayer }));
   }
   if (opts.blendMode !== undefined) {
-    socket.sendBinary(buildMsg({ t: T.CBM, u, bm: opts.blendMode }));
+    setBlendMode(socket, u, opts.blendMode, {
+      layer: opts.blendLayer ?? opts.activeLayer,
+      bakeMode: opts.blendBakeMode,
+    });
   }
 
   // Tool-specific extras
   if (tool === Tool.BLUR || tool === Tool.CIRCLE_BLUR || tool === Tool.GLITCH_BLUR) {
-    socket.sendBinary(buildMsg({ t: T.CBR, u, br: opts.blurRadius ?? randInt(100, 2000) }));
+    socket.sendBinary(buildMsg({ t: T.CBR, u, br: opts.blurRadius ?? randInt(100, 2000, rng) }));
   }
   if (tool === Tool.INK) {
-    socket.sendBinary(buildMsg({ t: T.CTHN, u, th: opts.thinning ?? randInt(0, 100) }));
-    socket.sendBinary(buildMsg({ t: T.CSIM, u, sim: (opts.simPressure ?? (Math.random() > 0.5)) ? 1 : 0 }));
+    // Both of these are OFFSET encodings on the wire, and sending the raw value
+    // silently degrades to a default instead of erroring.
+    //   th:  client reads `(data.th ? data.th - 1 : 50) / 100`, so the sender
+    //        must add 1 — and a raw 0 does not mean "no thinning", it means
+    //        "field absent, use 50".
+    //   sim: 0 = not set, 1 = false, 2 = true. Sending `? 1 : 0` (the obvious
+    //        boolean) therefore encodes false-or-unset and NEVER true, so
+    //        simulate-pressure was dead in every run this feed has ever done.
+    socket.sendBinary(buildMsg({ t: T.CTHN, u, th: (opts.thinning ?? randInt(0, 100, rng)) + 1 }));
+    socket.sendBinary(buildMsg({ t: T.CSIM, u, sim: (opts.simPressure ?? (rng() > 0.5)) ? 2 : 1 }));
   }
   if (tool === Tool.RECTANGLE || tool === Tool.CIRCLE) {
-    socket.sendBinary(buildMsg({ t: T.CSDM, u, g: pick(SHAPE_DRAW_MODES) }));
+    // `sdm`, not `g`. The client reads `data.sdm || 'corner-to-corner'`
+    // (WebSocketClient case T.CSDM), so a mode sent as `g` is dropped and every
+    // receiver silently falls back to corner-to-corner — which is how a feed
+    // that advertised both shape modes only ever exercised one.
+    socket.sendBinary(buildMsg({ t: T.CSDM, u, sdm: opts.shapeDrawMode ?? pick(SHAPE_DRAW_MODES, rng) }));
   }
   if (tool === Tool.IMAGE_BRUSH) {
-    socket.sendBinary(buildMsg({ t: T.GMP, u, g: opts.gimpData ?? makeGimpPayload() }));
+    socket.sendBinary(buildMsg({ t: T.GMP, u, g: opts.gimpData ?? makeGimpPayload(rng) }));
   }
   if (tool === Tool.PATTERN) {
-    const data = opts.patternData ?? makePatternPayload();
+    const data = opts.patternData ?? makePatternPayload(rng);
     socket.sendBinary(buildMsg({ t: T.GPT, u, g: data }));
     socket.sendBinary(buildMsg({ t: T.IMAGE_TOOL, u, image_tool_type: 'pattern', image_tool_data: data }));
     if (opts.patternMode !== undefined) {
       socket.sendBinary(buildMsg({ t: T.CPM, u, pm: opts.patternMode }));
     }
   }
+  // Pattern FILL — the "fill with pattern" checkbox that the fill and select
+  // tools each own (App.js wires both to broadcastPatternMode). It is a
+  // different consumer from the pattern BRUSH above: `FloodFillTool` and
+  // `RemoteSelectionHandler._fillSelection` both gate on
+  // `user.patternMode && user.patternBrush` and tile the brush across the fill
+  // region instead of using the flat colour.
+  //
+  // Both halves have to travel. CPM alone leaves `patternBrush` undefined and
+  // the receiver silently falls back to a solid fill, so a feed that sent only
+  // CPM would look like it covered pattern fills while testing the plain path
+  // twice. Sent for every fill-capable tool, not just PATTERN.
+  //
+  // OPT-IN (default false) on purpose: seven feeds share configureTool, and
+  // turning pattern fills on by default would silently change what the
+  // selection suites fill with. The caller that wants the coverage asks for it.
+  if (tool === Tool.FLOODFILL || tool === Tool.SELECT) {
+    const wantPatternFill = opts.patternFill ?? false;
+    if (wantPatternFill) {
+      socket.sendBinary(buildMsg({ t: T.GPT, u, g: opts.patternData ?? makePatternPayload(rng) }));
+    }
+    // Always sent, both ways: patternMode is sticky user state, so a bot that
+    // only ever turns it ON leaves every later fill patterned and never
+    // exercises the transition back to a solid fill.
+    socket.sendBinary(buildMsg({ t: T.CPM, u, pm: wantPatternFill }));
+  }
   if (tool === Tool.CONFETTI) {
-    const data = opts.confettiData ?? makeConfettiPayload();
+    const data = opts.confettiData ?? makeConfettiPayload(rng);
     socket.sendBinary(buildMsg({ t: T.IMAGE_TOOL, u, image_tool_type: 'confetti', image_tool_data: data }));
   }
 
@@ -247,8 +379,56 @@ export function sendMove(socket, u, x, y, stamp = false) {
   socket.sendBinary(buildMsg(m));
 }
 
-export function sendDown(socket, u, x, y) {
-  socket.sendBinary(buildMsg({ t: T.MD, u, ps: [x, y] }));
+/**
+ * Send a batched MM carrying several points at once, optionally with per-point
+ * stamp metadata — i.e. `broadcastMove` / `broadcastStampMove`.
+ *
+ * Real clients buffer pointer samples between ticks and flush them as ONE
+ * multi-point MM; sending one point per message (what every k6 feed did) is a
+ * different shape of traffic through the same handler: different delta-encoding
+ * runs, different per-message smoothing-buffer state, and a message count that
+ * over-states MM volume by roughly the tick batch factor.
+ *
+ * @param {object} socket
+ * @param {number} u
+ * @param {Array<number>} points - flat [x,y,x,y,...]
+ * @param {Array<number>|null} [radii] - one entry per point pair (pen/blur radii,
+ *   confetti seeds). Omit for plain freehand.
+ * @param {{confettiData?: string, stamp?: boolean}} [opts]
+ */
+export function sendMoveBatch(socket, u, points, radii = null, opts = {}) {
+  const m = { t: T.MM, u, ps: points };
+  if (radii && radii.length) m.rs = radii;
+  if (opts.confettiData) m.g = opts.confettiData;
+  if (opts.stamp) m.stroke_ts = Date.now();
+  socket.sendBinary(buildMsg(m));
+}
+
+/**
+ * Send MD. Mirrors `broadcastMouseDown(points, radii, metadata)`.
+ *
+ * The metadata is the part that was missing: a real client stamps the layer and
+ * blend mode onto the mousedown itself, and `RemoteUserHandler.handleMouseDown`
+ * applies `data.layerIndex` / `data.blendMode` before it calls `beginUserStroke`.
+ * A bot that relies on CL/CBM alone still works — the user object holds the
+ * state — but it exercises a different ordering than any human client produces,
+ * and it leaves the MD-carried override path untested.
+ *
+ * @param {object} socket
+ * @param {number} u
+ * @param {number} x
+ * @param {number} y
+ * @param {{radii?: Array<number>, layer?: number, blendMode?: string,
+ *          blendBakeMode?: string, confettiData?: string}} [meta]
+ */
+export function sendDown(socket, u, x, y, meta = {}) {
+  const msg = { t: T.MD, u, ps: [x, y] };
+  if (meta.radii && meta.radii.length) msg.rs = meta.radii;
+  if (meta.layer !== undefined) msg.ly = meta.layer;
+  if (meta.blendMode) msg.bm = meta.blendMode;
+  if (meta.blendBakeMode) msg.bbm = meta.blendBakeMode === 'background' ? 'background' : 'existing';
+  if (meta.confettiData) msg.g = meta.confettiData;
+  socket.sendBinary(buildMsg(msg));
 }
 
 export function sendUp(socket, u) {
@@ -260,7 +440,7 @@ export function sendUp(socket, u) {
  * then TEXT_APPLY (text + position).
  */
 export function applyTextWithFont(socket, u, x, y, text, font, opts = {}) {
-  const fontFamily = font ?? pick(FONTS);
+  const fontFamily = font ?? pick(FONTS, opts.rng ?? Math.random);
   socket.sendBinary(buildMsg({
     t: T.CF, u,
     fo: fontFamily,
@@ -272,7 +452,7 @@ export function applyTextWithFont(socket, u, x, y, text, font, opts = {}) {
     g: text,
     ps: [x, y],
     fo: fontFamily,
-    text_id: opts.textId ?? `txt_${u}_${Date.now()}_${Math.floor(Math.random() * 1e6)}`,
+    text_id: opts.textId ?? `txt_${u}_${Date.now()}_${Math.floor((opts.rng ?? Math.random)() * 1e6)}`,
     text_pixel: opts.textPixel ? 1 : 0,
     text_lifetime_ms: opts.textLifetimeMs ?? 0,
     text_fade_ms: opts.textFadeMs ?? 0,
@@ -280,21 +460,89 @@ export function applyTextWithFont(socket, u, x, y, text, font, opts = {}) {
 }
 
 /**
- * Perform a flood fill at (x, y) with the current color.
+ * Perform a flood fill at (x, y).
+ *
+ * Mirrors `broadcastFill(x, y, layerIndex, expansion, blurRadius)`. Three
+ * things about this message are easy to get wrong and all three were:
+ *
+ * - The point travels in **sx/sy**, not `ps`. A ps-based FILL silently no-ops.
+ * - **The colour does NOT travel with the fill.** `case T.FILL` reads only
+ *   sx, sy, ly, s and br — never `c` — so the receiver fills with its own copy
+ *   of the user's current colour. A `c` on the FILL message is inert; to fill
+ *   in a specific colour you must send CC first, exactly as a human does by
+ *   picking the colour before clicking. (The old helper took a `color` argument
+ *   and encoded it as `c`, so every bot fill actually used whatever colour that
+ *   bot last set — and the harness thought it knew the colour, which is worse
+ *   than not knowing.)
+ * - `s` and `br` are expansion and edge-blur, both ×100. No feed has ever set
+ *   them, so non-zero fill expansion/feather has zero bot coverage.
+ *
+ * @param {object} socket
+ * @param {number} u
+ * @param {number} x
+ * @param {number} y
+ * @param {number} [color] - packed RGBA; sent as a preceding CC, not on the FILL
+ * @param {{layer?: number, expansion?: number, blurRadius?: number}} [opts]
  */
-export function applyFloodFill(socket, u, x, y, color) {
-  // FILL's point travels in sx/sy — clients decode data.sx/data.sy
-  // (WebSocketClient case T.FILL); a ps-based FILL silently no-ops.
-  const msg = { t: T.FILL, u, sx: Math.round(x), sy: Math.round(y) };
-  if (color !== undefined) msg.c = color;
-  socket.sendBinary(buildMsg(msg));
+export function applyFloodFill(socket, u, x, y, color, opts = {}) {
+  if (color !== undefined) socket.sendBinary(buildMsg({ t: T.CC, u, c: color }));
+  socket.sendBinary(buildMsg({
+    t: T.FILL, u,
+    sx: Math.floor(x), sy: Math.floor(y),
+    ly: opts.layer ?? 0,
+    s: Math.round((opts.expansion ?? 0) * 100),
+    br: Math.round((opts.blurRadius ?? 0) * 100),
+  }));
 }
 
 /**
  * Set an arbitrary blend mode (CBM).
+ *
+ * Mirrors `broadcastLayerBlendModeChange(layerIndex, blendMode, blendBakeMode)`,
+ * which always carries all three fields. Both omissions matter:
+ *
+ * - Without `ly`, the receiver takes `data.layerIndex ?? user.activeLayer`, so
+ *   it still applies — but it skips the `markCompositeFull()` + re-composite the
+ *   real message triggers, so the bot's blend change lands a frame differently
+ *   than a human's.
+ * - Without `bbm`, the receiver's ternary lands on `'existing'`, while every
+ *   real client defaults to `'background'`. Those bake through different paths
+ *   in `_bakeStrokeToBin`, so a feed that omits it tests the branch humans
+ *   never take.
+ *
+ * NOTE: only layer 0 has `allowComplexBlendModes` (LayerManager.initLayerGroups),
+ * so a complex mode aimed at layer 1/2 is forced to source-over by the receiver.
+ * That is correct behaviour, not a desync — assert against it, don't "fix" it.
+ *
+ * @param {object} socket
+ * @param {number} u
+ * @param {string} [mode]
+ * @param {{layer?: number, bakeMode?: 'existing'|'background'}} [opts]
  */
-export function setBlendMode(socket, u, mode) {
-  socket.sendBinary(buildMsg({ t: T.CBM, u, bm: mode ?? pick(BLEND_MODES) }));
+export function setBlendMode(socket, u, mode, opts = {}) {
+  const msg = { t: T.CBM, u, bm: mode ?? pick(BLEND_MODES, opts.rng ?? Math.random) };
+  if (opts.layer !== undefined) msg.ly = opts.layer;
+  msg.bbm = opts.bakeMode === 'existing' ? 'existing' : 'background';
+  socket.sendBinary(buildMsg(msg));
+}
+
+/**
+ * Switch the user's active layer (CL). The board has three layer groups
+ * (LayerManager.initLayerGroups(3)); index 2 is the top.
+ */
+export function sendLayerChange(socket, u, layerIndex) {
+  socket.sendBinary(buildMsg({ t: T.CL, u, ly: layerIndex }));
+}
+
+/**
+ * Broadcast a pressure change (CP). Wire value is pressure*100.
+ *
+ * Never sent by any previous feed, so the `cp` handler — which makes the brush
+ * commit the current segment mid-stroke before applying the new pressure — has
+ * had no coverage at all from k6 traffic.
+ */
+export function sendPressure(socket, u, pressure01) {
+  socket.sendBinary(buildMsg({ t: T.CP, u, p: Math.round(pressure01 * 100) }));
 }
 
 /**
@@ -314,11 +562,12 @@ export function setBlendMode(socket, u, mode) {
  *             trapezoid offset to the right with a perspective shrink
  */
 export function performSelectionTransform(socket, u, opts = {}) {
+  const rng = opts.rng ?? Math.random;
   const rect = opts.rect ?? {
-    x: randInt(200, 1200),
-    y: randInt(200, 700),
-    width: randInt(120, 300),
-    height: randInt(120, 300),
+    x: randInt(200, 1200, rng),
+    y: randInt(200, 700, rng),
+    width: randInt(120, 300, rng),
+    height: randInt(120, 300, rng),
   };
   const tl = { x: rect.x, y: rect.y };
   const tr = { x: rect.x + rect.width, y: rect.y };
@@ -326,9 +575,9 @@ export function performSelectionTransform(socket, u, opts = {}) {
   const bl = { x: rect.x, y: rect.y + rect.height };
 
   // A perspective warp: shift right, shrink right edge ~25% to test homography
-  const dx = randInt(100, 250);
-  const dy = randInt(-60, 60);
-  const shrink = 0.6 + Math.random() * 0.4;
+  const dx = randInt(100, 250, rng);
+  const dy = randInt(-60, 60, rng);
+  const shrink = 0.6 + rng() * 0.4;
   const corners = opts.corners ?? {
     tl: { x: tl.x + dx,                 y: tl.y + dy },
     tr: { x: tr.x + dx,                 y: tr.y + dy + (rect.height * (1 - shrink) * 0.5) },
@@ -435,10 +684,79 @@ export function sendSelFlip(socket, u) {
 }
 
 /**
+ * Merge a layer's contents up/down/into-all (SEL_MERGE).
+ * @param {'up'|'down'|'all'} [mode='down']
+ */
+export function sendSelMerge(socket, u, sourceLayer = 0, mode = 'down') {
+  socket.sendBinary(buildMsg({ t: T.SEL_MERGE, u, ly: sourceLayer, g: mode }));
+}
+
+/**
+ * Set or clear the selection MASK (SEL_MASK) — a clip region that constrains
+ * every subsequent stroke until cleared.
+ *
+ * `board.applySelectionMaskClipForStroke` runs on every remote mousedown, so a
+ * stale or divergent mask silently changes where another user's ink lands. No
+ * bot feed has ever set one.
+ *
+ * @param {object} socket
+ * @param {number} u
+ * @param {{x,y,width,height}|null} rect - null clears the mask
+ * @param {Array<number>} [lassoPath] - flat [x,y,...], >= 3 points for a lasso mask
+ */
+export function sendSelMask(socket, u, rect, lassoPath = null) {
+  if (!rect) {
+    socket.sendBinary(buildMsg({ t: T.SEL_MASK, u, mk: false }));
+    return;
+  }
+  const msg = {
+    t: T.SEL_MASK, u, mk: true,
+    sx: Math.round(rect.x), sy: Math.round(rect.y),
+    sw: Math.round(rect.width), sh: Math.round(rect.height),
+  };
+  // The mask lasso travels in `ps` (not `cr` like a lift's lasso).
+  if (lassoPath && lassoPath.length >= 6) msg.ps = lassoPath;
+  socket.sendBinary(buildMsg(msg));
+}
+
+/**
+ * A closed convex polygon inscribed in `rect`, as the flat float array the
+ * lasso paths expect. Real lasso selections are never rectangles, and the
+ * rect/lasso paths diverge inside the receiver (`_populateLiftedSelectionFrom
+ * Layer` clips to the polygon), so a feed that only ever lifts rectangles
+ * leaves half of Select untested.
+ */
+export function makeLassoPath(rect, points = 7, rng = Math.random) {
+  const cx = rect.x + rect.width / 2;
+  const cy = rect.y + rect.height / 2;
+  const path = [];
+  for (let i = 0; i < points; i++) {
+    const a = (i / points) * Math.PI * 2;
+    // Jitter the radius so the polygon is irregular but stays convex-ish.
+    const r = 0.65 + rng() * 0.35;
+    path.push(cx + Math.cos(a) * (rect.width / 2) * r);
+    path.push(cy + Math.sin(a) * (rect.height / 2) * r);
+  }
+  return path;
+}
+
+/**
  * Send an UNDO message for the current user.
  */
 export function sendUndo(socket, u) {
   socket.sendBinary(buildMsg({ t: T.UNDO, u }));
+}
+
+/**
+ * Send a REDO message for the current user.
+ *
+ * No k6 feed has ever sent one. That left the whole redo half of the history
+ * model unreachable from bot traffic: the redo stack only ever grew, so
+ * `pending_redo` state was tested by the scripted suites alone and never under
+ * concurrent load, and a redo racing another user's commit had no coverage.
+ */
+export function sendRedo(socket, u) {
+  socket.sendBinary(buildMsg({ t: T.REDO, u }));
 }
 
 // ─── Parser for incoming binary frames (used by latency tracking) ──────────

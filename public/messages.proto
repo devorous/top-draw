@@ -524,6 +524,12 @@ message Msg {
   uint32 parity_pixel_tile_cols = 195; // CHECK: tile grid width
   bool snapshot_probe = 196; // BOARD_SNAPSHOT_GET/SAVE response: private checkpoint probe fetch
   string profile_badge = 197; // SET_BADGE: selected cosmetic badge id ('' clears it)
+  // UNDO: seq of the stroke the sender actually undid. Without it every receiver
+  // re-resolves "that user's latest LIVE stroke" against its OWN bake state, and
+  // clients that have baked different prefixes undo different strokes. 0 means
+  // unknown (the sender's target was still unsequenced) — receivers fall back to
+  // the legacy local resolution.
+  uint64 undo_target_seq = 200;
 
   message FingerprintEntry {
     uint64  seq         = 1;

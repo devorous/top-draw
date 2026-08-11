@@ -36,11 +36,40 @@ function buildToolStateSet(T) {
   return new Set([
     T.CT, T.CC, T.CS, T.CP, T.CSP, T.CSM, T.CHD, T.CBR,
     T.CL, T.CBM, T.CF, T.CTHN, T.CSIM,
+    // Shape geometry is reconstructed from the drawer's draw mode, so a
+    // rectangle/circle in the replayed tail needs it the same way it needs the
+    // size or colour. Without it a joiner rebuilt every historical shape with
+    // its own default and drew them at the wrong size.
+    T.CSDM,
   ]);
 }
 
 function buildSelectionStateSet(T) {
-  return new Set([T.SEL_LIFT, T.SEL_MOVE, T.SEL_PENDING, T.SEL_MASK]);
+  // SEL_FLIP belongs here: a flip mutates the FLOATING selection and leaves it
+  // live (the server's own clearActiveFloatingSelection list deliberately
+  // excludes it), so it is setup for the eventual SEL_COMMIT exactly like
+  // SEL_MOVE is. It is not a commit — it has no COMMIT_KIND entry, so it is
+  // never sequenced or written to the strokeLog — which meant observe() dropped
+  // it on the floor and a joiner replayed the commit with an UNFLIPPED image.
+  // Pixel diffs missed this for a long time because it only shows up when the
+  // selected content is asymmetric enough for the flip to change it.
+  // These are appended in order (the list resets only on SEL_LIFT/SEL_PENDING),
+  // so two flips replay as two flips and correctly cancel out.
+  return new Set([T.SEL_LIFT, T.SEL_MOVE, T.SEL_PENDING, T.SEL_MASK, T.SEL_FLIP]);
+}
+
+/**
+ * Commit types that do NOT close an in-flight stroke. History and board-level
+ * verbs are commits (they are sequenced and logged) but they own no geometry,
+ * so they must not claim the pending MD/MM preamble: doing so filed a stroke's
+ * geometry under the UNDO's seq and left the real MU with an empty preamble, so
+ * every later joiner replayed the stroke *after* the undo and kept it forever.
+ */
+function buildNonStrokeCommitSet(T) {
+  return new Set([
+    T.UNDO, T.REDO, T.CLR,
+    T.BOARD_SNAPSHOT_RESTORE, T.BOARD_SNAPSHOT_REGION_RESTORE
+  ].filter(t => t !== undefined));
 }
 
 const DEFAULT_CAP = 12_000; // backstop; ≥ the fingerprint log's 10k cap
@@ -55,6 +84,7 @@ export class StrokeTape {
     this.T = T;
     this.toolStateTypes = buildToolStateSet(T);
     this.selectionStateTypes = buildSelectionStateSet(T);
+    this.nonStrokeCommitTypes = buildNonStrokeCommitSet(T);
     this.cap = opts.cap ?? DEFAULT_CAP;
     /** Latest tool-state frame bytes per user: userId -> Map<t, Uint8Array> */
     this._toolState = new Map();
@@ -136,7 +166,9 @@ export class StrokeTape {
     // the commit seq. Some non-stroke commits still depend on user state or
     // transient setup frames, so they get a lightweight preamble too.
     if (isCommit) {
-      const pend = this._pending.get(uid);
+      // A history/board verb is sequenced like a commit but owns no geometry —
+      // it must leave the in-flight stroke's preamble for that stroke's own MU.
+      const pend = this.nonStrokeCommitTypes.has(t) ? null : this._pending.get(uid);
       if (pend && pend.length > 0) {
         this._bundles.set(seq, pend);
         this._pending.delete(uid);
@@ -179,12 +211,13 @@ export class StrokeTape {
 
   _endsSelection(t) {
     const T = this.T;
+    // SEL_FLIP is NOT here: a flip transforms the floating selection in place
+    // and the selection stays live until a later commit verb closes it.
     return t === T.SEL_COMMIT ||
       t === T.SEL_DELETE ||
       t === T.SEL_FILL ||
       t === T.SEL_STAMP ||
-      t === T.SEL_MERGE ||
-      t === T.SEL_FLIP;
+      t === T.SEL_MERGE;
   }
 
   _enforceCap() {

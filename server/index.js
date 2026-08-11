@@ -1864,12 +1864,44 @@ const NON_USER_ACTIVITY_TYPES = new Set([
   T.BW_PROBE_START, T.BW_PROBE_CHUNK, T.BW_REPORT, T.METRICS_UPDATE,
   T.BOARD_SNAPSHOT_LIST_RESPONSE, T.BOARD_SNAPSHOT_JOIN_NOTIFY,
   T.CHECKPOINT_LIST_RESPONSE, T.REPLAY_RESPONSE,
-  T.COMPRESS_USER_STROKES
+  T.COMPRESS_USER_STROKES,
+  // The sync-parity heartbeat and its follow-ups. ParityClient sends
+  // SYNC_PARITY_CHECK on a plain 30s interval (DEFAULT_HEARTBEAT_MS) with no
+  // user involved — well under AFK_TIMEOUT (5 min) — so while these counted as
+  // deliberate activity NO connected client could ever be marked AFK. That
+  // silently disabled the whole inactivity subsystem: draw-traffic filtering
+  // for idle clients, the resync prompt, COMPRESS_USER_STROKES, and the
+  // all-AFK BOARD_SNAPSHOT_RESTORE. ParityClient's own guard
+  // (shouldPause: … || !!this.self?.afk) could not save it — it pauses the
+  // heartbeat once you are AFK, but the heartbeat is what stopped you getting
+  // there, so the guard was unreachable. This list was last curated 2026-04-29;
+  // ParityClient arrived 2026-05-24 and was never added to it.
+  T.SYNC_PARITY_CHECK, T.SYNC_PARITY_CHUNK_REQUEST,
+  T.SYNC_PARITY_RESYNC_REQUEST, T.SYNC_PARITY_MISMATCH_REPORT,
+  // Automatic uploads, both on their own setInterval (App.startPreviewInterval,
+  // 30s) and solicited by the server's own snapshot timer — no user involved.
+  T.ROOM_PREVIEW, T.CHECKPOINT_UPLOAD
 ]);
 
-function isUserActivityMessage(messageType, user) {
+function isUserActivityMessage(data, user) {
+  const messageType = data?.t;
   if (messageType === T.MM) {
     return !!user?.mousedown;
+  }
+  // BOARD_SNAPSHOT_SAVE is two different things on one wire type: `a: true` is
+  // SnapshotManager's automatic checkpoint (the server's own snapshot timer
+  // asked for it — no user involved), `a: false` is someone clicking save. Only
+  // the latter is activity, so this cannot be a blanket entry in the set above.
+  if (messageType === T.BOARD_SNAPSHOT_SAVE) {
+    return !data?.a;
+  }
+  // Same story for BOARD_SNAPSHOT_GET: `snapshot_probe` is SnapshotManager's
+  // automatic pixel-parity fetch, fired by every client each time the server
+  // mints a checkpoint (15 s in a snapshot-backed room). A user opening the
+  // history UI sends the same type with the flag clear, and that IS activity.
+  // Note the proto field is snake_case on the wire and camelCase in JS.
+  if (messageType === T.BOARD_SNAPSHOT_GET) {
+    return !data?.snapshotProbe;
   }
   return !NON_USER_ACTIVITY_TYPES.has(messageType);
 }
@@ -2329,8 +2361,18 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
         user.activeSelectionSourceCrop = null;
         // Forward the lifted snapshot so remote clients reuse the sender's exact pixels
         // instead of attempting to recapture from their own canvases.
+        //
+        // The sender is NOT excluded. A lift commits a destination-out erase of the
+        // source area on every client, including the sender's own optimistic one,
+        // and that erase needs this broadcast's authoritative seq — otherwise it
+        // stays at seq 0, which _sortStrokeStack floats to the TOP of the stack,
+        // above the stamp that SEL_COMMIT sequences, and the erase wipes the
+        // placement. The sender's handler is reconcile-only (SelectionHandlers
+        // 'sel_lift'), so this does not re-run the lift. One broadcast, one seq:
+        // splitting it into a second sender-only echo would assign a different seq
+        // and break the pairing it exists to establish.
         if (!ws?.isShadowBanned) {
-          broadcastToRoom(room, { t: T.SEL_LIFT, u: sessionIndex, sx: data.sx, sy: data.sy, sw: data.sw, sh: data.sh, cr: data.cr, g: data.g }, sessionIndex);
+          broadcastToRoom(room, { t: T.SEL_LIFT, u: sessionIndex, sx: data.sx, sy: data.sy, sw: data.sw, sh: data.sh, cr: data.cr, g: data.g, a: data.a });
         }
         return;
       }
@@ -2734,6 +2776,15 @@ function broadcastToRoom(room, payload, excludeIndex = null) {
         if (shouldSkipInactiveRecipient(room, client, payload.t)) {
           return;
         }
+        // Drain anything already queued for this client first, so the wire
+        // order matches the sequence order. Without it an unbatched message
+        // (UNDO, SEL_DELETE, …) overtakes the MD/MM/MU still sitting in the
+        // 16ms outbox — the recipient then applies an undo before the stroke it
+        // targets exists, and the stroke commits afterwards and survives.
+        // broadcastSequencedRestore already flushes for exactly this reason.
+        // Cheap: every high-frequency type is batched, so this branch is rare
+        // and the flush no-ops when the outbox is empty.
+        flushClientOutbox(client);
         sendEncodedBuffer(client, buffer, `roomBroadcast:${payload?.t ?? 'unknown'}`);
       }
     }
@@ -3093,7 +3144,19 @@ wss.on('connection', async (ws, req) => {
     ws.close(1011, 'Server error during connection');
   }
 
-  ws.on('message', async (rawData) => {
+  // Per-connection serialization. This handler AWAITS (sanitizeMessage decodes
+  // and validates inline images for SEL_LIFT / IMG_PASTE / GLITCH_RESULT), and
+  // 'message' fires again while that promise is pending — so the next message
+  // from the SAME socket ran to completion and was relayed FIRST. That breaks
+  // the single-socket ordering guarantee the seq/reconcile design rests on.
+  //
+  // Measured: a selection drag emitted SEL_LIFT then SEL_MOVE, and every
+  // observer received SEL_MOVE then SEL_LIFT — the move arrived before the
+  // floating canvas existed, so handleSelectionMove early-returned and the
+  // first move increment was dropped. Chaining keeps one socket's messages
+  // strictly in order; sockets stay independent of each other, so a slow image
+  // validation delays only its own sender.
+  const handleClientMessage = async (rawData) => {
     if (isShuttingDown) {
       // Drop silently; client will see the connection close with code 4000.
       return;
@@ -3170,7 +3233,13 @@ wss.on('connection', async (ws, req) => {
       // such as bandwidth probes, sync packets, and presence pings must not.
       if (ws.sessionIndex !== undefined) {
         const activeUser = room.sessionManager.getUser(ws.sessionIndex);
-        if (isUserActivityMessage(data.t, activeUser)) {
+        // AFK_DEBUG: remember what last counted as activity for this user, so an
+        // idle age that keeps resetting can be attributed to a message type
+        // instead of guessed at.
+        if (process.env.AFK_DEBUG && activeUser && isUserActivityMessage(data, activeUser)) {
+          activeUser.lastActivityType = data.t;
+        }
+        if (isUserActivityMessage(data, activeUser)) {
           if (activeUser?.afk) {
             room.sessionManager.markUserActive(ws.sessionIndex);
           } else {
@@ -5181,6 +5250,13 @@ wss.on('connection', async (ws, req) => {
       const preview = Buffer.from(rawData).subarray(0, 32);
       console.error(`[WS] Decode error (${rawData.length} bytes, session ${ws.sessionIndex ?? 'unassigned'}): ${err.message}`);
     }
+  };
+
+  ws.messageChain = Promise.resolve();
+  ws.on('message', (rawData) => {
+    ws.messageChain = ws.messageChain.then(() => handleClientMessage(rawData)).catch((err) => {
+      console.error(`[WS] Unhandled message error (session ${ws.sessionIndex ?? 'unassigned'}): ${err.message}`);
+    });
   });
 
   ws.on('close', (code, reason) => {

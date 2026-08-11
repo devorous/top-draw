@@ -569,6 +569,20 @@ export class WebSocketClient {
   }
 
   /**
+   * How many inbound messages are decoded but not yet applied.
+   *
+   * The drain runs on a time budget, so under load this is the amount by which
+   * this client's board trails the server's stream. LayerManager consults it
+   * before the irreversible overflow bake: baking a prefix while commits that
+   * belong inside it are still queued flattens a different prefix than a client
+   * that is caught up, and the two boards can never converge afterwards.
+   * @returns {number}
+   */
+  getInboundQueueLength() {
+    return this._messageQueue.length;
+  }
+
+  /**
    * Records an inbound message on the TimeMachine tap and the stroke
    * fingerprint log. Must be called in APPLICATION order — immediately before
    * the message is processed — so replay tapes are faithful to what the live
@@ -812,6 +826,30 @@ export class WebSocketClient {
     // reach it to assign the authoritative erase seq. Without it the erase keeps
     // seq=0 — sorting it above every confirmed stroke, where it permanently
     // erases other users' work in that region (the persistent "white spot").
+    //
+    // TEXT_APPLY is exempt for the same reason: the raster path commits the text
+    // bake locally at seq 0 (tagged pendingCommitEcho='text_apply') while every
+    // observer commits the same bake from this broadcast. Only the TEXT_APPLY
+    // echo carries the seq they used, so it must reach the handler to reconcile
+    // ours to it — otherwise the drawer keeps seq 0 (sorted to the top by its own
+    // clock) while observers place it correctly, and the two boards diverge.
+    // The vector path commits no stroke, so its echo reconciles nothing.
+    //
+    // SEL_COMMIT / SEL_STAMP / SEL_FILL are exempt as of 2026-08-10, together
+    // with SEL_LIFT (which is not a commit type and so never reached this gate).
+    //
+    // These used to be excluded on purpose: the stamp sits at seq 0, and so does
+    // the destination-out lift-erase before it, on the drawer and every observer
+    // alike — so all of them ordered the pair identically (seq 0 →
+    // MAX_SAFE_INTEGER, tie-broken by timestamp). Reconciling only the stamp
+    // would have sunk it BELOW the still-seq-0 erase and wiped the placement.
+    //
+    // The pair is now sequenced TOGETHER, which is what that note asked for: the
+    // lift-erase reconciles to SEL_LIFT's seq and the stamp to SEL_COMMIT's (or
+    // SEL_STAMP's / SEL_FILL's). The server stamps every broadcast from one
+    // counter and the lift is always broadcast before the commit, so
+    // seq_lift < seq_commit holds by construction and the erase stays underneath.
+    // Both sides now place the pair at its true position instead of on top.
     if (
       data.u !== undefined &&
       this.sessionIndex !== null &&
@@ -821,6 +859,11 @@ export class WebSocketClient {
       data.t !== T.FILL &&
       data.t !== T.GLITCH_RESULT &&
       data.t !== T.SEL_DELETE &&
+      data.t !== T.SEL_MERGE &&
+      data.t !== T.SEL_COMMIT &&
+      data.t !== T.SEL_STAMP &&
+      data.t !== T.SEL_FILL &&
+      data.t !== T.TEXT_APPLY &&
       data.t !== T.BOARD_SNAPSHOT_RESTORE
     ) {
       return;
@@ -1120,7 +1163,12 @@ export class WebSocketClient {
           lifetimeMs: data.textLifetimeMs || undefined,
           fadeMs: data.textFadeMs || undefined,
           ageMs: data.textAgeMs || 0,
-          pixel: !!data.textPixel
+          pixel: !!data.textPixel,
+          // The raster ("pixel") path commits a real stroke on every client, so
+          // it needs the authoritative seq like any other commit — without it the
+          // bake lands at seq 0, sorts to the top and is ordered by each client's
+          // own clock. The vector path commits nothing and ignores this.
+          seq: data.seq
         });
         break;
 
@@ -1269,7 +1317,13 @@ export class WebSocketClient {
           sessionIndex: data.u,
           selection: { x: data.sx, y: data.sy, width: data.sw, height: data.sh },
           lassoPath,
-          imageData: data.g || null
+          imageData: data.g || null,
+          allLayers: !!data.a,
+          // The lift commits a destination-out erase of the source area on every
+          // client. It needs its OWN seq so the later stamp (which carries
+          // SEL_COMMIT's, necessarily higher) sorts above it — see the pairing
+          // note on the self-echo guard above.
+          seq: data.seq
         });
         break;
 
@@ -1290,7 +1344,7 @@ export class WebSocketClient {
         break;
 
       case T.SEL_COMMIT:
-        this.emit('sel_commit', { sessionIndex: data.u, layerIndex: data.ly });
+        this.emit('sel_commit', { sessionIndex: data.u, layerIndex: data.ly, seq: data.seq });
         break;
 
       case T.SEL_PENDING: {
@@ -1315,22 +1369,32 @@ export class WebSocketClient {
       }
 
       case T.SEL_DELETE:
-        this.emit('sel_delete', { sessionIndex: data.u, layerIndex: data.ly ?? 0, seq: data.seq });
+        this.emit('sel_delete', {
+          sessionIndex: data.u, layerIndex: data.ly ?? 0, seq: data.seq,
+          allLayers: !!data.a, mirrored: !!data.m
+        });
         break;
 
       case T.SEL_FILL:
-        this.emit('sel_fill', { sessionIndex: data.u, color: unpackColor(data.c), layerIndex: data.ly ?? 0 });
+        this.emit('sel_fill', {
+          sessionIndex: data.u,
+          color: unpackColor(data.c),
+          layerIndex: data.ly ?? 0,
+          rect: data.sw ? { x: data.sx || 0, y: data.sy || 0, width: data.sw, height: data.sh || 0 } : null,
+          seq: data.seq
+        });
         break;
 
       case T.SEL_STAMP:
-        this.emit('sel_stamp', { sessionIndex: data.u, layerIndex: data.ly });
+        this.emit('sel_stamp', { sessionIndex: data.u, layerIndex: data.ly, seq: data.seq });
         break;
 
       case T.SEL_MERGE:
         this.emit('sel_merge', {
           sessionIndex: data.u,
           sourceLayer: data.ly ?? 0,
-          mode: data.g || 'down'
+          mode: data.g || 'down',
+          seq: data.seq
         });
         break;
 
@@ -1547,7 +1611,7 @@ export class WebSocketClient {
         break;
 
       case T.UNDO:
-        this.emit('undo', { sessionIndex: data.u });
+        this.emit('undo', { sessionIndex: data.u, targetSeq: data.undoTargetSeq || 0 });
         break;
 
       case T.REDO:
@@ -2131,8 +2195,13 @@ export class WebSocketClient {
    * Broadcasts an undo request.
    * @returns {void}
    */
-  broadcastUndo() {
-    this.send({ t: T.UNDO });
+  /**
+   * @param {number} [targetSeq=0] - Seq of the stroke we actually undid. Pass 0
+   *   when it had none yet; receivers then fall back to resolving the target
+   *   locally, which is the pre-2026-08-10 behaviour.
+   */
+  broadcastUndo(targetSeq = 0) {
+    this.send({ t: T.UNDO, undoTargetSeq: targetSeq > 0 ? targetSeq : 0 });
   }
 
   /**
@@ -2303,9 +2372,11 @@ export class WebSocketClient {
    * Broadcasts a selection lift (extraction) event.
    * @param {Object} rect - Bounding box {x, y, width, height}.
    * @param {Array<Object>|null} [lassoPath=null] - Optional freehand path.
+   * @param {string|null} [imageData=null] - Flattened lifted pixels (data URL).
+   * @param {boolean} [allLayers=false] - Lift spans every visible layer.
    * @returns {void}
    */
-  broadcastSelectionLift(rect, lassoPath = null, imageData = null) {
+  broadcastSelectionLift(rect, lassoPath = null, imageData = null, allLayers = false) {
     const msg = {
       t: T.SEL_LIFT,
       sx: Math.round(rect.x),
@@ -2317,6 +2388,10 @@ export class WebSocketClient {
     if (lassoPath && lassoPath.length > 0) {
       msg.cr = lassoPath.flatMap(p => [p.x, p.y]);
     }
+    // All-layers lift erases from — and later re-stamps into — every visible
+    // layer group. `imageData` is the flattened composite, so a receiver has no
+    // way to infer that the source spanned more than the sender's active layer.
+    if (allLayers) msg.a = true;
     if (imageData) {
       msg.g = imageData;
     }
@@ -2417,9 +2492,14 @@ export class WebSocketClient {
    * @param {number} [layerIndex] - Target layer index.
    * @returns {void}
    */
-  broadcastSelectionDelete(layerIndex) {
+  broadcastSelectionDelete(layerIndex, allLayers = false, mirrored = false) {
     const msg = { t: T.SEL_DELETE };
     if (layerIndex !== undefined) msg.ly = layerIndex;
+    // All-layers clears span every layer group; `ly` alone cannot express that.
+    if (allLayers) msg.a = true;
+    // Mirror state at the time of the clear. A joiner replaying the tail has not
+    // necessarily applied the room's mirror toggle yet, so it cannot be inferred.
+    if (mirrored) msg.m = true;
     this.send(msg);
   }
 
@@ -2429,9 +2509,20 @@ export class WebSocketClient {
    * @param {number} [layerIndex] - Target layer index.
    * @returns {void}
    */
-  broadcastSelectionFill(color, layerIndex) {
+  broadcastSelectionFill(color, layerIndex, rect = null) {
     const msg = { t: T.SEL_FILL, c: packColor(color) };
     if (layerIndex !== undefined) msg.ly = layerIndex;
+    // The filled rect must travel. A rect selection is cropped to its content
+    // for display, but Fill deliberately fills the user's ORIGINAL dragged rect
+    // (SelectTool.fillSelection uses `originalSelection || selection`). The
+    // receiver only ever cached the cropped one, so without this it filled a
+    // smaller area than the drawer did.
+    if (rect) {
+      msg.sx = Math.round(rect.x);
+      msg.sy = Math.round(rect.y);
+      msg.sw = Math.round(rect.width);
+      msg.sh = Math.round(rect.height);
+    }
     this.send(msg);
   }
 

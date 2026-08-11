@@ -13,6 +13,7 @@
 import { captureOpeningSnapshot } from './snapshotCapture.js';
 import { shouldRecord } from './messageAllowlist.js';
 import { isCommitType } from '../../shared/StrokeFingerprint.js';
+import { T } from '../../shared/MessageTypes.js';
 
 /**
  * @typedef {Object} ReplayDelta
@@ -330,7 +331,11 @@ export class Recorder {
     // the server echo — and ReplayEngine has no idea they're duplicates, so
     // each commit would re-apply, stacking opacity. Drop the inbound echo
     // when its `u` matches our session index.
-    if (dir === 'in' && msg?.t != null && isCommitType(msg.t)) {
+    // SEL_LIFT is echoed to its sender too (so the lift-erase can reconcile to
+    // the broadcast's seq — see server/index.js SEL_LIFT), but it is not a
+    // COMMIT_KIND type, so it needs naming explicitly or the sender tapes it
+    // twice and replay applies the destination-out erase twice.
+    if (dir === 'in' && msg?.t != null && (isCommitType(msg.t) || msg.t === T.SEL_LIFT)) {
       const selfIdx = this._app?.wsClient?.sessionIndex
                    ?? this._app?.sessionIndex
                    ?? null;

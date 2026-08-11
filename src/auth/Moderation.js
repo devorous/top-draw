@@ -65,6 +65,21 @@ export class Moderation {
     return this.roomRole >= 5 || this.globalRole >= 8;  // room ADMIN(5)+ or global HOLY(8)+
   }
 
+  /**
+   * Mirrors the server's Action.CLEAR_CANVAS rule (server/permissions.js:
+   * ACTION_MIN_ROLE = MOD(4), GLOBAL_ACTION_MIN_ROLE = HOLY(8)).
+   *
+   * Deliberately NOT isMod(): that uses localRole, the *effective* role
+   * max(globalRole, roomRole), while the server only ever checks the two
+   * separately. A global NOBLE(7) with no room role passes isMod() but fails
+   * the server check, so the board cleared locally while the server dropped
+   * the broadcast — "only they see it cleared".
+   * @returns {boolean}
+   */
+  canClearCanvas() {
+    return this.roomRole >= 4 || this.globalRole >= 8;  // room MOD(4)+ or global HOLY(8)+
+  }
+
   isOwner() {
     return this.localRole >= 6;  // OWNER(6)+
   }
@@ -189,6 +204,12 @@ export class Moderation {
         el.classList.remove('visible');
       }
     });
+
+    // Clearing is authorized separately from general mod powers, so keep the
+    // button in step with the server rather than with isMod() — otherwise it
+    // is offered to someone whose clear the server will reject.
+    const clearWrap = document.querySelector('.clearConfirmWrap');
+    if (clearWrap) clearWrap.classList.toggle('visible', this.canClearCanvas());
 
     // Admin-only elements (role assignment submenu) need ADMIN(5)+
     const adminElements = document.querySelectorAll('.adminOnly');

@@ -176,8 +176,40 @@ async function liveStrokeCount(page) {
   });
 }
 
-/** Guest-safe board clear + tape an outbound CLR so the replay re-applies it. */
+/**
+ * Every stroke the board holds, baked ones included.
+ *
+ * The pass gate needs "did this scenario actually draw anything", which is NOT
+ * what liveStrokeCount answers: it counts only the undoable live stack, and the
+ * overflow bake drains that to 0 on a board that has settled. Gating on the live
+ * count means a slower machine — one that finishes baking before the snapshot —
+ * fails a scenario whose pixels are perfect. (Keep using liveStrokeCount for the
+ * `clear` plateau detection, which genuinely wants the live stack.)
+ */
+async function totalStrokeCount(page) {
+  return page.evaluate(() => {
+    const lm = window.app?.board?.layerManager;
+    if (!lm?.layerGroups) return 0;
+    return lm.layerGroups.reduce((n, g) => {
+      const baked = (g.bakedSequences || []).reduce(
+        (m, b) => m + (Array.isArray(b.strokes) ? b.strokes.length : 1), 0);
+      return n + (g.strokeStack?.length || 0) + (g.flatStrokeRecords?.length || 0) + baked;
+    }, 0);
+  });
+}
+
+/**
+ * Guest-safe board clear + tape an outbound CLR so the replay re-applies it.
+ *
+ * Foreground the tab first. A hidden tab gets no rAF, so it has not drained its
+ * input buffer — clearing it there wipes a DIFFERENT amount of content than the
+ * tabs that are up to date, and the divergence is baked in from that moment on.
+ * This is the same hidden-tab starvation waitLiveStable guards against, except
+ * here it corrupts the run rather than just the measurement.
+ */
 async function injectClear(page) {
+  await page.bringToFront().catch(() => {});
+  await new Promise((r) => setTimeout(r, 250));
   await page.evaluate((CLR) => {
     const app = window.app;
     app.board.clear();
@@ -225,6 +257,13 @@ async function waitLiveStable(tabs, { timeoutMs = 35_000 } = {}) {
     const snaps = {};
     let allStable = true;
     for (const t of tabs) {
+      // This suite keeps the REAL tick loop running (remote k6 draws only render
+      // while it ticks), unlike the sibling suites that drive tick() by hand. With
+      // four pages open only one is ever the visible tab, and a hidden page gets no
+      // rAF — so a background observer never drains its input buffer, never commits
+      // the remote strokes, and ends up with a structurally-correct but PIXEL-EMPTY
+      // layer stack. Give each tab the foreground before reading it.
+      await t.page.bringToFront().catch(() => {});
       const snap = await t.page.evaluate(captureLayerSnapshotsInPage);
       snaps[t.label] = snap;
       const painted = paintedGroups(snap);
@@ -236,6 +275,16 @@ async function waitLiveStable(tabs, { timeoutMs = 35_000 } = {}) {
     last = snaps;
     if (allStable) return snaps;
   }
+  // Timing out here is not cosmetic: the caller diffs whatever this returns, so
+  // an observer whose capture is empty silently turns "A↔B" into "how much of A
+  // is blank". Say so out loud instead.
+  const shape = Object.entries(last ?? {})
+    .map(([k, s]) => `${k}: groups=${s?.length ?? 0} painted=${paintedGroups(s ?? [])}`)
+    .join('  ');
+  process.stdout.write(
+    `\n  ⚠ waitLiveStable TIMED OUT (${timeoutMs}ms) — ${shape}\n`
+    + `    painted=0 means that observer's layers are pixel-empty, so every diff\n`
+    + `    against it degenerates into "how much of the other board is blank".\n  `);
   return last ?? {};
 }
 
@@ -274,21 +323,23 @@ async function runScenario(browser, replayer, scenario) {
       await sleep(500);
       const c = await liveStrokeCount(tabs[0].page);
       if (c > 0 && c === prevCount) {
-        await Promise.all(tabs.map((t) => injectClear(t.page)));
+        // Sequential, not Promise.all: injectClear foregrounds the tab, and only
+        // one tab can hold the foreground, so racing them defeats the point.
+        for (const t of tabs) await injectClear(t.page);
         clearInjected = true;
         break;
       }
       prevCount = c;
     }
     if (!clearInjected) {
-      await Promise.all(tabs.map((t) => injectClear(t.page)));
+      for (const t of tabs) await injectClear(t.page);
       clearInjected = true;
     }
   }
 
   // Settle on pixel-stability while the stayer bots are still connected.
   const liveSnaps = await waitLiveStable(tabs);
-  const liveStrokes = await liveStrokeCount(tabs[0].page);
+  const liveStrokes = await totalStrokeCount(tabs[0].page);
   for (const t of tabs) {
     await t.page.screenshot({ path: path.join(caseDir, `live_${t.label}.png`) }).catch(() => {});
   }

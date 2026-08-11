@@ -130,6 +130,17 @@ export class StrokeFingerprintLog {
     this.entries = [];
     this.rollingHash = 0;
     this.evicted = 0; // count of entries dropped due to cap
+    /**
+     * Highest seq of any COMMIT this log has dropped, from either the cap
+     * overflow in record() or a checkpoint truncateBefore(). 0 = nothing lost.
+     *
+     * This is the honest answer to "is anything unrecoverable?", which
+     * `entries[0].seq` is not: the log records only commit types while the
+     * server allocates a seq for EVERY broadcast (MM dominates by roughly 68:1),
+     * so the first retained entry sits an arbitrary distance above any given
+     * seq and that distance means nothing.
+     */
+    this.droppedThroughSeq = 0;
     /** @type {Map<number, Uint8Array>|null} */
     this._bytesBySeq = this.storeBytes ? new Map() : null;
   }
@@ -205,6 +216,12 @@ export class StrokeFingerprintLog {
       const overflow = this.entries.length - this.cap;
       const removed = this.entries.splice(0, overflow);
       this.evicted += overflow;
+      // Cap eviction is the dangerous one: unlike checkpoint truncation it drops
+      // commits with no image covering them, so a joiner served a checkpoint
+      // below this seq can never rebuild them.
+      if (removed.length) {
+        this.droppedThroughSeq = Math.max(this.droppedThroughSeq, removed[removed.length - 1].seq);
+      }
       if (this._bytesBySeq) {
         for (const r of removed) this._bytesBySeq.delete(r.seq);
       }
@@ -334,6 +351,9 @@ export class StrokeFingerprintLog {
     if (idx > 0) {
       const removed = this.entries.splice(0, idx);
       this.evicted += idx;
+      if (removed.length) {
+        this.droppedThroughSeq = Math.max(this.droppedThroughSeq, removed[removed.length - 1].seq);
+      }
       if (this._bytesBySeq) {
         for (const r of removed) this._bytesBySeq.delete(r.seq);
       }
@@ -348,6 +368,7 @@ export class StrokeFingerprintLog {
     this.entries.length = 0;
     this.rollingHash = 0;
     this.evicted = 0;
+    this.droppedThroughSeq = 0;
     if (this._bytesBySeq) this._bytesBySeq.clear();
   }
 }

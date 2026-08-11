@@ -447,6 +447,12 @@ export class DrawingApp {
     const normalizedMode = this.normalizeShapeDrawMode(mode);
     this.shapeDrawMode = normalizedMode;
 
+    // The user object is what the shape tools read when rendering, for local
+    // and remote strokes alike; the tool singletons keep the mode only as a
+    // fallback for callers that have no user (e.g. replay of an unattributed
+    // CSDM).
+    if (this.self) this.self.shapeDrawMode = normalizedMode;
+
     const rectangleTool = this.toolManager.getTool('rectangle');
     const circleTool = this.toolManager.getTool('circle');
     if (rectangleTool?.setDrawMode) rectangleTool.setDrawMode(normalizedMode);
@@ -2936,6 +2942,7 @@ export class DrawingApp {
       this.self.textPositionOffset
     );
     this.wsClient.broadcastToolChange(this.self.tool);
+    this.wsClient.broadcastShapeDrawModeChange(this.self.shapeDrawMode);
     this.wsClient.broadcastSpacingChange(this.self.spacing);
     this.wsClient.broadcastHardnessChange(this.self.hardness);
     this.wsClient.broadcastLayerBlendModeChange(this.self.activeLayer, this.self.blendMode, this.self.blendBakeMode);
@@ -3357,6 +3364,7 @@ export class DrawingApp {
       this.self.textPositionOffset
     );
     this.wsClient.broadcastToolChange(this.self.tool);
+    this.wsClient.broadcastShapeDrawModeChange(this.self.shapeDrawMode);
     const activeLayer = this.self.activeLayer;
     this.wsClient.broadcastLayerBlendModeChange(activeLayer, this.self.blendMode, this.self.blendBakeMode);
     this.wsClient.broadcastLayerChange(activeLayer);
@@ -3485,6 +3493,7 @@ export class DrawingApp {
       this.self.textPositionOffset
     );
     this.wsClient.broadcastToolChange(this.self.tool);
+    this.wsClient.broadcastShapeDrawModeChange(this.self.shapeDrawMode);
     const activeLayer = this.self.activeLayer;
     this.wsClient.broadcastLayerBlendModeChange(activeLayer, this.self.blendMode, this.self.blendBakeMode);
     this.wsClient.broadcastLayerChange(activeLayer);
@@ -4505,7 +4514,11 @@ export class DrawingApp {
    * Clears the entire board.
    */
   handleClear() {
-    if (!this.moderation || !this.moderation.isMod()) {
+    // Must match the server's CLEAR_CANVAS rule exactly. The board is cleared
+    // optimistically below, before any round trip, so a gate that is looser
+    // than the server's leaves this client cleared while the server drops the
+    // broadcast — the clear then shows up for nobody else.
+    if (!this.moderation || !this.moderation.canClearCanvas()) {
       this.ui.showToast('Only moderators can clear the canvas', 3000, 'error');
       return;
     }
@@ -5714,7 +5727,12 @@ export class DrawingApp {
       this.board.beginStroke(this.self);
       const textTool = this.toolManager.getTool('text');
       textTool?.drawText?.(this.self);
-      this.board.endStroke(this.self);
+      // Tagged so the TEXT_APPLY self echo can reconcile this optimistic stroke
+      // to the authoritative seq observers commit the same bake with. Untagged it
+      // stays at seq 0, which sorts to the top of the stack ordered by our own
+      // clock while observers place it by seq — a permanent z-order split once
+      // the overflow bake flattens it.
+      this.board.endStroke(this.self, { pendingCommitEcho: 'text_apply' });
       this.self.x = prevX;
       this.self.y = prevY;
     } else {
@@ -6316,14 +6334,20 @@ export class DrawingApp {
     const selectRealTool = selectTool?.realTool ?? selectTool;
     const hadLiftedSelection = !!(selectRealTool?.floatingCanvas && selectRealTool?._restoreData);
 
-    this.board.undo(this.self.activeLayer, this.self.id);
+    const undoneBatch = this.board.undo(this.self.activeLayer, this.self.id);
 
     if (hadLiftedSelection) {
       selectTool.clearSelection();
     }
 
     if (this.connected) {
-      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastUndo());
+      // Tell everyone WHICH stroke we undid. Receivers otherwise re-resolve "this
+      // user's latest live stroke" against their own bake state, and a client that
+      // has baked a different prefix than us resolves a different stroke — an
+      // irreversible divergence, since baking is permanent. 0 when our target was
+      // still unsequenced; receivers then fall back to local resolution.
+      const targetSeq = undoneBatch?.find?.((e) => (e?.record?.seq || 0) > 0)?.record?.seq || 0;
+      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastUndo(targetSeq));
     }
   }
 

@@ -462,12 +462,15 @@ export class RemoteSelectionHandler {
    * @param {Object} user - The remote user
    * @param {Object} selection - Selection bounds {x, y, width, height}
    * @param {Array<{x: number, y: number}>|null} lassoPath - Optional lasso path for non-rectangular selections
+   * @param {string|null} imageData - Sender's flattened lift snapshot (data URL)
+   * @param {boolean} allLayers - Lift spans every visible layer (SelectTool.copyAllLayers)
    */
-  handleSelectionLift(user, selection, lassoPath = null, imageData = null) {
+  handleSelectionLift(user, selection, lassoPath = null, imageData = null, allLayers = false, seq = 0) {
     // Clear pending selection since it's now being lifted
     user.pendingSelection = null;
     user.pendingLassoPath = null;
     user._pendingSelectionUpdatedAt = null;
+    user.floatingLayers = null;
 
     // Store selection info on user for rendering
     user.selection = selection;
@@ -482,11 +485,35 @@ export class RemoteSelectionHandler {
     user.floatingCtx = user.floatingCanvas.getContext('2d');
     user.floatingCtx.setTransform(1, 0, 0, 1, 0, 0); // Ensure clean state
 
+    const liftLasso = lassoPath && lassoPath.length >= 3 ? lassoPath : null;
+
+    // All-layers lift: capture each visible layer's own pixels BEFORE erasing, so
+    // the matching commit can re-stamp each layer's content back into that same
+    // layer — exactly what SelectTool.liftSelection does with `floatingLayers`.
+    // These are captured locally rather than sent: the sender only transmits the
+    // flattened composite (`imageData`), and at lift time every client's layers
+    // already agree, so a local capture reproduces the sender's per-layer canvases.
+    if (allLayers) {
+      user.floatingLayers = this._captureLiftLayers(s, liftLasso);
+    }
+
     // Erase directly from the layer canvas so the hole persists through compositing.
     // Clearing mainCtx is insufficient because compositeAllLayers() rebuilds it from
     // the underlying layer data, restoring the erased pixels.
     // Store restore data so commitSelection can make this undoable for remote users.
-    user._selectionRestoreData = this._eraseSelectionFromLayer(s, user.activeLayer ?? 0, lassoPath && lassoPath.length >= 3 ? lassoPath : null, user.id);
+    if (allLayers) {
+      // The drawer erased every visible group (SelectTool._eraseSelectionDirectly's
+      // isMultiLayer branch). Doing one layer here left the other layers' pixels in
+      // place on observers while the drawer's board had the hole.
+      let firstRestore = null;
+      for (const { groupIdx } of (user.floatingLayers || [])) {
+        const restore = this._eraseSelectionFromLayer(s, groupIdx, liftLasso, user.id, seq);
+        if (!firstRestore) firstRestore = restore;
+      }
+      user._selectionRestoreData = firstRestore;
+    } else {
+      user._selectionRestoreData = this._eraseSelectionFromLayer(s, user.activeLayer ?? 0, liftLasso, user.id, seq);
+    }
 
     // Check affected tiles for emptiness and clear ownership from empty ones
     const tt = this.board.tileTracker;
@@ -584,6 +611,52 @@ export class RemoteSelectionHandler {
       };
       img.src = imageData;
     }
+  }
+
+  /**
+   * Snapshot the selected region of every visible layer group into its own
+   * selection-sized canvas — the remote mirror of SelectTool's `floatingLayers`.
+   * Must be called BEFORE the lift erase, and returns entries in ascending layer
+   * order so the commit re-stamps in the same order the drawer does.
+   * @param {{x:number,y:number,width:number,height:number}} selection
+   * @param {Array<{x:number,y:number}>|null} lassoPath
+   * @returns {Array<{canvas: HTMLCanvasElement, groupIdx: number}>}
+   */
+  _captureLiftLayers(selection, lassoPath) {
+    const lm = this.board.layerManager;
+    const layers = [];
+    if (!lm) return layers;
+
+    const scratch = document.createElement('canvas');
+    scratch.width = lm.width;
+    scratch.height = lm.height;
+    const scratchCtx = scratch.getContext('2d');
+
+    for (let i = 0; i < lm.layerGroups.length; i++) {
+      const group = lm.layerGroups[i];
+      if (!group || !group.visible) continue;
+
+      scratchCtx.clearRect(0, 0, scratch.width, scratch.height);
+      lm.compositeLayerRange(scratchCtx, i, i + 1, null);
+
+      const layerCanvas = document.createElement('canvas');
+      layerCanvas.width = selection.width;
+      layerCanvas.height = selection.height;
+      const layerCtx = layerCanvas.getContext('2d');
+      layerCtx.drawImage(
+        scratch,
+        selection.x, selection.y, selection.width, selection.height,
+        0, 0, selection.width, selection.height
+      );
+
+      if (lassoPath) {
+        this.applyLassoMask(layerCtx, selection.x, selection.y, lassoPath);
+      }
+
+      layers.push({ canvas: layerCanvas, groupIdx: i });
+    }
+
+    return layers;
   }
 
   _populateLiftedSelectionFromLayer(user, selection) {
@@ -787,7 +860,62 @@ export class RemoteSelectionHandler {
     this._scheduleRemoteSelectionMovePreview(user);
   }
 
-  handleSelectionCommit(user, layerIndex) {
+  /**
+   * Draw one lifted source canvas into an active stroke, applying the perspective
+   * warp when the selection was transformed. Returns the dirty rect it painted.
+   * Extracted so the all-layers commit can run the identical draw per layer.
+   * @returns {{x:number,y:number,width:number,height:number}}
+   */
+  _drawLiftedCanvasToActiveStroke(user, active, sourceCanvas, hasTransform, corners, rect, outputBounds) {
+    const { x: ix, y: iy, width: iw, height: ih } = rect;
+
+    if (hasTransform && user.originalCorners) {
+      try {
+        if (!user.homography) {
+          user.homography = new Homography('projective');
+        }
+
+        const result = performHomographyTransform({
+          sourceCanvas,
+          sourceCorners: user.originalCorners,
+          destCorners: corners,
+          scale: 1, // Full resolution for commit
+          homographyInstance: user.homography,
+          outputBounds
+        });
+
+        if (result) {
+          const tempCanvas = imageDataToCanvas(result.imageData);
+          const drawX = Math.round(result.bounds.minX);
+          const drawY = Math.round(result.bounds.minY);
+          active.ctx.drawImage(tempCanvas, drawX, drawY);
+          return {
+            x: drawX,
+            y: drawY,
+            width: Math.ceil(result.bounds.width),
+            height: Math.ceil(result.bounds.height)
+          };
+        }
+      } catch (e) {
+        console.warn('Remote homography failed:', e);
+      }
+    }
+
+    active.ctx.drawImage(sourceCanvas, ix, iy, iw, ih);
+    return { x: ix, y: iy, width: iw, height: ih };
+  }
+
+  /**
+   * The stamp carries SEL_COMMIT's authoritative seq, and the destination-out
+   * lift-erase before it carries SEL_LIFT's. Both are sequenced or neither is:
+   * _sortStrokeStack maps seq 0 to MAX_SAFE_INTEGER, so a sequenced stamp above
+   * an unsequenced erase sinks below it and gets wiped. The server numbers every
+   * broadcast from one counter and the lift always precedes the commit, so
+   * seq_lift < seq_commit and the erase stays underneath. The drawer reconciles
+   * both halves to the same two seqs on the echoes.
+   * @param {number} [seq=0] - Authoritative SEL_COMMIT seq.
+   */
+  handleSelectionCommit(user, layerIndex, seq = 0) {
     if (this._queueIfLoading(user, () => this.handleSelectionCommit(user, layerIndex))) return;
     if (!user.floatingCanvas || !user.selection) return;
 
@@ -804,102 +932,92 @@ export class RemoteSelectionHandler {
     const iy = Math.floor(s.y);
     const iw = Math.ceil(s.x + s.width) - ix;
     const ih = Math.ceil(s.y + s.height) - iy;
+    const rect = { x: ix, y: iy, width: iw, height: ih };
 
-    // Begin a stroke on the remote user's active layer so the committed pixels
-    // enter the layer system and persist through compositeAllLayers() calls.
-    lm.beginUserStroke(layerIdx, user.id, 'source-over');
-    const active = lm.layerGroups[layerIdx]?.activeStrokeByUser.get(user.id);
-    if (!active) {
+    // Check if transform was applied (corners moved from axis-aligned rectangle)
+    const hasTransform = this.hasTransformedCorners(user);
+    const outputBounds = hasTransform ? this._getWarpOutputBounds(user, c) : null;
+
+    // All-layers lift: re-stamp each layer's OWN captured pixels back into that
+    // layer, matching SelectTool.commitSelection's copyAllLayers branch. Without
+    // this the drawer moved content on every layer while observers moved it on
+    // one and flattened the rest onto the active layer.
+    const targets = (user.floatingLayers && user.floatingLayers.length > 0)
+      ? user.floatingLayers
+      : [{ canvas: user.floatingCanvas, groupIdx: layerIdx }];
+
+    // One shared timestamp so a single Ctrl+Z reverses the whole multi-layer
+    // stamp, exactly as it does on the drawer.
+    const batchTimestamp = targets.length > 1
+      ? (typeof lm?.allocateHistoryTimestamp === 'function' ? lm.allocateHistoryTimestamp() : Date.now())
+      : null;
+
+    const tt = this.board.tileTracker;
+    let unionX = null, unionY = null, unionMaxX = null, unionMaxY = null;
+    let attachedRestoreData = false;
+    let committedAny = false;
+
+    for (const { canvas, groupIdx } of targets) {
+      // Begin a stroke on the target layer so the committed pixels enter the
+      // layer system and persist through compositeAllLayers() calls.
+      lm.beginUserStroke(groupIdx, user.id, 'source-over');
+      const active = lm.layerGroups[groupIdx]?.activeStrokeByUser.get(user.id);
+      if (!active) continue;
+
+      const dirty = this._drawLiftedCanvasToActiveStroke(
+        user, active, canvas, hasTransform, c, rect, outputBounds
+      );
+
+      // Track the dirty region so the stroke is properly saved. Pass the explicit
+      // commit layer so the dirty rect lands on the stroke we just began on
+      // (groupIdx may differ from user.activeLayer for replay bots and always
+      // does for the non-active layers of an all-layers commit).
+      this.board.expandDirtyRect(user, dirty.x, dirty.y, dirty.width, dirty.height, groupIdx);
+
+      // Store affected tiles in the stroke record for undo
+      if (tt && active.affectedTiles) {
+        const tileIndices = tt.getTileIndicesForRect(dirty.x, dirty.y, dirty.width, dirty.height);
+        for (const idx of tileIndices) {
+          active.affectedTiles.add(idx);
+        }
+      }
+
+      // Commit only the applied placement. The source-area erase from lift remains
+      // as its own older undo step so remote history matches local undo ordering.
+      const commitExtraProps = { seq };
+      if (batchTimestamp !== null) commitExtraProps.timestamp = batchTimestamp;
+      if (selectionRestoreData && !attachedRestoreData) {
+        commitExtraProps.selectionRestoreData = selectionRestoreData;
+        attachedRestoreData = true;
+      }
+      lm.commitUserStroke(groupIdx, user.id, commitExtraProps);
+      committedAny = true;
+
+      unionX = unionX === null ? dirty.x : Math.min(unionX, dirty.x);
+      unionY = unionY === null ? dirty.y : Math.min(unionY, dirty.y);
+      unionMaxX = unionMaxX === null ? dirty.x + dirty.width : Math.max(unionMaxX, dirty.x + dirty.width);
+      unionMaxY = unionMaxY === null ? dirty.y + dirty.height : Math.max(unionMaxY, dirty.y + dirty.height);
+    }
+
+    if (!committedAny) {
       this._cleanupUserSelection(user);
       return;
     }
 
-    // Calculate dirty rect bounds for tracking
-    let dirtyX, dirtyY, dirtyWidth, dirtyHeight;
-
-    // Check if transform was applied (corners moved from axis-aligned rectangle)
-    const hasTransform = this.hasTransformedCorners(user);
-
-    if (hasTransform && user.originalCorners) {
-      try {
-        if (!user.homography) {
-          user.homography = new Homography('projective');
-        }
-
-        const result = performHomographyTransform({
-          sourceCanvas: user.floatingCanvas,
-          sourceCorners: user.originalCorners,
-          destCorners: c,
-          scale: 1, // Full resolution for commit
-          homographyInstance: user.homography,
-          outputBounds: this._getWarpOutputBounds(user, c)
-        });
-
-        if (result) {
-          const tempCanvas = imageDataToCanvas(result.imageData);
-          const drawX = Math.round(result.bounds.minX);
-          const drawY = Math.round(result.bounds.minY);
-          active.ctx.drawImage(tempCanvas, drawX, drawY);
-          dirtyX = drawX;
-          dirtyY = drawY;
-          dirtyWidth = Math.ceil(result.bounds.width);
-          dirtyHeight = Math.ceil(result.bounds.height);
-        } else {
-          active.ctx.drawImage(user.floatingCanvas, ix, iy, iw, ih);
-          dirtyX = ix;
-          dirtyY = iy;
-          dirtyWidth = iw;
-          dirtyHeight = ih;
-        }
-      } catch (e) {
-        console.warn('Remote homography failed:', e);
-        active.ctx.drawImage(user.floatingCanvas, ix, iy, iw, ih);
-        dirtyX = ix;
-        dirtyY = iy;
-        dirtyWidth = iw;
-        dirtyHeight = ih;
-      }
-    } else {
-      active.ctx.drawImage(user.floatingCanvas, ix, iy, iw, ih);
-      dirtyX = ix;
-      dirtyY = iy;
-      dirtyWidth = iw;
-      dirtyHeight = ih;
-    }
-
-    // Track the dirty region so the stroke is properly saved. Pass the explicit
-    // commit layer so the dirty rect lands on the stroke we just began on
-    // (layerIdx may differ from user.activeLayer for replay bots).
-    this.board.expandDirtyRect(user, dirtyX, dirtyY, dirtyWidth, dirtyHeight, layerIdx);
-
-    // Store affected tiles in the stroke record for undo
-    const tt = this.board.tileTracker;
-    if (tt && active.affectedTiles) {
-      const tileIndices = tt.getTileIndicesForRect(dirtyX, dirtyY, dirtyWidth, dirtyHeight);
-      for (const idx of tileIndices) {
-        active.affectedTiles.add(idx);
-      }
-    }
-
-    // Commit only the applied placement. The source-area erase from lift remains
-    // as its own older undo step so remote history matches local undo ordering.
-    const commitExtraProps = {};
-    if (selectionRestoreData) {
-      commitExtraProps.selectionRestoreData = selectionRestoreData;
-    }
-    lm.commitUserStroke(layerIdx, user.id, commitExtraProps);
     this.board.activeSelectionLayer = -1;
     this.board.markCompositeFull();
     this.board.compositeAllLayers();
 
     // Add tile ownership for visible tiles in the pasted region (must be after composite)
-    this.board.addOccupancyForVisibleTilesInRect(user.id, dirtyX, dirtyY, dirtyWidth, dirtyHeight);
+    this.board.addOccupancyForVisibleTilesInRect(
+      user.id, unionX, unionY, unionMaxX - unionX, unionMaxY - unionY
+    );
 
     this._cleanupUserSelection(user);
   }
 
-  handleSelectionDelete(user, layerIndex, seq = 0) {
-    if (this._queueIfLoading(user, () => this.handleSelectionDelete(user, layerIndex, seq))) return;
+  handleSelectionDelete(user, layerIndex, seq = 0, allLayers = false, mirrored = false) {
+    if (this._queueIfLoading(user, () => this.handleSelectionDelete(user, layerIndex, seq, allLayers, mirrored))) return;
     // Use selection if available, otherwise fall back to pendingSelection
     const s = user.selection || user.pendingSelection;
     if (!s) return;
@@ -912,17 +1030,34 @@ export class RemoteSelectionHandler {
     const intS = { x, y, width, height };
 
     if (!user.floatingCanvas) {
+      const layer = layerIndex ?? user.activeLayer ?? 0;
+      const lasso = user.pendingLassoPath && user.pendingLassoPath.length >= 3
+        ? user.pendingLassoPath
+        : null;
+
+      // All-layers mode clears every visible layer group, matching
+      // SelectTool._eraseSelectionDirectly's isMultiLayer branch. Driven by the
+      // wire flag rather than inferred — the receiver has no other way to know.
+      const lm = this.board.layerManager;
+      const targets = allLayers
+        ? lm.layerGroups.map((g, i) => (g && g.visible ? i : -1)).filter((i) => i >= 0)
+        : [layer];
+
       // Pass the authoritative SEL_DELETE seq so the destination-out erase sorts
       // among the confirmed stroke stack. Without it the erase commits at seq=0,
       // which _sortStrokeStack pushes to the top, permanently erasing every
       // other user's strokes beneath it in this region (the persistent white spot).
-      this._eraseSelectionFromLayer(
-        intS,
-        user.activeLayer ?? 0,
-        user.pendingLassoPath && user.pendingLassoPath.length >= 3 ? user.pendingLassoPath : null,
-        user.id,
-        seq
-      );
+      for (const li of targets) {
+        this._eraseSelectionFromLayer(intS, li, lasso, user.id, seq);
+
+        // The drawer also clears the mirrored counterpart of the selection
+        // (SelectTool.deleteSelection). SEL_DELETE carries no geometry, so this
+        // has to be reconstructed from the same shared helper — otherwise the
+        // reflected half stayed on every observer's board after a clear.
+        for (const m of this.board.getMirroredSelectionShapes(intS, lasso, mirrored)) {
+          this._eraseSelectionFromLayer(m.s, li, m.lassoPath, user.id, seq);
+        }
+      }
 
       // Check affected tiles for emptiness and clear ownership from empty ones
       const tt = this.board.tileTracker;
@@ -945,9 +1080,15 @@ export class RemoteSelectionHandler {
     this._cleanupUserSelection(user);
   }
 
-  handleSelectionFill(user, color, layerIndex) {
-    if (this._queueIfLoading(user, () => this.handleSelectionFill(user, color, layerIndex))) return;
-    const s = user.selection || user.pendingSelection;
+  handleSelectionFill(user, color, layerIndex, rect = null, seq = 0) {
+    if (this._queueIfLoading(user, () => this.handleSelectionFill(user, color, layerIndex, rect, seq))) return;
+    // Prefer the rect the drawer actually filled. A rect selection is cropped to
+    // its content for display but Fill uses the original dragged rect, so the
+    // cached selection is the wrong (smaller) area. Fall back to the cached
+    // selection for a floating fill, where the float defines the target.
+    const s = (!user.floatingCanvas && rect && rect.width > 0 && rect.height > 0)
+      ? rect
+      : (user.selection || user.pendingSelection);
     if (!s) return;
     const colorString = `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${color[3]})`;
 
@@ -1088,7 +1229,7 @@ export class RemoteSelectionHandler {
         }
       }
 
-      lm.commitUserStroke(layerIdx, user.id);
+      lm.commitUserStroke(layerIdx, user.id, { seq });
       this.board.markCompositeFull();
       this.board.compositeAllLayers();
 
@@ -1097,8 +1238,8 @@ export class RemoteSelectionHandler {
     }
   }
 
-  handleSelectionStamp(user, layerIndex) {
-    if (this._queueIfLoading(user, () => this.handleSelectionStamp(user, layerIndex))) return;
+  handleSelectionStamp(user, layerIndex, seq = 0) {
+    if (this._queueIfLoading(user, () => this.handleSelectionStamp(user, layerIndex, seq))) return;
     // Same as commit but keep floating canvas active for further moves/stamps
     if (!user.floatingCanvas || !user.selection) return;
 
@@ -1175,7 +1316,7 @@ export class RemoteSelectionHandler {
       }
     }
 
-    lm.commitUserStroke(layerIdx, user.id);
+    lm.commitUserStroke(layerIdx, user.id, { seq });
     this.board.markCompositeFull();
     this.board.compositeAllLayers();
 
@@ -1187,8 +1328,8 @@ export class RemoteSelectionHandler {
     this.drawFloatingSelection(user);
   }
 
-  handleSelectionMerge(user, mode, sourceLayer) {
-    if (this._queueIfLoading(user, () => this.handleSelectionMerge(user, mode, sourceLayer))) return;
+  handleSelectionMerge(user, mode, sourceLayer, seq = 0) {
+    if (this._queueIfLoading(user, () => this.handleSelectionMerge(user, mode, sourceLayer, seq))) return;
 
     const s = user.selection || user.pendingSelection;
     if (!s || user.floatingCanvas) return;
@@ -1280,10 +1421,15 @@ export class RemoteSelectionHandler {
       ? [...sourceLayers, targetLayer]
       : sourceLayers;
     for (const layerIdx of layersToErase) {
-      this._eraseSelectionFromLayer(intS, layerIdx, lassoPath, userId);
-      // Override the timestamp with the shared batch one so undo groups them.
+      // Same authoritative seq on every stroke of the merge, so the batch sorts
+      // identically here and on the drawer (which reconciles to it on the echo).
       const stack = lm.layerGroups[layerIdx]?.strokeStack;
-      if (stack && stack.length > 0) {
+      const before = stack ? stack.length : 0;
+      this._eraseSelectionFromLayer(intS, layerIdx, lassoPath, userId, seq);
+      // Override the timestamp with the shared batch one so undo groups them.
+      // Only when the erase actually pushed a record — otherwise this relabelled
+      // whatever unrelated stroke happened to be on top as part of the merge.
+      if (stack && stack.length > before) {
         const last = stack[stack.length - 1];
         if (last && last.userId === userId) {
           last.timestamp = batchTimestamp;
@@ -1313,7 +1459,8 @@ export class RemoteSelectionHandler {
       this.board.expandDirtyRect(user, intS.x, intS.y, intS.width, intS.height, targetLayer);
       lm.commitUserStroke(targetLayer, userId, {
         timestamp: batchTimestamp,
-        isSelectionMerge: true
+        isSelectionMerge: true,
+        seq
       });
     }
 
@@ -1531,6 +1678,10 @@ export class RemoteSelectionHandler {
     }
     this._disposeCanvas(user.floatingCanvas);
     this._disposeCanvas(user._cachedPreviewCanvas);
+    if (user.floatingLayers) {
+      for (const entry of user.floatingLayers) this._disposeCanvas(entry?.canvas);
+    }
+    user.floatingLayers = null;
     user.floatingCanvas = null;
     user.floatingCtx = null;
     user.selection = null;
@@ -1812,7 +1963,12 @@ export class RemoteSelectionHandler {
 
     // Track the dirty region so the erase stroke is properly saved
     const user = this.getUsersMap().get(userId);
-    this.board.expandDirtyRect(user, ix, iy, iw, ih);
+    // Pass the layer being erased. Without it expandDirtyRect falls back to
+    // user.activeLayer, so erasing any OTHER layer (merge-all erases every
+    // source layer, not just the active one) expanded the wrong group's dirty
+    // rect and commitUserStroke discarded the erase as empty — merge-all wiped
+    // nothing on observers.
+    this.board.expandDirtyRect(user, ix, iy, iw, ih, layerIdx);
 
     // Commit the stroke. Use an explicit timestamp so it can be found during undo.
     const eraseTimestamp = typeof lm?.allocateHistoryTimestamp === 'function'

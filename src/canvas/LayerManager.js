@@ -14,6 +14,54 @@ export class LayerManager {
   static MAX_STROKES_PER_USER = 20;
 
   /**
+   * Live strokes per layer group past which the overflow bake fires even with
+   * inbound commits still queued (see _shouldDeferBakeForInbound).
+   *
+   * Sized against the observed lag, not guessed: clients trail by a median ~1156
+   * seqs, and seq counts every broadcast while only commits become strokes, at
+   * roughly 68:1 — so the typical backlog is ~17 commits, right at
+   * MAX_STROKES_PER_USER. 200 absorbs an order of magnitude more than that while
+   * still bounding the stack: each live stroke holds a cropped canvas, so this is
+   * the difference between a bounded working set and the ~1.5 GB measured with
+   * baking disabled outright.
+   */
+  static BAKE_DEFER_STACK_CAP = 200;
+
+  /**
+   * Inbound-queue bake deferral — DEFAULT OFF. It provably WORKS, and is still
+   * net-harmful. Both halves matter, so read both before touching this.
+   *
+   * Re-measured 2026-08-10 with `test:bakedefer` (3 interleaved rounds, 8 bots,
+   * 4 observers under asymmetric CPU lag 1-4x) against an exact oracle —
+   * testing/lib/bakeLedger.mjs, which records every flattened stroke by identity
+   * in bake order instead of inferring bake behaviour from a pixel percentage.
+   * The earlier verdict here ("indistinguishable, buys nothing") was a limit of
+   * that pixel oracle, not a fact about this flag.
+   *
+   *   ON the path it gates:  bake-order inversions  0 / 0 / 0   (OFF: 106/126/304)
+   *                          bake violations  median 238        (OFF: 397)
+   *   overall:               TOTAL inversions  58-67k           (OFF: 32-41k)
+   *                          worst pixel  70-80%                (OFF: 76-87%)
+   *                          peak live stack  199-215           (OFF: 131-173)
+   *
+   * WHY IT LOSES WHILE WORKING. Deferring cannot stop a stroke being flattened;
+   * it only keeps it in the live stack for longer. `deepCleanupUserState` — the
+   * user-departure bake — then flattens it in DEPARTURE order, and that path has
+   * no seq gate at all. Measured directly: with the deferral on, ~800 fewer
+   * strokes per run bake through the (gated, order-safe) overflow path and ~500
+   * more through the ungated departure path, pushing the cleanup share from ~43%
+   * to ~56%. The deferral does not prevent the damage, it relocates it somewhere
+   * worse — and cap-engaged runs (peak 215 > BAKE_DEFER_STACK_CAP) show the
+   * safety valve firing on top of that.
+   *
+   * WHAT WOULD JUSTIFY FLIPPING IT TRUE: gate the departure bake as well, or make
+   * `deepCleanupUserState` flatten in seq order rather than arrival order. Until
+   * then this mechanism perfects one path and feeds a worse one. Do NOT judge a
+   * change here on pixel percentages — see [[bake_defer_inbound_queue]].
+   */
+  static BAKE_DEFER_ENABLED = false;
+
+  /**
    * @param {number} width - Canvas width
    * @param {number} height - Canvas height
    */
@@ -34,6 +82,14 @@ export class LayerManager {
     this.localUserId = null; // Set by Board/App so we can distinguish local vs remote strokes
     this._pixelsWorker = new PixelsWorkerClient();
     this._lastCommittedStrokeTimestamp = 0;
+    // Commits that produced no StrokeRecord because the stroke painted nothing.
+    // A legitimately empty gesture and a stroke whose brush image never decoded
+    // are indistinguishable at this point, and the second is a sync bug (the
+    // drawer has ink nobody else does), so the discard is counted rather than
+    // swallowed. `_emptyCommitSamples` keeps the last few for a harness to read;
+    // set `window.__TD_WARN_EMPTY_COMMITS = true` to also log each one.
+    this._emptyCommitDiscards = 0;
+    this._emptyCommitSamples = [];
     // Highest authoritative seq that has been baked into flatCanvas/bakedSequences
     // on THIS client. Baking flattens a global seq-ordered prefix (see
     // _bakeOverflowStrokes), so every stroke with seq <= this is permanent here and
@@ -47,6 +103,12 @@ export class LayerManager {
     // these users and bakes every bakeable stroke immediately, keeping the
     // strokeStack short and the per-frame composite cheap.
     this.eagerBakeUsers = null;
+    // Users who have left or gone AFK. Their retained strokes are drained off
+    // the BOTTOM of the stack by _drainDepartedPrefix so the board still gets
+    // consolidated, without the out-of-order flatten that made the departure
+    // bake the dominant source of divergence. Cleared when the user draws again
+    // (AFK is reversible; departure is not, but the id simply never returns).
+    this._drainableUsers = new Set();
 
     this.initLayerGroups(3);
   }
@@ -213,6 +275,10 @@ export class LayerManager {
     const group = this.layerGroups[groupIdx];
     if (!group) return;
 
+    // Drawing again un-marks a returning AFK user, so their fresh strokes are
+    // protected by the normal undo window instead of being drained.
+    this._drainableUsers.delete(userId);
+
     const { canvas, ctx } = this._acquireCanvas();
     group.activeStrokeByUser.set(userId, {
       canvas,
@@ -341,11 +407,13 @@ export class LayerManager {
         bounds = this._findContentBoundsLegacy(active.canvas);
       }
     } else {
+      this._noteEmptyCommit(userId, groupIdx, 'no-dirty-rect');
       this._releaseCanvas(active);
       return;
     }
 
     if (!bounds) {
+      this._noteEmptyCommit(userId, groupIdx, 'no-content-bounds');
       this._releaseCanvas(active);
       return;
     }
@@ -781,6 +849,53 @@ export class LayerManager {
   }
 
   /**
+   * Like reconcileLocalCommitStroke, but reconciles every stroke in the oldest
+   * tagged batch rather than a single stroke.
+   *
+   * A selection erase can commit more than one stroke for one wire commit — the
+   * selected area plus its mirrored counterpart. Reconciling only one would
+   * leave the rest at seq 0, which _sortStrokeStack floats to the TOP of the
+   * stack, so a destination-out stroke would erase every later stroke by anyone.
+   * Strokes of one batch share the timestamp allocated by the caller, so the
+   * oldest timestamp identifies the batch this echo belongs to (FIFO, matching
+   * the single-stroke reconciler).
+   *
+   * @param {number} userId
+   * @param {number} seq - Authoritative sequence from the server echo.
+   * @param {string} commitType - Tag to match (e.g. 'sel_delete')
+   * @returns {boolean} True if at least one stroke was reconciled
+   */
+  reconcileLocalCommitBatch(userId, seq, commitType) {
+    let bestTs = Infinity;
+    for (const group of this.layerGroups) {
+      for (const s of group.strokeStack) {
+        if (s.userId !== userId || s.pendingCommitEcho !== commitType) continue;
+        bestTs = Math.min(bestTs, s.timestamp || 0);
+      }
+    }
+    if (bestTs === Infinity) return false;
+
+    let reconciled = 0;
+    for (const group of this.layerGroups) {
+      let touched = false;
+      for (const s of group.strokeStack) {
+        if (s.userId !== userId || s.pendingCommitEcho !== commitType) continue;
+        if ((s.timestamp || 0) !== bestTs) continue;
+        s.seq = seq;
+        delete s.pendingCommitEcho;
+        touched = true;
+        reconciled++;
+      }
+      if (touched) {
+        this._sortStrokeStack(group);
+        this._bakeOverflowStrokes(group);
+      }
+    }
+    if (reconciled) this.needsComposite = true;
+    return reconciled > 0;
+  }
+
+  /**
    * Sort the unbaked stroke stack based on global sequence number,
    * falling back to local timestamp for optimistic strokes (seq=0).
    * @param {Object} group - Layer group
@@ -813,9 +928,25 @@ export class LayerManager {
   /**
    * Undo the most recently committed stroke across all layers for a user
    * @param {number} userId - User ID
+   * @param {number} [targetSeq=0] - Undo the stroke carrying THIS authoritative
+   *   seq instead of re-resolving "the latest one" locally. A remote UNDO names
+   *   its target (App.handleUndo) precisely because "latest live stroke" is
+   *   answered against each client's own bake state, and clients that have baked
+   *   different prefixes resolve different strokes. 0 = not named (sender's
+   *   target was unsequenced, or an old client) → legacy local resolution.
    * @returns {Array|null} The undone stroke batch
    */
-  undoLastStrokeGlobal(userId) {
+  undoLastStrokeGlobal(userId, targetSeq = 0) {
+    if (targetSeq > 0) {
+      const named = this._undoStrokeBySeq(userId, targetSeq);
+      if (named) return named;
+      // Target not in our live stack. Do NOT stop here: a joiner rebuilds strokes
+      // from the command tail and they can carry seq 0, so a seq lookup finds
+      // nothing on exactly the client that most needs to stay in step (measured:
+      // selparity move_commit_then_undo, joiner at 88.5% while the live clients
+      // agreed). Falling through to the local resolution below is the old
+      // behaviour — no worse than before, and it converges here.
+    }
     let latestTimestamp = -1;
     let latestSeq = -1;
 
@@ -895,6 +1026,45 @@ export class LayerManager {
 
     if (undoneStrokes.length === 0) return null;
 
+    this.needsComposite = true;
+    this._notifyHistoryPanel(true);
+    return undoneStrokes;
+  }
+
+  /**
+   * Undo the specific stroke(s) a remote UNDO named, by authoritative seq.
+   *
+   * One wire commit can produce several stroke records sharing a seq (per-layer
+   * erases, a mirrored counterpart, a merge stamp), so this removes every live
+   * stroke of that user carrying the seq — the same batch semantics the
+   * resolve-locally path uses.
+   *
+   * Returns null when the target is not in the live stack. That is the correct
+   * outcome, not a failure: the stroke has already been baked here (baking is
+   * irreversible) or was never received. Undoing "something else instead" is
+   * precisely the divergence this exists to stop.
+   *
+   * @param {number} userId
+   * @param {number} targetSeq
+   * @returns {Array|null}
+   * @private
+   */
+  _undoStrokeBySeq(userId, targetSeq) {
+    const undoneStrokes = [];
+    for (let gi = 0; gi < this.layerGroups.length; gi++) {
+      const group = this.layerGroups[gi];
+      const stack = group.strokeStack;
+      if (!Array.isArray(stack) || stack.length === 0) continue;
+      for (let i = stack.length - 1; i >= 0; i--) {
+        const stroke = stack[i];
+        if (!stroke || stroke.userId !== userId || (stroke.seq || 0) !== targetSeq) continue;
+        stack.splice(i, 1);
+        const count = group.userStrokeCounts.get(userId) || 0;
+        if (count > 0) group.userStrokeCounts.set(userId, count - 1);
+        undoneStrokes.push({ groupIdx: gi, record: stroke });
+      }
+    }
+    if (undoneStrokes.length === 0) return null;
     this.needsComposite = true;
     this._notifyHistoryPanel(true);
     return undoneStrokes;
@@ -1009,6 +1179,18 @@ export class LayerManager {
     // stroke is reconciled; reconcileLocalStroke re-invokes us once seq lands.
     if (this._hasUnconfirmedLocalStroke(group)) return;
 
+    // Same argument, different cause: that check covers OUR unreconciled strokes,
+    // this one covers everyone else's undelivered ones. The inbound drain runs on
+    // a time budget, so under load clients trail the stream by DIFFERENT amounts.
+    // Baking now flattens whatever prefix happens to have arrived here, while a
+    // client that is caught up flattens a larger one — and baking is irreversible,
+    // so the two boards never reconverge. Wait until the queue is empty so every
+    // client bakes the same prefix. commitUserStroke re-enters this on the next
+    // commit, which is exactly when the drained messages land.
+    if (LayerManager.BAKE_DEFER_ENABLED && this._shouldDeferBakeForInbound(group)) return;
+
+    this._drainDepartedPrefix(group, safeModes);
+
     let i = 0;
     while (
       i < group.strokeStack.length &&
@@ -1017,7 +1199,28 @@ export class LayerManager {
       const stroke = group.strokeStack[i];
       const isEager = eager && eager.has(stroke.userId);
 
-      if (this._canBakeStroke(group, stroke, safeModes)) {
+      // Eager bake is a REPLAY-only optimisation (eagerBakeUsers is set solely by
+      // TimeMachine, for users who never undo in the tape) that flattens every
+      // stroke immediately instead of at the MAX_STROKES_PER_USER threshold.
+      //
+      // Restrict it to the modes `_bakeStrokeToBin` can flatten losslessly — a
+      // plain composite of the stroke onto flatCanvas. Anything else routes to
+      // `_bakeFlatComplexBlendStroke`, which has to RECONSTRUCT a backdrop
+      // (background colour + flatCanvas) and then extract the stroke's
+      // footprint. That is an approximation of the real render-time composite,
+      // not an identity, so eagerly baking a complex blend makes the replay
+      // disagree with the live board it is supposed to reproduce.
+      //
+      // Measured on test:parity: a SINGLE `screen` stroke on an empty layer
+      // replayed at 59.97% when eager-baked and 100.00% when left in the stack.
+      // Keeping these in the live strokeStack costs a little memory during
+      // replay and buys exactness. Non-eager baking (the 20-stroke overflow
+      // path) is unchanged — that trade-off is deliberate and long-standing.
+      const eagerSafe = !isEager
+        || stroke.blendMode === 'source-over'
+        || stroke.blendMode === 'destination-out';
+
+      if (eagerSafe && this._canBakeStroke(group, stroke, safeModes)) {
         this._bakeStrokeToBin(group, stroke);
         group.strokeStack.splice(i, 1);
         this._advanceBakedWatermark(stroke.seq);
@@ -1044,6 +1247,48 @@ export class LayerManager {
   }
 
   /**
+   * Consolidate the strokes of departed / AFK users, WITHOUT reintroducing the
+   * out-of-order flatten that `deepCleanupUserState` used to do.
+   *
+   * The rule is deliberately narrow: only ever look at index 0, and stop at the
+   * first stroke that is not a bakeable departed-user stroke. That makes this a
+   * strict global seq-ordered PREFIX drain — the one shape of bake that cannot
+   * invert anything, because a prefix of a total order is the same prefix on
+   * every client. Clients that hold different amounts drain different lengths
+   * (prefixDelta > 0, which the oracle explicitly treats as benign) but never in
+   * a different ORDER, which is the thing that is irreversible.
+   *
+   * Do NOT be tempted to skip past a blocked stroke to reach a departed one
+   * behind it: that is exactly the out-of-order flatten this replaced, and it
+   * would flatten a departed user's stroke underneath an active user's older
+   * live stroke, permanently.
+   *
+   * An active user's strokes are never touched here, so their undo window is
+   * untouched too — the normal `MAX_STROKES_PER_USER` path remains the only
+   * thing that can make an active user's stroke permanent.
+   *
+   * @param {Object} group - Layer group
+   * @param {string[]} safeModes - Blend modes that can be flattened losslessly
+   * @private
+   */
+  _drainDepartedPrefix(group, safeModes) {
+    if (this._drainableUsers.size === 0) return;
+
+    while (group.strokeStack.length > 0) {
+      const stroke = group.strokeStack[0];
+      if (!this._drainableUsers.has(stroke.userId)) break;
+      if (!this._canBakeStroke(group, stroke, safeModes)) break;
+
+      this._bakeStrokeToBin(group, stroke);
+      group.strokeStack.shift();
+      this._advanceBakedWatermark(stroke.seq);
+
+      const count = group.userStrokeCounts.get(stroke.userId) || 0;
+      if (count > 0) group.userStrokeCounts.set(stroke.userId, count - 1);
+    }
+  }
+
+  /**
    * Whether the local user has a committed-but-not-yet-reconciled stroke in this
    * group. Such strokes carry no authoritative server seq, so the stack's global
    * order isn't final and baking must wait (see _bakeOverflowStrokes).
@@ -1063,6 +1308,30 @@ export class LayerManager {
       if (s.userId === localId && !(s.seq > 0)) return true;
     }
     return false;
+  }
+
+  /**
+   * Whether to hold the overflow bake because inbound commits are still queued.
+   *
+   * Guarded by a HARD CAP, which is the whole reason this is safe to do at all:
+   * deferring unconditionally is what makes memory run away (measured at ~1.5 GB
+   * per client with baking disabled outright), and a client that falls
+   * permanently behind — a slow machine, a long background stall — would never
+   * bake again. Past the cap we bake regardless and accept the divergence risk
+   * for that client; an unbounded live stack is the worse failure.
+   *
+   * Offline and replay are unaffected: there is no socket, so the queue reads 0
+   * and the eager-bake path behaves exactly as before.
+   *
+   * @param {Object} group
+   * @returns {boolean}
+   * @private
+   */
+  _shouldDeferBakeForInbound(group) {
+    if (group.strokeStack.length >= LayerManager.BAKE_DEFER_STACK_CAP) return false;
+    const wsClient = this.board?.app?.wsClient;
+    if (!wsClient?.getInboundQueueLength) return false;
+    return wsClient.getInboundQueueLength() > 0;
   }
 
   _anyEagerBakeable(group, eager) {
@@ -1132,6 +1401,23 @@ export class LayerManager {
   }
 
   /**
+   * Record a commit that produced no stroke record. See `_emptyCommitDiscards`.
+   * @param {number} userId
+   * @param {number} groupIdx
+   * @param {string} reason
+   * @private
+   */
+  _noteEmptyCommit(userId, groupIdx, reason) {
+    this._emptyCommitDiscards++;
+    if (this._emptyCommitSamples.length < 20) {
+      this._emptyCommitSamples.push({ userId, groupIdx, reason, at: Date.now() });
+    }
+    if (typeof window !== 'undefined' && window.__TD_WARN_EMPTY_COMMITS) {
+      console.warn(`[LayerManager] commit discarded (${reason}) user=${userId} layer=${groupIdx}`);
+    }
+  }
+
+  /**
    * Highest baked seq on this client. Everything <= this is permanent here;
    * live (undoable) strokeStack entries are above it. Used to stamp the
    * checkpoint/join snapshot so the undoable tail is replayed as commands
@@ -1157,6 +1443,14 @@ export class LayerManager {
     if (!group) return true;
     // flatCanvas only exists once something has been baked into this layer.
     if (group.flatCanvas) return false;
+    // _compressStrokesToGroup splices strokes OUT of strokeStack into
+    // bakedSequences without creating a flatCanvas, so a fully-compressed layer
+    // looks empty by the two checks above while holding real ink — and layers
+    // 1-2 are exactly where compressed runs accumulate. compositeBakedThroughSeq
+    // renders bakedSequences unconditionally (only strokeStack is seq-filtered),
+    // so count them the same way: baking flattens a seq-ordered prefix, so
+    // anything in here is already at or below the watermark maxSeq is taken from.
+    if (group.bakedSequences.length > 0) return false;
     return !group.strokeStack.some((s) => (s.seq || 0) > 0 && s.seq <= maxSeq);
   }
 
@@ -2707,6 +3001,7 @@ export class LayerManager {
     }
     this.redoStackByUser.clear();
     this._bakedWatermarkSeq = 0;
+    this._drainableUsers.clear();
 
     if (this._pendingGlitchResults) {
       for (const pending of this._pendingGlitchResults.values()) {
@@ -2906,6 +3201,13 @@ export class LayerManager {
     const preserveVisuals = options.preserveVisuals !== false;
     const safeModes = ['source-over', 'destination-out', 'multiply', 'darken', 'lighten', 'screen'];
 
+    // Reached on BOTH user departure and the AFK transition (UserHandlers' 'afk'
+    // handler calls cleanupUserState with preserveVisuals), which is exactly the
+    // set whose strokes should still be consolidated. Mark them; the actual
+    // flattening happens in order via _drainDepartedPrefix.
+    if (preserveVisuals) this._drainableUsers.add(userId);
+    else this._drainableUsers.delete(userId);
+
     for (const group of this.layerGroups) {
       const active = group.activeStrokeByUser.get(userId);
       if (active) {
@@ -2917,15 +3219,35 @@ export class LayerManager {
       }
       this._deleteUserPreviewFromGroup(group, userId);
 
+      // A departing user's COMMITTED strokes are retained, never baked here.
+      //
+      // Baking them was the single largest source of permanent divergence in
+      // this system. Two independent defects, both fatal:
+      //
+      //   1. It flattens out of GLOBAL order. flatCanvas composites beneath the
+      //      ENTIRE live stack, so baking this user's seq-300 stroke while
+      //      another user's seq-200 stroke is still live drops the newer stroke
+      //      underneath the older one — permanently, since baking is
+      //      irreversible.
+      //   2. It fires on a local DISCONNECT EVENT, which reaches each client at
+      //      a different point in its own stream. Clients therefore flatten
+      //      different sets at different positions and never reconverge.
+      //
+      // Measured (test:k6obs --cpu-lag=1,2,3,4, bakeLedger oracle): of 32,189
+      // bake-order inversions, the gated overflow path accounted for 207. This
+      // path accounted for the other ~99.4%, and for the z-order inversions
+      // (36,904) exceeding the bake-order count.
+      //
+      // Retaining costs nothing in the long run: `_bakeOverflowStrokes` walks
+      // the stack from index 0 and flattens a GLOBAL seq-ordered prefix, so
+      // these strokes are baked in correct order as that prefix advances. The
+      // user's entry in `userStrokeCounts` is deliberately kept below (rather
+      // than deleted) so they keep counting toward the overflow trigger — drop
+      // it and a departed cohort's strokes can sit live with nothing left to
+      // push the prefix past them.
       const retainedStrokes = [];
       for (const stroke of group.strokeStack) {
-        if (stroke.userId === userId) {
-          if (preserveVisuals && this._canBakeStroke(group, stroke, safeModes)) {
-            this._bakeStrokeToBin(group, stroke);
-          } else if (preserveVisuals) {
-            retainedStrokes.push(stroke);
-            continue;
-          }
+        if (stroke.userId === userId && !preserveVisuals) {
           this._disposeStrokeRecord(stroke);
           continue;
         }
@@ -2948,7 +3270,16 @@ export class LayerManager {
         retainedSequences.push(seq);
       }
       group.bakedSequences = retainedSequences;
-      group.userStrokeCounts.delete(userId);
+      // Only drop the count when the strokes themselves were dropped. When they
+      // are retained (above), the count must survive or they stop counting
+      // toward `_anyUserOverMax` and nothing advances the prefix past them.
+      if (!preserveVisuals) group.userStrokeCounts.delete(userId);
+
+      // Departures and AFK transitions usually arrive when that user is (by
+      // definition) not drawing, and the drain otherwise only rides on
+      // _bakeOverflowStrokes, which is commit-driven. Run it here so a quiet
+      // board still consolidates rather than holding the strokes indefinitely.
+      if (preserveVisuals) this._drainDepartedPrefix(group, safeModes);
     }
 
     const redoBatches = this.redoStackByUser.get(userId);

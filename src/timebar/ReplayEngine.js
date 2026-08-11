@@ -1334,15 +1334,26 @@ export class ReplayEngine {
   }
 
   /**
-   * Apply a shape draw mode to the replay's rectangle/circle tool instances.
-   * Mirrors App.applyShapeDrawMode: the mode is app-global in live play, so a
-   * single CSDM from any participant reconfigures the shared tools here too.
+   * Apply a shape draw mode, mirroring live play where it belongs to the user
+   * who set it (the shape tools read it off the drawing user).
    * @param {string} mode - 'corner-to-corner' or 'center-scaling'
+   * @param {number|null} [userId] - Owner of the mode, when the tape names one.
    * @private
    */
-  _applyShapeDrawMode(mode) {
+  _applyShapeDrawMode(mode, userId = null) {
     const normalized = mode === 'center-scaling' ? 'center-scaling' : 'corner-to-corner';
+
+    if (userId != null) {
+      this._getOrCreateBot(userId).shapeDrawMode = normalized;
+      return;
+    }
+
+    // Unattributed: proto3 omits a default u=0 and the recorder's
+    // structuredClone drops it, so most taped CSDMs name nobody. Apply
+    // engine-wide rather than lose the mode — and to existing bots too, since
+    // a bot's own value would otherwise shadow the tool-instance fallback.
     this._shapeDrawMode = normalized;
+    for (const bot of this.botUsers.values()) bot.shapeDrawMode = normalized;
     this._toolManager?.getTool('rectangle')?.setDrawMode?.(normalized);
     this._toolManager?.getTool('circle')?.setDrawMode?.(normalized);
   }
@@ -2235,6 +2246,9 @@ export class ReplayEngine {
       // playback where the cbm handler keeps it in sync. Pre-checkpoint CBMs
       // aren't replayed, so this restore is the only way the bot learns it.
       blendBakeMode: state.blendBakeMode,
+      // Seed from the engine-wide mode so a bot created after an unattributed
+      // CSDM still renders its shapes with it.
+      shapeDrawMode: state.shapeDrawMode ?? this._shapeDrawMode,
       activeLayer: state.activeLayer ?? 2,
       patternMode: state.patternMode ?? false,
       patternScale: state.patternScale ?? 100,
@@ -2766,12 +2780,11 @@ export class ReplayEngine {
       return;
     }
 
-    // Shape draw mode is app-global in live play (the 'csdm' handler calls
-    // app.applyShapeDrawMode for everyone), so apply it engine-wide. Handled
-    // before the userId guard: the recorder's structuredClone drops proto3
-    // default scalars, so a CSDM from session 0 arrives with msg.u undefined.
+    // Shape draw mode is per-user, but must still be handled before the userId
+    // guard: the recorder's structuredClone drops proto3 default scalars, so a
+    // CSDM from session 0 arrives with msg.u undefined and would be dropped.
     if (msg.t === T.CSDM) {
-      this._applyShapeDrawMode(msg.sdm);
+      this._applyShapeDrawMode(msg.sdm, msg.u ?? null);
       return;
     }
 
@@ -2795,6 +2808,19 @@ export class ReplayEngine {
         this.topCtx?.clearRect(0, 0, this.width, this.height);
         this._snapshotTopOverlayUsers.clear();
       }
+      return;
+    }
+
+    // A full-board clear is board-level too, and the client sends CLR with no
+    // `u` at all (the server stamps it on relay). Session 0's stamped u=0 is a
+    // proto3 default, so it never reaches the wire and structuredClone drops it
+    // from the recorded tape — msg.u is `undefined` on every receiver's copy.
+    // Below the guard this silently no-opped for everyone except the initiator,
+    // whose outbound copy stamped a real `u`, so a cleared board kept replaying
+    // its pre-clear contents. Same failure as BOARD_SNAPSHOT_RESTORE above.
+    if (msg.t === T.CLR) {
+      this._replayBoard.layerManager.clearAll();
+      this._snapshotCtx?.clearRect(0, 0, this.width, this.height);
       return;
     }
 
@@ -3001,12 +3027,6 @@ export class ReplayEngine {
           this._replayBoard.mirror = this.mirror;
           break;
 
-        case T.CLR:
-          // Clear all layers in the replay LayerManager
-          this._replayBoard.layerManager.clearAll();
-          this._snapshotCtx?.clearRect(0, 0, this.width, this.height);
-          break;
-
         case T.CANCEL:
           // Cancel current stroke — clean up user state
           if (user.mousedown) {
@@ -3140,7 +3160,8 @@ export class ReplayEngine {
               user,
               this._decodeSelectionRect(msg),
               this._decodePointPath(msg.cr),
-              msg.g || null
+              msg.g || null,
+              !!msg.a
             );
             if (user.pendingImageLoad) {
               await user.pendingImageLoad;
@@ -3174,11 +3195,16 @@ export class ReplayEngine {
           // replayed via handleMouseUp() with no seq). Passing the wire seq here
           // would sort the destination-out erase BELOW every seq=0 stroke, so it
           // would stop erasing them and the clear would vanish from the replay.
-          this._remoteHandler.selectionHandler.handleSelectionDelete(user, msg.ly ?? 0);
+          // The all-layers and mirror flags still apply — they describe WHAT was
+          // erased, not the ordering, so dropping them replayed an all-layers or
+          // mirrored clear as a single unmirrored one.
+          this._remoteHandler.selectionHandler.handleSelectionDelete(user, msg.ly ?? 0, 0, !!msg.a, !!msg.m);
           break;
         case T.SEL_FILL:
           this._restorePatternStateForUser(user);
-          this._remoteHandler.selectionHandler.handleSelectionFill(user, unpackColor(msg.c), msg.ly ?? 0);
+          this._remoteHandler.selectionHandler.handleSelectionFill(
+            user, unpackColor(msg.c), msg.ly ?? 0,
+            msg.sw ? { x: msg.sx || 0, y: msg.sy || 0, width: msg.sw, height: msg.sh || 0 } : null);
           break;
         case T.SEL_STAMP:
           this._remoteHandler.selectionHandler.handleSelectionStamp(user, msg.ly ?? 0);
@@ -3213,6 +3239,13 @@ export class ReplayEngine {
           break;
 
         case T.UNDO:
+          // Deliberately NOT passing msg.undoTargetSeq. Replay commits every
+          // stroke at seq 0 and orders by timestamp (MU replays through
+          // handleMouseUp() with no seq) — same convention SEL_DELETE documents
+          // below — so a seq lookup can never match here and would only fall
+          // through to this same call. Passing it would imply replay honours the
+          // target, and it would quietly start undoing the wrong stroke if the
+          // tape ever carried real seqs while the strokes did not.
           this._replayBoard.undo(user.activeLayer, userId);
           break;
 

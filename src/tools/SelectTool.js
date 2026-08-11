@@ -2438,8 +2438,12 @@ export class SelectTool extends Tool {
       this.originalSelectionPos = { x: s.x, y: s.y };
     }
 
-    // Erase source area directly from baseCanvas (no stroke record created)
-    this._restoreData = this._eraseSelectionDirectly(s, this.mode === 'lasso' ? this.lassoPath : null);
+    // Erase source area directly from baseCanvas (no stroke record created).
+    // Tagged 'sel_lift' so the SEL_LIFT self echo can assign this erase the same
+    // authoritative seq every observer commits it with. It is the LOWER half of
+    // the lift/stamp pair: the stamp reconciles to SEL_COMMIT's (necessarily
+    // higher) seq, so the erase stays beneath it on every client.
+    this._restoreData = this._eraseSelectionDirectly(s, this.mode === 'lasso' ? this.lassoPath : null, 'sel_lift');
 
     // Check affected tiles for emptiness and clear tracker if empty
     const tt = this.board.tileTracker;
@@ -2468,7 +2472,8 @@ export class SelectTool extends Tool {
       const imageData = this.floatingCanvas ? this.floatingCanvas.toDataURL('image/png') : null;
       const selectionSnapshot = cloneSelectionRect(this.selection);
       const lassoPathSnapshot = clonePathPoints(this.lassoPath);
-      this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionLift(selectionSnapshot, lassoPathSnapshot, imageData));
+      const liftAllLayers = !!(this.copyAllLayers && this.floatingLayers && this.floatingLayers.length > 0);
+      this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionLift(selectionSnapshot, lassoPathSnapshot, imageData, liftAllLayers));
     }
   }
 
@@ -2643,7 +2648,9 @@ export class SelectTool extends Tool {
 
         this._drawFloatingToActiveStroke(active, canvas, this.needsHomographyTransform(), commitOutputBounds);
 
-        const commitExtraProps = { timestamp: commitBatchTimestamp };
+        // Tagged now that the lift-erase is sequenced too (2026-08-10) — see the
+        // pairing note on the single-layer commit below.
+        const commitExtraProps = { timestamp: commitBatchTimestamp, pendingCommitEcho: 'sel_commit' };
         if (!attachedSelectionRestoreData && this._restoreData) {
           commitExtraProps.selectionRestoreData = this._restoreData;
           attachedSelectionRestoreData = true;
@@ -2740,7 +2747,15 @@ export class SelectTool extends Tool {
     // Commit as an undoable placement stroke only. The lifted source-area erase
     // remains its own older history entry so undo peels back apply, then stamps,
     // and only later restores the original lifted pixels.
-    const commitExtraProps = {};
+    // Both halves of the pair are sequenced (2026-08-10). The stamp reconciles to
+    // the SEL_COMMIT echo's seq and the lift-erase to the SEL_LIFT echo's, so the
+    // erase — broadcast first, therefore numbered lower — stays beneath it.
+    //
+    // Do NOT sequence the stamp on its own. _sortStrokeStack maps seq 0 →
+    // MAX_SAFE_INTEGER, so a stamp with a real seq above a still-seq-0
+    // destination-out lift-erase sinks BELOW it and the erase wipes the pixels it
+    // just placed. If the lift tag is ever removed, remove this one too.
+    const commitExtraProps = { pendingCommitEcho: 'sel_commit' };
     if (this._restoreData) {
       commitExtraProps.selectionRestoreData = this._restoreData;
     }
@@ -3009,6 +3024,7 @@ export class SelectTool extends Tool {
       ? lm.allocateHistoryTimestamp()
       : Date.now();
     const snapshots = [];
+    const mirroredShapes = this.board.getMirroredSelectionShapes(s, lassoPath);
 
     const eraseGroup = (groupIdx) => {
       const group = lm.layerGroups[groupIdx];
@@ -3036,14 +3052,26 @@ export class SelectTool extends Tool {
 
       snapshots.push({ groupIdx, canvas: snap, x: s.x, y: s.y });
 
-      this._eraseRegionStroke(groupIdx, s, lassoPath, userId, {
+      const commitProps = {
         eraseAll: isMultiLayer,
         timestamp: batchTimestamp,
         isSelectionErase: true, // Flag to distinguish from normal erasers if needed
-        // Only a single-layer erase reconciles cleanly via the FIFO-oldest commit
-        // echo; multi-layer batches keep the legacy MU-reconcile path.
-        ...(commitTag && !isMultiLayer ? { pendingCommitEcho: commitTag } : {})
-      });
+        // Every stroke of the batch carries the tag — reconcileLocalCommitBatch
+        // assigns the echo's seq to all of them. Multi-layer batches used to be
+        // excluded on the assumption they'd reconcile via MU, but a menu-driven
+        // clear produces no MU, so they sat at seq 0 on top of the stack forever.
+        ...(commitTag ? { pendingCommitEcho: commitTag } : {})
+      };
+
+      this._eraseRegionStroke(groupIdx, s, lassoPath, userId, commitProps);
+
+      // Mirrored counterpart, in the SAME batch: it shares batchTimestamp and
+      // the commit tag, so the single SEL_DELETE echo reconciles both to the
+      // authoritative seq. Erased separately (untagged) it stayed at seq 0 and
+      // floated to the top of the stack as a permanent hole.
+      for (const m of mirroredShapes) {
+        this._eraseRegionStroke(groupIdx, m.s, m.lassoPath, userId, commitProps);
+      }
     };
 
     if (isMultiLayer) {
@@ -3367,15 +3395,14 @@ export class SelectTool extends Tool {
         }
       }
 
-      if (this.board.mirror) {
-        const bw = this.board.getWidth();
-        const ms = { x: bw - s.x - s.width, y: s.y, width: s.width, height: s.height };
-        const mLassoPath = lassoPath ? lassoPath.map(p => ({ x: bw - p.x, y: p.y })) : null;
-        this._eraseSelectionDirectly(ms, mLassoPath);
-
-        // Also check mirrored tiles
-        if (tileOwnership) {
-          const mirrorTiles = tileOwnership.getTileIndicesForRect(ms.x, ms.y, ms.width, ms.height);
+      // The mirrored erase itself now rides inside _eraseSelectionDirectly's
+      // batch above (so it shares the commit tag and reconciles to the same
+      // seq); only the mirrored tile bookkeeping is left to do here.
+      if (tileOwnership) {
+        for (const m of this.board.getMirroredSelectionShapes(s, lassoPath)) {
+          const mirrorTiles = tileOwnership.getTileIndicesForRect(
+            m.s.x, m.s.y, m.s.width, m.s.height
+          );
           if (mirrorTiles.length > 0) {
             this.board.checkErasedTilesForOwnershipByIndices(new Set(mirrorTiles));
           }
@@ -3385,7 +3412,7 @@ export class SelectTool extends Tool {
 
     // Broadcast delete to other users
     if (app.wsClient) {
-      app.inputBufferManager.queueBroadcast(() => app.wsClient.broadcastSelectionDelete(app.self.activeLayer));
+      app.inputBufferManager.queueBroadcast(() => app.wsClient.broadcastSelectionDelete(app.self.activeLayer, !!this.copyAllLayers, !!this.board.mirror));
     }
 
     this.hideContextMenu();
@@ -3510,7 +3537,8 @@ export class SelectTool extends Tool {
       this.board.expandDirtyRect(app.self, s.x, s.y, s.width, s.height, targetLayer);
       lm.commitUserStroke(targetLayer, userId, {
         timestamp: batchTimestamp,
-        isSelectionMerge: true
+        isSelectionMerge: true,
+        pendingCommitEcho: 'sel_merge'
       });
     }
 
@@ -3537,7 +3565,12 @@ export class SelectTool extends Tool {
     this._eraseRegionStroke(layerIdx, s, lassoPath, userId, {
       timestamp: batchTimestamp,
       isSelectionMerge: true,
-      isSelectionErase: true
+      isSelectionErase: true,
+      // Reconciled to the authoritative SEL_MERGE seq by the self-echo. A merge
+      // commits several destination-out strokes plus a source-over stamp; left
+      // at seq 0 they sort by each client's own locally-allocated timestamp, so
+      // drawer and observers ordered the same merge differently.
+      pendingCommitEcho: 'sel_merge'
     });
   }
 
@@ -3644,7 +3677,9 @@ export class SelectTool extends Tool {
         this.board.compositeTileGrid?.markRect(mx, s.y, s.width, s.height);
       }
       this.board.compositeAllLayers();
-      this.board.endStroke(app.self);
+      // Tagged so the SEL_FILL self echo assigns the authoritative seq — same
+      // pairing rule as commitSelection.
+      this.board.endStroke(app.self, { pendingCommitEcho: 'sel_fill' });
 
       // Tile occupancy (must be after composite)
       this.board.addOccupancyForVisibleTilesInRect(userId, s.x, s.y, s.width, s.height);
@@ -3656,7 +3691,11 @@ export class SelectTool extends Tool {
     }
 
     if (this.board.app?.wsClient) {
-      this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionFill(app.self.color, app.self.activeLayer));
+      // Send the rect actually filled (`s` — the pre-crop original when the
+      // selection was cropped to content), not the displayed selection.
+      const filled = { x: s.x, y: s.y, width: s.width, height: s.height };
+      this.board.app.inputBufferManager.queueBroadcast(
+        () => this.board.app.wsClient.broadcastSelectionFill(app.self.color, app.self.activeLayer, filled));
     }
 
     // After filling, expand selection to encompass the entire filled lasso region
@@ -3770,7 +3809,10 @@ export class SelectTool extends Tool {
 
       this._drawFloatingToActiveStroke(active, canvas, hasTransform, stampOutputBounds);
 
-      lm.commitUserStroke(groupIdx, userId, { timestamp: stampBatchTimestamp });
+      // Tagged so the SEL_STAMP self echo assigns the authoritative seq. Same
+      // pairing rule as commitSelection: safe only because the lift-erase beneath
+      // it is sequenced from SEL_LIFT.
+      lm.commitUserStroke(groupIdx, userId, { timestamp: stampBatchTimestamp, pendingCommitEcho: 'sel_stamp' });
     }
 
     // Composite and commit the stroke

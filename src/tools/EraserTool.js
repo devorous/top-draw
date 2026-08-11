@@ -138,19 +138,32 @@ export class EraserTool extends Tool {
     user.addToLine(point);
     const state = this._ensureStrokeState(user);
     this._stampPoint(user, state, point);
-    this._eraseOverlayTextHits(point);
+    this._eraseOverlayTextHits(point, user);
   }
 
   /**
-   * If this eraser stamp covers any active SVG text records, fade them out
-   * and broadcast their removal so other clients drop the SVG node too.
+   * If this eraser stamp covers any active SVG text records, fade them out —
+   * and, only when WE are the one erasing, broadcast the removal so other
+   * clients drop the SVG node too.
+   *
+   * This path also runs for remote strokes (RemoteUserHandler drives
+   * appendBufferedPoint), so broadcasting unconditionally meant every client in
+   * the room independently announced the same removal: N clients erasing over
+   * one text produced N TEXT_REMOVE broadcasts instead of one. Beyond the
+   * duplicate traffic that made those clients *look busy to the server* —
+   * TEXT_REMOVE counts as deliberate user activity — so a room where anyone
+   * erased over text could never let anybody go AFK.
    */
-  _eraseOverlayTextHits(point) {
+  _eraseOverlayTextHits(point, user) {
     const overlay = this.board?.textOverlay;
     if (!overlay || overlay.records.size === 0) return;
     const radius = Math.max(1, point.size / 2);
     const hits = overlay.hitTestCircle(point.x, point.y, radius);
-    for (const r of hits) overlay.eraseRemove(r.id);
+    const isLocal = this._isLocalUser(user);
+    for (const r of hits) {
+      if (isLocal) overlay.eraseRemove(r.id);
+      else overlay.removeRemote(r.id);   // the author already told everyone
+    }
   }
 
   drawPreview(user, rect = null, ctx = this.board.topCtx) {

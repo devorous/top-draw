@@ -53,8 +53,18 @@ const REPLAY_SETTLE_MS = parseInt(process.env.REPLAY_SETTLE_MS || '1500', 10);
 
 const args = process.argv.slice(2);
 let NAME_FILTER = null;
+// Diagnostic: neutralise the replay engine's eager-bake optimisation.
+// TimeMachine marks every user who never undoes in the tape as "eager bake",
+// which flattens each stroke straight into flatCanvas instead of keeping it in
+// the live strokeStack. Baking resolves a stroke's blend against whatever is
+// beneath it AT BAKE TIME and round-trips the result through 8-bit RGBA, so for
+// non-source-over strokes (eraser, blend modes) and soft/stamped ones it need
+// not equal a single final composite. Toggling this isolates "the ReplayEngine
+// applied the wrong thing" from "the ReplayEngine baked it differently".
+let NO_EAGER_BAKE = false;
 for (const a of args) {
   if (a === '--headed') process.env.HEADLESS = 'false';
+  else if (a === '--no-eager-bake') NO_EAGER_BAKE = true;
   else if (a.startsWith('--only=')) NAME_FILTER = a.slice('--only='.length).split(',').map((s) => s.trim());
   else if (a.startsWith('--')) { console.error(`Unknown flag: ${a}`); process.exit(2); }
 }
@@ -227,6 +237,14 @@ async function reseedRandom(page, seedValue = 12345) {
   }, seedValue);
 }
 
+/** Return tool state that leaks between cases to its default. */
+async function resetToolState(page) {
+  await page.evaluate(() => {
+    const app = window.app;
+    app?.handleBlendModeChange?.('source-over');
+  });
+}
+
 async function clearCanvas(page) {
   await page.evaluate(() => {
     const app = window.app;
@@ -321,14 +339,20 @@ async function loadBundleIntoReplayer(page, bundle) {
   // Push the bundle in, then call TimeMachine.loadFromRecording. That call
   // seeks to sessionEnd as part of loading, so the replay engine's
   // layerManager is fully populated when we capture.
-  await page.evaluate(async (b) => {
+  await page.evaluate(async (b, noEager) => {
     if (!window.app?.TimeMachine?.loadFromRecording) {
       throw new Error('TimeMachine.loadFromRecording not present');
+    }
+    if (noEager) {
+      // Patch the prototype so the set is empty however TimeMachine computes it.
+      const mod = await import('/src/timebar/ReplayEngine.js');
+      const Engine = mod.ReplayEngine ?? mod.default;
+      if (Engine?.prototype) Engine.prototype.setEagerBakeUsers = function () {};
     }
     // Rehydrate the Map back from the plain object.
     const rec = { ...b, assets: new Map(Object.entries(b.assets || {})) };
     await window.app.TimeMachine.loadFromRecording(rec);
-  }, bundle);
+  }, bundle, NO_EAGER_BAKE);
 }
 
 // ─── Per-test run ──────────────────────────────────────────────────────────
@@ -338,6 +362,14 @@ async function runCase(tabs, testCase) {
   const { drawer, observer, replayer } = tabs;
 
   // Reset everyone to a clean board + deterministic RNG.
+  //
+  // Blend mode must be reset explicitly: it is user state, not board state, so
+  // clearCanvas leaves it alone. `brush_blend_modes` ends on `screen`, and every
+  // later case silently inherited it — ink/flowPen/shape_set/eraser were all
+  // drawing in `screen` while claiming to test the default. They passed in
+  // isolation and failed in a full run, which is a miserable thing to debug.
+  await resetToolState(drawer.page);
+  await resetToolState(observer.page);
   await clearCanvas(drawer.page);
   await clearCanvas(observer.page);
   await sleep(400);

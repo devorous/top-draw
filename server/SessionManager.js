@@ -275,13 +275,32 @@ export class SessionManager {
     const now = Date.now();
     const joinedUsers = this.getJoinedUsers();
 
+    // AFK_DEBUG=1 — why is (or isn't) a user going AFK? Prints each user's idle
+    // age every check. An age that keeps resetting means something is touching
+    // lastActivity; an age that grows past AFK_TIMEOUT without a mark means the
+    // eligibility guard (name/lastActivity) is rejecting them.
+    if (process.env.AFK_DEBUG && this.users.size) {
+      const rows = [];
+      this.users.forEach((u, idx) => {
+        rows.push(`${idx}:${u.name || '<noname>'}`
+          + `=${u.lastActivity ? Math.round((now - u.lastActivity) / 1000) + 's' : 'NEVER'}`
+          + `${u.lastActivityType !== undefined ? `/t${u.lastActivityType}` : ''}`
+          + `${u.afk ? ' AFK' : ''}`);
+      });
+      console.log(`[AFK_DEBUG]${this.isDiscovery ? ' [discovery]' : ''} idle ages: ${rows.join(' ')}`);
+    }
+
     this.users.forEach((user, sessionIndex) => {
       if (!user.name) return;
       if (!user.afk && user.lastActivity && (now - user.lastActivity > AFK_TIMEOUT)) {
         user.afk = true;
         user.mousedown = false;
         this.broadcastToAll({ t: T.AFK, u: sessionIndex, a: true });
-        console.log(`User ${sessionIndex} marked as AFK`);
+        // Name the scope: session indices are per-room, so a bare index cannot
+        // be matched to a client. The discovery connection has its own indices
+        // starting at 0 too, which makes an unqualified line actively misleading.
+        console.log(`User ${sessionIndex} (${user.name || 'unnamed'}) marked as AFK`
+          + `${this.isDiscovery ? ' [discovery]' : ''}`);
         this._scheduleStrokeCompression(sessionIndex);
       }
     });

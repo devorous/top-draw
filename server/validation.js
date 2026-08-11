@@ -242,7 +242,6 @@ export async function sanitizeMessage(data) {
     case T.CANCEL:
     case T.HIDE_CURSOR:
     case T.SHOW_CURSOR:
-    case T.UNDO:
     case T.REDO:
     case T.ROOM_LIST_REQUEST:
     case T.ROOM_REGISTER:
@@ -252,6 +251,18 @@ export async function sanitizeMessage(data) {
     case T.PONG:
       if (data.lowPowerMode !== undefined) sanitized.lowPowerMode = sanitizeBoolean(data.lowPowerMode);
       if (data.tabHidden !== undefined) sanitized.tabHidden = sanitizeBoolean(data.tabHidden);
+      return sanitized;
+
+    // Split out of the group above so undo_target_seq survives: that group keeps
+    // only lowPowerMode/tabHidden, and a field absent from a type's validation
+    // case is silently dropped for every receiver.
+    case T.UNDO:
+      if (data.lowPowerMode !== undefined) sanitized.lowPowerMode = sanitizeBoolean(data.lowPowerMode);
+      if (data.tabHidden !== undefined) sanitized.tabHidden = sanitizeBoolean(data.tabHidden);
+      if (data.undoTargetSeq !== undefined) {
+        const n = Number(data.undoTargetSeq);
+        sanitized.undoTargetSeq = Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+      }
       return sanitized;
 
     case T.CS:
@@ -515,12 +526,39 @@ export async function sanitizeMessage(data) {
     case T.SEL_CANCEL:
     case T.SEL_FLIP:
       if (data.ly !== undefined) sanitized.ly = clampInt(data.ly, 0, MAX_LAYER_INDEX, 0);
+      // All-layers flag. The op spans every layer, not just `ly`, and there is
+      // no way for a receiver to infer that — without it an all-layers clear
+      // wiped one layer on observers and all of them on the drawer.
+      if (data.a !== undefined) sanitized.a = sanitizeBoolean(data.a);
+      // Mirror state at operation time. A joiner replaying the tail has not
+      // necessarily applied the room's mirror toggle yet (MIR is not a commit
+      // and is not in the stroke log), so it cannot read this off its own board.
+      if (data.m !== undefined) sanitized.m = sanitizeBoolean(data.m);
       return sanitized;
 
     case T.SEL_FILL:
       sanitized.ly = clampInt(data.ly, 0, MAX_LAYER_INDEX, 0);
       sanitized.c = Number.isInteger(data.c) ? data.c >>> 0 : 0;
+      // Filled rect — a rect selection is cropped for display but filled at its
+      // original dragged size, so the geometry cannot be inferred by the receiver.
+      sanitized.sx = clampInt(data.sx, MIN_COORD, MAX_COORD, 0);
+      sanitized.sy = clampInt(data.sy, MIN_COORD, MAX_COORD, 0);
+      sanitized.sw = clampInt(data.sw, 0, MAX_COORD, 0);
+      sanitized.sh = clampInt(data.sh, 0, MAX_COORD, 0);
       return sanitized;
+
+    // Without this case the sanitizer fell through to the bare `return sanitized`
+    // at the end of the switch, which keeps only `t`. Both of SEL_MERGE's fields
+    // were therefore stripped: receivers read `mode = data.g || 'down'` and
+    // `sourceLayer = data.ly ?? 0`, so every merge arrived as "merge down from
+    // layer 0" and hit the `activeLayer <= 0` guard — merge never replicated to
+    // anyone, on any layer.
+    case T.SEL_MERGE: {
+      const mode = sanitizeString(data.g, 8);
+      sanitized.g = ['up', 'down', 'all'].includes(mode) ? mode : 'down';
+      sanitized.ly = clampInt(data.ly, 0, MAX_LAYER_INDEX, 0);
+      return sanitized;
+    }
 
     case T.FILL:
       sanitized.sx = clampInt(data.sx, MIN_COORD, MAX_COORD, 0);
@@ -927,6 +965,10 @@ export async function sanitizeMessage(data) {
         maxLength: MAX_SELECTION_POINTS
       });
     }
+    // All-layers flag (SEL_LIFT). The lift erased every visible layer and the
+    // matching SEL_COMMIT will re-stamp every visible layer; `g` is the flattened
+    // composite, so a receiver cannot infer the span from the payload.
+    if (data.a !== undefined) sanitized.a = sanitizeBoolean(data.a);
 
     // SEL_LIFT may legitimately omit `g`: the receiver's
     // RemoteSelectionHandler.handleSelectionLift falls back to

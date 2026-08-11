@@ -17,7 +17,10 @@
     "test:k6edge": "node testing/devtools/replay_multiuser_edge_suite.mjs",
     "test:undosnap": "node testing/devtools/replay_undo_after_snapshot.mjs",
     "test:syncstate": "node testing/devtools/sync_state_join_suite.mjs",
+    "test:selparity": "node testing/devtools/selection_parity_suite.mjs",
     "test:k6obs": "node testing/devtools/k6_lowstress_observers.mjs",
+    "test:bakedefer": "node testing/devtools/bake_defer_ab.mjs",
+    "test:wslatency": "node testing/devtools/ws_latency_probe.mjs",
     "test:moderation": "node testing/puppeteer/moderation_suite.js",
     "server:stress": "cross-env HOST=127.0.0.1 PORT=8030 DISABLE_RATE_LIMITS=true node server/index.js",
     "snapshots:cleanup-legacy": "node server/scripts/delete-legacy-snapshots.js",
@@ -43,7 +46,16 @@
     "release:beta": "node scripts/release/versioning.mjs beta",
     "release:promote": "node scripts/release/versioning.mjs promote",
     "update:set": "node scripts/release/update-set.mjs",
-    "discord:update": "node scripts/post-discord-update.mjs"
+    "discord:update": "node scripts/post-discord-update.mjs",
+    "test:concurrent": "node testing/devtools/concurrent_draw_undo_suite.mjs",
+    "test:tapediff": "node testing/devtools/tape_compare.mjs",
+    "test:afksoak": "node testing/devtools/afk_idle_soak_suite.mjs",
+    "test:afkactivity": "node testing/devtools/afk_activity_probe.mjs",
+    "test:joinerbisect": "node testing/devtools/joiner_content_bisect.mjs",
+    "dev:reset": "node scripts/dev-backend-reset.mjs",
+    "server:local": "cross-env MONGODB_URI=mongodb://127.0.0.1:27017 MONGODB_DB_NAME=Draw R2_ENDPOINT=http://127.0.0.1:9000 R2_ACCESS_KEY_ID=minioadmin R2_SECRET_ACCESS_KEY=minioadmin R2_BUCKET_NAME=gallery R2_PUBLIC_URL=http://127.0.0.1:9000/gallery R2_FORCE_PATH_STYLE=true R2_SNAPSHOTS_BUCKET=snapshots R2_SNAPSHOTS_ACCESS_KEY_ID=minioadmin R2_SNAPSHOTS_SECRET_ACCESS_KEY=minioadmin R2_SNAPSHOTS_SECRET_KEY=minioadmin ALLOW_DEV_SNAPSHOTS=true DISABLE_RATE_LIMITS=true HOST=127.0.0.1 PORT=8030 node server/index.js",
+    "dev:local": "concurrently \"npm run server:local\" \"vite --open /go/\"",
+    "test:k6audit": "node testing/devtools/k6_wire_audit.mjs"
   },
   "devDependencies": {
     "@tauri-apps/api": "2.10.1",

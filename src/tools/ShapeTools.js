@@ -41,6 +41,44 @@ class ShapeTool extends Tool {
   }
 
   /**
+   * Whether `user` is the local user driving this client's input.
+   * @param {Object} user
+   * @returns {boolean}
+   */
+  _isSelf(user) {
+    const self = this.board?.app?.self;
+    if (!user || !self) return true;
+    return user === self || user.id === self.id;
+  }
+
+  /**
+   * The draw mode to render `user`'s shape with. Always the DRAWER's mode —
+   * the tool instances are shared with remote-user rendering, so reading
+   * `this.drawMode` here would apply the observer's setting to someone else's
+   * shape. Falls back to the instance mode for callers with no user.
+   * @param {Object} user
+   * @returns {string}
+   */
+  _modeFor(user) {
+    const mode = user?.shapeDrawMode;
+    return mode === 'center-scaling' || mode === 'corner-to-corner' ? mode : this.drawMode;
+  }
+
+  /**
+   * Whether to snap `user`'s shape to square/circle proportions.
+   *
+   * Drag points are already constrained on the drawer, before they are
+   * previewed or broadcast (App.getConstrainedShapeDragPoint), so a remote
+   * endpoint arrives carrying that user's snap. Re-applying the observer's own
+   * Shift key would snap a shape its author never snapped.
+   * @param {Object} user
+   * @returns {boolean}
+   */
+  _constrainFor(user) {
+    return this._isSelf(user) ? this.isSnapConstrained() : false;
+  }
+
+  /**
    * Deactivates the tool, committing any in-progress shape.
    */
   deactivate() {
@@ -94,7 +132,7 @@ class ShapeTool extends Tool {
     if (user.panning || !this.startPos) return;
 
     const start = this.startPos;
-    const constrain = this.isSnapConstrained();
+    const constrain = this._constrainFor(user);
     const layerCtx = this.board.getActiveLayerContext();
 
     this.drawShape(layerCtx, user, start, pos);
@@ -111,17 +149,17 @@ class ShapeTool extends Tool {
     });
 
     const margin = this._computeMargin(user);
-    const rect = this._marginRect(this._getCoverBox(start, pos, constrain), margin);
+    const rect = this._marginRect(this._getCoverBox(start, pos, constrain, user), margin);
     this.board.expandDirtyRect(user, rect.x, rect.y, rect.width, rect.height);
 
     this.board.forEachMirrorRegion({ rect }, (region) => {
       const mStart = this.board.mirrorPointToRegion(start, region);
       const mEnd = this.board.mirrorPointToRegion(pos, region);
-      const mRect = this._marginRect(this._getCoverBox(mStart, mEnd, constrain), margin);
+      const mRect = this._marginRect(this._getCoverBox(mStart, mEnd, constrain, user), margin);
       this.board.expandDirtyRect(user, mRect.x, mRect.y, mRect.width, mRect.height);
     });
 
-    const points = this._getTrackingPoints(start, pos, constrain);
+    const points = this._getTrackingPoints(start, pos, constrain, user);
     this.board.markDirtyPath(user, points, margin);
     this.board.forEachMirrorRegion({ points }, (region) => {
       this.board.markDirtyPath(user, this.board.mirrorPointsToRegion(points, region), margin);
@@ -200,7 +238,7 @@ class ShapeTool extends Tool {
       ctx.shadowBlur = 0;
     }
 
-    this._drawShapePath(ctx, start, end);
+    this._drawShapePath(ctx, start, end, user);
 
     if (hardness < 1.0) {
       ctx.restore();
@@ -295,13 +333,14 @@ export class RectangleTool extends ShapeTool {
    * @param {Object} start - Start point.
    * @param {Object} end - End point.
    * @param {boolean} constrain - Whether to enforce square proportions.
+   * @param {string} [mode] - Draw mode to use; defaults to this tool's mode.
    * @returns {{x:number, y:number, w:number, h:number}}
    */
-  getRectBounds(start, end, constrain) {
+  getRectBounds(start, end, constrain, mode = this.drawMode) {
     const dx = end.x - start.x;
     const dy = end.y - start.y;
 
-    if (this.drawMode === 'center-scaling') {
+    if (mode === 'center-scaling') {
       const side = Math.max(Math.abs(dx), Math.abs(dy));
       const halfW = side;
       const halfH = side;
@@ -342,20 +381,22 @@ export class RectangleTool extends ShapeTool {
     this.drawShape(ctx, user, start, end);
   }
 
-  _drawShapePath(ctx, start, end) {
-    const { x, y, w, h } = this.getRectBounds(start, end, this.isSnapConstrained());
+  _drawShapePath(ctx, start, end, user) {
+    const { x, y, w, h } = this.getRectBounds(
+      start, end, this._constrainFor(user), this._modeFor(user)
+    );
     ctx.beginPath();
     ctx.rect(x, y, w, h);
     ctx.stroke();
   }
 
-  _getCoverBox(start, end, constrain) {
-    const b = this.getRectBounds(start, end, constrain);
+  _getCoverBox(start, end, constrain, user) {
+    const b = this.getRectBounds(start, end, constrain, this._modeFor(user));
     return { minX: b.x, minY: b.y, maxX: b.x + b.w, maxY: b.y + b.h };
   }
 
-  _getTrackingPoints(start, end, constrain) {
-    const b = this.getRectBounds(start, end, constrain);
+  _getTrackingPoints(start, end, constrain, user) {
+    const b = this.getRectBounds(start, end, constrain, this._modeFor(user));
     return [
       { x: b.x, y: b.y },
       { x: b.x + b.w, y: b.y },
@@ -382,13 +423,14 @@ export class CircleTool extends ShapeTool {
    * @param {Object} start - Start point.
    * @param {Object} end - End point.
    * @param {boolean} constrain - Whether to enforce circle proportions.
+   * @param {string} [mode] - Draw mode to use; defaults to this tool's mode.
    * @returns {{cx:number, cy:number, rx:number, ry:number}}
    */
-  getEllipseParams(start, end, constrain) {
+  getEllipseParams(start, end, constrain, mode = this.drawMode) {
     const dx = end.x - start.x;
     const dy = end.y - start.y;
 
-    if (this.drawMode === 'center-scaling') {
+    if (mode === 'center-scaling') {
       const radius = Math.hypot(dx, dy);
       return {
         cx: start.x,
@@ -426,20 +468,22 @@ export class CircleTool extends ShapeTool {
     this.drawShape(ctx, user, start, end);
   }
 
-  _drawShapePath(ctx, start, end) {
-    const { cx, cy, rx, ry } = this.getEllipseParams(start, end, this.isSnapConstrained());
+  _drawShapePath(ctx, start, end, user) {
+    const { cx, cy, rx, ry } = this.getEllipseParams(
+      start, end, this._constrainFor(user), this._modeFor(user)
+    );
     ctx.beginPath();
     ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
     ctx.stroke();
   }
 
-  _getCoverBox(start, end, constrain) {
-    const { cx, cy, rx, ry } = this.getEllipseParams(start, end, constrain);
+  _getCoverBox(start, end, constrain, user) {
+    const { cx, cy, rx, ry } = this.getEllipseParams(start, end, constrain, this._modeFor(user));
     return { minX: cx - rx, minY: cy - ry, maxX: cx + rx, maxY: cy + ry };
   }
 
-  _getTrackingPoints(start, end, constrain) {
-    const { cx, cy, rx, ry } = this.getEllipseParams(start, end, constrain);
+  _getTrackingPoints(start, end, constrain, user) {
+    const { cx, cy, rx, ry } = this.getEllipseParams(start, end, constrain, this._modeFor(user));
     const points = [];
     const steps = Math.max(16, Math.ceil(Math.max(rx, ry) / 8));
     for (let i = 0; i <= steps; i++) {

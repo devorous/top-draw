@@ -61,6 +61,14 @@ export class User {
     this.board = options.board || null;
     this.imageBrush = null;
     this.cursorStyle = options.cursorStyle || 'circle';
+    // Per-user, because shape geometry is reconstructed from this on every
+    // client that renders the stroke. Held globally it made a remote user's
+    // circle render with the *observer's* mode — center-scaling turns a drag
+    // into rx=ry=hypot(dx,dy) instead of |dx|/2, so shapes came out ~2.8x
+    // oversized and centred on the drag start.
+    this.shapeDrawMode = options.shapeDrawMode === 'center-scaling'
+      ? 'center-scaling'
+      : 'corner-to-corner';
     this.blendMode = options.blendMode || 'source-over';
     this.blendBakeMode = options.blendBakeMode === 'existing' ? 'existing' : 'background';
     this.activeLayer = options.activeLayer || 0;

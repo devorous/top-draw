@@ -213,12 +213,19 @@ export class SelectToolLoader extends Tool {
   }
 
   /**
+   * Deletes (clears) the current selection.
+   * @returns {boolean} - Whether a selection was deleted.
+   */
+  deleteSelection() {
+    return this.realTool ? this.realTool.deleteSelection() : false;
+  }
+
+  /**
    * Handles the delete action.
+   * @returns {boolean} - Whether a selection was deleted.
    */
   handleDelete() {
-    if (this.realTool) {
-      this.realTool.handleDelete();
-    }
+    return this.deleteSelection();
   }
 
   /**

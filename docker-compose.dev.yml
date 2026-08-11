@@ -24,7 +24,13 @@ services:
     volumes:
       - tdraw_dev_minio:/data
 
-  # One-shot: create the public `gallery` bucket used for images + time-lapse webms.
+  # One-shot: create the buckets the server expects.
+  #   gallery   — images + time-lapse webms
+  #   snapshots — board checkpoints (server/r2.js: R2_SNAPSHOTS_BUCKET). WITHOUT
+  #               this bucket every checkpoint save fails, SyncCoordinator serves
+  #               baseSeq 0, and every join/resync degenerates into a full-tail
+  #               replay — which silently invalidates any join- or recovery-parity
+  #               measurement taken against this stack.
   createbuckets:
     image: minio/mc
     depends_on:
@@ -34,7 +40,9 @@ services:
       until (/usr/bin/mc alias set local http://minio:9000 minioadmin minioadmin) do echo waiting for minio; sleep 1; done;
       /usr/bin/mc mb -p local/gallery;
       /usr/bin/mc anonymous set download local/gallery;
-      echo 'bucket gallery ready (public download)';
+      /usr/bin/mc mb -p local/snapshots;
+      /usr/bin/mc anonymous set download local/snapshots;
+      echo 'buckets gallery + snapshots ready (public download)';
       exit 0;
       "
 
