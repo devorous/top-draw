@@ -1,7 +1,7 @@
 {
   "version": "1.12.0-beta",
   "notes": "I've polished the new replay system and fixed some issues with the app not connecting properly for both user profiles and gallery.",
-  "pub_date": "2026-07-18T17:38:33.854Z",
+  "pub_date": "2026-08-12T01:20:12.162Z",
   "platforms": {
     "windows-x86_64": {
       "url": "https://www.ddraw.ca/desktop-updates/windows-x86_64/Ddraw_1.11.1-beta_x64-setup.exe",
