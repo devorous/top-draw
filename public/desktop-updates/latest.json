@@ -4,8 +4,8 @@
   "pub_date": "2026-08-12T01:20:12.162Z",
   "platforms": {
     "windows-x86_64": {
-      "url": "https://www.ddraw.ca/desktop-updates/windows-x86_64/Ddraw_1.11.1-beta_x64-setup.exe",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQ01XR1piUDlNemxWQjM5dkFYTXppN281RHlUNW1FcG9Tb1B2WlI4U3gxQlBVdHY0MWJvOEVsOE9vSFlkTGVlTWNTMDVtbVpCY3FHQUdOeFRFb1FPbVkzWlhGWmZJR0FnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg2NDk2OTc4CWZpbGU6RGRyYXdfMS4xMS4xLWJldGFfeDY0LXNldHVwLmV4ZQphVHhXeGZyUEpQd2RuZTlvN1d5V1pRdVp0dm9lVUtiNU1zSUx2WFdxdys4TkxnRFVkUFV4b2syTFZiWWRsOUpraEU2aUJwY0RibEMzL2t6RE45TUFEUT09Cg=="
+      "url": "https://www.ddraw.ca/desktop-updates/windows-x86_64/Ddraw_1.12.0-beta_x64-setup.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQ01XR1piUDlNenVDZnVnYWJHSFlKN3ZaMkNOQ2hoM1hNZ082VSt0VFhJSWI3RFB4UkNhU3FqNHBJU2t2TWsvY3dMNVRLZ3plWkVidE9vQzJpMS93SnZLN2xXVW1UZUFjPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg2NDk3NzAzCWZpbGU6RGRyYXdfMS4xMi4wLWJldGFfeDY0LXNldHVwLmV4ZQpZMDNiOGxIQ0JVc3hKMVdHNGlHUlZWbkVkbzhoeGQ4bElGajZaT0FVT2dtTERGQitWTXk1cWtZMFBFTmRPSmFteklkRVc5U3ovSkNqZHkycVM4Nk5EUT09Cg=="
     }
   }
 }
