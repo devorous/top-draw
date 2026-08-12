@@ -1249,6 +1249,11 @@ export class ReplayEngine {
       ui: noopUI,
       users: this.botUsers,
       sessionIndex: -9999, // Never matches any real user
+      // Every tape action belongs to a bot, never to "us" — replay has no local
+      // user drawing alongside it, so nothing here is ever a self echo to skip.
+      // RemoteUserHandler calls this unconditionally on MD/MM/MU, so a missing
+      // method throws and the switch's catch swallows every stroke in the tape.
+      isSelfEcho: () => false,
       debugOverlay: null,
       self: null,
       blendModeManager: {
