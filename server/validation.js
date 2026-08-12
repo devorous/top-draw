@@ -545,6 +545,16 @@ export async function sanitizeMessage(data) {
       sanitized.sy = clampInt(data.sy, MIN_COORD, MAX_COORD, 0);
       sanitized.sw = clampInt(data.sw, 0, MAX_COORD, 0);
       sanitized.sh = clampInt(data.sh, 0, MAX_COORD, 0);
+      // Lasso shape, same reasoning as the rect above: a lasso fill is clipped
+      // to the path and the receiver cannot reconstruct it from the bounds.
+      if (Array.isArray(data.ps)) {
+        sanitized.ps = sanitizeFloatArray(data.ps, {
+          requireEvenLength: true,
+          maxLength: MAX_SELECTION_POINTS,
+          min: MIN_PS_VALUE,
+          max: MAX_PS_VALUE
+        });
+      }
       return sanitized;
 
     // Without this case the sanitizer fell through to the bare `return sanitized`

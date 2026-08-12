@@ -164,6 +164,24 @@ export class WebSocketClient {
       T.SEL_STAMP, T.SEL_CANCEL, T.SEL_TO_BRUSH, T.SEL_FLIP, T.SEL_MERGE, T.SEL_PENDING, T.SEL_MASK, T.OBSCURE_REGION,
       // Image paste and async computation results must also respect draw order.
       T.IMG_PASTE, T.GLITCH_RESULT,
+      // SYNC_COMPLETE means "everything I sent you has been sent", so it must be
+      // applied AFTER everything already received — the same ordering rule as the
+      // canvas-state ops above, for the same reason.
+      //
+      // Processed on arrival it did the opposite. The join serve pushes the whole
+      // tail (MD/MM/MU/tool-state — all queued here) and then SYNC_COMPLETE in one
+      // synchronous pass, so SYNC_COMPLETE skipped the queue and beat the entire
+      // tail to the handler: measured 5.9ms vs 7.1ms for the first tail frame.
+      // SyncClient.handleSyncComplete then ran with an EMPTY eventBuffer, cleared
+      // `buffering`, and replayBuffer() no-opped — after which the tail drained
+      // onto the LIVE path instead of the replay path.
+      //
+      // For a fresh joiner that was invisible: the tail is authored by someone
+      // else, so the live path draws it correctly and replayBuffer's dedup and
+      // ordering work was simply never exercised. For a RESYNC it was fatal —
+      // the tail is the requester's own work, and the live path exists to discard
+      // self-echoes, so the client that drew everything resynced to a blank board.
+      T.SYNC_COMPLETE,
     ]);
 
     this.clientIdentity = new ClientIdentity();
@@ -850,10 +868,17 @@ export class WebSocketClient {
     // counter and the lift is always broadcast before the commit, so
     // seq_lift < seq_commit holds by construction and the erase stays underneath.
     // Both sides now place the pair at its true position instead of on top.
+    // A rebuild suspends this gate wholesale. It assumes our own commit is an
+    // echo of something already on our canvas, which requestSync() falsified by
+    // wiping the board — and the types NOT exempted below (IMG_PASTE, UNDO,
+    // REDO, CLR, TEXT_REMOVE) are then dropped outright, so a resync loses every
+    // pasted image and replays a history with the undos missing. Set by
+    // SyncClient.init.
     if (
       data.u !== undefined &&
       this.sessionIndex !== null &&
       data.u === this.sessionIndex &&
+      !this._isRebuilding?.() &&
       isCommitType(data.t) &&
       data.t !== T.MU &&
       data.t !== T.FILL &&
@@ -1375,15 +1400,24 @@ export class WebSocketClient {
         });
         break;
 
-      case T.SEL_FILL:
+      case T.SEL_FILL: {
+        let fillLassoPath = null;
+        if (data.ps && data.ps.length >= 6) {
+          fillLassoPath = [];
+          for (let i = 0; i < data.ps.length; i += 2) {
+            fillLassoPath.push({ x: data.ps[i], y: data.ps[i + 1] });
+          }
+        }
         this.emit('sel_fill', {
           sessionIndex: data.u,
           color: unpackColor(data.c),
           layerIndex: data.ly ?? 0,
           rect: data.sw ? { x: data.sx || 0, y: data.sy || 0, width: data.sw, height: data.sh || 0 } : null,
+          lassoPath: fillLassoPath,
           seq: data.seq
         });
         break;
+      }
 
       case T.SEL_STAMP:
         this.emit('sel_stamp', { sessionIndex: data.u, layerIndex: data.ly, seq: data.seq });
@@ -2509,9 +2543,21 @@ export class WebSocketClient {
    * @param {number} [layerIndex] - Target layer index.
    * @returns {void}
    */
-  broadcastSelectionFill(color, layerIndex, rect = null) {
+  broadcastSelectionFill(color, layerIndex, rect = null, lassoPath = null) {
     const msg = { t: T.SEL_FILL, c: packColor(color) };
     if (layerIndex !== undefined) msg.ly = layerIndex;
+    // The lasso SHAPE must travel with the fill for the same reason the rect
+    // does: it cannot be inferred by the receiver. It used to be read off
+    // whatever `pendingLassoPath` / `lassoPath` the receiver happened to hold,
+    // which is state the fill does not own — so on any rebuild where those had
+    // been cleared (a lift nulls pendingLassoPath; StrokeTape empties a user's
+    // selection frames after each SEL_STAMP/SEL_FILL, so a second fill or a
+    // fill after a stamp ships no SEL_PENDING at all) the receiver fell through
+    // to `fillRect` over the bounds and a lasso fill rebuilt as a filled
+    // BOUNDING BOX. Sending it makes the fill self-contained.
+    if (lassoPath && lassoPath.length >= 3) {
+      msg.ps = lassoPath.flatMap((p) => [p.x, p.y]);
+    }
     // The filled rect must travel. A rect selection is cropped to its content
     // for display, but Fill deliberately fills the user's ORIGINAL dragged rect
     // (SelectTool.fillSelection uses `originalSelection || selection`). The

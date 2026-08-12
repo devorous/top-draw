@@ -68,7 +68,23 @@ function buildSelectionStateSet(T) {
 function buildNonStrokeCommitSet(T) {
   return new Set([
     T.UNDO, T.REDO, T.CLR,
-    T.BOARD_SNAPSHOT_RESTORE, T.BOARD_SNAPSHOT_REGION_RESTORE
+    T.BOARD_SNAPSHOT_RESTORE, T.BOARD_SNAPSHOT_REGION_RESTORE,
+    // Selection commits own no freehand geometry either — their preamble is the
+    // SELECTION setup (_buildCommitPreamble), never the MD/MM stream. But the
+    // Select tool still broadcasts MD/MM/MU like every other tool (App.js does
+    // not gate mouse-down on tool), and a selection commit routinely fires
+    // BETWEEN an MD and its MU: clicking outside a floating selection queues MD,
+    // then SelectTool.onPointerDown calls commitSelection() -> SEL_COMMIT, and
+    // only on release does MU arrive.
+    //
+    // Without this the `pend && pend.length > 0` branch below claimed that open
+    // [toolState, MD] preamble for the SEL_COMMIT, took the early return, and so
+    // (a) never built the selection preamble — the joiner replayed the commit
+    // with no SEL_LIFT and no trailing SEL_MOVEs, i.e. the selection came back
+    // at its previous position/scale — (b) shipped a phantom brush MD under the
+    // commit's seq, and (c) skipped the _pendingSelection bookkeeping, leaking
+    // those frames into the next commit's bundle.
+    T.SEL_COMMIT, T.SEL_DELETE, T.SEL_STAMP, T.SEL_FILL, T.SEL_MERGE
   ].filter(t => t !== undefined));
 }
 
@@ -184,6 +200,25 @@ export class StrokeTape {
 
       if (this._endsSelection(t)) {
         this._pendingSelection.delete(uid);
+      } else if (this._continuesSelection(t)) {
+        // The float lives on, so KEEP the entry — but empty it. Emptying rather
+        // than deleting is the whole trick:
+        //
+        //   delete  -> the next SEL_MOVE sees no entry and starts a fresh one,
+        //              so every later stamp is served without its SEL_LIFT and
+        //              rebuilds as nothing (the bug).
+        //   re-emit -> carrying the lift in every stamp's bundle instead sends
+        //              the same frame N times with the SAME seq, and
+        //              SyncClient.replayBuffer dedups by (event, seq) keeping the
+        //              LAST copy — which would apply the lift just before the
+        //              final stamp and break all the earlier ones.
+        //
+        // Emptying gives each commit exactly the frames since the previous one,
+        // so a full-tail replay reconstructs the real sequence:
+        //   [lift, m1, m2] STAMP  [m3, m4] STAMP  [m5] COMMIT
+        // The array stays truthy, so the SEL_MOVE branch appends to it instead
+        // of resetting (only SEL_LIFT / SEL_PENDING start a new selection).
+        this._pendingSelection.set(uid, []);
       }
     }
   }
@@ -202,22 +237,49 @@ export class StrokeTape {
       return [...toolState];
     }
 
-    if (this._endsSelection(t) && selection.length > 0) {
+    if ((this._endsSelection(t) || this._continuesSelection(t)) && selection.length > 0) {
       return [...toolState, ...selection];
     }
 
     return [];
   }
 
+  /**
+   * Commits that CLOSE the selection: the float is gone afterwards, so its
+   * setup frames can be dropped.
+   *
+   * SEL_FLIP is NOT here: a flip transforms the floating selection in place and
+   * the selection stays live until a later commit verb closes it.
+   *
+   * SEL_STAMP and SEL_FILL are NOT here either, for exactly the same reason —
+   * see _continuesSelection. Treating them as terminal is what made "fill an
+   * area, then move+stamp it around" vanish for anyone who synced afterwards.
+   */
   _endsSelection(t) {
     const T = this.T;
-    // SEL_FLIP is NOT here: a flip transforms the floating selection in place
-    // and the selection stays live until a later commit verb closes it.
     return t === T.SEL_COMMIT ||
       t === T.SEL_DELETE ||
-      t === T.SEL_FILL ||
-      t === T.SEL_STAMP ||
       t === T.SEL_MERGE;
+  }
+
+  /**
+   * Commits that KEEP the float alive, so more moves and more commits follow on
+   * the SAME selection.
+   *
+   * `RemoteSelectionHandler.handleSelectionStamp` says it outright — "same as
+   * commit but keep floating canvas active for further moves/stamps" — and
+   * handleSelectionFill has a dedicated floating-fill branch. Both then open
+   * with `if (!user.floatingCanvas || !user.selection) return;`, so a client
+   * that never replayed the SEL_LIFT silently no-ops every one of them.
+   *
+   * Dropping the preamble on the first of these (the old behaviour) meant every
+   * later stamp was served with only the moves since the previous commit and no
+   * SEL_LIFT, leaving a joiner with no float to stamp — so a fill-then-stamp
+   * sequence rebuilt as nothing at all, while live clients showed it perfectly.
+   */
+  _continuesSelection(t) {
+    const T = this.T;
+    return t === T.SEL_STAMP || t === T.SEL_FILL;
   }
 
   _enforceCap() {

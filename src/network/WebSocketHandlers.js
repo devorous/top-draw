@@ -44,7 +44,16 @@ export function setupWebSocketHandlers(app) {
       // and the stamp it pairs with are sequenced together, so both halves need
       // their echo to reconcile against — see SelectionHandlers.js.
       const allowSelf = eventName === 'mu' || eventName === 'undo' || eventName === 'fill' || eventName === 'glitch_result' || eventName === 'sel_delete' || eventName === 'sel_merge' || eventName === 'text_apply' || eventName === 'sel_lift' || eventName === 'sel_commit' || eventName === 'sel_stamp' || eventName === 'sel_fill';
-      if (data && data.sessionIndex === app.sessionIndex && !allowSelf) {
+      // ...and a rebuild allows EVERYTHING through, whoever wrote it. This gate
+      // assumes our own frames are echoes of work already on our canvas, which
+      // requestSync() has just made false by wiping it. The server's join tail is
+      // author-agnostic, so dropping our own md/mm here (neither is in the list
+      // above) deleted the geometry of every stroke we drew — the client that did
+      // all the drawing resynced to a blank board while its peers synced fine.
+      // Safe because InputBufferManager.queueBroadcast suppresses our outgoing
+      // messages while syncing, so no live self-echo can reach this window.
+      const rebuilding = !!app.syncClient?.isRebuilding?.();
+      if (data && data.sessionIndex === app.sessionIndex && !allowSelf && !rebuilding) {
         return;
       }
 

@@ -212,6 +212,29 @@ async function menu(page, verb, arg) {
   }, verb, arg);
 }
 
+/**
+ * End a selection the way most users actually do: by picking another tool.
+ *
+ * This is a genuinely different code path from the Apply/deselect menu verbs
+ * every other scenario uses. Here the commit comes from SelectTool.deactivate()
+ * inside App.selectTool(), and the CT broadcast rides the same drain — so it is
+ * the only scenario that exercises the CT-vs-SEL_COMMIT wire ordering. When CT
+ * was queued first, remotes saw a tool change away from 'select', cancelled the
+ * floating selection (DrawingHandlers 'ct' -> handleSelectionCancel) and then
+ * dropped the SEL_COMMIT that followed, reverting the stamp on every peer while
+ * the drawer kept it.
+ */
+async function switchTool(page, tool) {
+  await page.evaluate(async (t) => {
+    const app = window.app;
+    const nap = (ms) => new Promise((r) => setTimeout(r, ms));
+    app.selectTool(t);                    // the exact call the tool buttons make
+    app.inputBufferManager.tick();
+    await nap(300);
+  }, tool);
+  await sleep(250);
+}
+
 async function setColor(page, color) {
   await page.evaluate(async (c) => {
     window.app.handleColorInputChange(c);
@@ -411,6 +434,30 @@ const SCENARIOS = [
       await selectRect(page, SEL_LEFT);
       await moveSelection(page, [300, 300], MOVE_TO.dx, MOVE_TO.dy);
       await menu(page, 'deselect');
+    },
+  },
+  {
+    name: 'move_commit_toolswitch',
+    desc: 'rect-select, drag, then pick the brush — deactivate() commits, no Apply click',
+    async run(page) {
+      await armSelect(page, 'rect');
+      await selectRect(page, SEL_LEFT);
+      await moveSelection(page, [300, 300], MOVE_TO.dx, MOVE_TO.dy);
+      await switchTool(page, 'brush');
+    },
+  },
+  {
+    name: 'paste_commit_toolswitch',
+    desc: 'copy/paste, then pick the brush — the pasted stamp must survive on peers',
+    async run(page) {
+      await armSelect(page, 'rect');
+      await selectRect(page, SEL_LEFT);
+      await menu(page, 'cut');
+      await sleep(300);
+      await menu(page, 'paste');
+      await sleep(400);
+      await moveSelection(page, [300, 300], MOVE_TO.dx, MOVE_TO.dy);
+      await switchTool(page, 'brush');
     },
   },
   {
@@ -765,6 +812,43 @@ async function runScenario(browser, scenario) {
         notes.push(`join redo sizes: A=${JSON.stringify(stA.redoSizes ?? {})} D=${JSON.stringify(stD.redoSizes ?? {})}`);
       }
 
+      // SEQ parity for the joiner — pixels alone cannot see this.
+      //
+      // A commit that rebuilds at seq 0 on the joiner renders identically to one
+      // at its real seq whenever it happens to be the newest stroke: both orders
+      // put it on top. It only becomes visible once something is drawn AFTER it,
+      // because _sortStrokeStack floats seq 0 to MAX_SAFE_INTEGER — by which
+      // time the stack has usually baked and the divergence is permanent. So a
+      // green pixel diff here is NOT evidence the rebuild was faithful.
+      //
+      // Compare against a LIVE OBSERVER (B), not the drawer: the drawer holds
+      // its own strokes outside the layer stacks until they bake, so A vs D
+      // differs by bookkeeping even when both are correct. B and D are both
+      // observers and must agree seq-for-seq.
+      //
+      // This is the assertion that catches the class where a remote handler
+      // drops `seq` while re-queueing itself behind an async image decode — the
+      // joiner requeues every time (the sync tail replays synchronously), a live
+      // client never does. Found exactly that in handleSelectionCommit.
+      const [stB2, stD2] = await Promise.all([getState(tabs[1].page), getState(D.page)]);
+      const seqSig = (st) => (st.perLayer || [])
+        .map((L) => `L${L.layer}[${L.stack.map((x) => `${x.bm === 'destination-out' ? 'E' : 'S'}${x.seq}`).join(' ')}]`)
+        .join('  ');
+      const sigB = seqSig(stB2);
+      const sigD = seqSig(stD2);
+      if (sigB !== sigD) {
+        ok = false;
+        notes.push('JOIN SEQ MISMATCH — joiner rebuilt commits with different seqs than a live observer');
+        notes.push(`   live B : ${sigB}`);
+        notes.push(`   join D : ${sigD}`);
+      }
+      const joinZero = (stD2.seqZeroStrokes || []);
+      if (joinZero.length) {
+        ok = false;
+        notes.push(`JOINER holds ${joinZero.length} seq-0 committed stroke(s) — these sort to the TOP of the `
+          + `stack and will land above any later work: ${JSON.stringify(joinZero).slice(0, 200)}`);
+      }
+
       // Compare the JOINER's rebuilt tail against A's live stream. The live
       // `tape` verdict above covers A/B/C only — their recorders stop before D
       // exists — so without this a join-only failure has no wire evidence at
@@ -796,6 +880,14 @@ async function runScenario(browser, scenario) {
             const byType = {};
             for (const c of verdict.compacted) byType[c.event.typeName] = (byType[c.event.typeName] || 0) + 1;
             notes.push(`join tail compacted (expected): ${JSON.stringify(byType)}`);
+          }
+          // Reported, not failed: the joiner holds these, just at another
+          // position (selection preambles replay bundled before their commit).
+          // Surfaced so a sudden change in the reorder set is still visible.
+          if (verdict.reordered?.length) {
+            const byType = {};
+            for (const c of verdict.reordered) byType[c.event.typeName] = (byType[c.event.typeName] || 0) + 1;
+            notes.push(`join tail reordered (present, bundled before commit): ${JSON.stringify(byType)}`);
           }
           joinTapeOk = verdict.ok;
           if (!joinTapeOk) {

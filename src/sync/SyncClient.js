@@ -49,6 +49,15 @@ export class SyncClient {
 
     /** @type {boolean} */
     this.buffering = false;
+    /**
+     * Spans the whole rebuild: set in requestSync() (which wipes the board) and
+     * cleared when replayBuffer() finishes dispatching. Deliberately NOT derived
+     * from `buffering` — handleSyncComplete() clears that one line BEFORE
+     * calling replayBuffer(), so anything keyed on it is false for the entire
+     * replay. See isRebuilding().
+     * @type {boolean}
+     */
+    this._rebuilding = false;
     /** @type {Array<Object>} */
     this.eventBuffer = [];
     /** @type {Map|null} */
@@ -111,6 +120,9 @@ export class SyncClient {
     this.wsClient = wsClient;
     this.board = board;
     this.app = app;
+    // WebSocketClient has its own self-echo gate (see _processMessage) that
+    // predates the buffering layer and must suspend for the same reason.
+    if (wsClient) wsClient._isRebuilding = () => this.isRebuilding();
     this.overlayEl = document.getElementById('syncOverlay');
     this.overlayContentEl = this.overlayEl?.querySelector('.sync-content');
     this.progressTextEl = this.overlayEl?.querySelector('.sync-text');
@@ -337,6 +349,22 @@ export class SyncClient {
       if (activeRemoteUserIds.size === 0) {
         this.app.remoteUserHandler.resetTransientState?.();
       }
+      // The loop above deliberately skips our own index, but the rebuild now
+      // drives our OWN frames through the remote pipeline, so `app.self` also
+      // accumulates RemoteSelectionHandler state — floatingCanvas, lassoPath,
+      // _selectionRestoreData, the overlay canvas, and `pendingImageLoad`.
+      // Nothing else ever resets it, so every rebuild after the first started
+      // from the previous one's leftovers; a stale `pendingImageLoad` is the
+      // worst of them, because _queueIfLoading would chain the entire next
+      // selection sequence onto a promise that already settled in a prior sync,
+      // and the lift/move/commit chain would apply against dead state.
+      //
+      // Only the selection fields, and only via the handler that owns them:
+      // SelectTool keeps its own selection on the tool, never on the user, so
+      // this cannot disturb a live local selection.
+      if (this.app.self) {
+        this.app.remoteUserHandler.selectionHandler?._cleanupUserSelection?.(this.app.self);
+      }
     }
 
     const preservedActiveStrokes = this._cloneActiveStrokesForUsers(activeRemoteUserIds);
@@ -352,6 +380,10 @@ export class SyncClient {
     this._syncSessionId += 1;
     this.inactive = false;
     this.buffering = true;
+    // The board was just cleared above, so from here until replayBuffer() has
+    // dispatched, our own frames are content to rebuild rather than echoes to
+    // discard.
+    this._rebuilding = true;
     this.eventBuffer = [];
     this._pendingImports = [];
     this.expectedMessages = 0;
@@ -405,6 +437,7 @@ export class SyncClient {
     }
     this.syncing = false;
     this.buffering = false;
+    this._rebuilding = false;
     this.eventBuffer = [];
     this._pendingImports = [];
     this.expectedMessages = 0;
@@ -936,6 +969,9 @@ export class SyncClient {
     this.hideOverlay();
     this.syncing = false;
     this.buffering = false;
+    // Backstop: replayBuffer's finally normally clears this, but a sync that
+    // times out or aborts never reaches it.
+    this._rebuilding = false;
     this.hasCompletedSync = true;
     this.inactive = false;
     this.expectedMessages = 0;
@@ -969,6 +1005,18 @@ export class SyncClient {
    * @returns {void}
    */
   replayBuffer() {
+    try {
+      this._replayBufferInner();
+    } finally {
+      // Every exit path retires the rebuild window, including the early return
+      // and any handler that throws. Leaving it set would make live self-echoes
+      // look like content to redraw and double-apply our own strokes.
+      this._rebuilding = false;
+    }
+  }
+
+  /** @private */
+  _replayBufferInner() {
     if (!this.handlerMap || this.eventBuffer.length === 0) {
       this.eventBuffer = [];
       return;
@@ -983,7 +1031,12 @@ export class SyncClient {
     if (this.app?.ensureRemoteUser) {
       for (const { data } of this.eventBuffer) {
         const sid = data?.sessionIndex;
-        if (sid !== undefined && sid !== null && !this.app.users?.has(sid)) {
+        // Called for EVERY author, our own session included, and no longer
+        // skipped when users already has the id: on a resync the tail replays
+        // our own commits through the remote draw path, which needs a context to
+        // render into, and the local user has never had one. ensureRemoteUser is
+        // idempotent and now provisions that lazily — see App.ensureRemoteUser.
+        if (sid !== undefined && sid !== null) {
           this.app.ensureRemoteUser(sid);
         }
       }
@@ -1005,6 +1058,20 @@ export class SyncClient {
     // snapshot must apply at BOTH positions — deduping to the last occurrence
     // would strip the config out of the earlier stroke's preamble and render
     // it with the previous stroke's color/size.
+    // Diagnostic: a rebuild that silently applies nothing is indistinguishable
+    // from one the server never fed. Tally what actually ran, split by author,
+    // so "blank board after resync" resolves to one of: nothing arrived (server
+    // side), arrived but our own frames were filtered (a self-echo gate), or
+    // applied but painted nothing (draw path).
+    const tally = Object.create(null);
+    let bufferedTotal = this.eventBuffer.length;
+    let applied = 0;
+    let appliedOwn = 0;
+    let bufferedOwn = 0;
+    for (const { data } of this.eventBuffer) {
+      if (data?.sessionIndex === this.app?.sessionIndex) bufferedOwn++;
+    }
+
     const TOOL_STATE_EVENTS = SyncClient._TOOL_STATE_EVENTS;
     const lastIndexByKey = new Map();
     for (let i = 0; i < this.eventBuffer.length; i++) {
@@ -1021,9 +1088,46 @@ export class SyncClient {
       const handler = this.handlerMap.get(eventName);
       if (handler) {
         handler(data);
+        applied++;
+        tally[eventName] = (tally[eventName] || 0) + 1;
+        if (data?.sessionIndex === this.app?.sessionIndex) appliedOwn++;
       }
     }
     this.eventBuffer = [];
+
+    // `own=0` here while the board is blank is the signature of a self-echo gate
+    // eating the tail; `buffered=0` means the tail never reached replayBuffer at
+    // all (something non-queued overtook SYNC_COMPLETE).
+    debug(
+      `[SyncClient] replay: buffered=${bufferedTotal} (own=${bufferedOwn}) ` +
+      `applied=${applied} (own=${appliedOwn}) rebuilding=${this.isRebuilding()} ` +
+      `self=${this.app?.sessionIndex}`,
+      tally
+    );
+
+    // The tail may have driven our OWN strokes through the remote pipeline,
+    // which registers user.context.canvas as a live preview layer in the
+    // compositor and hides the overlay behind it. Nothing writes to the local
+    // user's overlay outside a rebuild, so retire it here instead of leaving a
+    // permanently-registered preview. Committed strokes are unaffected — this
+    // only drops the in-progress preview surface.
+    const self = this.app?.self;
+    if (self?.context) {
+      const retire = () => {
+        if (!self.context) return;
+        self.context.clearRect(0, 0, self.context.canvas.width, self.context.canvas.height);
+        this.app.remoteUserHandler?._clearLayeredRemotePreview?.(self);
+      };
+      // Must run AFTER the selection chain, not here. Selection verbs defer
+      // behind the SEL_LIFT PNG decode (_queueIfLoading), so on a rebuild the
+      // lift/move/stamp/commit sequence drains in microtasks well after this
+      // function returns — and finalizeLiftPreview paints the marching-ants
+      // outline onto this very canvas. Clearing synchronously wiped it BEFORE
+      // the chain drew, leaving a stray lasso marquee stuck on the local board
+      // with no selection behind it.
+      if (self.pendingImageLoad) self.pendingImageLoad.then(retire, retire);
+      else retire();
+    }
   }
 
   /**
@@ -1236,6 +1340,33 @@ export class SyncClient {
   }
 
   /**
+   * True while a sync rebuild is in flight — from requestSync()'s clearAll()
+   * until _completeSync().
+   *
+   * The self-echo gates (wrapHandler's allowSelf list and the reconcile-only
+   * `sessionIndex === app.sessionIndex` branches in the draw/selection handlers)
+   * exist for the LIVE path, where our own commits come back as echoes of work
+   * we already drew locally — applying them would double it.
+   *
+   * A rebuild inverts that premise. requestSync() wipes the board first, and the
+   * server's checkpoint join tail is author-agnostic: it replays every commit in
+   * (baseSeq, latest], INCLUDING our own. With the gates active we discard our
+   * own half of the tail and rebuild only what other people drew — so the client
+   * that did all the drawing is exactly the one that resyncs to a blank board.
+   * While this is true, treat our own frames like anyone else's.
+   *
+   * Backed by its own flag, NOT by `buffering`: handleSyncComplete() does
+   * `this.buffering = false; this.replayBuffer();` — on purpose, so the tail and
+   * any live events that follow reach their handlers directly — which means a
+   * `buffering`-derived answer is false for every single frame of the replay and
+   * silently restores the exact filtering this exists to suspend.
+   * @returns {boolean}
+   */
+  isRebuilding() {
+    return !!this._rebuilding;
+  }
+
+  /**
    * Cleans up resources and resets the sync client state.
    * @returns {void}
    */
@@ -1273,6 +1404,7 @@ export class SyncClient {
     }
     this.syncing = false;
     this.buffering = false;
+    this._rebuilding = false;
     this.inactive = false;
     this.hasCompletedSync = false;
     this.expectedMessages = 0;

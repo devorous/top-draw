@@ -3694,8 +3694,13 @@ export class SelectTool extends Tool {
       // Send the rect actually filled (`s` — the pre-crop original when the
       // selection was cropped to content), not the displayed selection.
       const filled = { x: s.x, y: s.y, width: s.width, height: s.height };
+      // Snapshot the path: this is queued, and the lasso-bounds expansion below
+      // (plus any later drag) mutates this.lassoPath in place.
+      const filledLasso = (this.mode === 'lasso' && this.lassoPath && this.lassoPath.length >= 3)
+        ? this.lassoPath.map((p) => ({ x: p.x, y: p.y }))
+        : null;
       this.board.app.inputBufferManager.queueBroadcast(
-        () => this.board.app.wsClient.broadcastSelectionFill(app.self.color, app.self.activeLayer, filled));
+        () => this.board.app.wsClient.broadcastSelectionFill(app.self.color, app.self.activeLayer, filled, filledLasso));
     }
 
     // After filling, expand selection to encompass the entire filled lasso region

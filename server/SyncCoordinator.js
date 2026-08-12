@@ -196,6 +196,12 @@ export class SyncCoordinator {
           else missing++;
         }
         console.log(`[Sync] Replayed tail (${baseSeq}, ${latestSeq}] to ${requesterSessionIndex}: ${served} commits${missing ? `, ${missing} evicted` : ''}`);
+      } else {
+        // The other half of "blank board after resync": if the tail is empty the
+        // requester's content had to come from the checkpoint image, and if that
+        // is absent too there is nothing to serve and the fault is server-side.
+        console.warn(`[Sync] EMPTY TAIL for ${requesterSessionIndex}: baseSeq=${baseSeq} latestSeq=${latestSeq} `
+          + `checkpointServed=${!!(snapshot && snapshot.layers?.length)} logEntries=${log.getSummary?.().count ?? '?'}`);
       }
     }
 

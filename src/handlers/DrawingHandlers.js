@@ -258,7 +258,7 @@ export function setupDrawingHandlers(wrapHandler, app) {
     // so reconcile that stroke to the authoritative seq every observer commits it
     // with and stop. Reconcile only — no canvas work. The vector path tags nothing,
     // so this is a no-op for it.
-    if (data.sessionIndex === app.sessionIndex) {
+    if (app.isSelfEcho(data.sessionIndex)) {
       app.board?.layerManager?.reconcileLocalCommitStroke(user.id, data.seq || 0, 'text_apply');
       return;
     }
@@ -369,7 +369,7 @@ export function setupDrawingHandlers(wrapHandler, app) {
     // pendingCommitEcho='glitch'). Reconcile THAT layer's stroke to this echo's
     // authoritative seq so our ordering matches observers (who commit each glitch
     // layer at this same per-layer seq). Reconcile only — no recompute/redraw.
-    if (data.sessionIndex === app.sessionIndex) {
+    if (app.isSelfEcho(data.sessionIndex)) {
       board.layerManager.reconcileLocalCommitStroke(user.id, data.seq || 0, 'glitch', data.layerIndex);
       return;
     }
@@ -423,7 +423,7 @@ export function setupDrawingHandlers(wrapHandler, app) {
   wrapHandler('undo', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
-      if (user.id === app.sessionIndex) return;
+      if (app.isSelfEcho(user.id)) return;
 
       const targetSeq = data.targetSeq || 0;
       if (deferBehindSelectionDecode(user, () => applyRemoteUndo(user, targetSeq))) return;
@@ -509,7 +509,7 @@ export function setupDrawingHandlers(wrapHandler, app) {
     // stroke with the authoritative FILL seq so our global ordering matches
     // every observer (who commit the fill carrying this same seq). Reconcile
     // only — no canvas work.
-    if (data.sessionIndex === app.sessionIndex) {
+    if (app.isSelfEcho(data.sessionIndex)) {
       board.layerManager.reconcileLocalCommitStroke(user.id, data.seq || 0, 'fill');
       return;
     }

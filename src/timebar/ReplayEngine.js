@@ -3204,7 +3204,11 @@ export class ReplayEngine {
           this._restorePatternStateForUser(user);
           this._remoteHandler.selectionHandler.handleSelectionFill(
             user, unpackColor(msg.c), msg.ly ?? 0,
-            msg.sw ? { x: msg.sx || 0, y: msg.sy || 0, width: msg.sw, height: msg.sh || 0 } : null);
+            msg.sw ? { x: msg.sx || 0, y: msg.sy || 0, width: msg.sw, height: msg.sh || 0 } : null,
+            0,
+            // Seeking replays out of order too, so the fill's own lasso shape is
+            // as necessary here as it is on a sync tail.
+            this._decodePointPath(msg.ps));
           break;
         case T.SEL_STAMP:
           this._remoteHandler.selectionHandler.handleSelectionStamp(user, msg.ly ?? 0);

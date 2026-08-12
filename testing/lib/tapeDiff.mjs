@@ -440,16 +440,40 @@ export const JOIN_REQUIRED_TYPES = new Set([
 export function joinVerdict(result, { requiredTypes = JOIN_REQUIRED_TYPES } = {}) {
   const dropped = [];
   const compacted = [];
+  const reordered = [];
   for (const stream of result.streams) {
-    for (const op of (stream.ops ?? [])) {
+    const ops = stream.ops ?? [];
+
+    // A REORDER is not a loss. diffStreams is an LCS diff, so a message the
+    // joiner holds at a different position shows up as a `missing` paired with
+    // an `extra` carrying the identical fingerprint. That pairing is exactly
+    // what the join serve produces on purpose: the selection preamble
+    // (SEL_LIFT + SEL_MOVEs) is stored as a bundle keyed by its commit's seq
+    // (server/StrokeTape.js) and replayed immediately BEFORE that commit, so on
+    // the joiner it lands after the selection gesture's MU instead of before it.
+    // Live order is re-established by seq — _sortStrokeStack orders the stack by
+    // the authoritative seq, so the lift-erase (SEL_LIFT's seq) still sorts
+    // beneath the stamp (SEL_COMMIT's seq) regardless of arrival order.
+    //
+    // Without this, which message the check blames is an artifact of LCS
+    // alignment: the same reorder surfaced as a benign `MU` in every Apply-based
+    // scenario but as a REQUIRED `SEL_LIFT` in the tool-switch variant, whose
+    // extra tool-state frames shift the alignment. A genuinely absent message
+    // has no fingerprint twin and is still reported as dropped.
+    const extraFps = new Set();
+    for (const op of ops) if (op.op === 'extra') extraFps.add(op.event.fp);
+
+    for (const op of ops) {
       if (op.op !== 'missing') continue;
       const entry = { user: stream.user, event: op.event };
-      (requiredTypes.has(op.event.typeName) ? dropped : compacted).push(entry);
+      if (extraFps.has(op.event.fp)) reordered.push(entry);
+      else if (requiredTypes.has(op.event.typeName)) dropped.push(entry);
+      else compacted.push(entry);
     }
   }
   const droppedByType = {};
   for (const d of dropped) droppedByType[d.event.typeName] = (droppedByType[d.event.typeName] || 0) + 1;
-  return { ok: dropped.length === 0, dropped, compacted, droppedByType };
+  return { ok: dropped.length === 0, dropped, compacted, reordered, droppedByType };
 }
 
 // ─── Reporting ───────────────────────────────────────────────────────────────

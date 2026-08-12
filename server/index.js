@@ -2453,10 +2453,22 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
       clearActiveFloatingSelection(user);
       break;
 
+    // SEL_STAMP and SEL_FILL are deliberately NOT here — they keep the float
+    // alive (SelectTool.stamp: "stamp to canvas without clearing it";
+    // fillSelection paints into floatingCanvas and returns with the selection
+    // still active), and this list is the ONLY thing that decides whether a
+    // joiner is told about an in-flight floating selection at all
+    // (SyncCoordinator._sendActiveImagesToJoiner bails on `!activeImage`).
+    //
+    // Clearing on a stamp meant: lift -> move -> stamp -> move+scale -> (still
+    // floating) -> someone joins/syncs, and the float, its current corners and
+    // its cumulative source crop were all gone. Everything up to the last stamp
+    // rebuilt from the tail; the moves AFTER it had nothing to ride on, so the
+    // selection came back at the last stamp's position and scale. This is the
+    // same membership mistake StrokeTape._endsSelection had — see
+    // StrokeTape._continuesSelection.
     case T.SEL_CANCEL:
-    case T.SEL_STAMP:
     case T.SEL_DELETE:
-    case T.SEL_FILL:
     case T.SEL_MERGE:
     case T.SEL_TO_BRUSH:
       clearActiveFloatingSelection(user);

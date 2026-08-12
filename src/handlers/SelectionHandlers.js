@@ -27,7 +27,7 @@ export function setupSelectionHandlers(wrapHandler, app) {
     // strictly higher seq, which is what keeps the erase underneath it.
     // Batch, not single: with the global mirror on, a lift erases the selection
     // AND its mirrored counterpart in one step.
-    if (data.sessionIndex === app.sessionIndex) {
+    if (app.isSelfEcho(data.sessionIndex)) {
       app.board?.layerManager?.reconcileLocalCommitBatch(user.id, data.seq || 0, 'sel_lift');
       return;
     }
@@ -52,7 +52,7 @@ export function setupSelectionHandlers(wrapHandler, app) {
     // ONLY because the lift-erase is sequenced too, on the SEL_LIFT echo, to a
     // lower seq — sequencing the stamp alone would sink it below a seq-0 erase
     // and wipe the placement.
-    if (data.sessionIndex === app.sessionIndex) {
+    if (app.isSelfEcho(data.sessionIndex)) {
       app.board?.layerManager?.reconcileLocalCommitBatch(user.id, data.seq || 0, 'sel_commit');
       return;
     }
@@ -79,7 +79,7 @@ export function setupSelectionHandlers(wrapHandler, app) {
     // Batch, not single: with the global mirror on, one clear commits the
     // selection's erase AND its mirrored counterpart, and any left unreconciled
     // would sit at seq 0 on top of the stack and erase everyone's later strokes.
-    if (data.sessionIndex === app.sessionIndex) {
+    if (app.isSelfEcho(data.sessionIndex)) {
       app.board?.layerManager?.reconcileLocalCommitBatch(user.id, data.seq || 0, 'sel_delete');
       return;
     }
@@ -92,12 +92,12 @@ export function setupSelectionHandlers(wrapHandler, app) {
     if (!user) return;
 
     // Self echo: reconcile-only, same pairing rule as sel_commit.
-    if (data.sessionIndex === app.sessionIndex) {
+    if (app.isSelfEcho(data.sessionIndex)) {
       app.board?.layerManager?.reconcileLocalCommitBatch(user.id, data.seq || 0, 'sel_fill');
       return;
     }
 
-    remoteUserHandler.selectionHandler.handleSelectionFill(user, data.color, data.layerIndex, data.rect, data.seq);
+    remoteUserHandler.selectionHandler.handleSelectionFill(user, data.color, data.layerIndex, data.rect, data.seq, data.lassoPath);
   });
 
   wrapHandler('sel_stamp', (data) => {
@@ -107,7 +107,7 @@ export function setupSelectionHandlers(wrapHandler, app) {
     // Self echo: reconcile-only. Each SEL_STAMP broadcast pairs 1:1 with one
     // tagged stamp stroke, and reconcileLocalCommitBatch takes the oldest
     // outstanding batch, so repeated stamps reconcile in the order they were made.
-    if (data.sessionIndex === app.sessionIndex) {
+    if (app.isSelfEcho(data.sessionIndex)) {
       app.board?.layerManager?.reconcileLocalCommitBatch(user.id, data.seq || 0, 'sel_stamp');
       return;
     }
@@ -124,7 +124,7 @@ export function setupSelectionHandlers(wrapHandler, app) {
     // _sortStrokeStack orders them by each client's own allocated timestamp.
     // Reconcile the whole batch to the authoritative seq so the drawer orders
     // the merge exactly as every observer does. Reconcile only — no canvas work.
-    if (data.sessionIndex === app.sessionIndex) {
+    if (app.isSelfEcho(data.sessionIndex)) {
       app.board?.layerManager?.reconcileLocalCommitBatch(user.id, data.seq || 0, 'sel_merge');
       return;
     }

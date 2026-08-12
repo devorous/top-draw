@@ -123,7 +123,10 @@ export class RemoteUserHandler {
    * @returns {void}
    */
   handleMouseMove(user, data) {
-    if (user.id === this.app.sessionIndex) return;
+    // Not a plain identity check: during a sync rebuild our own MM frames are the
+    // only surviving copy of our stroke geometry and must be drawn. See
+    // App.isSelfEcho / SyncClient.isRebuilding.
+    if (this.app.isSelfEcho(user.id)) return;
 
     const points = data.ps;
     if (!points || points.length < 2) return;
@@ -531,7 +534,9 @@ export class RemoteUserHandler {
    * @returns {void}
    */
   handleMouseDown(user, data = {}) {
-    if (user.id === this.app.sessionIndex) return;
+    // See handleMouseMove: a rebuild replays our own MD as the start of a stroke
+    // we no longer have, so it must open one rather than bail.
+    if (this.app.isSelfEcho(user.id)) return;
 
     this.ui.markRemoteCursorActivity(user.id);
     user.mousedown = true;
@@ -756,7 +761,11 @@ export class RemoteUserHandler {
     // contains the server-assigned sequence number for the stroke they just
     // optimistically committed. Update the record in LayerManager so global
     // ordering is consistent across all clients.
-    if (user.id === this.app.sessionIndex) {
+    // Reconcile-only ONLY when this really is an echo of a stroke we still hold.
+    // On a sync rebuild there is no optimistic local stroke to reconcile — the
+    // board was cleared and this MU is closing a stroke the replayed MD/MM just
+    // opened, so it has to take the full commit path and carry `seq` itself.
+    if (this.app.isSelfEcho(user.id)) {
       // Self-echo of our own MU: assign the authoritative global seq to our
       // oldest still-optimistic stroke (search all layers — we may have switched
       // layers before the echo returned). Reconcile-only; we already drew it.

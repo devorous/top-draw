@@ -2610,7 +2610,21 @@ export class DrawingApp {
   ensureRemoteUser(sessionIndex) {
     const idx = Number(sessionIndex);
     if (!Number.isFinite(idx)) return null;
-    if (this.sessionIndex !== null && idx === Number(this.sessionIndex)) return this.self;
+    if (this.sessionIndex !== null && idx === Number(this.sessionIndex)) {
+      // The local user normally draws through the tool pipeline onto board.topCtx
+      // and never needs a per-user canvas layer. A resync is the exception: the
+      // join tail replays our OWN commits back to us and they render through the
+      // remote path, which writes previews to `user.context` unguarded
+      // (RemoteUserHandler line ~85 reads user.context.canvas). Provision it once,
+      // lazily. createUserBoard only appends a transparent canvas to #userBoards —
+      // no cursor, no name tag — and nothing writes to it outside a rebuild.
+      if (this.self && !this.self.context) {
+        const selfBoard = this.ui.createUserBoard(idx);
+        this.self.board = selfBoard.board;
+        this.self.context = selfBoard.context;
+      }
+      return this.self;
+    }
 
     let user = this.users.get(idx);
     if (user) return user;
@@ -2623,6 +2637,23 @@ export class DrawingApp {
     user.context = boardData.context;
     this.remoteUserHandler?.updateRemotePreviewPresentation?.(user);
     return user;
+  }
+
+  /**
+   * Whether a broadcast is an echo of our own work that we already applied
+   * locally — the condition under which a handler should reconcile the
+   * authoritative seq and draw nothing.
+   *
+   * It is NOT enough to compare session indices. During a sync rebuild we have
+   * wiped the board and the server's tail is replaying our own commits as the
+   * only surviving copy, so those frames must take the full drawing path. See
+   * SyncClient.isRebuilding.
+   * @param {number} sessionIndex - Author of the incoming message.
+   * @returns {boolean}
+   */
+  isSelfEcho(sessionIndex) {
+    if (sessionIndex !== this.sessionIndex) return false;
+    return !this.syncClient?.isRebuilding?.();
   }
 
   forceCleanupResidualState(sessionIndex) {
@@ -4099,10 +4130,6 @@ export class DrawingApp {
       this.board.clearTop();
     }
 
-    if (this.connected) {
-      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastToolChange(tool, tool === 'erase' ? this.eraseAllLayers : false));
-    }
-
     this.applyCursorStyleForTool(tool);
     this.self.setTool(tool);
     appState.currentTool = tool;
@@ -4118,6 +4145,25 @@ export class DrawingApp {
     }
 
     this.toolManager.setTool(tool);
+
+    // Announce the tool change AFTER setTool(), not before it. setTool() runs the
+    // outgoing tool's deactivate(), and SelectTool.deactivate() commits any
+    // floating selection — queueing the CT first put it AHEAD of that commit in
+    // the FIFO broadcast queue, so the wire order was CT then SEL_COMMIT. Remotes
+    // cancel a floating selection the moment they see a CT away from 'select'
+    // (DrawingHandlers 'ct' -> handleSelectionCancel, which also restores the
+    // lift-erase), and the SEL_COMMIT that followed then found no floatingCanvas
+    // and silently no-op'd (RemoteSelectionHandler.handleSelectionCommit). 'ct' is
+    // not in wrapHandler's allowSelf list, so the drawer never cancelled its own
+    // copy: ending a selection by picking another tool — the most common way there
+    // is — kept the paste/move for the drawer and reverted it on every peer.
+    // The settings broadcasts from restoreToolValues/activate now precede the CT;
+    // that is inert because the whole sequence drains in one tick with no drawing
+    // between, whereas CT-before-commit destroys content.
+    if (this.connected) {
+      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastToolChange(tool, tool === 'erase' ? this.eraseAllLayers : false));
+    }
+
     this.ui.updateToolDisplay(tool, this.self);
     this.applyBlurRadiusLimitForTool(tool, { broadcast: this.connected });
     this._updateBlurCannotDraw();

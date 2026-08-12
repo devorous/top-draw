@@ -466,6 +466,14 @@ export class RemoteSelectionHandler {
    * @param {boolean} allLayers - Lift spans every visible layer (SelectTool.copyAllLayers)
    */
   handleSelectionLift(user, selection, lassoPath = null, imageData = null, allLayers = false, seq = 0) {
+    // A lift REPLACES the entire selection state — floatingCanvas, selection,
+    // selectionCorners, originalCorners, lassoPath, _selectionRestoreData — and
+    // installs a fresh `pendingImageLoad`, which orphans the chain every other
+    // verb queued onto. Running it ahead of that chain means a second lift's
+    // state is what the FIRST selection's still-queued moves and stamps get
+    // applied to. Same discipline as every reader; see handleImagePaste.
+    if (this._queueIfLoading(user, () => this.handleSelectionLift(user, selection, lassoPath, imageData, allLayers, seq))) return;
+
     // Clear pending selection since it's now being lifted
     user.pendingSelection = null;
     user.pendingLassoPath = null;
@@ -691,7 +699,17 @@ export class RemoteSelectionHandler {
   _queueIfLoading(user, action) {
     if (user.pendingImageLoad) {
       user.pendingImageLoad = user.pendingImageLoad.then(() => {
-        action();
+        // Isolate failures. Every deferred selection verb hangs off ONE promise
+        // chain per user, so an exception here used to reject the chain and
+        // silently drop every op queued behind it — one bad stamp took out all
+        // the later stamps and the commit, and only ever on a rebuild (live,
+        // nothing defers). That reads exactly like "some of the stamps are
+        // missing, differently each time".
+        try {
+          action();
+        } catch (e) {
+          console.warn('[RemoteSelection] deferred selection op failed:', e);
+        }
       });
       return true;
     }
@@ -751,6 +769,22 @@ export class RemoteSelectionHandler {
    * @param {Array<{x: number, y: number}>|null} lassoPath - Optional lasso path
    */
   handleSelectionPending(user, selection, lassoPath = null) {
+    // Queue behind a pending lift image for the same reason handleSelectionMove
+    // does: this WRITES the selection state (`pendingLassoPath`) that the
+    // deferred commit verbs READ.
+    //
+    // handleSelectionFill clips to `user.lassoPath || user.pendingLassoPath` and
+    // is itself deferred by _queueIfLoading. With this one applying immediately,
+    // a rebuild ran every SEL_PENDING first and the fill last, so the fill
+    // clipped against whatever path happened to be current at the end instead of
+    // the one recorded with it — and when that left no usable path it fell
+    // through to `fillRect` over the bounds, i.e. a lasso fill rebuilt as a
+    // filled BOUNDING BOX.
+    //
+    // The invariant: every writer of selection state must share the ordering
+    // discipline of its readers, or a synchronous rebuild interleaves them.
+    if (this._queueIfLoading(user, () => this.handleSelectionPending(user, selection, lassoPath))) return;
+
     user.pendingSelection = selection;
     user.pendingLassoPath = lassoPath;
     user._pendingSelectionUpdatedAt = performance.now();
@@ -787,7 +821,78 @@ export class RemoteSelectionHandler {
     ctx.restore();
   }
 
+  /**
+   * Apply a SEL_MOVE's geometry: corners, derived bounds, and the lasso offset.
+   *
+   * Split out because it runs from BOTH the deferred and immediate paths of
+   * handleSelectionMove and the two must never drift. Idempotent for a given
+   * `corners`: the lasso shift is `minX - user.selection.x`, which is zero once
+   * the bounds already match, so calling it twice moves nothing.
+   *
+   * @param {Object} user
+   * @param {{tl:Object,tr:Object,bl:Object,br:Object}} corners
+   */
+  _applySelectionMoveGeometry(user, corners) {
+    if (!user.selection || !corners) return;
+
+    const oldX = user.selection.x;
+    const oldY = user.selection.y;
+
+    user.selectionCorners = corners;
+
+    const c = corners;
+    const minX = Math.floor(Math.min(c.tl.x, c.tr.x, c.bl.x, c.br.x));
+    const maxX = Math.ceil(Math.max(c.tl.x, c.tr.x, c.bl.x, c.br.x));
+    const minY = Math.floor(Math.min(c.tl.y, c.tr.y, c.bl.y, c.br.y));
+    const maxY = Math.ceil(Math.max(c.tl.y, c.tr.y, c.bl.y, c.br.y));
+
+    user.selection.x = minX;
+    user.selection.y = minY;
+    user.selection.width = maxX - minX;
+    user.selection.height = maxY - minY;
+
+    // Translate lasso path to match new position (same as local SelectTool)
+    if (user.lassoPath && user.lassoPath.length > 0) {
+      const dx = minX - oldX;
+      const dy = minY - oldY;
+      if (dx !== 0 || dy !== 0) {
+        user.lassoPath = user.lassoPath.map((p) => ({ x: p.x + dx, y: p.y + dy }));
+      }
+    }
+  }
+
   handleSelectionMove(user, corners, sourceCrop = null) {
+    // Moves MUST defer behind the lift image exactly like the commit verbs do,
+    // or the ops execute out of order.
+    //
+    // handleSelectionStamp / handleSelectionCommit / handleSelectionFill all
+    // call _queueIfLoading and run AFTER the SEL_LIFT PNG decodes. This one used
+    // to apply immediately, which is harmless live (messages arrive milliseconds
+    // apart, the decode finished long ago, nothing ever defers) but wrong on any
+    // rebuild: a sync tail or a replay seek applies the whole sequence in one
+    // synchronous pass while the decode is still in flight, so
+    //
+    //   LIFT  MOVE_a  STAMP1  MOVE_b  STAMP2  MOVE_c  STAMP3
+    //
+    // ran as MOVE_a,b,c first — leaving the selection at position c — and then
+    // all three stamps, every one of them at position c. Three stamps across the
+    // board rebuilt as a single stamp in one spot, and any op whose
+    // _pendingSourceCrop landed out of order came out clipped. It also made the
+    // result timing-dependent: whether the decode beat the replay changed the
+    // outcome from one sync to the next.
+    //
+    // Queueing here puts moves on the SAME promise chain as the commits, so
+    // relative order is preserved whether or not an image is pending.
+    // NOTE: do NOT also apply the geometry synchronously here.
+    //
+    // That was tried and reverted. Setting the corners early lets
+    // handleImagePaste's img.onload see the FINAL scaled corners while the
+    // source crop is still deferred — so user.originalCorners is still the
+    // UNCROPPED size, _getWarpOutputBounds warps from the wrong source quad, and
+    // handle-scaled stamps rebuilt far too large and clipped, differently on
+    // every sync. Geometry and the crop that redefines originalCorners have to
+    // move together, which means both stay on this chain.
+    if (this._queueIfLoading(user, () => this.handleSelectionMove(user, corners, sourceCrop))) return;
     if (!user.floatingCanvas || !user.selection) return;
 
     // The `_selectionMoving` flag + wall-clock idle timer only exist to
@@ -811,10 +916,6 @@ export class RemoteSelectionHandler {
       }, 100);
     }
 
-    // Calculate movement delta before updating selection
-    const oldX = user.selection.x;
-    const oldY = user.selection.y;
-
     if (sourceCrop) {
       if (user.pendingImageLoad) {
         user._pendingSourceCrop = sourceCrop;
@@ -823,30 +924,7 @@ export class RemoteSelectionHandler {
       }
     }
 
-    // Update corners
-    user.selectionCorners = corners;
-
-    // Update selection bounds from corners (ensure integers)
-    const c = corners;
-    const minX = Math.floor(Math.min(c.tl.x, c.tr.x, c.bl.x, c.br.x));
-    const maxX = Math.ceil(Math.max(c.tl.x, c.tr.x, c.bl.x, c.br.x));
-    const minY = Math.floor(Math.min(c.tl.y, c.tr.y, c.bl.y, c.br.y));
-    const maxY = Math.ceil(Math.max(c.tl.y, c.tr.y, c.bl.y, c.br.y));
-    
-    user.selection.x = minX;
-    user.selection.y = minY;
-    user.selection.width = maxX - minX;
-    user.selection.height = maxY - minY;
-
-    // Translate lasso path to match new position (same as local SelectTool)
-    if (user.lassoPath && user.lassoPath.length > 0) {
-      const dx = minX - oldX;
-      const dy = minY - oldY;
-      user.lassoPath = user.lassoPath.map(p => ({
-        x: p.x + dx,
-        y: p.y + dy
-      }));
-    }
+    this._applySelectionMoveGeometry(user, corners);
 
     // If the authoritative lifted raster is still decoding, don't build or draw
     // transformed previews from the temporary fallback pixels. Hidden tabs are
@@ -916,8 +994,30 @@ export class RemoteSelectionHandler {
    * @param {number} [seq=0] - Authoritative SEL_COMMIT seq.
    */
   handleSelectionCommit(user, layerIndex, seq = 0) {
-    if (this._queueIfLoading(user, () => this.handleSelectionCommit(user, layerIndex))) return;
-    if (!user.floatingCanvas || !user.selection) return;
+    // Forward `seq` through the requeue. Dropping it here fell back to the
+    // `seq = 0` default, and _sortStrokeStack floats seq 0 to the TOP of the
+    // stack — so the stamp sorted above everything committed after it and no
+    // longer sat with the lift-erase it pairs with. Every sibling verb already
+    // passes it (delete/fill/stamp/merge); SEL_COMMIT was the one that did not,
+    // and it is the verb that ends most selections.
+    //
+    // This lands almost exclusively on JOINERS: _queueIfLoading defers only
+    // while the SEL_LIFT PNG is still decoding, and SyncClient.replayBuffer()
+    // replays the join tail SYNCHRONOUSLY in a tight loop, so the decode is
+    // always still in flight when SEL_COMMIT replays. A live client receives the
+    // same messages spread over time, decodes first, never requeues, and keeps
+    // the seq — which is exactly the split measured on a 3-client room:
+    // live observer held the stamp at S89, the joiner at S0.
+    if (this._queueIfLoading(user, () => this.handleSelectionCommit(user, layerIndex, seq))) return;
+    if (!user.floatingCanvas || !user.selection) {
+      // A commit with no float is ALWAYS a lost apply: the pixels stay wherever
+      // they were before the lift, because the SEL_LIFT that should have erased
+      // the source and created the float never arrived. Silent until now, which
+      // is why it looked identical to "the moves didn't apply". On a rebuild it
+      // means the commit's StrokeTape bundle shipped without its SEL_LIFT.
+      console.warn(`[RemoteSelection] SEL_COMMIT (seq ${seq}) for user ${user.id} dropped: no floating selection`);
+      return;
+    }
 
     const lm = this.board.layerManager;
     const layerIdx = layerIndex ?? user.activeLayer ?? 0;
@@ -1080,8 +1180,14 @@ export class RemoteSelectionHandler {
     this._cleanupUserSelection(user);
   }
 
-  handleSelectionFill(user, color, layerIndex, rect = null, seq = 0) {
-    if (this._queueIfLoading(user, () => this.handleSelectionFill(user, color, layerIndex, rect, seq))) return;
+  handleSelectionFill(user, color, layerIndex, rect = null, seq = 0, wireLassoPath = null) {
+    if (this._queueIfLoading(user, () => this.handleSelectionFill(user, color, layerIndex, rect, seq, wireLassoPath))) return;
+
+    // The drawer's own path at fill time, when it sent one. Authoritative: it is
+    // captured with this fill instead of read out of receiver state that other
+    // verbs own and clear, so it survives any replay ordering. The `user.*`
+    // fallbacks stay for pre-change senders.
+    const firmLassoPath = (wireLassoPath && wireLassoPath.length >= 3) ? wireLassoPath : null;
     // Prefer the rect the drawer actually filled. A rect selection is cropped to
     // its content for display but Fill uses the original dragged rect, so the
     // cached selection is the wrong (smaller) area. Fall back to the cached
@@ -1136,7 +1242,7 @@ export class RemoteSelectionHandler {
       user.floatingCtx.globalCompositeOperation = 'source-over';
       user.floatingCtx.globalAlpha = userOpacity;
 
-      const path = user.lassoPath || (user.pendingLassoPath && user.pendingLassoPath.length >= 3 ? user.pendingLassoPath : null);
+      const path = firmLassoPath || user.lassoPath || (user.pendingLassoPath && user.pendingLassoPath.length >= 3 ? user.pendingLassoPath : null);
       if (path) {
         user.floatingCtx.beginPath();
         user.floatingCtx.moveTo(path[0].x - s.x, path[0].y - s.y);
@@ -1185,7 +1291,7 @@ export class RemoteSelectionHandler {
         layerCtx.fillStyle = colorString;
       }
 
-      const path = user.lassoPath || (user.pendingLassoPath && user.pendingLassoPath.length >= 3 ? user.pendingLassoPath : null);
+      const path = firmLassoPath || user.lassoPath || (user.pendingLassoPath && user.pendingLassoPath.length >= 3 ? user.pendingLassoPath : null);
       if (path) {
         // Recalculate bounds from path to ensure dirty rect covers the entire shape
         // (User selection bounds might be stale or not perfectly aligned with path)
@@ -1241,7 +1347,12 @@ export class RemoteSelectionHandler {
   handleSelectionStamp(user, layerIndex, seq = 0) {
     if (this._queueIfLoading(user, () => this.handleSelectionStamp(user, layerIndex, seq))) return;
     // Same as commit but keep floating canvas active for further moves/stamps
-    if (!user.floatingCanvas || !user.selection) return;
+    if (!user.floatingCanvas || !user.selection) {
+      // See handleSelectionCommit: no float means the SEL_LIFT never arrived and
+      // this stamp is lost outright.
+      console.warn(`[RemoteSelection] SEL_STAMP (seq ${seq}) for user ${user.id} dropped: no floating selection`);
+      return;
+    }
 
     const lm = this.board.layerManager;
     const layerIdx = layerIndex ?? user.activeLayer ?? 0;
@@ -1571,6 +1682,33 @@ export class RemoteSelectionHandler {
   }
 
   handleImagePaste(user, data) {
+    // THE join-path ordering violation. SyncCoordinator._sendActiveImagesToJoiner
+    // sends IMG_PASTE (+ one SEL_MOVE) for a still-floating selection *after* the
+    // whole command tail, so on a rebuild it is dispatched into the same
+    // synchronous replayBuffer() pass that just queued the tail's SEL_MOVE /
+    // SEL_STAMP / SEL_COMMIT behind the SEL_LIFT's PNG decode.
+    //
+    // Running immediately, it threw away floatingCanvas / selection /
+    // selectionCorners / originalCorners and installed a SECOND pendingImageLoad,
+    // orphaning the tail's chain. Those queued stamps then drained against the
+    // paste's state, and the two decodes raced:
+    //
+    //   lift image wins  -> stamps draw the paste's still-EMPTY canvas   ("no stamps appear")
+    //   paste image wins -> stamps draw the FINAL (already source-cropped) float,
+    //                       and _getWarpOutputBounds warps from the paste's
+    //                       originalCorners against the tail's intermediate dest
+    //                       corners                                       ("cut off by a bounding box
+    //                                                                       that ignores the transform")
+    //
+    // which is why repeated syncs of identical server state came back different
+    // every time. Live this never fires: nothing is ever pending.
+    //
+    // Queued, the paste lands after the tail's ops, re-establishes the float from
+    // the original lift image, and the trailing SEL_MOVE re-queues itself onto the
+    // paste's own decode (handleSelectionMove re-enters and re-checks), so the
+    // cumulative source crop and the final corners still arrive together.
+    if (this._queueIfLoading(user, () => this.handleImagePaste(user, data))) return;
+
     const { x, y, width, height, imageData } = data;
 
     // Clear any existing selection state for this user
@@ -1943,10 +2081,25 @@ export class RemoteSelectionHandler {
         if (p.y > maxY) maxY = p.y;
       }
 
-      ix = Math.floor(minX);
-      iy = Math.floor(minY);
-      iw = Math.ceil(maxX) - ix;
-      ih = Math.ceil(maxY) - iy;
+      // ...then CLAMP to the lifted rect. The drawer pins this erase to the
+      // selection (SelectTool._eraseRegionStroke sets dirtyRect to s), and
+      // commitUserStroke crops the stroke to its dirty rect — so the drawer only
+      // ever erases selection ∩ lasso. The raw path bounds are much larger:
+      // `cropNewSelectionToContent` shrinks the selection to its content while
+      // the transmitted lassoPath stays the full drawn loop. Measured on one
+      // lift: drawer committed 48x17, this committed 550x200 — i.e. observers
+      // and every rebuild wiped a big region of surrounding artwork that the
+      // drawer kept. Only shows on lasso selections, and only where the loop is
+      // much bigger than what it caught.
+      const sx0 = Math.floor(s.x);
+      const sy0 = Math.floor(s.y);
+      const sx1 = Math.ceil(s.x + s.width);
+      const sy1 = Math.ceil(s.y + s.height);
+      ix = Math.max(sx0, Math.floor(minX));
+      iy = Math.max(sy0, Math.floor(minY));
+      iw = Math.min(sx1, Math.ceil(maxX)) - ix;
+      ih = Math.min(sy1, Math.ceil(maxY)) - iy;
+      if (iw <= 0 || ih <= 0) { ix = sx0; iy = sy0; iw = sx1 - sx0; ih = sy1 - sy0; }
 
       ctx.fillStyle = 'white';
       ctx.beginPath();
