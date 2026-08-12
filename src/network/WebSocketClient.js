@@ -1014,6 +1014,8 @@ export class WebSocketClient {
           autoMuteGuests: !!data.roomAutoMuteGuests,
           autoMuteVpnUsers: !!data.roomAutoMuteVpnUsers,
           hideChatNotifications: !!data.roomHideChatNotifications,
+          // Tri-state on the wire: 0/absent and 1 both mean on, 2 means off.
+          loadSnapshotOnFirstJoin: Number(data.roomSnapshotOnFirstJoin) !== 2,
           textOverlayLifetimeMs: Number.isFinite(Number(data.roomTextOverlayLifetimeMs)) && Number(data.roomTextOverlayLifetimeMs) > 0
             ? Math.floor(Number(data.roomTextOverlayLifetimeMs))
             : 30 * 1000,
@@ -1721,15 +1723,6 @@ export class WebSocketClient {
           isLasso: data.a,
           sx: data.sx, sy: data.sy, sw: data.sw, sh: data.sh,
           cr: data.cr
-        });
-        break;
-
-      case T.BOARD_SNAPSHOT_JOIN_NOTIFY:
-        this.emit('board_snapshot_join_notify', {
-          snapshotId: data.snapshotId,
-          snapshotTs: data.snapshotTs,
-          snapshotIssuer: data.snapshotIssuer,
-          snapshotThumb: data.snapshotThumb
         });
         break;
 

@@ -73,26 +73,32 @@ export class SyncCoordinator {
     const tape = this.room?.strokeTape;
     let snapshot = null;
 
-    // A lone joiner has no peers to stay in sync with, so we do NOT auto-apply
-    // the persisted checkpoint as their base. The opt-in BOARD_SNAPSHOT_JOIN_NOTIFY
-    // toast (handleSnapshotJoinNotify, also gated on clientCount === 1) lets them
-    // choose to load it. They start from the live command tail only — empty for a
-    // cold room, i.e. a blank canvas. With peers present the checkpoint base IS
-    // required: it's the permanent content (<= watermark) the replayed tail builds
-    // on, so the joiner matches what everyone else renders.
+    // This session's base-board decision (blank vs. the room's last persisted
+    // snapshot) was pinned when the first client connected — Room.beginSessionBase,
+    // driven by the `loadSnapshotOnFirstJoin` room setting. Await it so a joiner
+    // racing the async R2/DB fetch is served the same base as everyone else,
+    // rather than deciding for itself mid-flight.
+    await this.room?.beginSessionBase?.();
+    if (ws.readyState !== WebSocket.OPEN) return;
+
+    // With the setting OFF a lone joiner does NOT auto-apply the persisted
+    // checkpoint: they start from the live command tail only — empty for a cold
+    // room, i.e. a blank canvas. With peers present the checkpoint base is
+    // always required: it's the permanent content (<= watermark) the replayed
+    // tail builds on, so the joiner matches what everyone else renders.
     const clientCount = this.room?.getClientCount?.() ?? 1;
-    const aloneJoiner = clientCount <= 1;
+    const startsBlank = clientCount <= 1
+      && this.room?.settings?.loadSnapshotOnFirstJoin === false;
 
     // 1. Latest checkpoint image as the base (carries the applied-seq watermark
-    //    S). Absent (fresh room / no persistence / lone joiner) → baseSeq 0,
-    //    replay full tail.
+    //    S). Absent (fresh room / no persistence / blank-start lone joiner) →
+    //    baseSeq 0, replay full tail.
     let baseSeq = 0;
-    if (aloneJoiner && this.room?.canPersistSnapshots?.()) {
-      // Lone joiner: deliberately do NOT auto-apply the persisted checkpoint
-      // (no peers to match). Log whether one actually existed first, so solo-join
-      // verification can distinguish "correctly skipped an existing checkpoint"
-      // from "none existed" (Issue 4). hasInMemoryJoinCheckpoint() is the live
-      // rolling-buffer view; a DB/R2-only checkpoint won't show here.
+    if (startsBlank && this.room?.canPersistSnapshots?.()) {
+      // Log whether a checkpoint actually existed, so solo-join verification can
+      // distinguish "correctly skipped an existing checkpoint" from "none
+      // existed" (Issue 4). hasInMemoryJoinCheckpoint() is the live rolling-buffer
+      // view; a DB/R2-only checkpoint won't show here.
       const hadInMemoryCheckpoint = !!this.room.hasInMemoryJoinCheckpoint?.();
       this.room.invalidateJoinCheckpoint?.();
       console.log(`[Sync] Lone joiner ${requesterSessionIndex}: skipping persisted join checkpoint (in-memory checkpoint existed=${hadInMemoryCheckpoint}); starting from live command tail only`);

@@ -581,6 +581,9 @@ export function setupUserHandlers(wsClient, app) {
     if (data.hideChatNotifications !== undefined) {
       roomDataUpdates.hideChatNotifications = data.hideChatNotifications;
     }
+    if (data.loadSnapshotOnFirstJoin !== undefined) {
+      roomDataUpdates.loadSnapshotOnFirstJoin = data.loadSnapshotOnFirstJoin;
+    }
     if (data.textOverlayLifetimeMs !== undefined) {
       roomDataUpdates.textOverlayLifetimeMs = data.textOverlayLifetimeMs;
       board.textOverlay?.setRoomLifetime?.(data.textOverlayLifetimeMs);

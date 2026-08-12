@@ -493,6 +493,10 @@ message Msg {
   uint32 text_age_ms = 167;          // TEXT_APPLY: server-stamped age at send time, used for backfill on join
   bool   text_pixel = 168;           // TEXT_APPLY: true → rasterize as a permanent stroke, skip overlay tracking
   uint32 room_text_overlay_lifetime_ms = 169; // ROOM_UPDATE/SETTINGS: per-room ephemeral text lifetime (ms)
+  // ROOM_UPDATE/SETTINGS: first joiner adopts the room's last snapshot.
+  // Tri-state 0=unset 1=on 2=off — a bool cannot express "off" for a
+  // default-ON setting, since proto3 drops false from the wire.
+  uint32 room_snapshot_on_first_join = 201;
   string resume_key = 170;           // CONNECT/CONNECT_RESUMED: opaque per-tab key for reclaiming a sessionIndex after a brief drop
   uint64 seq = 171;                  // Global message sequence number (assigned by server)
 

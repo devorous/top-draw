@@ -54,6 +54,7 @@
   let autoMuteGuests = $state(false);
   let autoMuteVpnUsers = $state(false);
   let hideChatNotifications = $state(false);
+  let loadSnapshotOnFirstJoin = $state(true);
   let textOverlayLifetimeMs = $state(30 * 1000);
   let textFadeMinutes = $state(0);
   let textFadeSeconds = $state(30);
@@ -155,6 +156,8 @@
     autoMuteGuests = !!data.autoMuteGuests;
     autoMuteVpnUsers = !!data.autoMuteVpnUsers;
     hideChatNotifications = !!data.hideChatNotifications;
+    // Default on: rooms saved before this setting existed have it undefined.
+    loadSnapshotOnFirstJoin = data.loadSnapshotOnFirstJoin !== false;
     {
       const ms = Number(data.textOverlayLifetimeMs);
       textOverlayLifetimeMs = Number.isFinite(ms) && ms > 0 ? Math.floor(ms) : 30 * 1000;
@@ -315,6 +318,7 @@
           autoMuteGuests,
           autoMuteVpnUsers,
           hideChatNotifications,
+          loadSnapshotOnFirstJoin,
           textOverlayLifetimeMs: clampedTextOverlayLifetimeMs,
           private: roomPrivate,
           boardSize,
@@ -347,6 +351,8 @@
       roomAutoMuteGuests: autoMuteGuests,
       roomAutoMuteVpnUsers: autoMuteVpnUsers,
       roomHideChatNotifications: hideChatNotifications,
+      // 1 = on, 2 = off (0/absent would read as "unchanged" server-side).
+      roomSnapshotOnFirstJoin: loadSnapshotOnFirstJoin ? 1 : 2,
       roomTextOverlayLifetimeMs: clampedTextOverlayLifetimeMs,
       roomPrivate: roomPrivate,
       roomDedicatedReplayUser: dedicatedReplayUser.trim() || null,
@@ -748,6 +754,14 @@
               <input type="checkbox" bind:checked={autoMuteVpnUsers} />
               <span>Auto-mute VPN or datacenter users</span>
             </label>
+          </div>
+
+          <div class="form-group checkbox-group">
+            <label>
+              <input type="checkbox" bind:checked={loadSnapshotOnFirstJoin} />
+              <span>Load last snapshot when first user joins</span>
+            </label>
+            <span class="form-hint">The first person into an empty room picks the board up where it was left. Off starts them on a blank canvas.</span>
           </div>
 
           <div class="form-group checkbox-group">

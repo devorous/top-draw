@@ -44,6 +44,10 @@ export class Room {
       autoMuteGuests: false,
       autoMuteVpnUsers: false,
       hideChatNotifications: false,
+      // When on (default), the first user into an empty room picks the board
+      // back up from the room's last persisted snapshot instead of a blank
+      // canvas. See Room.beginSessionBase / SyncCoordinator._serveCheckpointJoin.
+      loadSnapshotOnFirstJoin: true,
       dedicatedReplayUser: null,
       textOverlayLifetimeMs: 30 * 1000,
       private: false,
@@ -121,6 +125,14 @@ export class Room {
      * @type {boolean}
      */
     this.joinCheckpointInvalidated = false;
+
+    /**
+     * Pins this live session's base-board decision (blank vs. adopted snapshot)
+     * so every joiner in the session resolves the same one. Set on first
+     * connect, cleared when the room empties. See beginSessionBase().
+     * @type {Promise<Object|null>|null}
+     */
+    this._sessionBasePromise = null;
 
     /** @type {NodeJS.Timeout|null} Server-driven snapshot request interval */
     this._snapshotTimer = null;
@@ -224,6 +236,78 @@ export class Room {
   }
 
   /**
+   * Decide (once) what the board looks like for the session that is just
+   * starting, and pin that decision before anyone can ask for it.
+   *
+   * Called synchronously the moment the first client connects — well before
+   * their SYNC_REQUEST — so a second client racing in during the async R2/DB
+   * fetch waits on the same promise and is served the same base. Without that
+   * pin the two joiners could disagree about whether the room starts blank.
+   *
+   * `loadSnapshotOnFirstJoin` on (default): adopt the room's last persisted
+   * snapshot as this session's base. Off: the historical behaviour — start
+   * from a blank canvas and the live command tail only.
+   *
+   * @returns {Promise<Object|null>} the adopted base snapshot, or null
+   */
+  beginSessionBase() {
+    if (this._sessionBasePromise) return this._sessionBasePromise;
+
+    if (this.settings.loadSnapshotOnFirstJoin === false || !this.canPersistSnapshots()) {
+      this.beginBlankJoinSession();
+      this._sessionBasePromise = Promise.resolve(null);
+      return this._sessionBasePromise;
+    }
+
+    this._sessionBasePromise = this._adoptPersistedBase().catch((err) => {
+      console.error(`[Room] Failed to adopt persisted base for "${this.id}":`, err);
+      // Never leave the session in limbo: fall back to the blank start.
+      this.beginBlankJoinSession();
+      return null;
+    });
+    return this._sessionBasePromise;
+  }
+
+  /**
+   * Load the last persisted snapshot and register it as this session's join
+   * checkpoint.
+   *
+   * Re-stamped at **seq 0** on purpose. A non-lobby Room object is destroyed
+   * when it empties, so `messageSequence` restarts at 0 for the new session
+   * while the persisted doc still carries the old session's (much higher)
+   * watermark. Serving it at its stored seq would put the base above every
+   * stroke of the new session, and later joiners would get the image with an
+   * empty tail — the new work invisible. At seq 0 the image is pure base and
+   * the whole live tail replays on top, which is what we want.
+   *
+   * @returns {Promise<Object|null>}
+   * @private
+   */
+  async _adoptPersistedBase() {
+    // forJoin:false deliberately — `joinCheckpointInvalidated` is set when the
+    // room empties, and this call is precisely the decision to un-invalidate it.
+    const persisted = await this.getLatestSnapshotData({ forJoin: false });
+    if (!persisted || !Array.isArray(persisted.layers) || persisted.layers.length === 0) {
+      // Nothing to adopt (cold room) — a blank start, same as the setting off.
+      this.beginBlankJoinSession();
+      return null;
+    }
+
+    const base = {
+      id: persisted.id,
+      ts: persisted.ts,
+      issuer: persisted.issuer,
+      layers: persisted.layers,
+      seq: 0,
+      auto: true,
+    };
+    this.addSnapshot(base);
+    this.joinCheckpointInvalidated = false;
+    console.log(`[Room] "${this.id}" session adopted persisted snapshot ${base.id} as its base`);
+    return base;
+  }
+
+  /**
    * Drop automatic join-sync state when the room becomes logically empty. The
    * next live session should not inherit an old checkpoint image or old command
    * tail; a lone user can still explicitly load saved snapshots from history.
@@ -234,6 +318,9 @@ export class Room {
     this.strokeTape?.clear?.();
     this.clearAllTiles?.();
     this.snapshots = this.snapshots.filter(s => !s?.auto);
+    // The next session re-decides its base from scratch (the room object often
+    // survives an empty spell — lobby always does).
+    this._sessionBasePromise = null;
   }
 
   /**
@@ -510,6 +597,8 @@ export class Room {
         this.settings.autoMuteGuests = !!doc.settings?.autoMuteGuests;
         this.settings.autoMuteVpnUsers = !!doc.settings?.autoMuteVpnUsers;
         this.settings.hideChatNotifications = !!doc.settings?.hideChatNotifications;
+        // Absent in rooms saved before this setting existed — default on.
+        this.settings.loadSnapshotOnFirstJoin = doc.settings?.loadSnapshotOnFirstJoin !== false;
         this.settings.mirrorRegions = Array.isArray(doc.settings?.mirrorRegions) ? doc.settings.mirrorRegions : [];
         this.settings.dedicatedReplayUser = doc.settings?.dedicatedReplayUser || null;
         this.settings.textOverlayLifetimeMs = Number.isFinite(doc.settings?.textOverlayLifetimeMs)
@@ -579,6 +668,7 @@ export class Room {
               autoMuteGuests: this.settings.autoMuteGuests,
               autoMuteVpnUsers: this.settings.autoMuteVpnUsers,
               hideChatNotifications: this.settings.hideChatNotifications,
+              loadSnapshotOnFirstJoin: this.settings.loadSnapshotOnFirstJoin,
               textOverlayLifetimeMs: this.settings.textOverlayLifetimeMs,
               mirrorRegions: this.settings.mirrorRegions,
               dedicatedReplayUser: this.settings.dedicatedReplayUser,

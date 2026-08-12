@@ -18,7 +18,7 @@ import { postReleaseUpdateToDiscord } from './discordBot.js';
 import { handleAuthLogin, handleAuthRegister, handleAuthMe, handleAuthUsernameUpdate, handlePasswordResetRequest, handlePasswordResetComplete, handleEmailSet, handleEmailVerify, handleEmailDecline, handleDiscordConfig, handleDiscordOAuthStart, handleDiscordOAuthCallback, handleDiscordDdrawAccountLink } from './authRoutes.js';
 import { handleUserProfile, handleUpdateProfile } from './userRoutes.js';
 import { getGalleryPreviewItem, renderGalleryPreviewHtml } from './galleryPreview.js';
-import { handleSnapshotSave, handleSnapshotList, handleSnapshotRestore, handleSnapshotDelete, handleSnapshotGet, handleSnapshotRegionRestore, handleSnapshotJoinNotify } from './snapshots.js';
+import { handleSnapshotSave, handleSnapshotList, handleSnapshotRestore, handleSnapshotDelete, handleSnapshotGet, handleSnapshotRegionRestore, handleFirstJoinerBase } from './snapshots.js';
 import { handleCheckpointUpload, handleCheckpointList, handleCheckpointGet } from './checkpoints.js';
 import { getRecorder, removeRecorder, getReplayData } from './deltaRecorder.js';
 import { startElection, stopElection } from './uploaderElection.js';
@@ -1930,6 +1930,9 @@ function buildSettingsPayload(room) {
     roomAutoMuteGuests: room.settings.autoMuteGuests,
     roomAutoMuteVpnUsers: room.settings.autoMuteVpnUsers,
     roomHideChatNotifications: room.settings.hideChatNotifications,
+    // Tri-state (0 unset / 1 on / 2 off), not a bool: proto3 omits `false`, so a
+    // bool can only ever carry one of the two states for a default-ON setting.
+    roomSnapshotOnFirstJoin: room.settings.loadSnapshotOnFirstJoin === false ? 2 : 1,
     roomTextOverlayLifetimeMs: room.settings.textOverlayLifetimeMs ?? (30 * 1000),
     roomDedicatedReplayUser: room.settings.dedicatedReplayUser,
     roomPrivate: room.settings.private,
@@ -3486,9 +3489,12 @@ wss.on('connection', async (ws, req) => {
             });
           }
 
-          // Notify joining user of the most recent snapshot (if any)
-          debug(`[Room.CONNECT] Before handleSnapshotJoinNotify: room client count = ${room.getClientCount()}`);
-          handleSnapshotJoinNotify(ws, room).catch(() => {});
+          // Settle this session's base board (blank, or the room's last
+          // persisted snapshot) before anyone can SYNC_REQUEST against it. Not
+          // awaited: the call pins its promise synchronously and the sync path
+          // awaits that same promise.
+          debug(`[Room.CONNECT] Before handleFirstJoinerBase: room client count = ${room.getClientCount()}`);
+          handleFirstJoinerBase(ws, room).catch(() => {});
 
           // Start/continue election when first user joins (auto mode only)
           if (room.getClientCount() === 1 && !room.settings.dedicatedReplayUser) {
@@ -4184,6 +4190,10 @@ wss.on('connection', async (ws, req) => {
             }
             if (data.roomHideChatNotifications !== undefined) {
               room.settings.hideChatNotifications = !!data.roomHideChatNotifications;
+            }
+            // 0/absent = client didn't touch it; 1 = on, 2 = off (see buildSettingsPayload).
+            if (data.roomSnapshotOnFirstJoin) {
+              room.settings.loadSnapshotOnFirstJoin = Number(data.roomSnapshotOnFirstJoin) !== 2;
             }
             if (data.roomTextOverlayLifetimeMs !== undefined) {
               const raw = Number(data.roomTextOverlayLifetimeMs);

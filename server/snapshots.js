@@ -732,62 +732,33 @@ export async function handleSnapshotDelete(ws, data, room) {
 }
 
 /**
- * Sends the most recent snapshot metadata (with thumbnail) to a newly joined user.
- * Called once per join, only if snapshots exist for the room.
+ * Settle what the board looks like for a session that is just beginning.
+ *
+ * Runs once, when the first client connects to an otherwise empty room. With
+ * the room's `loadSnapshotOnFirstJoin` setting on (the default) the room's last
+ * persisted snapshot becomes this session's base, so the first user walks into
+ * the board as it was left; with it off the session starts blank.
+ *
+ * This replaced an opt-in BOARD_SNAPSHOT_JOIN_NOTIFY toast that offered a
+ * "Load server snapshot" button. The toast could only ever be offered to a
+ * lone occupant, and by the time it was clicked someone else may have joined —
+ * at which point the server's own gate (canRestoreWholeBoard) refused an
+ * untrusted user's restore and the prompt turned into a permission error.
+ * Deciding at join time removes both the prompt and that failure mode.
+ *
  * @param {WebSocket} ws - The joining user's socket.
  * @param {Room} room - The room instance.
  */
-export async function handleSnapshotJoinNotify(ws, room) {
+export async function handleFirstJoinerBase(ws, room) {
   if (!room || room.id === '_discovery' || room.id === 'default') {
     return;
   }
 
-  // Only offer the snapshot to a joiner who's alone in the room. With other
-  // users present, the joiner syncs from a live provider; surfacing the
-  // snapshot prompt on top of that is confusing.
+  // Only the first client of a session decides the base. With others already
+  // present the board is whatever they're drawing on, and the joiner syncs to
+  // it through the normal checkpoint + tail path.
   const clientCount = typeof room.getClientCount === 'function' ? room.getClientCount() : 1;
-  if (clientCount !== 1) {
-    console.log(`[Snapshot] Skipping join notify: room.getClientCount() = ${clientCount}`);
-    return;
-  }
-  room.beginBlankJoinSession?.();
-  console.log(`[Snapshot] Sending join notify: clientCount = ${clientCount}`);
+  if (clientCount !== 1) return;
 
-  // Prefer in-memory snapshots that have both a thumb AND layers (auto-saves).
-  for (let i = room.snapshots.length - 1; i >= 0; i--) {
-    const s = room.snapshots[i];
-    if (s.thumb && s.layers && s.layers.length > 0) {
-      room.sendTo(ws, {
-        t: T.BOARD_SNAPSHOT_JOIN_NOTIFY,
-        snapshotId: s.id,
-        snapshotTs: s.ts,
-        snapshotIssuer: s.issuer || 'Unknown',
-        snapshotThumb: s.thumb
-      });
-      return;
-    }
-  }
-
-  // Fall back to DB — find the most recent snapshot with a thumbnail
-  const db = getDB();
-  if (!db) return;
-
-  try {
-    const doc = await db.collection('room_snapshots').findOne(
-      { roomId: room.id, thumbnail: { $ne: null } },
-      { sort: { timestamp: -1 } }
-    );
-
-    if (!doc) return;
-
-    room.sendTo(ws, {
-      t: T.BOARD_SNAPSHOT_JOIN_NOTIFY,
-      snapshotId: doc.snapshotId,
-      snapshotTs: doc.timestamp,
-      snapshotIssuer: doc.issuer || 'Unknown',
-      snapshotThumb: doc.thumbnail?.buffer || doc.thumbnail
-    });
-  } catch (err) {
-    console.error(`[Snapshot] Failed to fetch latest snapshot for join notify in room "${room.id}":`, err);
-  }
+  await room.beginSessionBase?.();
 }

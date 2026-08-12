@@ -75,28 +75,6 @@ export function setupSnapshotHandlers(wsClient, app) {
     });
   });
 
-  // Notify joining user about the most recent snapshot
-  wsClient.on('board_snapshot_join_notify', (data) => {
-    if (!data.snapshotId) return;
-
-    // Double-check that we're alone in the room (server should already enforce this)
-    // Count users excluding self
-    const otherUserCount = app.users ? Array.from(app.users.values()).filter(u => u.id !== app.sessionIndex).length : 0;
-    if (otherUserCount > 0) {
-      debug('[Snapshot] Ignoring join notify - other users present in room');
-      return;
-    }
-
-    app.ui.showSnapshotJoinToast({
-      snapshotId: data.snapshotId,
-      ts: data.snapshotTs,
-      issuer: data.snapshotIssuer || 'Unknown',
-      thumb: data.snapshotThumb || null
-    }, () => {
-      app.snapshotManager.restoreSnapshot(data.snapshotId);
-    });
-  });
-
   // Handle board restoration
   wsClient.on('board_snapshot_restore', (data) => {
     if (!data.snapshotLayers || data.snapshotLayers.length === 0) return;
