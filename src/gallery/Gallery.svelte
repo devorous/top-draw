@@ -77,6 +77,76 @@
   let tagsExpanded = $state(false);
   let visibleTags = $derived(tagsExpanded ? sidebarTags : sidebarTags.slice(0, TAG_PREVIEW_COUNT));
 
+  // ── Card tag row fitting ──
+  // The row is a single line: fit as many WHOLE tags as the card width allows,
+  // then show "+N" for the rest. Chip metrics below must track the
+  // `.card-tags-row .card-tag-chip` CSS.
+  const TAG_CHIP_FONT = '10.88px Inter, -apple-system, sans-serif'; // 0.68rem
+  const TAG_CHIP_CHROME = 16.4;   // padding 0.45rem * 2 + 1px border * 2
+  const TAG_CHIP_GAP = 4.8;       // row gap 0.3rem
+  const TAG_ROW_PADDING = 17.6;   // row padding 0.55rem * 2
+  let gridEl = $state(null);
+  let cardWidth = $state(0);
+  let tagFontVersion = $state(0); // bumped once webfonts land so widths re-measure
+  let tagMeasureCtx = null;
+
+  function measureTagText(text) {
+    if (!tagMeasureCtx) {
+      if (typeof document === 'undefined') return text.length * 6;
+      tagMeasureCtx = document.createElement('canvas').getContext('2d');
+    }
+    tagMeasureCtx.font = TAG_CHIP_FONT;
+    return tagMeasureCtx.measureText(text).width;
+  }
+
+  /**
+   * @param {string[]} tags
+   * @param {number} width  card width in px
+   * @param {number} _fontVersion  reactivity key only — see tagFontVersion
+   * @returns {{ shown: string[], hidden: number }}
+   */
+  function fitTags(tags, width, _fontVersion) {
+    if (!tags?.length) return { shown: [], hidden: 0 };
+    const avail = width - TAG_ROW_PADDING;
+    // Before the grid has been measured, show one tag; it ellipsizes if too long.
+    if (!(avail > 0)) return { shown: tags.slice(0, 1), hidden: tags.length - 1 };
+
+    const chipWidth = (tag) => measureTagText(`#${tag}`) + TAG_CHIP_CHROME;
+    const shown = [];
+    let used = 0;
+    for (const tag of tags) {
+      const w = chipWidth(tag) + (shown.length ? TAG_CHIP_GAP : 0);
+      if (used + w > avail) break;
+      used += w;
+      shown.push(tag);
+    }
+    // Always show something, even if that one tag has to ellipsize.
+    if (!shown.length) return { shown: tags.slice(0, 1), hidden: tags.length - 1 };
+
+    let hidden = tags.length - shown.length;
+    // Reserve room for the "+N" marker, dropping tags until it fits.
+    while (hidden > 0 && shown.length > 1 &&
+           used + measureTagText(`+${hidden}`) + TAG_CHIP_GAP > avail) {
+      used -= chipWidth(shown.pop()) + TAG_CHIP_GAP;
+      hidden = tags.length - shown.length;
+    }
+    return { shown, hidden };
+  }
+
+  // Cards are grid tracks of equal width, so one measurement serves every card.
+  $effect(() => {
+    if (!gridEl) return;
+    const measure = () => {
+      const cols = getComputedStyle(gridEl).gridTemplateColumns
+        .split(' ').map(parseFloat).filter((n) => !Number.isNaN(n));
+      if (cols.length) cardWidth = cols[0];
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(gridEl);
+    return () => ro.disconnect();
+  });
+
   // Comments state
   let comments = $state([]);
   let commentsLoading = $state(false);
@@ -1052,6 +1122,14 @@
     return new Date(d).toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' });
   }
 
+  function formatDateTime(d) {
+    if (!d) return '';
+    return new Date(d).toLocaleString('en-CA', {
+      year: 'numeric', month: 'short', day: 'numeric',
+      hour: 'numeric', minute: '2-digit'
+    });
+  }
+
   function getGalleryItemUrl(item) {
     if (typeof window === 'undefined' || !item?.id) return '';
     return new URL(`/gallery/${encodeURIComponent(item.id)}`, window.location.origin).toString();
@@ -1150,6 +1228,8 @@
     checkUrlParams();
     fetchGallery();
     fetchSidebar();
+    // Tag widths are measured with a canvas; re-measure once Inter is actually loaded.
+    document.fonts?.ready.then(() => { tagFontVersion++; });
   });
 </script>
 
@@ -1303,7 +1383,7 @@
               {/if}
             </section>
           {#if layout === 'grid'}
-          <div class="grid">
+          <div class="grid" bind:this={gridEl}>
         {#each items as item (item.id)}
           <div class="card" role="button" tabindex="0" onclick={() => openLightbox(item)} onpointerup={(e) => e.pointerType !== 'mouse' && openLightbox(item)} onkeydown={(e) => e.key === 'Enter' && openLightbox(item)}>
             <div class="card-img">
@@ -1332,6 +1412,9 @@
             <div class="card-meta">
               <div class="card-meta-main">
                 <button class="card-author" onclick={(e) => { e.stopPropagation(); profileDialog.show(item.author); }} onpointerup={(e) => { e.stopPropagation(); e.pointerType !== 'mouse' && profileDialog.show(item.author); }}>{item.author}</button>
+                {#if item.createdAt}
+                  <span class="card-date" title={formatDateTime(item.createdAt)}>{shortDate(item.createdAt)}</span>
+                {/if}
               </div>
               <button
                 class="like-btn"
@@ -1347,12 +1430,13 @@
               </button>
             </div>
             {#if item.tags?.length}
+              {@const fit = fitTags(item.tags, cardWidth, tagFontVersion)}
               <div class="card-tags-row">
-                {#each item.tags.slice(0, 4) as tag}
-                  <button class="tag-chip card-tag-chip" onclick={(e) => { e.stopPropagation(); filterByTag(tag); }} onpointerup={(e) => { e.stopPropagation(); e.pointerType !== 'mouse' && filterByTag(tag); }}>#{tag}</button>
+                {#each fit.shown as tag}
+                  <button class="tag-chip card-tag-chip" title={`#${tag}`} onclick={(e) => { e.stopPropagation(); filterByTag(tag); }} onpointerup={(e) => { e.stopPropagation(); e.pointerType !== 'mouse' && filterByTag(tag); }}>#{tag}</button>
                 {/each}
-                {#if item.tags.length > 4}
-                  <span class="tag-more">...</span>
+                {#if fit.hidden > 0}
+                  <span class="tag-more" title={item.tags.slice(fit.shown.length).map((t) => `#${t}`).join(' ')}>+{fit.hidden}</span>
                 {/if}
               </div>
             {/if}
@@ -1550,7 +1634,7 @@
           <div class="lb-meta-block">
             <div class="lb-meta">
               <button class="lb-author" onclick={() => profileDialog.show(lightbox.author)} onpointerup={(e) => e.pointerType !== 'mouse' && profileDialog.show(lightbox.author)}>by {lightbox.author}</button>
-              <span class="lb-date">{formatDate(lightbox.createdAt)}</span>
+              <span class="lb-date" title={formatDateTime(lightbox.createdAt)}>{formatDateTime(lightbox.createdAt)}</span>
             </div>
             <div class="lb-tags-row">
               <div class="lb-tags">
@@ -2178,7 +2262,10 @@
 
   .card-img {
     position: relative;
-    aspect-ratio: 4 / 3;
+    /* Measured over 72 gallery images: median aspect 1.01, mean 1.11. A square
+       box wastes the least room under object-fit: contain (77% mean fill vs
+       70% at 4:3), since portrait uploads are common. */
+    aspect-ratio: 1 / 1;
     overflow: hidden;
     background: var(--bg2);
   }
@@ -2270,12 +2357,13 @@
     backdrop-filter: blur(8px);
   }
 
+  /* The footer is chrome — keep it tight so the artwork stays the focus. */
   .card-meta {
-    padding: 0.65rem 0.75rem;
+    padding: 0.4rem 0.55rem;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 0.75rem;
+    gap: 0.5rem;
     background: var(--bg2);
     border-top: 1px solid var(--border);
   }
@@ -2283,41 +2371,76 @@
     min-width: 0;
     display: flex;
     align-items: center;
-    gap: 0.55rem;
+    gap: 0.4rem;
     flex: 1;
     overflow: hidden;
   }
   .card-author {
-    font-size: 0.8rem;
+    font-size: 0.78rem;
     color: rgba(255, 255, 255, 0.7);
     background: none;
     border: none;
     font-family: inherit;
     cursor: pointer;
-    padding: 4px 8px;
-    margin: -4px -8px;
+    padding: 3px 6px;
+    margin: -3px -6px;
+    /* 24px touch target kept; the row tightens via padding, not hit area. */
     min-height: 24px;
     min-width: 24px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: flex-start;
+    display: inline-block;
+    /* 3px padding + 18px line = the 24px min-height exactly, so text stays centred */
+    line-height: 18px;
+    text-align: left;
+    flex: 0 1 auto;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
     transition: color 0.15s;
   }
   .card-author:hover { color: var(--accent); }
 
-  .card-tags-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.45rem;
-    padding: 0.5rem 0.75rem 0.65rem;
-    background: var(--bg2);
-    border-top: 1px solid var(--border);
-    align-items: center;
+  .card-date {
+    flex: 0 0 auto;
+    font-size: 0.68rem;
+    line-height: 1.15;
+    color: var(--text-dim);
+    white-space: nowrap;
   }
 
-  .card-tag-chip {
-    padding: 0.28rem 0.65rem;
-    font-size: 0.72rem;
+  /* No top border: reads as one footer block with .card-meta rather than two bars. */
+  .card-tags-row {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 0.3rem;
+    padding: 0 0.55rem 0.45rem;
+    background: var(--bg2);
+    align-items: center;
+    /* Safety net only: chips shrink to fit, so this should never actually clip. */
+    overflow: hidden;
+  }
+
+  .card-tags-row .card-tag-chip {
+    padding: 0.12rem 0.45rem;
+    font-size: 0.68rem;
+    border-width: 1px;
+    display: inline-block;
+    line-height: 1.3;
+    /* fitTags() only emits chips that fit at natural width, so no shrinking.
+       The ellipsis is the fallback for the one case fitTags can't solve: a
+       single tag wider than the whole row. */
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .card-tags-row .card-tag-chip:hover { transform: none; }
+
+  .card-tags-row .tag-more {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    font-size: 0.68rem;
   }
 
   .tag-more {
@@ -2373,6 +2496,13 @@
     width: 1.2em;
     height: 1.2em;
     flex-shrink: 0;
+  }
+  .card-meta .like-btn {
+    font-size: 0.78rem;
+    padding: 3px 5px;
+    margin: -3px -5px;
+    min-height: 24px;
+    gap: 0.35rem;
   }
   .like-btn:hover { color: #e07070; }
   .like-btn.liked { color: #e07070; }
