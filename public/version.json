@@ -1,7 +1,7 @@
 {
-  "latest": "1.12.0-beta",
-  "minRequired": "1.12.0-beta",
-  "releaseDate": "2026-08-12T01:20:12.162Z",
-  "notes": "I've polished the new replay system and fixed some issues with the app not connecting properly for both user profiles and gallery.",
+  "latest": "1.12.1-beta",
+  "minRequired": "1.12.1-beta",
+  "releaseDate": "2026-08-12T19:51:08.468Z",
+  "notes": "I've polished the new replay system and fixed some issues with the app not connecting properly for both user profiles and gallery. Sync has been moved to the server-side for consistency and speed.",
   "downloadUrl": "https://www.ddraw.ca/download"
 }
