@@ -42,6 +42,7 @@ class Homography {
         this._height = height;
         this._objectiveWidth = null;
         this._objectiveHeight = null;
+        this._forcedOutputWindow = null;
         this._srcPoints = null;
         this._dstPoints = null;
         this.firstTransformSelected = transform.toLowerCase();
@@ -327,8 +328,35 @@ class Homography {
     }
 
     /**
+     * Summary.                     Forces the output window (offset and size) that warp() will rasterize.
+     *
+     * Description.                 By default the output window is induced from the transformed corners of the
+     *                              source image, so it always encloses the whole warped image. That window grows
+     *                              without bound when the destiny points lie far outside the visible area, which
+     *                              makes both the warp loop and the internal buffers enormous. Setting a window
+     *                              here restricts the rasterization to the region that is actually needed. It must
+     *                              be set before setDestinyPoints() so the induced (potentially huge) size is never
+     *                              materialized. Pass null to restore the automatic behaviour.
+     *
+     * @param {Object|null}  window  { x, y, width, height } in the destiny coordinate space, or null.
+     */
+    setOutputWindow(window){
+        this._forcedOutputWindow = window === null || window === undefined ? null : {
+            x: Math.round(window.x),
+            y: Math.round(window.y),
+            width: Math.max(1, Math.round(window.width)),
+            height: Math.max(1, Math.round(window.height))
+        };
+        // Re-induce so the change takes effect even if the points were already set.
+        if (this._srcPoints !== null && this._dstPoints !== null &&
+            (this.transform !== 'piecewiseaffine' || (this._width > 0 && this._height > 0))){
+            this._induceBestObjectiveWidthAndHeight();
+        }
+    }
+
+    /**
      * Summary.                     Apply the selected transform to an image.
-     * 
+     *
      * Description.                 Apply the calculated homography to the given image. Output image will have enough width and height for enclosing the whole input image without
      *                              any crop or pad. Any void section of the output image will be transparent. If no image is passed to the function and it was setted before the
      *                              call of warp (recommended for performance reasons) warps the pre-setted image. In case that an image is given, it will be internally setted,
@@ -666,6 +694,16 @@ class Homography {
         } else {
             throw ("Trying to calculate a the output width and height of a Piecewise Affine transform but source width and height are not set");
         }
+        // A window forced through setOutputWindow() replaces the induced one. Overriding it
+        // here (instead of after the call) keeps the hidden canvas, and every buffer sized
+        // from these properties, from ever being grown to the induced size, which explodes
+        // when the destiny quad reaches far outside the visible area.
+        if (this._forcedOutputWindow !== null){
+            this._xOutputOffset = this._forcedOutputWindow.x;
+            this._yOutputOffset = this._forcedOutputWindow.y;
+            this._objectiveWidth = this._forcedOutputWindow.width;
+            this._objectiveHeight = this._forcedOutputWindow.height;
+        }
         // Finally modify the hidden canvas width and height if needed
         if (this._hiddenCanvas.width < this._objectiveWidth) {this._hiddenCanvas.width = this._objectiveWidth;}
         if (this._hiddenCanvas.height < this._objectiveHeight) {this._hiddenCanvas.height = this._objectiveHeight;}
@@ -938,24 +976,41 @@ class Homography {
         let output_img = new Uint8ClampedArray(dstRowLenght*this._objectiveHeight);
         // Calculate it in the opposite direction
         this._putSrcAndDstPointsInSameRange();
-        const inverseTransformMatrix = calculateTransformMatrix(this.transform, this._dstPoints, this._srcPoints);
-        let transformPoint = getTransformFunction(this.transform);
+        const m = calculateTransformMatrix(this.transform, this._dstPoints, this._srcPoints);
+        // The point transform is inlined here (instead of going through
+        // getTransformFunction) because this is the hottest loop in the library: the
+        // helpers return a fresh [x, y] array per pixel and recompute the projective
+        // denominator twice. Results are identical, the allocation is not.
+        const projective = m.length === 8;
+        const srcWidth = this._width, srcHeight = this._height;
+        const xOffset = this._xOutputOffset, yOffset = this._yOutputOffset;
         // Track the full output image (going from _outputOffset to _objective+_outputOffset avoid white offsets)
-        for (let y = this._yOutputOffset; y < this._objectiveHeight+this._yOutputOffset; y++){
-            for (let x = this._xOutputOffset; x < this._objectiveWidth+this._xOutputOffset; x++){
-                    let [srcX, srcY] = transformPoint(inverseTransformMatrix, x, y);   
+        for (let y = 0; y < this._objectiveHeight; y++){
+            const dstY = y + yOffset;
+            const rowIdx = y*dstRowLenght;
+            for (let x = 0; x < this._objectiveWidth; x++){
+                    const dstX = x + xOffset;
+                    let srcX, srcY;
+                    if (projective){
+                        const denominator = m[6]*dstX + m[7]*dstY + 1;
+                        srcX = (m[0]*dstX + m[1]*dstY + m[2]) / denominator;
+                        srcY = (m[3]*dstX + m[4]*dstY + m[5]) / denominator;
+                    } else {
+                        srcX = m[0]*dstX + m[2]*dstY + m[4];
+                        srcY = m[1]*dstX + m[3]*dstY + m[5];
+                    }
                     //If point is inside source image
-                    if (srcX >= 0 && srcX < this._width && srcY >= 0 && srcY < this._height){
+                    if (srcX >= 0 && srcX < srcWidth && srcY >= 0 && srcY < srcHeight){
                         //Get the index in the destiny domain
-                        const idx = ((y-this._yOutputOffset)*dstRowLenght)+((x-this._xOutputOffset)<<2);
+                        const idx = rowIdx+(x<<2);
                         //Get the index of y, x coordinate in the output image ArrayBuffer
                         const srcIdx = (Math.round(srcY)*srcRowLenght)+(Math.round(srcX)<<2);
                         output_img[idx] = image[srcIdx], output_img[idx+1] = image[srcIdx+1],
                         output_img[idx+2] = image[srcIdx+2], output_img[idx+3] = image[srcIdx+3];
                     }
                     // Anything outside it is kept as transparent background
-            }    
-        }    
+            }
+        }
         return output_img;
     }
 

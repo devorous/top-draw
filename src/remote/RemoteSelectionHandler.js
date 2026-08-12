@@ -1840,8 +1840,9 @@ export class RemoteSelectionHandler {
     user._lastSelectionMovePreviewAt = 0;
   }
 
-  // Output window for the warp when it spills beyond the corner bbox
-  // (concave/crossed quads). Null when the default window already fits.
+  // Output window for the warp: widened when it spills beyond the corner bbox
+  // (concave/crossed quads), cropped to the board when the quad reaches outside
+  // it. Null when the default corner-bbox window is already right.
   _getWarpOutputBounds(user, destCorners) {
     return computeWarpOutputBounds(user.originalCorners, destCorners, {
       minX: 0,
@@ -1905,14 +1906,15 @@ export class RemoteSelectionHandler {
       let previewScale = srcMaxDim > this.previewMaxSize ? this.previewMaxSize / srcMaxDim : 1;
       const fullBounds = calculateCornerBounds(user.selectionCorners);
       const outputBounds = this._getWarpOutputBounds(user, user.selectionCorners);
-      if (outputBounds) {
-        // Expanded windows can approach board size; cap the rasterized pixel
-        // count so the per-move warp stays cheap.
-        const MAX_PREVIEW_OUTPUT_PIXELS = 1.5e6;
-        const outPixels = outputBounds.width * outputBounds.height * previewScale * previewScale;
-        if (outPixels > MAX_PREVIEW_OUTPUT_PIXELS) {
-          previewScale *= Math.sqrt(MAX_PREVIEW_OUTPUT_PIXELS / outPixels);
-        }
+      // The output raster is sized by the *destination* window, not the source,
+      // so it can dwarf the source even after previewMaxSize. Cap its pixel count
+      // so the per-move warp stays cheap however far the corners are dragged.
+      const MAX_PREVIEW_OUTPUT_PIXELS = 1.5e6;
+      const outW = outputBounds ? outputBounds.width : fullBounds.width;
+      const outH = outputBounds ? outputBounds.height : fullBounds.height;
+      const outPixels = outW * outH * previewScale * previewScale;
+      if (outPixels > MAX_PREVIEW_OUTPUT_PIXELS) {
+        previewScale *= Math.sqrt(MAX_PREVIEW_OUTPUT_PIXELS / outPixels);
       }
 
       if (!user.previewHomography) {

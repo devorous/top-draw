@@ -99,7 +99,7 @@
     <div class="rec-body">
       {#if recording}
         <div class="rec-elapsed">{elapsedLabel}</div>
-        <div class="rec-sub">Recording everything on this device…</div>
+        <div class="rec-sub">Recording the board…</div>
         <div class="rec-actions">
           <button class="rec-btn" onclick={viewRecording} title="Preview what's been recorded so far">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>

@@ -45,75 +45,88 @@ function isConvexQuad(corners) {
 }
 
 /**
- * Compute the output window needed to rasterize the full warped image.
+ * Compute the output window that should actually be rasterized for a warp.
  *
- * When the destination quad is convex, the warped image is exactly the quad,
- * so the corner bounding box (the default window) already fits it and null is
- * returned. When the quad is concave or crossed, the fitted homography folds:
- * source pixels near the vanishing line map far outside the corner bbox
- * (toward infinity), so the spill is sampled along the source rect boundary
- * and clamped to clampBounds (typically the board rect).
+ * The library defaults to the destination corner bbox. That window is wrong in
+ * both directions once the quad leaves the board:
+ *
+ * - Too small when the quad is concave or crossed: the fitted homography folds
+ *   (w changes sign inside the source rect), so source pixels near the
+ *   vanishing line map far outside the corner bbox and get cut off. The spill
+ *   is recovered by sampling the source rect boundary.
+ * - Too large whenever the bbox extends past clampBounds: every consumer draws
+ *   into a board-sized surface, so those pixels are computed and allocated only
+ *   to be clipped away. A corner dragged well off-board makes the bbox — and
+ *   therefore the per-frame warp loop and its RGBA buffer — grow without bound,
+ *   which is what makes dragging a warped selection off the board crawl.
+ *
+ * The returned window is therefore (corner bbox ∪ folded spill) ∩ clampBounds.
  *
  * @param {Object} sourceCorners - Source corners { tl, tr, bl, br } in image coords.
  * @param {Object} destCorners - Destination corners { tl, tr, bl, br }.
- * @param {Object} clampBounds - { minX, minY, maxX, maxY } limit for the spill.
- * @returns {Object|null} - Integer { minX, minY, width, height } window that
- *   contains the corner bbox, or null if no expansion is needed.
+ * @param {Object} clampBounds - { minX, minY, maxX, maxY } limit (the board rect).
+ * @returns {Object|null} - Integer { minX, minY, width, height } window, or null
+ *   when the corner bbox is already exactly the right window.
  */
 export function computeWarpOutputBounds(sourceCorners, destCorners, clampBounds) {
   if (!sourceCorners || !destCorners || !clampBounds) return null;
-  if (isConvexQuad(destCorners)) return null;
-
-  let matrix;
-  try {
-    const src = [
-      sourceCorners.tl.x, sourceCorners.tl.y,
-      sourceCorners.tr.x, sourceCorners.tr.y,
-      sourceCorners.bl.x, sourceCorners.bl.y,
-      sourceCorners.br.x, sourceCorners.br.y
-    ];
-    const dst = [
-      destCorners.tl.x, destCorners.tl.y,
-      destCorners.tr.x, destCorners.tr.y,
-      destCorners.bl.x, destCorners.bl.y,
-      destCorners.br.x, destCorners.br.y
-    ];
-    matrix = calculateTransformMatrix('projective', src, dst);
-  } catch (e) {
-    return null;
-  }
-  if (!matrix || matrix.length !== 8) return null;
 
   const cornerBounds = calculateCornerBounds(destCorners);
-  let minX = cornerBounds.minX;
-  let minY = cornerBounds.minY;
-  let maxX = cornerBounds.maxX;
-  let maxY = cornerBounds.maxY;
 
-  // Forward-map the source rect boundary; extremes of the warped image lie on
-  // the boundary image. Near-zero denominators map toward infinity and end up
-  // clamped to clampBounds.
-  const SAMPLES_PER_EDGE = 48;
-  const EPS = 1e-9;
-  const edges = [
-    [sourceCorners.tl, sourceCorners.tr],
-    [sourceCorners.tr, sourceCorners.br],
-    [sourceCorners.br, sourceCorners.bl],
-    [sourceCorners.bl, sourceCorners.tl]
-  ];
-  for (const [from, to] of edges) {
-    for (let i = 0; i <= SAMPLES_PER_EDGE; i++) {
-      const t = i / SAMPLES_PER_EDGE;
-      const x = from.x + (to.x - from.x) * t;
-      const y = from.y + (to.y - from.y) * t;
-      const w = matrix[6] * x + matrix[7] * y + 1;
-      if (Math.abs(w) < EPS) continue;
-      const [px, py] = applyProjectiveTransformToPoint(matrix, x, y);
-      if (!Number.isFinite(px) || !Number.isFinite(py)) continue;
-      minX = Math.min(minX, Math.max(px, clampBounds.minX));
-      minY = Math.min(minY, Math.max(py, clampBounds.minY));
-      maxX = Math.max(maxX, Math.min(px, clampBounds.maxX));
-      maxY = Math.max(maxY, Math.min(py, clampBounds.maxY));
+  // A convex quad never spills outside its own bbox, so cropping to the clamp
+  // area is the only adjustment it can need.
+  let minX = Math.max(cornerBounds.minX, clampBounds.minX);
+  let minY = Math.max(cornerBounds.minY, clampBounds.minY);
+  let maxX = Math.min(cornerBounds.maxX, clampBounds.maxX);
+  let maxY = Math.min(cornerBounds.maxY, clampBounds.maxY);
+
+  if (!isConvexQuad(destCorners)) {
+    let matrix = null;
+    try {
+      const src = [
+        sourceCorners.tl.x, sourceCorners.tl.y,
+        sourceCorners.tr.x, sourceCorners.tr.y,
+        sourceCorners.bl.x, sourceCorners.bl.y,
+        sourceCorners.br.x, sourceCorners.br.y
+      ];
+      const dst = [
+        destCorners.tl.x, destCorners.tl.y,
+        destCorners.tr.x, destCorners.tr.y,
+        destCorners.bl.x, destCorners.bl.y,
+        destCorners.br.x, destCorners.br.y
+      ];
+      matrix = calculateTransformMatrix('projective', src, dst);
+    } catch (e) {
+      matrix = null;
+    }
+
+    // Forward-map the source rect boundary; extremes of the warped image lie on
+    // the boundary image. Near-zero denominators map toward infinity and end up
+    // clamped to clampBounds.
+    if (matrix && matrix.length === 8) {
+      const SAMPLES_PER_EDGE = 48;
+      const EPS = 1e-9;
+      const edges = [
+        [sourceCorners.tl, sourceCorners.tr],
+        [sourceCorners.tr, sourceCorners.br],
+        [sourceCorners.br, sourceCorners.bl],
+        [sourceCorners.bl, sourceCorners.tl]
+      ];
+      for (const [from, to] of edges) {
+        for (let i = 0; i <= SAMPLES_PER_EDGE; i++) {
+          const t = i / SAMPLES_PER_EDGE;
+          const x = from.x + (to.x - from.x) * t;
+          const y = from.y + (to.y - from.y) * t;
+          const w = matrix[6] * x + matrix[7] * y + 1;
+          if (Math.abs(w) < EPS) continue;
+          const [px, py] = applyProjectiveTransformToPoint(matrix, x, y);
+          if (!Number.isFinite(px) || !Number.isFinite(py)) continue;
+          minX = Math.min(minX, Math.max(px, clampBounds.minX));
+          minY = Math.min(minY, Math.max(py, clampBounds.minY));
+          maxX = Math.max(maxX, Math.min(px, clampBounds.maxX));
+          maxY = Math.max(maxY, Math.min(py, clampBounds.maxY));
+        }
+      }
     }
   }
 
@@ -122,12 +135,17 @@ export function computeWarpOutputBounds(sourceCorners, destCorners, clampBounds)
   maxX = Math.ceil(maxX);
   maxY = Math.ceil(maxY);
 
-  // No meaningful spill beyond the default corner-bbox window
+  // The quad can sit entirely outside the clamp area, which inverts the window.
+  if (maxX <= minX) maxX = minX + 1;
+  if (maxY <= minY) maxY = minY + 1;
+
+  // Already exactly the default window — let the caller keep the cheaper,
+  // translation-invariant corner-bbox path.
   if (
-    minX >= Math.floor(cornerBounds.minX) &&
-    minY >= Math.floor(cornerBounds.minY) &&
-    maxX <= Math.ceil(cornerBounds.maxX) &&
-    maxY <= Math.ceil(cornerBounds.maxY)
+    minX === Math.floor(cornerBounds.minX) &&
+    minY === Math.floor(cornerBounds.minY) &&
+    maxX === Math.ceil(cornerBounds.maxX) &&
+    maxY === Math.ceil(cornerBounds.maxY)
   ) {
     return null;
   }
@@ -197,6 +215,23 @@ export function performHomographyTransform({
       [(destCorners.br.x - bounds.minX) * effectiveScaleX, (destCorners.br.y - bounds.minY) * effectiveScaleY]
     ];
 
+    // Override the rasterized window when the corner bbox is not the right one:
+    // widened for folded (concave/crossed) quads whose warp spills past it,
+    // cropped for quads that reach outside the board. The library's inverse warp
+    // iterates exactly over this window. It is set *before* the points so the
+    // default window — unbounded for far off-board corners — is never induced,
+    // and cleared otherwise since instances are reused across frames.
+    homography.setOutputWindow(
+      outputBounds
+        ? {
+            x: Math.round((outputBounds.minX - bounds.minX) * effectiveScaleX),
+            y: Math.round((outputBounds.minY - bounds.minY) * effectiveScaleY),
+            width: Math.max(1, Math.round(outputBounds.width * effectiveScaleX)),
+            height: Math.max(1, Math.round(outputBounds.height * effectiveScaleY))
+          }
+        : null
+    );
+
     // Configure homography with source and destination points
     if (srcWidth !== undefined && srcHeight !== undefined) {
       homography.setSourcePoints(srcPoints, sourceCanvas, srcWidth, srcHeight);
@@ -204,16 +239,6 @@ export function performHomographyTransform({
       homography.setSourcePoints(srcPoints, sourceCanvas);
     }
     homography.setDestinyPoints(dstPoints);
-
-    // Widen the rasterized window when the warp spills beyond the corner bbox
-    // (folded/concave quads). The library's inverse warp iterates exactly over
-    // this window, so overriding it renders the spill instead of clipping it.
-    if (outputBounds) {
-      homography._xOutputOffset = Math.round((outputBounds.minX - bounds.minX) * effectiveScaleX);
-      homography._yOutputOffset = Math.round((outputBounds.minY - bounds.minY) * effectiveScaleY);
-      homography._objectiveWidth = Math.max(1, Math.round(outputBounds.width * effectiveScaleX));
-      homography._objectiveHeight = Math.max(1, Math.round(outputBounds.height * effectiveScaleY));
-    }
 
     // Perform the warp
     const imageData = homography.warp();
