@@ -499,9 +499,34 @@ export async function handleGalleryUpload(req, res) {
 const ANIMATION_MAX_BYTES = 25 * 1024 * 1024; // 25 MB webm cap
 
 /**
- * POST /api/gallery/:id/animation — attach a time-lapse WebM to an existing
- * gallery item. Author-only. Body: { animationData: 'data:video/webm;base64,…',
- * region?: {x,y,width,height} }.
+ * Storage key for a time-lapse clip. Versioned per write: clips are served
+ * with an immutable cache header, so re-encoding one (a re-crop or re-trim
+ * from the editor) has to land on a fresh URL or viewers keep the stale video.
+ */
+function timelapseKey(id) {
+  return `${id}_timelapse_${Date.now().toString(36)}.webm`;
+}
+
+/** Best-effort removal of an item's stored clip. Never fatal to the caller. */
+async function deleteStoredAnimation(item) {
+  if (!r2 || !item?.animatedUrl) return;
+  try {
+    const key = item.animatedUrl.split('/').pop();
+    if (key) await r2.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }));
+  } catch (err) {
+    console.warn('[Gallery] Animation R2 delete failed (continuing):', err.message);
+  }
+}
+
+/** Author or HOLY+ (role >= 8) — same bar as deleting the item itself. */
+function canEditAnimation(item, authUser) {
+  return String(item.authorId) === authUser._id.toString() || (authUser.role || 0) >= 8;
+}
+
+/**
+ * POST /api/gallery/:id/animation — attach (or replace) a time-lapse WebM on an
+ * existing gallery item. Author or HOLY+ moderator. Body:
+ * { animationData: 'data:video/webm;base64,…', region?: {x,y,width,height} }.
  */
 export async function handleGalleryAnimationUpload(req, res, id) {
   const clientIp = getClientIp(req);
@@ -512,7 +537,9 @@ export async function handleGalleryAnimationUpload(req, res, id) {
 
   if (!/^[a-f0-9]{24}$/.test(id)) return json(res, 400, { error: 'Invalid id' });
 
-  const authUser = await requireAuthenticatedUser(req, res, { projection: { username: 1 } });
+  const authUser = await requireAuthenticatedUser(req, res, {
+    projection: { username: 1, role: 1 }
+  });
   if (!authUser) return;
 
   const db = getDB();
@@ -526,8 +553,8 @@ export async function handleGalleryAnimationUpload(req, res, id) {
     return json(res, 400, { error: 'Invalid id' });
   }
   if (!item) return json(res, 404, { error: 'Item not found' });
-  if (String(item.authorId) !== authUser._id.toString()) {
-    return json(res, 403, { error: 'Not your upload' });
+  if (!canEditAnimation(item, authUser)) {
+    return json(res, 403, { error: 'Not authorized to edit this time-lapse' });
   }
 
   let body;
@@ -558,7 +585,7 @@ export async function handleGalleryAnimationUpload(req, res, id) {
     return json(res, 400, { error: 'Animation is not a valid WebM' });
   }
 
-  const key = `${id}_timelapse.webm`;
+  const key = timelapseKey(id);
   try {
     await r2.send(new PutObjectCommand({
       Bucket: BUCKET,
@@ -573,26 +600,73 @@ export async function handleGalleryAnimationUpload(req, res, id) {
   }
 
   const animatedUrl = `${PUBLIC_URL}/${key}`;
-  const sanitizedRegion = region && typeof region === 'object'
-    ? {
-        x: Math.round(Number(region.x) || 0),
-        y: Math.round(Number(region.y) || 0),
-        width: Math.round(Number(region.width) || 0),
-        height: Math.round(Number(region.height) || 0),
-      }
-    : null;
+  const update = { animatedUrl, animatedAt: new Date() };
+  // Only stamp the board region when the caller supplies one. An editor
+  // re-upload sends no region — it re-crops in video space — and must not
+  // wipe the board rect the original capture recorded.
+  if (region && typeof region === 'object') {
+    update.animatedRegion = {
+      x: Math.round(Number(region.x) || 0),
+      y: Math.round(Number(region.y) || 0),
+      width: Math.round(Number(region.width) || 0),
+      height: Math.round(Number(region.height) || 0),
+    };
+  }
 
   try {
     await db.collection('gallery').updateOne(
       { _id: new ObjectId(id) },
-      { $set: { animatedUrl, animatedRegion: sanitizedRegion, animatedAt: new Date() } }
+      { $set: update }
     );
   } catch (err) {
     console.error('[Gallery] Animation DB update error:', err);
     return json(res, 500, { error: 'Failed to save animation' });
   }
 
+  // The row now points at the new key; drop the one it replaced.
+  await deleteStoredAnimation(item);
+
   return json(res, 200, { id, animatedUrl });
+}
+
+/**
+ * DELETE /api/gallery/:id/animation — detach the time-lapse so the card falls
+ * back to the static image. Author or HOLY+ moderator.
+ */
+export async function handleGalleryAnimationDelete(req, res, id) {
+  if (!/^[a-f0-9]{24}$/.test(id)) return json(res, 400, { error: 'Invalid id' });
+
+  const authUser = await requireAuthenticatedUser(req, res, {
+    projection: { username: 1, role: 1 }
+  });
+  if (!authUser) return;
+
+  const db = getDB();
+  if (!db) return json(res, 503, { error: 'Database not available' });
+
+  let item;
+  try {
+    item = await db.collection('gallery').findOne({ _id: new ObjectId(id) });
+  } catch {
+    return json(res, 400, { error: 'Invalid id' });
+  }
+  if (!item) return json(res, 404, { error: 'Item not found' });
+  if (!canEditAnimation(item, authUser)) {
+    return json(res, 403, { error: 'Not authorized to edit this time-lapse' });
+  }
+
+  try {
+    await db.collection('gallery').updateOne(
+      { _id: new ObjectId(id) },
+      { $unset: { animatedUrl: '', animatedRegion: '', animatedAt: '' } }
+    );
+  } catch (err) {
+    console.error('[Gallery] Animation delete error:', err);
+    return json(res, 500, { error: 'Failed to remove animation' });
+  }
+
+  await deleteStoredAnimation(item);
+  return json(res, 200, { id, removed: true });
 }
 
 /**
@@ -1245,6 +1319,7 @@ export async function handleGalleryDelete(req, res, id) {
           const thumbFilename = item.thumbUrl.split('/').pop();
           await r2.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: thumbFilename }));
         }
+        await deleteStoredAnimation(item);
       } catch (err) {
         console.warn('[Gallery] R2 delete failed (continuing):', err.message);
       }

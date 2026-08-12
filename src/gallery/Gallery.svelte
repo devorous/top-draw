@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { ProfileDialog } from '../ui/ProfileDialog.js';
+  import TimelapseEditor from './TimelapseEditor.svelte';
 
   // API base URL - defaults to relative (dev proxy) or can be set via env var for production
   const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
@@ -52,6 +53,7 @@
   let showLiked = $state(false); // viewing liked images mode
   let favoritedIds = $state(new Set()); // ids user has favorited
   let revealedNsfwIds = $state(new Set());
+  let timelapseEditorOpen = $state(false);
 
   // Layout state: 'grid' or 'board'
   let layout = $state('grid');
@@ -631,6 +633,19 @@
     return !!user && (user.username === item.author || (user.role || 0) >= HOLY_ROLE);
   }
 
+  function canEditTimelapse(item) {
+    return !!item?.animatedUrl && canDeleteImage(item);
+  }
+
+  /** Point the lightbox and the grid at the item's new clip URL (or none). */
+  function applyTimelapseChange(animatedUrl) {
+    if (!lightbox) return;
+    const id = lightbox.id;
+    lightbox = { ...lightbox, animatedUrl };
+    items = items.map((entry) => entry.id === id ? { ...entry, animatedUrl } : entry);
+    timelapseEditorOpen = false;
+  }
+
   function canDeleteComment(comment) {
     return !!user && (user.userId === comment.authorId || (user.role || 0) >= HOLY_ROLE);
   }
@@ -667,6 +682,7 @@
   }
 
   async function setActiveLightboxItem(item) {
+    timelapseEditorOpen = false;
     lightbox = item;
     syncTagDraft(item);
     comments = [];
@@ -962,6 +978,7 @@
   }
 
   function closeLightbox() {
+    timelapseEditorOpen = false;
     const returnToProfile = openedFromProfile;
     openedFromProfile = null;
     lightboxInstant = false;
@@ -986,6 +1003,7 @@
   }
 
   function closeLightboxFromHistory() {
+    timelapseEditorOpen = false;
     openedFromProfile = null;
     lightboxInstant = false;
     lightbox = null;
@@ -1015,8 +1033,13 @@
   function handleKeydown(e) {
     if (e.key === 'Escape') {
       if (showAuthModal) closeAuthModal();
+      // The time-lapse editor sits on top of the lightbox — Escape dismisses
+      // the editor first, leaving the item open behind it.
+      else if (timelapseEditorOpen) timelapseEditorOpen = false;
       else closeLightbox();
     }
+    // Arrows swap the lightbox item out from under the editor otherwise.
+    if (timelapseEditorOpen) return;
     if (e.key === 'ArrowRight' && lightbox) {
       navigateLightbox(1);
     }
@@ -1582,6 +1605,9 @@
               {shareCopiedId === lightbox.id ? 'Copied' : 'Share'}
             </button>
             <button class="btn-ghost small" onclick={() => downloadImage(lightbox.url, `${lightbox.title || lightbox.id}.png`)} onpointerup={(e) => e.pointerType !== 'mouse' && downloadImage(lightbox.url, `${lightbox.title || lightbox.id}.png`)}>Download</button>
+            {#if canEditTimelapse(lightbox)}
+              <button class="btn-ghost small" onclick={() => timelapseEditorOpen = true} onpointerup={(e) => e.pointerType !== 'mouse' && (timelapseEditorOpen = true)} title="Re-crop, trim or remove the time-lapse">Edit lapse</button>
+            {/if}
             {#if canDeleteImage(lightbox)}
               <button class="btn-danger small" onclick={() => deleteImage(lightbox)} onpointerup={(e) => e.pointerType !== 'mouse' && deleteImage(lightbox)}>Delete</button>
             {/if}
@@ -1675,6 +1701,17 @@
       {/if}
     </div>
   </div>
+{/if}
+
+{#if timelapseEditorOpen && lightbox}
+  <TimelapseEditor
+    item={lightbox}
+    apiBase={API_BASE}
+    token={localStorage.getItem(TOKEN_KEY)}
+    onSaved={(animatedUrl) => applyTimelapseChange(animatedUrl)}
+    onRemoved={() => applyTimelapseChange(null)}
+    onClose={() => timelapseEditorOpen = false}
+  />
 {/if}
 
 {#if showAuthModal}

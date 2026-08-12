@@ -18,6 +18,7 @@
 
 import { ReplayEngine } from '../timebar/ReplayEngine.js';
 import { drawReplayCursor } from './cursorOverlay.js';
+import { timelapseOutputDims } from '../timebar/timelapseEncoder.js';
 import { Muxer, ArrayBufferTarget } from 'webm-muxer';
 
 /** Matches RollingTapeRecorder.IDLE_LEADOUT_MS — lead-out beat kept before a gap collapses. */
@@ -129,6 +130,7 @@ export function compressedTapeDurationMs(recording, rangeStartTs = null, rangeEn
  * @property {{x: number, y: number, width: number, height: number}|null} region - null = full board
  * @property {number|null} [rangeStartTs] - Absolute tape ts to start rendering from (the timeline's trim start); null = tape start. Deltas before it are pre-rolled into the first frame.
  * @property {number|null} [rangeEndTs] - Absolute tape ts to stop rendering at (trim end); null = tape end.
+ * @property {number} [scale=1] - linear downscale of the encoded video relative to the region (WebCodecs video path only). Gallery time-lapses pass 0.5; the user-facing export leaves it native.
  * @property {[number, number, number, number]} [backgroundColor] - rgba 0-255, alpha 0-1 (defaults to white)
  * @property {boolean} [transparentBackground=false] - skip the background fill so frames keep an alpha channel (image-sequence output only — WebM/VP8 video cannot store alpha)
  * @property {boolean} [renderCursors=false]    - paint bot cursor markers on each frame
@@ -184,6 +186,10 @@ export class TimeLapseExporter {
       width: Math.max(2, baseRegion.width - (baseRegion.width % 2)),
       height: Math.max(2, baseRegion.height - (baseRegion.height % 2)),
     };
+    // Encoded size may be smaller than the region (gallery clips render at half
+    // linear resolution). Everything below still draws in region coordinates —
+    // the export context carries the scale.
+    const out = timelapseOutputDims(r.width, r.height, this._opts.scale ?? 1);
 
     this._engine = new ReplayEngine();
     this._engine.init(boardW, boardH, wsClient);
@@ -200,10 +206,17 @@ export class TimeLapseExporter {
     }
 
     this._exportCanvas = document.createElement('canvas');
-    this._exportCanvas.width = r.width;
-    this._exportCanvas.height = r.height;
+    this._exportCanvas.width = out.width;
+    this._exportCanvas.height = out.height;
     this._exportCtx = this._exportCanvas.getContext('2d');
     this._exportCtx.imageSmoothingEnabled = true;
+    this._exportCtx.imageSmoothingQuality = 'high';
+    // Baked into the context rather than applied per draw: every helper below
+    // (region blit, vector text, cursors) works in region coordinates and only
+    // ever uses save/restore-balanced relative transforms.
+    if (out.width !== r.width || out.height !== r.height) {
+      this._exportCtx.scale(out.width / r.width, out.height / r.height);
+    }
 
     const bg = backgroundColor || recording.openingSnapshot.backgroundColor || [255, 255, 255, 1];
 
@@ -217,7 +230,7 @@ export class TimeLapseExporter {
     await this._engine.processActions(preRoll, startTs);
     if (this._cancelled) return null;
 
-    const bitrate = estimateBitrate(r.width, r.height, fps);
+    const bitrate = estimateBitrate(out.width, out.height, fps);
 
     // VP8 is the most reliable software path; VP9 is a smaller-file fallback.
     const codecCandidates = [
@@ -228,7 +241,7 @@ export class TimeLapseExporter {
     for (const c of codecCandidates) {
       try {
         const sup = await VideoEncoder.isConfigSupported({
-          codec: c.webcodec, width: r.width, height: r.height,
+          codec: c.webcodec, width: out.width, height: out.height,
           bitrate, framerate: fps, hardwareAcceleration: 'prefer-software',
         });
         if (sup.supported) { chosen = c; break; }
@@ -239,7 +252,7 @@ export class TimeLapseExporter {
     const target = new ArrayBufferTarget();
     const muxer = new Muxer({
       target,
-      video: { codec: chosen.matroska, width: r.width, height: r.height, frameRate: fps },
+      video: { codec: chosen.matroska, width: out.width, height: out.height, frameRate: fps },
     });
 
     let encoderError = null;
@@ -248,7 +261,7 @@ export class TimeLapseExporter {
       error: (e) => { encoderError = e; },
     });
     encoder.configure({
-      codec: chosen.webcodec, width: r.width, height: r.height,
+      codec: chosen.webcodec, width: out.width, height: out.height,
       bitrate, framerate: fps, hardwareAcceleration: 'prefer-software', latencyMode: 'quality',
     });
 

@@ -455,6 +455,7 @@ export class SaveMode {
     this.lassoPoints = [];
     this.preExistingCanvas = null;
     this.preExistingCanvasFixedSelection = false;
+    this.preExistingCanvasRegion = null;
     this.transparent = false;
     this.shareToDiscord = false;
     this.tagUsername = true;
@@ -1129,12 +1130,13 @@ export class SaveMode {
   /**
    * The saved area as a board-space rect for the gallery time-lapse crop.
    * Mirrors _createExportCanvas's selection precedence. Pre-existing canvases
-   * (e.g. handed in by SelectTool) have no board mapping, so they return null
-   * (= full board).
+   * use the board rect their opener handed in (SelectTool passes the selection
+   * bounds); without one they have no board mapping and return null
+   * (= full board), which is right for a whole-board snapshot.
    * @returns {{x: number, y: number, width: number, height: number}|null}
    */
   _getBoardSpaceSaveRegion() {
-    if (this.preExistingCanvas) return null;
+    if (this.preExistingCanvas) return this.preExistingCanvasRegion;
 
     let bounds = null;
     if (this.mode === 'lasso' && this.lassoPoints.length > 2) {
@@ -1386,6 +1388,7 @@ export class SaveMode {
     this._showTimelapseSpinner();
     this._tl.encodePromise = (async () => {
       const { TimeLapseExporter, compressedTapeDurationMs } = await import('../replay/TimeLapseExporter.js');
+      const { TIMELAPSE_OUTPUT_SCALE } = await import('../timebar/timelapseEncoder.js');
       const durMs = compressedTapeDurationMs(recording);
       if (durMs < 400) {
         // Tape holds no meaningful activity.
@@ -1401,6 +1404,9 @@ export class SaveMode {
         fps: 30,
         output: 'video',
         region: this._tl.region,
+        // Gallery clips play in a card/lightbox — half linear resolution keeps
+        // 30fps affordable. Matches the stills path.
+        scale: TIMELAPSE_OUTPUT_SCALE,
         onProgress: (p) => { if (gen === this._tl.gen) this._showTimelapseSpinner(p); },
       });
       if (gen !== this._tl.gen) return null;
@@ -1452,6 +1458,7 @@ export class SaveMode {
       const rangeStartTs = recording.startedAt + this._tl.trimStart * 1000;
       const rangeEndTs = recording.startedAt + this._tl.trimEnd * 1000;
       const { TimeLapseExporter, compressedTapeDurationMs } = await import('../replay/TimeLapseExporter.js');
+      const { TIMELAPSE_OUTPUT_SCALE } = await import('../timebar/timelapseEncoder.js');
       const durMs = compressedTapeDurationMs(recording, rangeStartTs, rangeEndTs);
       if (durMs < 400) return this._tl.blob;
       const speed = Math.max(1, durMs / 6000);
@@ -1462,6 +1469,7 @@ export class SaveMode {
         fps: 30,
         output: 'video',
         region: this._tl.region,
+        scale: TIMELAPSE_OUTPUT_SCALE,
         rangeStartTs,
         rangeEndTs,
       });
@@ -1638,6 +1646,12 @@ export class SaveMode {
    * Opens save mode with a pre-existing canvas (e.g., from SelectTool).
    * Shows the canvas centered with options to save locally or to gallery.
    * @param {HTMLCanvasElement} canvas - The canvas to save
+   * @param {Object} [options]
+   * @param {boolean} [options.fixedSelection=true]
+   * @param {{x:number,y:number,width:number,height:number}|null} [options.boardRegion]
+   *   Where this canvas came from in board pixels. Without it the gallery
+   *   time-lapse has no crop to work from and falls back to the whole board —
+   *   a full-board clip attached to a cropped still.
    */
   openWithCanvas(canvas, options = {}) {
     if (this.isActive) return;
@@ -1647,6 +1661,7 @@ export class SaveMode {
     // Store the pre-existing canvas
     this.preExistingCanvas = canvas;
     this.preExistingCanvasFixedSelection = fixedSelection;
+    this.preExistingCanvasRegion = options.boardRegion ?? null;
 
     // Ensure overlay is in DOM
     if (!this.overlay.parentNode) {
@@ -1752,6 +1767,7 @@ export class SaveMode {
     this.lassoPoints = [];
     this.preExistingCanvas = null;
     this.preExistingCanvasFixedSelection = false;
+    this.preExistingCanvasRegion = null;
 
     // Reset pan/zoom state
     this._isPanning = false;

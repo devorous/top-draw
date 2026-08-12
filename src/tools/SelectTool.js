@@ -3963,6 +3963,36 @@ export class SelectTool extends Tool {
     return canvas;
   }
 
+  /**
+   * Axis-aligned board-space rect covering what getSelectionExportCanvas()
+   * hands back. The gallery time-lapse crops to this, so a saved selection
+   * gets a clip of that area rather than the whole board. Transformed
+   * (perspective/rotated) selections use the quad's bounding box — the same
+   * area the transformed export canvas covers.
+   * @returns {{x: number, y: number, width: number, height: number}|null}
+   */
+  getSelectionBoardRegion() {
+    if (!this.selection) return null;
+
+    let { x, y, width, height } = this.selection;
+    if (this.corners && this.needsHomographyTransform()) {
+      const c = this.corners;
+      const xs = [c.tl.x, c.tr.x, c.bl.x, c.br.x];
+      const ys = [c.tl.y, c.tr.y, c.bl.y, c.br.y];
+      x = Math.min(...xs);
+      y = Math.min(...ys);
+      width = Math.max(...xs) - x;
+      height = Math.max(...ys) - y;
+    }
+
+    return {
+      x: Math.round(x),
+      y: Math.round(y),
+      width: Math.max(1, Math.round(width)),
+      height: Math.max(1, Math.round(height))
+    };
+  }
+
   // Save selection as image file - opens save dialog with selection highlighted
   saveSelection() {
     const canvas = this.getSelectionExportCanvas();
@@ -3972,7 +4002,7 @@ export class SelectTool extends Tool {
     if (app?.saveMode) {
       // Open save dialog with the selection canvas
       this.hideContextMenu();
-      app.saveMode.openWithCanvas(canvas);
+      app.saveMode.openWithCanvas(canvas, { boardRegion: this.getSelectionBoardRegion() });
     } else {
       // Fallback to direct download if SaveMode not available
       const dataURL = canvas.toDataURL('image/png');

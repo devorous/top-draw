@@ -2,7 +2,7 @@
  * @fileoverview Captures periodic full-board stills while a session is live, so a
  * sparse "time-lapse" webm can be built when the user uploads to the gallery.
  *
- * Design: every ~20s we snapshot the whole composited board (downscaled, stored as
+ * Design: every ~6s we snapshot the whole composited board (downscaled, stored as
  * a webp blob to keep memory small). Frames are full-board, so at save time we crop
  * the SAME board-space rect out of every frame — they self-align with no padding,
  * whether the crop comes from a saved selection or the uploader's drawing bounds.
@@ -12,8 +12,14 @@
  * working inside your crop region should appear), without hooking input paths.
  */
 
-const DEFAULT_INTERVAL_MS = 20_000;
-const MAX_FRAMES = 120;        // hard cap; older frames are decimated past this
+// Dense enough that a short session still reads as motion rather than a
+// slideshow. Clips encode at half linear resolution (see timelapseEncoder), so
+// the extra frames cost far less than they used to.
+const DEFAULT_INTERVAL_MS = 6_000;
+// Hard cap; older frames are decimated past this. Held at 120 deliberately —
+// the denser interval buys temporal detail for typical sessions without moving
+// the memory ceiling, and a long session decimates back to ~20s spacing.
+const MAX_FRAMES = 120;
 const STORAGE_MAX_DIM = 1280;  // longest edge of a stored frame (px)
 const STORAGE_QUALITY = 0.7;   // webp quality for stored frames
 const SIG_DIM = 32;            // signature thumbnail edge (px) for dead-air dedup
