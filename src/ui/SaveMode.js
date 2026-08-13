@@ -1433,6 +1433,11 @@ export class SaveMode {
       this.timelapseVideo.hidden = false;
       if (this.timelapseSpinner) this.timelapseSpinner.hidden = true;
       this._updatePlaybackWindow();
+      // The `autoplay` attribute alone is unreliable here — the element sits
+      // `hidden` (display:none) while the clip encodes, and some browsers
+      // never start decoding a video that gained its src while undisplayed.
+      // Kick it explicitly once it's actually visible.
+      this.timelapseVideo.play().catch(() => {});
     } else if (!blob) {
       // Encoder unavailable/cancelled — hide the preview; upload falls back silently.
       this._resetTimelapsePreview();
