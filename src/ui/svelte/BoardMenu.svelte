@@ -191,7 +191,6 @@
           class="eye-btn"
           class:faded={!appState.layerVisibility[layer.index]}
           onclick={(e) => toggleLayerVis(layer.index, e)}
-          onpointerup={(e) => e.pointerType !== 'mouse' && toggleLayerVis(layer.index, e)}
           title="Toggle visibility"
         >
           {#if appState.layerVisibility[layer.index]}
@@ -205,7 +204,6 @@
           data-tut={layer.index === 0 ? 'layer-1' : 'layers'}
           class:active={appState.activeLayer === layer.index}
           onclick={() => selectLayer(layer.index)}
-          onpointerup={(e) => e.pointerType !== 'mouse' && selectLayer(layer.index)}
           onmouseenter={(e) => handleLayerHover(layer.index, e)}
           onmouseleave={handleLayerLeave}
         >
@@ -248,12 +246,6 @@
             class="blend-lock-btn"
             class:locked={appState.blendModeLocked}
             onclick={toggleBlendModeLock}
-            onpointerup={(e) => {
-              if (e.pointerType !== 'mouse') {
-                e.preventDefault();
-                toggleBlendModeLock(e);
-              }
-            }}
             title={appState.blendModeLocked ? 'Unlock blend mode for current tool. Shift-click to unlock all current tool settings' : 'Lock blend mode for current tool. Shift-click to lock all current tool settings'}
             aria-label={appState.blendModeLocked ? 'Unlock blend mode for current tool' : 'Lock blend mode for current tool'}
           >
@@ -296,7 +288,7 @@
     <button
       class="history-btn"
       data-tut="history"
-      onpointerup={toggleSnapshotMenu}
+      onclick={toggleSnapshotMenu}
       title="Board History / Snapshots"
     >
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 7H15C16.8692 7 17.8039 7 18.5 7.40193C18.9561 7.66523 19.3348 8.04394 19.5981 8.49999C20 9.19615 20 10.1308 20 12C20 13.8692 20 14.8038 19.5981 15.5C19.3348 15.9561 18.9561 16.3348 18.5 16.5981C17.8039 17 16.8692 17 15 17H8.00001M4 7L7 4M4 7L7 10" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>

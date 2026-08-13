@@ -1,5 +1,5 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { ProfileDialog } from '../ui/ProfileDialog.js';
   import Messenger from './Messenger.svelte';
 
@@ -37,10 +37,93 @@
   let showAuthModal = $state(false);
   let authMode = $state('login');
   let authForm = $state({ username: '', password: '', email: '' });
+  let discordEnabled = $state(false);
+  let discordPopup = null;
+  let discordPopupPoll = null;
 
   onMount(() => {
     checkAuth();
+    loadDiscordConfig();
+    window.addEventListener('message', handleDiscordMessage);
   });
+
+  onDestroy(() => {
+    window.removeEventListener('message', handleDiscordMessage);
+    if (discordPopupPoll) clearInterval(discordPopupPoll);
+  });
+
+  async function loadDiscordConfig() {
+    try {
+      const res = await fetch(`${API_BASE}/api/discord/config`, { cache: 'no-store' });
+      if (!res.ok) return;
+      const config = await res.json();
+      discordEnabled = !!config.oauthEnabled;
+    } catch {
+      // Silent fail — Discord button just stays hidden
+    }
+  }
+
+  async function startDiscordOAuth() {
+    if (authLoading) return;
+    authError = null;
+    authLoading = true;
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/discord/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'login' })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.url) {
+        throw new Error(data.error || 'Discord login failed to start');
+      }
+
+      const popup = window.open(
+        data.url,
+        'ddrawDiscordOAuth',
+        'popup=yes,width=520,height=720,menubar=no,toolbar=no,location=yes,status=no,scrollbars=yes,resizable=yes'
+      );
+
+      if (!popup) {
+        window.location.href = data.url;
+        return;
+      }
+
+      discordPopup = popup;
+      discordPopupPoll = window.setInterval(() => {
+        if (!popup.closed) return;
+        clearInterval(discordPopupPoll);
+        discordPopupPoll = null;
+        authLoading = false;
+      }, 500);
+    } catch (err) {
+      authError = err.message || 'Discord login failed';
+      authLoading = false;
+    }
+  }
+
+  function handleDiscordMessage(event) {
+    if (event.origin !== window.location.origin) return;
+    const payload = event.data;
+    if (!payload || payload.type !== 'ddraw:discord-auth') return;
+
+    authLoading = false;
+    if (discordPopupPoll) {
+      clearInterval(discordPopupPoll);
+      discordPopupPoll = null;
+    }
+    discordPopup = null;
+
+    if (payload.status !== 'success' || !payload.token || !payload.username) {
+      authError = payload.error || 'Discord login failed';
+      return;
+    }
+
+    localStorage.setItem(TOKEN_KEY, payload.token);
+    localStorage.setItem(USERNAME_KEY, payload.username);
+    user = { username: payload.username, role: 1, userId: null };
+    closeAuthModal();
+  }
 
   async function checkAuth() {
     const token = localStorage.getItem(TOKEN_KEY);
@@ -249,6 +332,13 @@
         <h2>{authMode === 'login' ? 'Sign In' : 'Create Account'}</h2>
         <button class="close-btn" onclick={closeAuthModal}>&times;</button>
       </div>
+      {#if discordEnabled}
+        <button type="button" class="btn-discord" onclick={startDiscordOAuth} disabled={authLoading}>
+          <svg width="18" height="18" viewBox="0 0 127.14 96.36" aria-hidden="true"><path fill="currentColor" d="M107.7,8.07A105.15,105.15,0,0,0,81.47,0a72.06,72.06,0,0,0-3.36,6.83A97.68,97.68,0,0,0,49,6.83,72.37,72.37,0,0,0,45.64,0,105.89,105.89,0,0,0,19.39,8.09C2.79,32.65-1.71,56.6.54,80.21h0A105.73,105.73,0,0,0,32.71,96.36,77.7,77.7,0,0,0,39.6,85.25a68.42,68.42,0,0,1-10.85-5.18c.91-.66,1.8-1.34,2.66-2a75.57,75.57,0,0,0,64.32,0c.87.71,1.76,1.39,2.66,2a68.68,68.68,0,0,1-10.87,5.19,77,77,0,0,0,6.89,11.1A105.25,105.25,0,0,0,126.6,80.22h0C129.24,52.84,122.09,29.11,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60,31,53s5-12.74,11.43-12.74S54,46,53.89,53,48.84,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.25,60,73.25,53s5-12.74,11.44-12.74S96.23,46,96.12,53,91.08,65.69,84.69,65.69Z"/></svg>
+          Continue with Discord
+        </button>
+        <div class="auth-divider"><span>or</span></div>
+      {/if}
       <form onsubmit={(e) => { e.preventDefault(); authMode === 'login' ? handleLogin() : handleRegister(); }}>
         <div class="form-group">
           <label for="username">Username</label>
@@ -510,6 +600,48 @@
       }
     }
 
+    .btn-discord {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.6rem;
+      width: 100%;
+      padding: 0.75rem;
+      background: #5865f2;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      transition: opacity 0.2s;
+
+      &:hover:not(:disabled) {
+        opacity: 0.9;
+      }
+
+      &:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+    }
+
+    .auth-divider {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin: 1rem 0;
+      color: var(--text-secondary, #8b949e);
+      font-size: 0.8rem;
+
+      &::before, &::after {
+        content: '';
+        flex: 1;
+        height: 1px;
+        background: var(--border-subtle, #30363d);
+      }
+    }
+
     .auth-toggle {
       text-align: center;
       margin-top: 1rem;
@@ -544,6 +676,8 @@
   :global(body) {
     overflow: hidden;
     background: var(--bg-primary, #0f1117);
+    color: var(--text-primary, #f0f2f5);
+    font-family: 'Inter', sans-serif;
   }
 
   :global(:root) {

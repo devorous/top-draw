@@ -1248,12 +1248,12 @@
       <a href="/go/" class="nav-enter" target="_blank">Draw Now! →</a>
       <span class="nav-divider">|</span>
       {#if user}
-        <button class="btn-text" class:active={showFavorites} onclick={toggleFavoritesView} onpointerup={(e) => e.pointerType !== 'mouse' && toggleFavoritesView()}>favorites</button>
-        <button class="btn-text" class:active={showLiked} onclick={toggleLikedView} onpointerup={(e) => e.pointerType !== 'mouse' && toggleLikedView()}>liked</button>
-        <button class="nav-user" onclick={() => profileDialog.show(user.username)} onpointerup={(e) => e.pointerType !== 'mouse' && profileDialog.show(user.username)}>{user.username}</button>
-        <button class="btn-text" onclick={logout} onpointerup={(e) => e.pointerType !== 'mouse' && logout()}>logout</button>
+        <button class="btn-text" class:active={showFavorites} onclick={toggleFavoritesView}>favorites</button>
+        <button class="btn-text" class:active={showLiked} onclick={toggleLikedView}>liked</button>
+        <button class="nav-user" onclick={() => profileDialog.show(user.username)}>{user.username}</button>
+        <button class="btn-text" onclick={logout}>logout</button>
       {:else}
-        <button class="btn-text" onclick={() => openAuthModal('login')} onpointerup={(e) => e.pointerType !== 'mouse' && openAuthModal('login')}>login</button>
+        <button class="btn-text" onclick={() => openAuthModal('login')}>login</button>
       {/if}
     </div>
   </nav>
@@ -1274,13 +1274,13 @@
         {/if}
         <p>
           {#if showLiked}
-            <button class="btn-link" onclick={toggleLikedView} onpointerup={(e) => e.pointerType !== 'mouse' && toggleLikedView()}>back to all</button>
+            <button class="btn-link" onclick={toggleLikedView}>back to all</button>
           {:else if showFavorites}
-            <button class="btn-link" onclick={toggleFavoritesView} onpointerup={(e) => e.pointerType !== 'mouse' && toggleFavoritesView()}>← back to all</button>
+            <button class="btn-link" onclick={toggleFavoritesView}>← back to all</button>
           {:else if tagFilter}
-            <button class="btn-link" onclick={clearTagFilter} onpointerup={(e) => e.pointerType !== 'mouse' && clearTagFilter()}>Clear Tag</button>
+            <button class="btn-link" onclick={clearTagFilter}>Clear Tag</button>
           {:else if authorFilter}
-            <button class="btn-link" onclick={clearAuthorFilter} onpointerup={(e) => e.pointerType !== 'mouse' && clearAuthorFilter()}>← back to all</button>
+            <button class="btn-link" onclick={clearAuthorFilter}>← back to all</button>
           {:else}
             Artwork made by the community
           {/if}
@@ -1292,7 +1292,6 @@
             class="view-toggle-btn"
             class:active={layout === 'board'}
             onclick={() => setLayout('board')}
-            onpointerup={(e) => e.pointerType !== 'mouse' && setLayout('board')}
             aria-label="Board view"
             aria-pressed={layout === 'board'}
             title="Board view"
@@ -1307,7 +1306,6 @@
             class="view-toggle-btn"
             class:active={layout === 'grid'}
             onclick={() => setLayout('grid')}
-            onpointerup={(e) => e.pointerType !== 'mouse' && setLayout('grid')}
             aria-label="Grid view"
             aria-pressed={layout === 'grid'}
             title="Grid view"
@@ -1321,17 +1319,17 @@
           </button>
         </div>
         <div class="sort-controls">
-          <button class="sort-btn" class:active={sort === 'newest'} onclick={() => setSort('newest')} onpointerup={(e) => e.pointerType !== 'mouse' && setSort('newest')}>Newest</button>
-          <button class="sort-btn" class:active={sort === 'active'} onclick={() => setSort('active')} onpointerup={(e) => e.pointerType !== 'mouse' && setSort('active')}>Active</button>
-          <button class="sort-btn" class:active={sort === 'top'} onclick={() => setSort('top')} onpointerup={(e) => e.pointerType !== 'mouse' && setSort('top')}>Top</button>
-          <button class="sort-btn" class:active={sort === 'views'} onclick={() => setSort('views')} onpointerup={(e) => e.pointerType !== 'mouse' && setSort('views')}>Views</button>
+          <button class="sort-btn" class:active={sort === 'newest'} onclick={() => setSort('newest')}>Newest</button>
+          <button class="sort-btn" class:active={sort === 'active'} onclick={() => setSort('active')}>Active</button>
+          <button class="sort-btn" class:active={sort === 'top'} onclick={() => setSort('top')}>Top</button>
+          <button class="sort-btn" class:active={sort === 'views'} onclick={() => setSort('views')}>Views</button>
         </div>
         {#if sort === 'top'}
           <div class="top-period-controls" aria-label="Top time range">
-            <button class="period-btn" class:active={topPeriod === 'week'} onclick={() => setTopPeriod('week')} onpointerup={(e) => e.pointerType !== 'mouse' && setTopPeriod('week')}>Week</button>
-            <button class="period-btn" class:active={topPeriod === 'month'} onclick={() => setTopPeriod('month')} onpointerup={(e) => e.pointerType !== 'mouse' && setTopPeriod('month')}>Month</button>
-            <button class="period-btn" class:active={topPeriod === 'year'} onclick={() => setTopPeriod('year')} onpointerup={(e) => e.pointerType !== 'mouse' && setTopPeriod('year')}>Year</button>
-            <button class="period-btn" class:active={topPeriod === 'all'} onclick={() => setTopPeriod('all')} onpointerup={(e) => e.pointerType !== 'mouse' && setTopPeriod('all')}>All time</button>
+            <button class="period-btn" class:active={topPeriod === 'week'} onclick={() => setTopPeriod('week')}>Week</button>
+            <button class="period-btn" class:active={topPeriod === 'month'} onclick={() => setTopPeriod('month')}>Month</button>
+            <button class="period-btn" class:active={topPeriod === 'year'} onclick={() => setTopPeriod('year')}>Year</button>
+            <button class="period-btn" class:active={topPeriod === 'all'} onclick={() => setTopPeriod('all')}>All time</button>
           </div>
         {/if}
       {/if}
@@ -1346,7 +1344,7 @@
     {:else if error}
       <div class="state-center">
         <p class="error-msg">{error}</p>
-        <button class="btn-ghost" onclick={fetchCurrentPage} onpointerup={(e) => e.pointerType !== 'mouse' && fetchCurrentPage()}>Retry</button>
+        <button class="btn-ghost" onclick={fetchCurrentPage}>Retry</button>
       </div>
     {:else if items.length === 0}
       <div class="state-center empty">
@@ -1362,7 +1360,7 @@
               <div class="tag-strip-head">
                 <h2>Image Tags</h2>
                 {#if tagFilter}
-                  <button class="btn-link small-link" onclick={clearTagFilter} onpointerup={(e) => e.pointerType !== 'mouse' && clearTagFilter()}>clear</button>
+                  <button class="btn-link small-link" onclick={clearTagFilter}>clear</button>
                 {/if}
               </div>
               {#if sidebarTags.length === 0}
@@ -1370,12 +1368,12 @@
               {:else}
                 <div class="tag-strip-list">
                   {#each visibleTags as entry}
-                    <button class="tag-chip" class:active={tagFilter === entry.tag} onclick={() => filterByTag(entry.tag)} onpointerup={(e) => e.pointerType !== 'mouse' && filterByTag(entry.tag)}>
+                    <button class="tag-chip" class:active={tagFilter === entry.tag} onclick={() => filterByTag(entry.tag)}>
                       #{entry.tag} <span>{entry.count}</span>
                     </button>
                   {/each}
                   {#if sidebarTags.length > TAG_PREVIEW_COUNT}
-                    <button class="tag-chip tag-expand" onclick={() => tagsExpanded = !tagsExpanded} onpointerup={(e) => e.pointerType !== 'mouse' && (tagsExpanded = !tagsExpanded)}>
+                    <button class="tag-chip tag-expand" onclick={() => tagsExpanded = !tagsExpanded}>
                       {tagsExpanded ? '− less' : `+${sidebarTags.length - TAG_PREVIEW_COUNT} more`}
                     </button>
                   {/if}
@@ -1385,7 +1383,7 @@
           {#if layout === 'grid'}
           <div class="grid" bind:this={gridEl}>
         {#each items as item (item.id)}
-          <div class="card" role="button" tabindex="0" onclick={() => openLightbox(item)} onpointerup={(e) => e.pointerType !== 'mouse' && openLightbox(item)} onkeydown={(e) => e.key === 'Enter' && openLightbox(item)}>
+          <div class="card" role="button" tabindex="0" onclick={() => openLightbox(item)} onkeydown={(e) => e.key === 'Enter' && openLightbox(item)}>
             <div class="card-img">
               <img src={item.thumbUrl || item.url} alt={item.title || 'artwork'} loading="lazy" class:censored={isNsfw(item) && !isNsfwRevealed(item)}>
               {#if item.animatedUrl && canPlayTimelapse(item)}
@@ -1402,7 +1400,7 @@
               {#if isNsfw(item)}
                 <span class="card-badge">NSFW</span>
                 {#if !isNsfwRevealed(item)}
-                  <button class="censor-overlay" onclick={(e) => { e.stopPropagation(); revealNsfw(item); }} onpointerup={(e) => { e.stopPropagation(); e.pointerType !== 'mouse' && revealNsfw(item); }} aria-label="Reveal censored image">
+                  <button class="censor-overlay" onclick={(e) => { e.stopPropagation(); revealNsfw(item); }} aria-label="Reveal censored image">
                     <span>Censored</span>
                     <strong>Reveal</strong>
                   </button>
@@ -1411,7 +1409,7 @@
             </div>
             <div class="card-meta">
               <div class="card-meta-main">
-                <button class="card-author" onclick={(e) => { e.stopPropagation(); profileDialog.show(item.author); }} onpointerup={(e) => { e.stopPropagation(); e.pointerType !== 'mouse' && profileDialog.show(item.author); }}>{item.author}</button>
+                <button class="card-author" onclick={(e) => { e.stopPropagation(); profileDialog.show(item.author); }}>{item.author}</button>
                 {#if item.createdAt}
                   <span class="card-date" title={formatDateTime(item.createdAt)}>{shortDate(item.createdAt)}</span>
                 {/if}
@@ -1420,7 +1418,6 @@
                 class="like-btn"
                 class:liked={likedIds.has(item.id)}
                 onclick={(e) => { e.stopPropagation(); like(item); }}
-                onpointerup={(e) => { e.stopPropagation(); e.pointerType !== 'mouse' && like(item); }}
                 aria-label={`${item.likesCount || 0} likes`}
               >
                 <svg class="like-icon" viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
@@ -1433,7 +1430,7 @@
               {@const fit = fitTags(item.tags, cardWidth, tagFontVersion)}
               <div class="card-tags-row">
                 {#each fit.shown as tag}
-                  <button class="tag-chip card-tag-chip" title={`#${tag}`} onclick={(e) => { e.stopPropagation(); filterByTag(tag); }} onpointerup={(e) => { e.stopPropagation(); e.pointerType !== 'mouse' && filterByTag(tag); }}>#{tag}</button>
+                  <button class="tag-chip card-tag-chip" title={`#${tag}`} onclick={(e) => { e.stopPropagation(); filterByTag(tag); }}>#{tag}</button>
                 {/each}
                 {#if fit.hidden > 0}
                   <span class="tag-more" title={item.tags.slice(fit.shown.length).map((t) => `#${t}`).join(' ')}>+{fit.hidden}</span>
@@ -1448,7 +1445,7 @@
             {#each items as item (item.id)}
               <article class="post">
                 <div class="post-head">
-                  <button class="post-thumb" onclick={() => openLightbox(item)} onpointerup={(e) => e.pointerType !== 'mouse' && openLightbox(item)} aria-label={`Open ${item.title || 'image'}`}>
+                  <button class="post-thumb" onclick={() => openLightbox(item)} aria-label={`Open ${item.title || 'image'}`}>
                     <img src={item.thumbUrl || item.url} alt={item.title || 'artwork'} loading="lazy" class:censored={isNsfw(item) && !isNsfwRevealed(item)} />
                     {#if item.animatedUrl && canPlayTimelapse(item)}
                       <video
@@ -1462,7 +1459,7 @@
                       <span class="card-timelapse-badge" title="Time-lapse">TIMELAPSE</span>
                     {/if}
                     {#if isNsfw(item) && !isNsfwRevealed(item)}
-                      <span class="reveal" onclick={(e) => { e.stopPropagation(); revealNsfw(item); }} onpointerup={(e) => { e.stopPropagation(); e.pointerType !== 'mouse' && revealNsfw(item); }} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); revealNsfw(item); } }} role="button" tabindex="0">
+                      <span class="reveal" onclick={(e) => { e.stopPropagation(); revealNsfw(item); }} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); revealNsfw(item); } }} role="button" tabindex="0">
                         <span>NSFW</span><strong>Reveal</strong>
                       </span>
                     {/if}
@@ -1470,14 +1467,14 @@
 
                   <div class="post-body">
                     <div class="post-meta">
-                      <button class="post-author" onclick={() => profileDialog.show(item.author)} onpointerup={(e) => e.pointerType !== 'mouse' && profileDialog.show(item.author)}>{item.author}</button>
+                      <button class="post-author" onclick={() => profileDialog.show(item.author)}>{item.author}</button>
                       <span class="post-dot">·</span>
                       <span class="post-date">{shortDate(item.createdAt)}</span>
                       {#if item.tags?.length}
                         <span class="post-dot">·</span>
                         <span class="post-tags">
                           {#each item.tags.slice(0, 4) as tag}
-                            <button class="post-tag" onclick={() => filterByTag(tag)} onpointerup={(e) => e.pointerType !== 'mouse' && filterByTag(tag)}>#{tag}</button>
+                            <button class="post-tag" onclick={() => filterByTag(tag)}>#{tag}</button>
                           {/each}
                         </span>
                       {/if}
@@ -1489,15 +1486,15 @@
                       <p class="post-description">{item.description}</p>
                     {/if}
                     <div class="post-actions">
-                      <button class="like board-like" class:liked={likedIds.has(item.id)} onclick={() => like(item)} onpointerup={(e) => e.pointerType !== 'mouse' && like(item)}>
+                      <button class="like board-like" class:liked={likedIds.has(item.id)} onclick={() => like(item)}>
                         <svg viewBox="0 0 16 16" fill="currentColor" width="14" height="14"><path d="M1.24 8.24L8 15l6.76-6.76A4.76 4.76 0 0016 5.24v-.19A4.05 4.05 0 0011.95 1c-1.23 0-2.4.56-3.17 1.52L8 3.5l-.78-.98A4.05 4.05 0 004.05 1 4.05 4.05 0 000 5.05v.19c0 1.13.45 2.21 1.24 3z"/></svg>
                         {item.likesCount || 0}
                       </button>
-                      <button class="comments-count" onclick={() => openLightbox(item)} onpointerup={(e) => e.pointerType !== 'mouse' && openLightbox(item)}>
+                      <button class="comments-count" onclick={() => openLightbox(item)}>
                         <svg viewBox="0 0 16 16" fill="currentColor" width="14" height="14"><path d="M14 1H2a1 1 0 00-1 1v9a1 1 0 001 1h2v3l3-3h7a1 1 0 001-1V2a1 1 0 00-1-1z"/></svg>
                         {boardCommentCountFor(item)}
                       </button>
-                      <button class="open-thread" onclick={() => openLightbox(item)} onpointerup={(e) => e.pointerType !== 'mouse' && openLightbox(item)}>Open thread →</button>
+                      <button class="open-thread" onclick={() => openLightbox(item)}>Open thread →</button>
                     </div>
                   </div>
                 </div>
@@ -1508,18 +1505,18 @@
                       {#each boardCommentsById[item.id] as c (c.id)}
                         <li class="reply">
                           <span class="reply-arrow">↳</span>
-                          <button class="reply-author" onclick={() => profileDialog.show(c.author)} onpointerup={(e) => e.pointerType !== 'mouse' && profileDialog.show(c.author)}>{c.author}:</button>
+                          <button class="reply-author" onclick={() => profileDialog.show(c.author)}>{c.author}:</button>
                           <span class="reply-text">{c.text}</span>
                           <span class="reply-date">{shortDate(c.createdAt)}</span>
                         </li>
                       {/each}
                     </ul>
                     {#if !boardExpandedThreadIds.has(item.id) && boardCommentCountFor(item) > boardCommentsById[item.id].length}
-                      <button class="more-comments" onclick={() => expandBoardThread(item)} onpointerup={(e) => e.pointerType !== 'mouse' && expandBoardThread(item)} disabled={boardThreadLoadingIds.has(item.id)}>
+                      <button class="more-comments" onclick={() => expandBoardThread(item)} disabled={boardThreadLoadingIds.has(item.id)}>
                         {boardThreadLoadingIds.has(item.id) ? 'Loading...' : `↓ Show all ${boardCommentCountFor(item)} comments`}
                       </button>
                     {:else if boardExpandedThreadIds.has(item.id) && boardCommentsById[item.id].length > BOARD_COMMENT_PREVIEW}
-                      <button class="more-comments" onclick={() => collapseBoardThread(item)} onpointerup={(e) => e.pointerType !== 'mouse' && collapseBoardThread(item)}>↑ Collapse thread</button>
+                      <button class="more-comments" onclick={() => collapseBoardThread(item)}>↑ Collapse thread</button>
                     {/if}
                   {:else if boardCommentCountFor(item) === 0}
                     <p class="thread-empty">No comments yet</p>
@@ -1543,7 +1540,7 @@
                     {/if}
                   {:else}
                     <p class="login-to-comment">
-                      <button class="btn-link" onclick={() => openAuthModal('login')} onpointerup={(e) => e.pointerType !== 'mouse' && openAuthModal('login')}>Log in</button> to leave a comment
+                      <button class="btn-link" onclick={() => openAuthModal('login')}>Log in</button> to leave a comment
                     </p>
                   {/if}
                 </div>
@@ -1554,7 +1551,7 @@
 
       {#if totalPages > 1}
         <div class="pagination">
-          <button class="btn-ghost small pg-arrow" disabled={page <= 1} onclick={() => goToPage(page - 1)} onpointerup={(e) => e.pointerType !== 'mouse' && goToPage(page - 1)} aria-label="Previous page">←</button>
+          <button class="btn-ghost small pg-arrow" disabled={page <= 1} onclick={() => goToPage(page - 1)} aria-label="Previous page">←</button>
           {#each pageList as entry}
             {#if entry === '…'}
               <span class="pg-ellipsis">…</span>
@@ -1564,12 +1561,11 @@
                 class:active={entry === page}
                 disabled={entry === page}
                 onclick={() => goToPage(entry)}
-                onpointerup={(e) => e.pointerType !== 'mouse' && goToPage(entry)}
                 aria-label={`Page ${entry}`}
               >{entry}</button>
             {/if}
           {/each}
-          <button class="btn-ghost small pg-arrow" disabled={page >= totalPages} onclick={() => goToPage(page + 1)} onpointerup={(e) => e.pointerType !== 'mouse' && goToPage(page + 1)} aria-label="Next page">→</button>
+          <button class="btn-ghost small pg-arrow" disabled={page >= totalPages} onclick={() => goToPage(page + 1)} aria-label="Next page">→</button>
         </div>
       {/if}
         </section>
@@ -1584,7 +1580,7 @@
             {:else}
               <div class="recent-comments">
                 {#each recentCommentsFeed as entry (entry.id)}
-                  <button class="recent-comment" onclick={() => openImageById(entry.image.id)} onpointerup={(e) => e.pointerType !== 'mouse' && openImageById(entry.image.id)}>
+                  <button class="recent-comment" onclick={() => openImageById(entry.image.id)}>
                     <img src={entry.image.thumbUrl} alt={entry.image.title || 'artwork'} class:censored={isNsfw(entry.image) && !isNsfwRevealed(entry.image)}>
                     <div class="recent-comment-body">
                       <div class="recent-comment-meta">
@@ -1616,15 +1612,15 @@
   <div class="lightbox-backdrop" class:instant={lightboxInstant} role="presentation" onclick={closeLightbox} onkeydown={(e) => e.key === 'Escape' && closeLightbox()}>
     <div class="lightbox-stage" bind:this={lightboxStage} onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
       {#if canGoPrev()}
-        <button class="lb-nav prev" onclick={() => navigateLightbox(-1)} onpointerup={(e) => e.pointerType !== 'mouse' && navigateLightbox(-1)} aria-label="Previous image">&lsaquo;</button>
+        <button class="lb-nav prev" onclick={() => navigateLightbox(-1)} aria-label="Previous image">&lsaquo;</button>
       {/if}
       <div class="lightbox" role="dialog" aria-modal="true" tabindex="-1">
-        <button class="lb-control lb-fullscreen" onclick={toggleFullscreen} onpointerup={(e) => e.pointerType !== 'mouse' && toggleFullscreen()} aria-label="Toggle fullscreen" title="Fullscreen">&#9974;</button>
-        <button class="lb-close" onclick={closeLightbox} onpointerup={(e) => e.pointerType !== 'mouse' && closeLightbox()}>&times;</button>
+        <button class="lb-control lb-fullscreen" onclick={toggleFullscreen} aria-label="Toggle fullscreen" title="Fullscreen">&#9974;</button>
+        <button class="lb-close" onclick={closeLightbox}>&times;</button>
         <div class="lb-img-wrap" bind:this={lightboxImageWrap}>
           <img src={lightbox.url} alt={lightbox.title || 'artwork'} class:censored={isNsfw(lightbox) && !isNsfwRevealed(lightbox)}>
           {#if isNsfw(lightbox) && !isNsfwRevealed(lightbox)}
-            <button class="censor-overlay lightbox-censor" onclick={() => revealNsfw(lightbox)} onpointerup={(e) => e.pointerType !== 'mouse' && revealNsfw(lightbox)} aria-label="Reveal censored image">
+            <button class="censor-overlay lightbox-censor" onclick={() => revealNsfw(lightbox)} aria-label="Reveal censored image">
               <span>NSFW content hidden</span>
               <strong>Reveal image</strong>
             </button>
@@ -1633,17 +1629,17 @@
         <div class="lb-info">
           <div class="lb-meta-block">
             <div class="lb-meta">
-              <button class="lb-author" onclick={() => profileDialog.show(lightbox.author)} onpointerup={(e) => e.pointerType !== 'mouse' && profileDialog.show(lightbox.author)}>by {lightbox.author}</button>
+              <button class="lb-author" onclick={() => profileDialog.show(lightbox.author)}>by {lightbox.author}</button>
               <span class="lb-date" title={formatDateTime(lightbox.createdAt)}>{formatDateTime(lightbox.createdAt)}</span>
             </div>
             <div class="lb-tags-row">
               <div class="lb-tags">
                 {#if lightbox.tags?.length}
                   {#each lightbox.tags as tag}
-                    <button class="tag-chip" onclick={() => { closeLightbox(); filterByTag(tag); }} onpointerup={(e) => e.pointerType !== 'mouse' && (closeLightbox(), filterByTag(tag))}>#{tag}</button>
+                    <button class="tag-chip" onclick={() => { closeLightbox(); filterByTag(tag); }}>#{tag}</button>
                   {/each}
                 {:else if canEditTags(lightbox)}
-                  <button class="tag-editor-toggle tag-editor-toggle-inline" onclick={() => tagEditorOpen = true} onpointerup={(e) => e.pointerType !== 'mouse' && (tagEditorOpen = true)} aria-label="Add tags">
+                  <button class="tag-editor-toggle tag-editor-toggle-inline" onclick={() => tagEditorOpen = true} aria-label="Add tags">
                     +Tag
                   </button>
                 {:else}
@@ -1665,7 +1661,6 @@
               class="like-btn large"
               class:liked={likedIds.has(lightbox.id)}
               onclick={() => like(lightbox)}
-              onpointerup={(e) => e.pointerType !== 'mouse' && like(lightbox)}
             >
               <svg class="like-icon" viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
                 <path d="M1.24264 8.24264L8 15L14.7574 8.24264C15.553 7.44699 16 6.36786 16 5.24264V5.05234C16 2.8143 14.1857 1 11.9477 1C10.7166 1 9.55233 1.55959 8.78331 2.52086L8 3.5L7.21669 2.52086C6.44767 1.55959 5.28338 1 4.05234 1C1.8143 1 0 2.8143 0 5.05234V5.24264C0 6.36786 0.44699 7.44699 1.24264 8.24264Z"/>
@@ -1677,7 +1672,6 @@
                 class="fav-btn"
                 class:favorited={favoritedIds.has(lightbox.id)}
                 onclick={() => toggleFavorite(lightbox)}
-                onpointerup={(e) => e.pointerType !== 'mouse' && toggleFavorite(lightbox)}
                 title={favoritedIds.has(lightbox.id) ? 'Remove from favorites' : 'Add to favorites'}
               >
                 <svg class="fav-icon" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
@@ -1685,21 +1679,21 @@
                 </svg>
               </button>
             {/if}
-            <button class="btn-ghost small" onclick={() => copyGalleryLink(lightbox)} onpointerup={(e) => e.pointerType !== 'mouse' && copyGalleryLink(lightbox)}>
+            <button class="btn-ghost small" onclick={() => copyGalleryLink(lightbox)}>
               {shareCopiedId === lightbox.id ? 'Copied' : 'Share'}
             </button>
-            <button class="btn-ghost small" onclick={() => downloadImage(lightbox.url, `${lightbox.title || lightbox.id}.png`)} onpointerup={(e) => e.pointerType !== 'mouse' && downloadImage(lightbox.url, `${lightbox.title || lightbox.id}.png`)}>Download</button>
+            <button class="btn-ghost small" onclick={() => downloadImage(lightbox.url, `${lightbox.title || lightbox.id}.png`)}>Download</button>
             {#if canEditTimelapse(lightbox)}
-              <button class="btn-ghost small" onclick={() => timelapseEditorOpen = true} onpointerup={(e) => e.pointerType !== 'mouse' && (timelapseEditorOpen = true)} title="Re-crop, trim or remove the time-lapse">Edit lapse</button>
+              <button class="btn-ghost small" onclick={() => timelapseEditorOpen = true} title="Re-crop, trim or remove the time-lapse">Edit lapse</button>
             {/if}
             {#if canDeleteImage(lightbox)}
-              <button class="btn-danger small" onclick={() => deleteImage(lightbox)} onpointerup={(e) => e.pointerType !== 'mouse' && deleteImage(lightbox)}>Delete</button>
+              <button class="btn-danger small" onclick={() => deleteImage(lightbox)}>Delete</button>
             {/if}
           </div>
 
           {#if canEditTags(lightbox) && lightbox.tags?.length}
             <div class="lb-tag-actions">
-              <button class="tag-editor-toggle tag-editor-toggle-inline" onclick={() => tagEditorOpen = !tagEditorOpen} onpointerup={(e) => e.pointerType !== 'mouse' && (tagEditorOpen = !tagEditorOpen)} aria-label={tagEditorOpen ? 'Hide tag editor' : 'Edit tags'}>
+              <button class="tag-editor-toggle tag-editor-toggle-inline" onclick={() => tagEditorOpen = !tagEditorOpen} aria-label={tagEditorOpen ? 'Hide tag editor' : 'Edit tags'}>
                 +Tag
               </button>
             </div>
@@ -1710,7 +1704,7 @@
               <label for="tagEditorInput">Tags</label>
               <div class="tag-editor-row">
                 <input id="tagEditorInput" type="text" bind:value={tagDraft} placeholder="nsfw, portrait, pixel-art" />
-                <button class="btn-ghost small" onclick={saveTags} onpointerup={(e) => e.pointerType !== 'mouse' && saveTags()} disabled={tagSaving}>
+                <button class="btn-ghost small" onclick={saveTags} disabled={tagSaving}>
                   {tagSaving ? 'Saving...' : 'Save Tags'}
                 </button>
               </div>
@@ -1729,18 +1723,18 @@
                 {#each comments as comment (comment.id)}
                   <div class="comment">
                     <div class="comment-header">
-                      <button class="comment-author" onclick={() => profileDialog.show(comment.author)} onpointerup={(e) => e.pointerType !== 'mouse' && profileDialog.show(comment.author)}>{comment.author}</button>
+                      <button class="comment-author" onclick={() => profileDialog.show(comment.author)}>{comment.author}</button>
                       <span class="comment-date">{formatDate(comment.createdAt)}</span>
                       {#if comment.edited}
                         <span class="comment-edited">Edited</span>
                       {/if}
                       {#if canEditComment(comment)}
-                        <button class="comment-action" onclick={() => beginCommentEdit(comment)} onpointerup={(e) => e.pointerType !== 'mouse' && beginCommentEdit(comment)} disabled={commentActionBusy && editingCommentId !== comment.id}>
+                        <button class="comment-action" onclick={() => beginCommentEdit(comment)} disabled={commentActionBusy && editingCommentId !== comment.id}>
                           Edit
                         </button>
                       {/if}
                       {#if canDeleteComment(comment)}
-                        <button class="comment-delete" onclick={() => deleteComment(comment.id)} onpointerup={(e) => e.pointerType !== 'mouse' && deleteComment(comment.id)} title="Delete" disabled={commentActionBusy}>&times;</button>
+                        <button class="comment-delete" onclick={() => deleteComment(comment.id)} title="Delete" disabled={commentActionBusy}>&times;</button>
                       {/if}
                     </div>
                     {#if editingCommentId === comment.id}
@@ -1748,7 +1742,7 @@
                         <input type="text" bind:value={editingCommentText} maxlength="500" disabled={commentActionBusy} />
                         <div class="comment-edit-actions">
                           <button type="submit" class="btn-primary small" disabled={!editingCommentText.trim() || commentActionBusy}>Save</button>
-                          <button type="button" class="btn-ghost small" onclick={cancelCommentEdit} onpointerup={(e) => e.pointerType !== 'mouse' && cancelCommentEdit()} disabled={commentActionBusy}>Cancel</button>
+                          <button type="button" class="btn-ghost small" onclick={cancelCommentEdit} disabled={commentActionBusy}>Cancel</button>
                         </div>
                       </form>
                     {:else}
@@ -1774,14 +1768,14 @@
               </form>
             {:else}
               <p class="comments-login-hint">
-                <button class="btn-link" onclick={() => openAuthModal('login')} onpointerup={(e) => e.pointerType !== 'mouse' && openAuthModal('login')}>Log in</button> to comment
+                <button class="btn-link" onclick={() => openAuthModal('login')}>Log in</button> to comment
               </p>
             {/if}
           </div>
         </div>
       </div>
       {#if canGoNext()}
-        <button class="lb-nav next" onclick={() => navigateLightbox(1)} onpointerup={(e) => e.pointerType !== 'mouse' && navigateLightbox(1)} aria-label="Next image">&rsaquo;</button>
+        <button class="lb-nav next" onclick={() => navigateLightbox(1)} aria-label="Next image">&rsaquo;</button>
       {/if}
     </div>
   </div>
@@ -1803,7 +1797,7 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="modal-backdrop" role="presentation" onclick={closeAuthModal} onkeydown={(e) => e.key === 'Escape' && closeAuthModal()}>
     <div class="modal" role="dialog" aria-modal="true" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
-      <button class="modal-close" onclick={closeAuthModal} onpointerup={(e) => e.pointerType !== 'mouse' && closeAuthModal()}>×</button>
+      <button class="modal-close" onclick={closeAuthModal}>×</button>
       <h2>{authMode === 'login' ? 'Login' : 'Register'}</h2>
 
       <form onsubmit={(e) => { e.preventDefault(); authMode === 'login' ? handleLogin() : handleRegister(); }}>
@@ -1833,9 +1827,9 @@
 
       <p class="auth-switch">
         {#if authMode === 'login'}
-          Don't have an account? <button class="btn-link" onclick={() => authMode = 'register'} onpointerup={(e) => e.pointerType !== 'mouse' && (authMode = 'register')}>Register</button>
+          Don't have an account? <button class="btn-link" onclick={() => authMode = 'register'}>Register</button>
         {:else}
-          Already have an account? <button class="btn-link" onclick={() => authMode = 'login'} onpointerup={(e) => e.pointerType !== 'mouse' && (authMode = 'login')}>Login</button>
+          Already have an account? <button class="btn-link" onclick={() => authMode = 'login'}>Login</button>
         {/if}
       </p>
     </div>

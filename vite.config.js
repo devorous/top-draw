@@ -160,6 +160,7 @@ export default defineConfig({
         gallery: resolve(__dirname, 'gallery/index.html'),
         galleryGrid: resolve(__dirname, 'gallery/grid/index.html'),
         board: resolve(__dirname, 'board/index.html'),
+        messenger: resolve(__dirname, 'messenger/index.html'),
       },
       output: {
         manualChunks(id) {

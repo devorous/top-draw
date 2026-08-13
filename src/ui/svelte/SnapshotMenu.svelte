@@ -9,7 +9,6 @@
   let snapshots = $derived(appState.snapshots || []);
   let snapshotHasMore = $derived(appState.snapshotHasMore);
   let snapshotListVersion = $derived(appState.snapshotListVersion);
-  
   let hasLoadedOlderSnapshots = $derived(snapshots.length > 20);
   let isSoloOccupant = $derived(appState.userCount <= 1);
   let canViewHistory = $derived(appState.selfRole >= 1 || isSoloOccupant);
@@ -540,11 +539,9 @@
       confirmLabel: 'Delete',
       danger: true
     })) return;
-    
     window.app.snapshotManager.deleteSnapshot(selectedId);
     appState.snapshots = snapshots.filter(s => s.id !== selectedId);
     appState.snapshotListVersion += 1;
-    
     selectedId = null;
     selectedLayers = null;
     if (window.app.snapshotPreviewCanvas === snapshotExportCanvas) {
@@ -732,7 +729,7 @@
 
 </script>
 
-<div class="snapshot-overlay" role="presentation" onclick={(e) => e.target === e.currentTarget && close()} onpointerup={(e) => e.pointerType !== 'mouse' && e.target === e.currentTarget && close()}>
+<div class="snapshot-overlay" role="presentation" onclick={(e) => e.target === e.currentTarget && close()}>
   <div class="snapshot-panel" data-tut="history-dialog">
 
     <!-- Header -->
@@ -742,9 +739,9 @@
       </div>
       <div class="snap-header-right">
         {#if view === 'snapshots'}
-          <button class="snap-reload-btn" onclick={refresh} onpointerup={(e) => e.pointerType !== 'mouse' && refresh()} title="Refresh">&#8635;</button>
+          <button class="snap-reload-btn" onclick={refresh} title="Refresh">&#8635;</button>
         {/if}
-        <button class="snap-close-btn" onclick={close} onpointerup={(e) => e.pointerType !== 'mouse' && close()} title="Close">&times;</button>
+        <button class="snap-close-btn" onclick={close} title="Close">&times;</button>
       </div>
     </div>
 
@@ -780,7 +777,6 @@
               <button
                 class="rp-fullscreen"
                 onclick={openFullscreenReplay}
-                onpointerup={(e) => e.pointerType !== 'mouse' && openFullscreenReplay()}
                 title="Open full-screen replay"
                 aria-label="Open full-screen replay"
               >
@@ -831,7 +827,6 @@
             class="snap-tool-btn"
             class:active={activeTool === 'select' && mode === 'rectangle'}
             onclick={() => { mode = 'rectangle'; activeTool = 'select'; clearSelection(); }}
-            onpointerup={(e) => e.pointerType !== 'mouse' && (mode = 'rectangle', activeTool = 'select', clearSelection())}
             title="Rectangle Selection"
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -842,7 +837,6 @@
             class="snap-tool-btn"
             class:active={activeTool === 'select' && mode === 'lasso'}
             onclick={() => { mode = 'lasso'; activeTool = 'select'; clearSelection(); }}
-            onpointerup={(e) => e.pointerType !== 'mouse' && (mode = 'lasso', activeTool = 'select', clearSelection())}
             title="Lasso Selection"
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -854,14 +848,13 @@
             class="snap-tool-btn"
             class:active={activeTool === 'pan'}
             onclick={() => { activeTool = activeTool === 'pan' ? 'select' : 'pan'; }}
-            onpointerup={(e) => e.pointerType !== 'mouse' && (activeTool = activeTool === 'pan' ? 'select' : 'pan')}
             title="Pan View"
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
               <path d="M8 2V14M2 8H14M8 2L6.5 3.5M8 2L9.5 3.5M8 14L6.5 12.5M8 14L9.5 12.5M2 8L3.5 6.5M2 8L3.5 9.5M14 8L12.5 6.5M14 8L12.5 9.5"/>
             </svg>
           </button>
-          <button class="snap-tool-btn snap-zoom-reset" onclick={resetView} onpointerup={(e) => e.pointerType !== 'mouse' && resetView()} title="Reset zoom">{zoomLabel}</button>
+          <button class="snap-tool-btn snap-zoom-reset" onclick={resetView} title="Reset zoom">{zoomLabel}</button>
         </div>
 
         <!-- Canvas stack: preview behind, selection on top -->
@@ -912,7 +905,6 @@
             class="snap-thumb-item"
             class:selected={snap.id === selectedId}
             onclick={() => { if (!stripMoved) selectSnapshot(snap.id); }}
-            onpointerup={(e) => e.pointerType !== 'mouse' && !stripMoved && selectSnapshot(snap.id)}
             onkeydown={(event) => handleSnapshotKeydown(event, snap.id)}
             role="button"
             tabindex="0"
@@ -933,7 +925,7 @@
       {/if}
     </div>
     {#if showBackToPresent}
-      <button class="snap-back-to-present" onclick={scrollToPresent} onpointerup={(e) => e.pointerType !== 'mouse' && scrollToPresent()} title="Jump back to the newest snapshots">
+      <button class="snap-back-to-present" onclick={scrollToPresent} title="Jump back to the newest snapshots">
         <span aria-hidden="true">←</span>
         <span>Back to present</span>
       </button>
@@ -956,15 +948,15 @@
       </span>
       <div class="snap-footer-btns">
         {#if selectedId}
-          <button class="btn danger" onclick={doDelete} onpointerup={(e) => e.pointerType !== 'mouse' && doDelete()}>Delete</button>
+          <button class="btn danger" onclick={doDelete}>Delete</button>
         {/if}
         {#if hasSelection}
-          <button class="btn secondary" onclick={clearSelection} onpointerup={(e) => e.pointerType !== 'mouse' && clearSelection()}>Clear Selection</button>
+          <button class="btn secondary" onclick={clearSelection}>Clear Selection</button>
         {/if}
-        <button class="btn secondary" disabled={!selectedId} onclick={openSnapshotSaveDialog} onpointerup={(e) => e.pointerType !== 'mouse' && openSnapshotSaveDialog()}>
+        <button class="btn secondary" disabled={!selectedId} onclick={openSnapshotSaveDialog}>
           Save Snapshot
         </button>
-        <button class="btn primary" disabled={!selectedId || !canRestoreHistory} onclick={doRestore} onpointerup={(e) => e.pointerType !== 'mouse' && doRestore()}>
+        <button class="btn primary" disabled={!selectedId || !canRestoreHistory} onclick={doRestore}>
           {#if !hasSelection}
             Restore Board
           {:else if mode === 'lasso'}
