@@ -465,14 +465,14 @@ export class RemoteSelectionHandler {
    * @param {string|null} imageData - Sender's flattened lift snapshot (data URL)
    * @param {boolean} allLayers - Lift spans every visible layer (SelectTool.copyAllLayers)
    */
-  handleSelectionLift(user, selection, lassoPath = null, imageData = null, allLayers = false, seq = 0) {
+  handleSelectionLift(user, selection, lassoPath = null, imageData = null, allLayers = false, seq = 0, extendedWarp = false) {
     // A lift REPLACES the entire selection state — floatingCanvas, selection,
     // selectionCorners, originalCorners, lassoPath, _selectionRestoreData — and
     // installs a fresh `pendingImageLoad`, which orphans the chain every other
     // verb queued onto. Running it ahead of that chain means a second lift's
     // state is what the FIRST selection's still-queued moves and stamps get
     // applied to. Same discipline as every reader; see handleImagePaste.
-    if (this._queueIfLoading(user, () => this.handleSelectionLift(user, selection, lassoPath, imageData, allLayers, seq))) return;
+    if (this._queueIfLoading(user, () => this.handleSelectionLift(user, selection, lassoPath, imageData, allLayers, seq, extendedWarp))) return;
 
     // Clear pending selection since it's now being lifted
     user.pendingSelection = null;
@@ -482,6 +482,10 @@ export class RemoteSelectionHandler {
 
     // Store selection info on user for rendering
     user.selection = selection;
+    // Drawer's extendedWarp toggle for this selection session — travels with
+    // the lift so this client's warp bounds match the drawer's, see
+    // _getWarpOutputBounds.
+    user.extendedWarp = !!extendedWarp;
 
     // Lift the pixels into a floating canvas for this user.
     // Prefer the sender-provided snapshot when available so moved selections
@@ -1828,6 +1832,7 @@ export class RemoteSelectionHandler {
     user._pendingSelectionUpdatedAt = null;
     user.selectionCorners = null;
     user.originalCorners = null;
+    user.extendedWarp = false;
     user._pendingSourceCrop = null;
     user.originalSelectionPos = null;
     user.lassoPath = null;
@@ -1842,8 +1847,10 @@ export class RemoteSelectionHandler {
 
   // Output window for the warp: widened when it spills beyond the corner bbox
   // (concave/crossed quads), cropped to the board when the quad reaches outside
-  // it. Null when the default corner-bbox window is already right.
+  // it. Null when the default corner-bbox window is already right, or when
+  // the drawer had extendedWarp off (folded quads just clip at the corner bbox).
   _getWarpOutputBounds(user, destCorners) {
+    if (!user.extendedWarp) return null;
     return computeWarpOutputBounds(user.originalCorners, destCorners, {
       minX: 0,
       minY: 0,

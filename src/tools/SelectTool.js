@@ -113,6 +113,7 @@ export class SelectTool extends Tool {
     this.originalSelection = null; // Stores uncropped selection bounds before auto-fit
     this.fitToContent = true; // Toggle: auto-crop selection to content bounds
     this.isMaskMode = false; // Mask mode: selection acts as drawing constraint, not pixel move
+    this.extendedWarp = false; // Toggle: let folded (concave/crossed) warps spill beyond the selection bounds instead of clipping at the corner bbox
   }
 
   /**
@@ -1456,8 +1457,10 @@ export class SelectTool extends Tool {
 
   // Output window for the warp: widened when it spills beyond the corner bbox
   // (concave/crossed quads), cropped to the board when the quad reaches outside
-  // it. Null when the default corner-bbox window is already right.
+  // it. Null when the default corner-bbox window is already right, or when
+  // extendedWarp is off (folded quads just clip at the corner bbox).
   _getWarpOutputBounds() {
+    if (!this.extendedWarp) return null;
     return computeWarpOutputBounds(this.originalCorners, this.corners, {
       minX: 0,
       minY: 0,
@@ -2475,7 +2478,7 @@ export class SelectTool extends Tool {
       const selectionSnapshot = cloneSelectionRect(this.selection);
       const lassoPathSnapshot = clonePathPoints(this.lassoPath);
       const liftAllLayers = !!(this.copyAllLayers && this.floatingLayers && this.floatingLayers.length > 0);
-      this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionLift(selectionSnapshot, lassoPathSnapshot, imageData, liftAllLayers));
+      this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionLift(selectionSnapshot, lassoPathSnapshot, imageData, liftAllLayers, this.extendedWarp));
     }
   }
 
@@ -2853,6 +2856,12 @@ export class SelectTool extends Tool {
   // Toggle fit-to-content mode
   toggleFitToContent(value) {
     this.fitToContent = value !== undefined ? value : !this.fitToContent;
+  }
+
+  // Toggle extended (beyond-bounds) warp for folded/concave/crossed quads
+  toggleExtendedWarp(value) {
+    this.extendedWarp = value !== undefined ? value : !this.extendedWarp;
+    this._cachedTransform = null;
   }
 
   toggleMaskMode(value) {

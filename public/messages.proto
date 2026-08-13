@@ -534,6 +534,12 @@ message Msg {
   // unknown (the sender's target was still unsequenced) — receivers fall back to
   // the legacy local resolution.
   uint64 undo_target_seq = 200;
+  // SEL_LIFT: drawer's extendedWarp toggle for this selection session. Folded
+  // (concave/crossed) corner quads normally clip their warp at the corner
+  // bbox; this lets the warp spill past the selection bounds instead. Must
+  // travel with the lift (not read from local per-viewer state) so every
+  // client rasterizes the same commit pixels for this selection.
+  bool sel_extended_warp = 202;
 
   message FingerprintEntry {
     uint64  seq         = 1;

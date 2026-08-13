@@ -32,7 +32,7 @@ export function setupSelectionHandlers(wrapHandler, app) {
       return;
     }
 
-    remoteUserHandler.selectionHandler.handleSelectionLift(user, data.selection, data.lassoPath, data.imageData, data.allLayers, data.seq);
+    remoteUserHandler.selectionHandler.handleSelectionLift(user, data.selection, data.lassoPath, data.imageData, data.allLayers, data.seq, data.extendedWarp);
   });
 
   wrapHandler('sel_move', (data) => {

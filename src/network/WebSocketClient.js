@@ -1346,6 +1346,7 @@ export class WebSocketClient {
           lassoPath,
           imageData: data.g || null,
           allLayers: !!data.a,
+          extendedWarp: !!data.sel_extended_warp,
           // The lift commits a destination-out erase of the source area on every
           // client. It needs its OWN seq so the later stamp (which carries
           // SEL_COMMIT's, necessarily higher) sorts above it — see the pairing
@@ -2401,9 +2402,12 @@ export class WebSocketClient {
    * @param {Array<Object>|null} [lassoPath=null] - Optional freehand path.
    * @param {string|null} [imageData=null] - Flattened lifted pixels (data URL).
    * @param {boolean} [allLayers=false] - Lift spans every visible layer.
+   * @param {boolean} [extendedWarp=false] - Let folded corner-warps for this
+   *   selection spill beyond the corner bbox instead of clipping. Must travel
+   *   with the lift so every client rasterizes the same commit pixels.
    * @returns {void}
    */
-  broadcastSelectionLift(rect, lassoPath = null, imageData = null, allLayers = false) {
+  broadcastSelectionLift(rect, lassoPath = null, imageData = null, allLayers = false, extendedWarp = false) {
     const msg = {
       t: T.SEL_LIFT,
       sx: Math.round(rect.x),
@@ -2419,6 +2423,7 @@ export class WebSocketClient {
     // layer group. `imageData` is the flattened composite, so a receiver has no
     // way to infer that the source spanned more than the sender's active layer.
     if (allLayers) msg.a = true;
+    if (extendedWarp) msg.sel_extended_warp = true;
     if (imageData) {
       msg.g = imageData;
     }

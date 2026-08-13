@@ -2379,7 +2379,7 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
         // splitting it into a second sender-only echo would assign a different seq
         // and break the pairing it exists to establish.
         if (!ws?.isShadowBanned) {
-          broadcastToRoom(room, { t: T.SEL_LIFT, u: sessionIndex, sx: data.sx, sy: data.sy, sw: data.sw, sh: data.sh, cr: data.cr, g: data.g, a: data.a });
+          broadcastToRoom(room, { t: T.SEL_LIFT, u: sessionIndex, sx: data.sx, sy: data.sy, sw: data.sw, sh: data.sh, cr: data.cr, g: data.g, a: data.a, sel_extended_warp: data.sel_extended_warp });
         }
         return;
       }

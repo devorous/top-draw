@@ -3166,7 +3166,9 @@ export class ReplayEngine {
               this._decodeSelectionRect(msg),
               this._decodePointPath(msg.cr),
               msg.g || null,
-              !!msg.a
+              !!msg.a,
+              undefined,
+              !!msg.sel_extended_warp
             );
             if (user.pendingImageLoad) {
               await user.pendingImageLoad;

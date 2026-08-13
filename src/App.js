@@ -1926,6 +1926,17 @@ export class DrawingApp {
       });
     }
 
+    // Extended warp checkbox for select tool
+    const extendedWarpCheckbox = document.getElementById('selectionExtendedWarp');
+    if (extendedWarpCheckbox) {
+      extendedWarpCheckbox.addEventListener('change', (e) => {
+        const selectTool = this.toolManager.getTool('select');
+        if (selectTool) {
+          selectTool.toggleExtendedWarp(e.target.checked);
+        }
+      });
+    }
+
 
     if (elements.cursorStyleSelect) {
       elements.cursorStyleSelect.addEventListener('change', (e) => {
