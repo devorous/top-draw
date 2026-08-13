@@ -1978,6 +1978,9 @@ menuBtn: document.getElementById('menuBtn'),
     if (this.elements.smoothingValue) {
       this.elements.smoothingValue.textContent = Math.round(smoothing);
     }
+    if (this.elements.smoothingSlider) {
+      this.elements.smoothingSlider.value = smoothing;
+    }
   }
 
   /**
@@ -1987,6 +1990,9 @@ menuBtn: document.getElementById('menuBtn'),
   updateSpacingValue(spacing) {
     if (this.elements.spacingValue) {
       this.elements.spacingValue.textContent = Math.round(spacing);
+    }
+    if (this.elements.spacingSlider) {
+      this.elements.spacingSlider.value = spacing;
     }
   }
 
@@ -1998,6 +2004,9 @@ menuBtn: document.getElementById('menuBtn'),
     if (this.elements.hardnessValue) {
       this.elements.hardnessValue.textContent = Math.round(hardness);
     }
+    if (this.elements.hardnessSlider) {
+      this.elements.hardnessSlider.value = hardness;
+    }
   }
 
   /**
@@ -2008,6 +2017,9 @@ menuBtn: document.getElementById('menuBtn'),
     if (this.elements.blurRadiusValue) {
       this.elements.blurRadiusValue.textContent = radius;
     }
+    if (this.elements.blurRadiusSlider) {
+      this.elements.blurRadiusSlider.value = radius;
+    }
   }
 
   /**
@@ -2017,6 +2029,9 @@ menuBtn: document.getElementById('menuBtn'),
   updateOpacityValue(opacity) {
     if (this.elements.opacityValue) {
       this.elements.opacityValue.textContent = Math.round(opacity * 100);
+    }
+    if (this.elements.opacitySlider) {
+      this.elements.opacitySlider.value = opacity * 100;
     }
   }
 

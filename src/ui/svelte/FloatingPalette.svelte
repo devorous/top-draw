@@ -16,17 +16,17 @@
   let panel = $state(null);
   let left = $state(null);
   let top = $state(null);
-  let width = $state(112);
-  let height = $state(298);
+  let width = $state(64);
+  let height = $state(178);
   let userPositioned = $state(false);
   let dragging = $state(false);
   let resizing = $state(false);
 
   const PANEL_MARGIN = 6;
-  const MIN_WIDTH = 82;
-  const MAX_WIDTH = 220;
-  const DEFAULT_WIDTH = 112;
-  const DEFAULT_HEIGHT = 298;
+  const MIN_WIDTH = 44;
+  const MAX_WIDTH = 130;
+  const DEFAULT_WIDTH = 64;
+  const DEFAULT_HEIGHT = 178;
   const OUTER_PADDING = 8;
   const TITLEBAR_HEIGHT = 22;
   const TITLEBAR_GAP = 3;
@@ -97,7 +97,7 @@
 
   function getBoardLayout(nextWidth = width) {
     const boards = panel?.closest?.('#floatingPaletteMount') || panel?.parentElement || (
-      typeof document !== 'undefined' ? document.getElementById('boards') : null
+      typeof document !== 'undefined' ? document.getElementById('boardContainer') : null
     );
     const boardWidth = boards?.clientWidth || boards?.getBoundingClientRect?.().width || nextWidth + (PANEL_MARGIN * 2);
     const boardHeight = boards?.clientHeight || boards?.getBoundingClientRect?.().height || DEFAULT_HEIGHT + (PANEL_MARGIN * 2);
@@ -345,6 +345,13 @@
     inset: 0;
     z-index: 1480;
     pointer-events: none;
+  }
+
+  /* On mobile the tool options panel (incl. the colour wheel) becomes a
+     fixed overlay that slides on top of the board — keep palettes underneath
+     it so an open panel isn't blocked by a docked palette. */
+  :global(html[data-mobile='true'] #floatingPaletteMount) {
+    z-index: 50;
   }
 
   :global(body.floating-palette-dragging),

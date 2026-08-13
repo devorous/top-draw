@@ -361,7 +361,7 @@
                   <div id="authNotLoggedIn">
                     <input autocomplete="username" class="authInput" id="loginUsername" name="username" placeholder="Pick a username">
                     <button type="button" class="btn primary large authGuestJoinBtn" id="guestJoinBtn">Join &amp; Draw!</button>
-                    <p class="authGuestHint">No account needed — pick a name and go.</p>
+                    <p class="authGuestHint">No account needed</p>
                     <details class="authAccountSection">
                       <summary>Have an account? <span class="authSummaryAction">Log in</span></summary>
                       <input autocomplete="current-password" type="password" class="authInput" id="loginPassword" name="password" placeholder="Password">
@@ -802,8 +802,6 @@
         <div id="boards">
           <!-- Floating Art Mount -->
           <div id="floatingArtMount"></div>
-          <!-- Floating Palette Mount -->
-          <div id="floatingPaletteMount"></div>
           <div class="cursors">
             <svg id="cursorsSvg">
               <circle class="circle self"
@@ -904,6 +902,10 @@
 
         <!-- Chat (Svelte) - mounted inside board so toasts anchor to board corner -->
         <div id="chatMount"></div>
+
+        <!-- Floating Palette Mount - sibling of #boards (not #boards itself) so
+             palettes stay pinned to the screen and don't pan/zoom/rotate with the canvas -->
+        <div id="floatingPaletteMount"></div>
       </div>
 
       <!-- Side Panel -->

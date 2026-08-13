@@ -679,6 +679,17 @@ html[data-mobile='true'] {
   width: 100%;
 }
 
+/* Eraser "Erase Mode" (Active Layer / All Layers) — labels get clipped
+   side-by-side in the narrow sidebar, so stack them full-width. */
+#eraserModeOptions .radio-group {
+  flex-direction: column;
+}
+
+#eraserModeOptions .radio-option {
+  flex: 1 1 auto;
+  width: 100%;
+}
+
 /* Blend Mode Select */
 .blendModeSelect {
   width: 100%;
