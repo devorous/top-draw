@@ -937,15 +937,29 @@ export class LayerManager {
    * @returns {Array|null} The undone stroke batch
    */
   undoLastStrokeGlobal(userId, targetSeq = 0) {
+    // When the sender named a target, the fallback below may only consider
+    // UNSEQUENCED strokes. See the note above `unsequencedOnly`.
+    let unsequencedOnly = false;
     if (targetSeq > 0) {
       const named = this._undoStrokeBySeq(userId, targetSeq);
       if (named) return named;
-      // Target not in our live stack. Do NOT stop here: a joiner rebuilds strokes
-      // from the command tail and they can carry seq 0, so a seq lookup finds
-      // nothing on exactly the client that most needs to stay in step (measured:
-      // selparity move_commit_then_undo, joiner at 88.5% while the live clients
-      // agreed). Falling through to the local resolution below is the old
-      // behaviour — no worse than before, and it converges here.
+      // Target not in our live stack. Do NOT stop outright: a joiner rebuilds
+      // strokes from the command tail and they can carry seq 0, so a seq lookup
+      // finds nothing on exactly the client that most needs to stay in step
+      // (measured: selparity move_commit_then_undo, joiner at 88.5% while the
+      // live clients agreed). Fall through — but only over strokes that COULD
+      // be the named one under a different label, i.e. the seq-0 rebuilt ones.
+      //
+      // Falling through to every stroke was actively destructive. A sender's
+      // undo stack can name a seq we never bound to a stroke at all (its seq
+      // came from an MU broadcast that carried no stroke here — see
+      // App._strokeMdBroadcast), and the unrestricted fallback then undid "our
+      // latest live stroke" instead: a sequenced stroke the sender still has.
+      // Observed in docs/ddraw_replay_2026-08-12_22-00-46.ddraw at 22:47.750 —
+      // a peer's 10th undo named seq 144598, which that client had no stroke
+      // for, so it undid the SEL_DELETE at seq 144356 and the selection the
+      // sender had cleared 33s earlier reappeared for the observer only.
+      unsequencedOnly = true;
     }
     let latestTimestamp = -1;
     let latestSeq = -1;
@@ -965,6 +979,7 @@ export class LayerManager {
       for (const stroke of group.strokeStack) {
         if (stroke.userId === userId) {
           const s = stroke.seq || 0;
+          if (unsequencedOnly && s > 0) continue;
           const t = stroke.timestamp || 0;
           if (latestSeq === -1 || isLater(s, t, latestSeq, latestTimestamp)) {
             latestSeq = s;

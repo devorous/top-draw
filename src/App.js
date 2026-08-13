@@ -293,6 +293,10 @@ export class DrawingApp {
     this._lastPanPointerY = 0;
     this._boardDragDepth = 0;
 
+    // True between the MD and MU we put on the wire for the current stroke.
+    // Gates _queueStrokeEndBroadcast — see the note there.
+    this._strokeMdBroadcast = false;
+
     // Right-click drag zoom state
     this._rightDragZoomActive = false;
     this._rightDragZoomPointerId = null;
@@ -4085,7 +4089,7 @@ export class DrawingApp {
         }
       }
       this.self.mousedown = false;
-      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastMouseUp());
+      this._queueStrokeEndBroadcast();
     }
 
     const previousTool = this.self.tool;
@@ -5354,7 +5358,7 @@ export class DrawingApp {
         this.inputBufferManager.inputBuffer.pressure = pressure;
         const strokeMetadata = this._getStrokeStartNetworkMetadata();
         this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPressureChange(pressure));
-        this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastMouseDown([pending.pos.x, pending.pos.y], null, strokeMetadata));
+        this._queueStrokeStartBroadcast([pending.pos.x, pending.pos.y], null, strokeMetadata);
 
         const tool = this.toolManager.getCurrentTool();
         if (tool) {
@@ -5695,7 +5699,7 @@ export class DrawingApp {
             this._broadcastExplicitTextApply({ x: this.self.x, y: this.self.y });
           }
           const strokeMetadata = this._getStrokeStartNetworkMetadata();
-          this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastMouseDown(broadcastPos, null, strokeMetadata));
+          this._queueStrokeStartBroadcast(broadcastPos, null, strokeMetadata);
 
           tool.onPointerDown(this.self, pos, e);
 
@@ -5807,6 +5811,44 @@ export class DrawingApp {
     });
   }
 
+  /**
+   * Queue the stroke-start (MD) broadcast and mark a stroke open on the wire.
+   *
+   * Pairs with {@link DrawingApp#_queueStrokeEndBroadcast}. Everything that sends MD
+   * must go through here so the MU guard there stays accurate — a missing MU
+   * would leave the stroke open on every observer.
+   * @param {number[]} points - Board-space [x, y] of the stroke start.
+   * @param {number[]|null} radii
+   * @param {Object} metadata - From `_getStrokeStartNetworkMetadata()`.
+   * @returns {void}
+   */
+  _queueStrokeStartBroadcast(points, radii, metadata) {
+    this._strokeMdBroadcast = true;
+    this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastMouseDown(points, radii, metadata));
+  }
+
+  /**
+   * Queue the matching stroke-end (MU) broadcast — but only if we actually
+   * opened a stroke on the wire.
+   *
+   * `pointerup` is bound to `window` while `pointerdown` is bound to the board,
+   * so every release over the sidebar, a slider, a button or the chat used to
+   * emit an MU with no MD behind it. Observers ignore those (`handleMouseUp`
+   * early-returns on `!user.mousedown`), but the server still numbers them, and
+   * the sender's own echo runs `reconcileOldestLocalStroke` — which stamps that
+   * seq onto whatever local stroke is still optimistic. The sender's undo stack
+   * then names a seq nobody else ever bound to a stroke, and its UNDO resolves
+   * to a different record on every other client. One 25-minute recording
+   * (docs/ddraw_replay_2026-08-12_22-00-46.ddraw) carried 231 of these from a
+   * single user, and 11 undos named one.
+   * @returns {void}
+   */
+  _queueStrokeEndBroadcast() {
+    if (!this._strokeMdBroadcast) return;
+    this._strokeMdBroadcast = false;
+    this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastMouseUp());
+  }
+
   _getStrokeStartNetworkMetadata() {
     const metadata = {
       layerIndex: this.self?.activeLayer ?? 0,
@@ -5893,7 +5935,7 @@ export class DrawingApp {
       this.self._pendingTextPos = null;
       this.self._pendingTextPointerType = null;
       this.self.mousedown = false;
-      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastMouseUp());
+      this._queueStrokeEndBroadcast();
       this.inputBufferManager.inputBuffer.dirty = false;
       return;
     }
@@ -5919,7 +5961,7 @@ export class DrawingApp {
             this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPressureChange(this.self.pressure));
           }
           const strokeMetadata = this._getStrokeStartNetworkMetadata();
-          this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastMouseDown([pending.pos.x, pending.pos.y], null, strokeMetadata));
+          this._queueStrokeStartBroadcast([pending.pos.x, pending.pos.y], null, strokeMetadata);
           tool.onPointerDown(this.self, pending.pos, pending.event);
           if (this.self.tool === 'circleBlur' && tool.drainStampBuffer) {
             tool.drainStampBuffer();
@@ -5954,7 +5996,7 @@ export class DrawingApp {
               this._broadcastExplicitTextApply(this.self._pendingTextPos);
             }
             const strokeMetadata = this._getStrokeStartNetworkMetadata();
-            this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastMouseDown([this.self._pendingTextPos.x, this.self._pendingTextPos.y], null, strokeMetadata));
+            this._queueStrokeStartBroadcast([this.self._pendingTextPos.x, this.self._pendingTextPos.y], null, strokeMetadata);
           }
           textTool.onPointerDown(this.self, this.self._pendingTextPos, e);
           this.ui.updateSelfTextInput(this.self.text);
@@ -5990,7 +6032,7 @@ export class DrawingApp {
     }
 
     this.self.mousedown = false;
-    this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastMouseUp());
+    this._queueStrokeEndBroadcast();
 
     // Reset input buffer
     this.inputBufferManager.inputBuffer.dirty = false;
@@ -6341,6 +6383,8 @@ export class DrawingApp {
     // Cancel debug overlay tracking
     this.debugOverlay.cancelDrawing(this.self.id);
 
+    // CANCEL closes the stroke on observers, so the paired MU must not follow it.
+    this._strokeMdBroadcast = false;
     this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastCancel(), { snapshot: false });
   }
 

@@ -431,6 +431,25 @@ export function setupDrawingHandlers(wrapHandler, app) {
     }
   });
 
+  /**
+   * Remember whether this user's Nth remote UNDO actually removed anything here,
+   * so the Nth-from-last REDO can be paired with it. LIFO, mirroring how the
+   * sender pops its own redo stack.
+   *
+   * An undo we DECLINE (`applied` false) must consume its redo silently: the
+   * sender's redo stack holds an entry ours does not, so replaying it here would
+   * pop some *other* stroke we undid earlier and restore something the sender
+   * never restored.
+   * @param {import('../User.js').User} user
+   * @param {boolean} applied
+   */
+  const recordUndoOutcome = (user, applied) => {
+    if (!Array.isArray(user._remoteUndoLedger)) user._remoteUndoLedger = [];
+    user._remoteUndoLedger.push(applied);
+    // The ledger only exists to pair with redos, which are far rarer than undos.
+    if (user._remoteUndoLedger.length > 256) user._remoteUndoLedger.shift();
+  };
+
   function applyRemoteUndo(user, targetSeq = 0) {
     {
       const layerGroups = board.layerManager?.layerGroups || [];
@@ -441,6 +460,7 @@ export function setupDrawingHandlers(wrapHandler, app) {
         }
         remoteUserHandler.cancelLatestPendingGlitchImage(user.id);
         if (remoteUserHandler.undoLatestRemoteGlitchImage(user.id)) {
+          recordUndoOutcome(user, true);
           return;
         }
       } else {
@@ -469,6 +489,7 @@ export function setupDrawingHandlers(wrapHandler, app) {
           }
           if (pendingGlitchSeq >= maxCommittedSeq) {
             remoteUserHandler.cancelLatestPendingGlitchImage(user.id);
+            recordUndoOutcome(user, true);
             return;
           }
         }
@@ -479,6 +500,7 @@ export function setupDrawingHandlers(wrapHandler, app) {
       );
       if (hasActiveStroke) {
         remoteUserHandler.handleCancel(user);
+        recordUndoOutcome(user, true);
         return;
       }
 
@@ -486,7 +508,14 @@ export function setupDrawingHandlers(wrapHandler, app) {
       if (!undone && user.tool === 'glitchBlur') {
         remoteUserHandler.markPendingGlitchUndo(user.id);
       }
+      recordUndoOutcome(user, !!undone);
     }
+  }
+
+  function applyRemoteRedo(user) {
+    const ledger = user._remoteUndoLedger;
+    if (Array.isArray(ledger) && ledger.length > 0 && ledger.pop() === false) return;
+    board.redo(user.id);
   }
 
   wrapHandler('redo', (data) => {
@@ -494,8 +523,8 @@ export function setupDrawingHandlers(wrapHandler, app) {
     if (user) {
       // Same ordering hazard as UNDO — a redo that overtakes a pending selection
       // commit re-applies against a stack that does not have it yet.
-      if (deferBehindSelectionDecode(user, () => board.redo(user.id))) return;
-      board.redo(user.id);
+      if (deferBehindSelectionDecode(user, () => applyRemoteRedo(user))) return;
+      applyRemoteRedo(user);
     }
   });
 
