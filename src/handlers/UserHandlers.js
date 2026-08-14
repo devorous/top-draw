@@ -520,23 +520,16 @@ export function setupUserHandlers(wsClient, app) {
           app._needsSyncFallbackTimer = null;
           if (!app._needsSync) return;
           app._needsSync = false;
-          app.syncClient.hideOverlay();
-          app.syncClient.hasCompletedSync = true;
-          app.updateRecordingButtonState?.();
-          // Alone in the room: no sync ran and the board was never touched, so
-          // do NOT fire onSyncComplete — that resets (wipes + re-anchors) the
-          // rolling DVR tape that has been recording since join, cutting off
-          // the first ~2.5s and potentially anchoring mid-stroke. Just make
-          // sure the tape is running (safety net for paths that skipped the
-          // join-time start).
-          if (
-            app.currentRoomId &&
-            !app.isOfflineMode &&
-            app.rollingTapeRecorder &&
-            !app.rollingTapeRecorder.isEnabled?.()
-          ) {
-            app.rollingTapeRecorder.start(app);
-          }
+          // Alone in the room: still request sync rather than skipping it.
+          // A lone joiner's session base may be the room's persisted snapshot
+          // (loadSnapshotOnFirstJoin) rather than a blank canvas — only
+          // requestSync() -> _serveCheckpointJoin actually pushes that image
+          // to this client. Skipping it left the board blank on-screen for a
+          // truly-solo joiner and, by extension, out of the rolling DVR tape
+          // (whose opening checkpoint had already been captured blank at
+          // join time). onSyncComplete's tape re-anchor now correctly runs
+          // AFTER the checkpoint image (if any) has been applied.
+          app.syncClient.requestSync();
         }, 2500);
       }
     }
