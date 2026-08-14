@@ -187,6 +187,15 @@ export function performHomographyTransform({
     // Create or reuse homography instance
     const homography = homographyInstance || new Homography('projective');
 
+    // A reused instance freezes _width/_height on its first setSourcePoints()
+    // call: Homography.setImage() only (re)derives them when they're still
+    // null, so it silently ignores this call's width/height and keeps
+    // re-extracting the (possibly differently-scaled) canvas at the STALE
+    // size. Since callers here reuse one instance across frames at whatever
+    // scale that frame's outputBounds implies, force re-detection every call.
+    homography._width = null;
+    homography._height = null;
+
     // Calculate scaled dimensions for source
     const srcWidth = scale === 1 ? undefined : Math.max(1, Math.round(sourceCanvas.width * scale));
     const srcHeight = scale === 1 ? undefined : Math.max(1, Math.round(sourceCanvas.height * scale));

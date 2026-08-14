@@ -311,6 +311,12 @@ export class SelectToolLoader extends Tool {
     }
   }
 
+  toggleExtendedWarp(value) {
+    if (this.realTool) {
+      this.realTool.toggleExtendedWarp(value);
+    }
+  }
+
   /**
    * Gets the current selection mode.
    * @returns {string}

@@ -3189,13 +3189,14 @@ export class ReplayEngine {
               this._remoteHandler.selectionHandler.handleSelectionMove(
                 user,
                 corners,
-                this._decodeSelectionSourceCrop(msg)
+                this._decodeSelectionSourceCrop(msg),
+                !!msg.sel_extended_warp
               );
             }
           }
           break;
         case T.SEL_COMMIT:
-          this._remoteHandler.selectionHandler.handleSelectionCommit(user, msg.ly ?? 0);
+          this._remoteHandler.selectionHandler.handleSelectionCommit(user, msg.ly ?? 0, 0, !!msg.sel_extended_warp);
           break;
         case T.SEL_DELETE:
           // Replay commits all strokes at seq=0 and orders by timestamp (MU is
@@ -3218,7 +3219,7 @@ export class ReplayEngine {
             this._decodePointPath(msg.ps));
           break;
         case T.SEL_STAMP:
-          this._remoteHandler.selectionHandler.handleSelectionStamp(user, msg.ly ?? 0);
+          this._remoteHandler.selectionHandler.handleSelectionStamp(user, msg.ly ?? 0, 0, !!msg.sel_extended_warp);
           break;
         case T.SEL_MERGE:
           this._remoteHandler.selectionHandler.handleSelectionMerge(user, msg.g || 'down', msg.ly ?? 0);

@@ -38,7 +38,7 @@ export function setupSelectionHandlers(wrapHandler, app) {
   wrapHandler('sel_move', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
-      remoteUserHandler.selectionHandler.handleSelectionMove(user, data.corners, data.sourceCrop);
+      remoteUserHandler.selectionHandler.handleSelectionMove(user, data.corners, data.sourceCrop, data.extendedWarp);
     }
   });
 
@@ -57,7 +57,7 @@ export function setupSelectionHandlers(wrapHandler, app) {
       return;
     }
 
-    remoteUserHandler.selectionHandler.handleSelectionCommit(user, data.layerIndex, data.seq);
+    remoteUserHandler.selectionHandler.handleSelectionCommit(user, data.layerIndex, data.seq, data.extendedWarp);
   });
 
   wrapHandler('sel_pending', (data) => {
@@ -112,7 +112,7 @@ export function setupSelectionHandlers(wrapHandler, app) {
       return;
     }
 
-    remoteUserHandler.selectionHandler.handleSelectionStamp(user, data.layerIndex, data.seq);
+    remoteUserHandler.selectionHandler.handleSelectionStamp(user, data.layerIndex, data.seq, data.extendedWarp);
   });
 
   wrapHandler('sel_merge', (data) => {

@@ -1367,12 +1367,13 @@ export class WebSocketClient {
           },
           sourceCrop: data.cb && data.cb.length === 4
             ? { x: data.cb[0], y: data.cb[1], width: data.cb[2], height: data.cb[3] }
-            : null
+            : null,
+          extendedWarp: !!data.sel_extended_warp
         });
         break;
 
       case T.SEL_COMMIT:
-        this.emit('sel_commit', { sessionIndex: data.u, layerIndex: data.ly, seq: data.seq });
+        this.emit('sel_commit', { sessionIndex: data.u, layerIndex: data.ly, seq: data.seq, extendedWarp: !!data.sel_extended_warp });
         break;
 
       case T.SEL_PENDING: {
@@ -1423,7 +1424,7 @@ export class WebSocketClient {
       }
 
       case T.SEL_STAMP:
-        this.emit('sel_stamp', { sessionIndex: data.u, layerIndex: data.ly, seq: data.seq });
+        this.emit('sel_stamp', { sessionIndex: data.u, layerIndex: data.ly, seq: data.seq, extendedWarp: !!data.sel_extended_warp });
         break;
 
       case T.SEL_MERGE:
@@ -2475,18 +2476,23 @@ export class WebSocketClient {
   /**
    * Broadcasts a selection movement (perspective transform).
    * @param {Object} corners - {tl, tr, br, bl} corner coordinates.
+   * @param {Object|null} [sourceCrop=null]
+   * @param {boolean} [extendedWarp=false] - Drawer's CURRENT extendedWarp
+   *   toggle, so remote preview and replay scrubbing mid-drag reflect a
+   *   toggle change immediately instead of only at the eventual commit.
    * @returns {void}
    */
-  broadcastSelectionMove(corners, sourceCrop = null) {
+  broadcastSelectionMove(corners, sourceCrop = null, extendedWarp = false) {
     const msg = {
       t: T.SEL_MOVE,
       cr: [
         corners.tl.x, corners.tl.y,
         corners.tr.x, corners.tr.y,
-        corners.br.x, corners.br.y, 
+        corners.br.x, corners.br.y,
         corners.bl.x, corners.bl.y
       ]
     };
+    if (extendedWarp) msg.sel_extended_warp = true;
 
     if (sourceCrop) {
       msg.cb = [
@@ -2511,11 +2517,15 @@ export class WebSocketClient {
 
   /**
    * Broadcasts a selection commit (baking) event.
+   * @param {boolean} [extendedWarp=false] - Drawer's CURRENT extendedWarp
+   *   toggle (can differ from the value that travelled with SEL_LIFT if
+   *   toggled mid-selection) — the value that actually decided this bake.
    * @returns {void}
    */
-  broadcastSelectionCommit(layerIndex) {
+  broadcastSelectionCommit(layerIndex, extendedWarp = false) {
     const msg = { t: T.SEL_COMMIT };
     if (layerIndex !== undefined) msg.ly = layerIndex;
+    if (extendedWarp) msg.sel_extended_warp = true;
     this.send(msg);
   }
 
@@ -2572,11 +2582,13 @@ export class WebSocketClient {
 
   /**
    * Broadcasts a selection stamp (bake without clearing) event.
+   * @param {boolean} [extendedWarp=false] - See broadcastSelectionCommit.
    * @returns {void}
    */
-  broadcastSelectionStamp(layerIndex) {
+  broadcastSelectionStamp(layerIndex, extendedWarp = false) {
     const msg = { t: T.SEL_STAMP };
     if (layerIndex !== undefined) msg.ly = layerIndex;
+    if (extendedWarp) msg.sel_extended_warp = true;
     this.send(msg);
   }
 

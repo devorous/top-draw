@@ -348,7 +348,9 @@ export class SelectTool extends Tool {
     const elapsed = now - this.lastSelectionBroadcastTime;
 
     if (force || elapsed >= this.selectionMoveThrottleInterval) {
-      this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionMove(corners), { snapshot: false });
+      // extendedWarp travels with every move so a mid-drag toggle stays correct
+      // for remote preview and replay scrubbing, not just the eventual commit.
+      this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionMove(corners, null, this.extendedWarp), { snapshot: false });
       this.lastSelectionBroadcastTime = now;
       this.pendingSelectionBroadcast = null;
     } else {
@@ -368,7 +370,7 @@ export class SelectTool extends Tool {
           typeof corners.tr.x === 'number' && typeof corners.tr.y === 'number' &&
           typeof corners.bl.x === 'number' && typeof corners.bl.y === 'number' &&
           typeof corners.br.x === 'number' && typeof corners.br.y === 'number') {
-        this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionMove(corners), { snapshot: false });
+        this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionMove(corners, null, this.extendedWarp), { snapshot: false });
         this.pendingSelectionBroadcast = null;
         this.lastSelectionBroadcastTime = performance.now();
       } else {
@@ -1157,7 +1159,7 @@ export class SelectTool extends Tool {
       const sourceCrop = this.cropScaledSelectionToContent(releasedHandleId);
       if (sourceCrop) {
         this.pendingSelectionBroadcast = null;
-        this.board.app?.inputBufferManager?.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionMove(this.corners, sourceCrop), { snapshot: false });
+        this.board.app?.inputBufferManager?.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionMove(this.corners, sourceCrop, this.extendedWarp), { snapshot: false });
         this.lastSelectionBroadcastTime = performance.now();
       }
       // Flush any pending broadcast to ensure final transform state is sent
@@ -2495,7 +2497,10 @@ export class SelectTool extends Tool {
     const app = this.board.app;
     if (!app?.wsClient) return;
 
-    app.inputBufferManager.queueBroadcast(() => app.wsClient.broadcastSelectionCommit(layerIndex));
+    // extendedWarp can change mid-selection (toggled after lift, before this
+    // commit) — send the CURRENT value rather than relying on the one that
+    // travelled with SEL_LIFT, or remote/replay would bake with a stale flag.
+    app.inputBufferManager.queueBroadcast(() => app.wsClient.broadcastSelectionCommit(layerIndex, this.extendedWarp));
     // Applying a pasted image transitions it from "active floating image" to
     // committed pixels. Flush that state change immediately so late joiners do
     // not receive a stale IMG_PASTE before the next input tick.
@@ -2862,6 +2867,24 @@ export class SelectTool extends Tool {
   toggleExtendedWarp(value) {
     this.extendedWarp = value !== undefined ? value : !this.extendedWarp;
     this._cachedTransform = null;
+
+    // A mid-selection toggle doesn't ride on any dedicated message — corners
+    // and extendedWarp only travel together on SEL_MOVE/SEL_COMMIT/SEL_STAMP,
+    // so without an explicit nudge here, remote viewers and replay/history
+    // only learn about the change whenever the NEXT one of those happens to
+    // fire, and stay on the stale mode in the meantime (visible as "only
+    // updates once the selection is moved" when scrubbing history). Broadcast
+    // a move with the corners unchanged to create a real event at the exact
+    // moment of the toggle, and redraw locally so the drawer's own preview
+    // updates immediately instead of waiting on the next drag frame.
+    if (this.floatingCanvas && this.corners) {
+      this.board.clearTop();
+      this.drawTransformPreview();
+
+      if (this.board.app?.wsClient) {
+        this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionMove(this.corners, null, this.extendedWarp), { snapshot: false });
+      }
+    }
   }
 
   toggleMaskMode(value) {
@@ -3843,7 +3866,9 @@ export class SelectTool extends Tool {
       if (stampTileIndices.length > 0) {
         this.board.app.wsClient.broadcastTileUpdate(stampTileIndices);
       }
-      this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionStamp(app.self?.activeLayer ?? 0));
+      // See _broadcastSelectionCommit: extendedWarp travels fresh with the
+      // stamp too, since it can change between lift and any given stamp.
+      this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionStamp(app.self?.activeLayer ?? 0, this.extendedWarp));
     }
 
     // Redraw the floating selection on top canvas

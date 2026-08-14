@@ -865,7 +865,7 @@ export class RemoteSelectionHandler {
     }
   }
 
-  handleSelectionMove(user, corners, sourceCrop = null) {
+  handleSelectionMove(user, corners, sourceCrop = null, extendedWarp = false) {
     // Moves MUST defer behind the lift image exactly like the commit verbs do,
     // or the ops execute out of order.
     //
@@ -896,8 +896,13 @@ export class RemoteSelectionHandler {
     // handle-scaled stamps rebuilt far too large and clipped, differently on
     // every sync. Geometry and the crop that redefines originalCorners have to
     // move together, which means both stay on this chain.
-    if (this._queueIfLoading(user, () => this.handleSelectionMove(user, corners, sourceCrop))) return;
+    if (this._queueIfLoading(user, () => this.handleSelectionMove(user, corners, sourceCrop, extendedWarp))) return;
     if (!user.floatingCanvas || !user.selection) return;
+
+    // Keep the session's extendedWarp current across the drag, not just at
+    // lift — a toggle mid-transform must show up in remote/replay preview
+    // immediately, matching what the drawer sees locally. See _getWarpOutputBounds.
+    user.extendedWarp = !!extendedWarp;
 
     // The `_selectionMoving` flag + wall-clock idle timer only exist to
     // coordinate with the live marching-ants rAF loop (which skips redraws while
@@ -997,7 +1002,7 @@ export class RemoteSelectionHandler {
    * both halves to the same two seqs on the echoes.
    * @param {number} [seq=0] - Authoritative SEL_COMMIT seq.
    */
-  handleSelectionCommit(user, layerIndex, seq = 0) {
+  handleSelectionCommit(user, layerIndex, seq = 0, extendedWarp = false) {
     // Forward `seq` through the requeue. Dropping it here fell back to the
     // `seq = 0` default, and _sortStrokeStack floats seq 0 to the TOP of the
     // stack — so the stamp sorted above everything committed after it and no
@@ -1012,7 +1017,7 @@ export class RemoteSelectionHandler {
     // same messages spread over time, decodes first, never requeues, and keeps
     // the seq — which is exactly the split measured on a 3-client room:
     // live observer held the stamp at S89, the joiner at S0.
-    if (this._queueIfLoading(user, () => this.handleSelectionCommit(user, layerIndex, seq))) return;
+    if (this._queueIfLoading(user, () => this.handleSelectionCommit(user, layerIndex, seq, extendedWarp))) return;
     if (!user.floatingCanvas || !user.selection) {
       // A commit with no float is ALWAYS a lost apply: the pixels stay wherever
       // they were before the lift, because the SEL_LIFT that should have erased
@@ -1022,6 +1027,12 @@ export class RemoteSelectionHandler {
       console.warn(`[RemoteSelection] SEL_COMMIT (seq ${seq}) for user ${user.id} dropped: no floating selection`);
       return;
     }
+
+    // extendedWarp can be toggled after the lift but before this commit — the
+    // value that travelled with SEL_LIFT (see handleSelectionLift) only seeds
+    // the session; the commit's own value is what actually decided this bake,
+    // so it must win here. See _getWarpOutputBounds.
+    user.extendedWarp = !!extendedWarp;
 
     const lm = this.board.layerManager;
     const layerIdx = layerIndex ?? user.activeLayer ?? 0;
@@ -1348,8 +1359,8 @@ export class RemoteSelectionHandler {
     }
   }
 
-  handleSelectionStamp(user, layerIndex, seq = 0) {
-    if (this._queueIfLoading(user, () => this.handleSelectionStamp(user, layerIndex, seq))) return;
+  handleSelectionStamp(user, layerIndex, seq = 0, extendedWarp = false) {
+    if (this._queueIfLoading(user, () => this.handleSelectionStamp(user, layerIndex, seq, extendedWarp))) return;
     // Same as commit but keep floating canvas active for further moves/stamps
     if (!user.floatingCanvas || !user.selection) {
       // See handleSelectionCommit: no float means the SEL_LIFT never arrived and
@@ -1357,6 +1368,10 @@ export class RemoteSelectionHandler {
       console.warn(`[RemoteSelection] SEL_STAMP (seq ${seq}) for user ${user.id} dropped: no floating selection`);
       return;
     }
+
+    // See handleSelectionCommit: this stamp's own value wins over whatever
+    // travelled with the original lift.
+    user.extendedWarp = !!extendedWarp;
 
     const lm = this.board.layerManager;
     const layerIdx = layerIndex ?? user.activeLayer ?? 0;
