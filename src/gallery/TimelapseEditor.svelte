@@ -135,16 +135,21 @@
 
     let mode = 'new';
     let handle = null;
-    for (const h of HANDLES) {
-      const pt = cornerPoint(c, h);
-      if (Math.abs(p.x - pt.x) <= grab && Math.abs(p.y - pt.y) <= grab) {
-        mode = 'resize';
-        handle = h;
-        break;
+    // Only hit-test against an existing crop; activeCrop falls back to the
+    // full frame when none is drawn yet, which would otherwise make every
+    // click register as "inside the crop" and start a move-drag.
+    if (crop) {
+      for (const h of HANDLES) {
+        const pt = cornerPoint(c, h);
+        if (Math.abs(p.x - pt.x) <= grab && Math.abs(p.y - pt.y) <= grab) {
+          mode = 'resize';
+          handle = h;
+          break;
+        }
       }
-    }
-    if (mode === 'new' && p.x >= c.x && p.x <= c.x + c.width && p.y >= c.y && p.y <= c.y + c.height) {
-      mode = 'move';
+      if (mode === 'new' && p.x >= c.x && p.x <= c.x + c.width && p.y >= c.y && p.y <= c.y + c.height) {
+        mode = 'move';
+      }
     }
 
     drag = { mode, handle, origin: p, startCrop: { ...c } };
@@ -331,14 +336,16 @@
           onpointercancel={onCropPointerUp}
         >
           <div class="tle-video" bind:this={videoHost}></div>
-          <div
-            class="tle-crop"
-            style="left: {pct(activeCrop.x, videoWidth)}; top: {pct(activeCrop.y, videoHeight)}; width: {pct(activeCrop.width, videoWidth)}; height: {pct(activeCrop.height, videoHeight)};"
-          >
-            {#each HANDLES as h}
-              <span class="tle-handle {h}"></span>
-            {/each}
-          </div>
+          {#if crop}
+            <div
+              class="tle-crop"
+              style="left: {pct(activeCrop.x, videoWidth)}; top: {pct(activeCrop.y, videoHeight)}; width: {pct(activeCrop.width, videoWidth)}; height: {pct(activeCrop.height, videoHeight)};"
+            >
+              {#each HANDLES as h}
+                <span class="tle-handle {h}"></span>
+              {/each}
+            </div>
+          {/if}
         </div>
       </div>
 
