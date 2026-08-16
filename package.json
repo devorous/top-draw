@@ -12,6 +12,8 @@
     "preview": "vite preview",
     "server": "cross-env HOST=127.0.0.1 PORT=8030 node server/index.js",
     "test:sync": "node testing/run-sync.mjs",
+    "test:ddrawcodec": "node testing/devtools/ddraw_codec_roundtrip.mjs",
+    "test:snapshotformat": "node testing/devtools/snapshot_format_roundtrip.mjs",
     "test:parity": "node testing/devtools/replay_parity_suite.mjs",
     "test:k6parity": "node testing/devtools/k6_ddraw_parity.mjs",
     "test:k6edge": "node testing/devtools/replay_multiuser_edge_suite.mjs",

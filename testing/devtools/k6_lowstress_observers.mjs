@@ -103,7 +103,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const TARGET_URL = process.env.TARGET_URL || 'http://localhost:3000/go/';
 const WS_URL     = process.env.WS_URL     || 'ws://127.0.0.1:8030';
-const CODEC_URL  = '/src/replay/ddrawCodec.js';
+const CODEC_URL = '/shared/ddrawCodec.js';
 let   HEADLESS   = process.env.HEADLESS !== 'false';
 let   VUS = null, DURATION = null;
 let   RECORD = true;   // capture a .ddraw per observer and diff the tapes

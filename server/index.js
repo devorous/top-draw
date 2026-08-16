@@ -19,6 +19,8 @@ import { handleAuthLogin, handleAuthRegister, handleAuthMe, handleAuthUsernameUp
 import { handleUserProfile, handleUpdateProfile } from './userRoutes.js';
 import { getGalleryPreviewItem, renderGalleryPreviewHtml } from './galleryPreview.js';
 import { handleSnapshotSave, handleSnapshotList, handleSnapshotRestore, handleSnapshotDelete, handleSnapshotGet, handleSnapshotRegionRestore, handleFirstJoinerBase } from './snapshots.js';
+import { getSnapshotFile } from './r2.js';
+import { encodeSnapshotFile, decodeSnapshotFile } from './snapshotCodec.js';
 import { handleCheckpointUpload, handleCheckpointList, handleCheckpointGet } from './checkpoints.js';
 import { getRecorder, removeRecorder, getReplayData } from './deltaRecorder.js';
 import { startElection, stopElection } from './uploaderElection.js';
@@ -1151,6 +1153,164 @@ const server = createServer(async (req, res) => {
       sortDir: sortDir === 1 ? 'asc' : 'desc',
       documents: documents.map(sanitizeAdminDoc)
     });
+    return;
+  }
+
+  // --- Admin checkpoint history (docs/ddraw_server_snapshots_plan.md Phase 3) ---
+  // Cross-room, read-only browsing of the server-persisted `.ddraw` checkpoints
+  // in room_snapshots + R2. DEITY-gated like every other /api/admin route; no
+  // restore/delete path lives here on purpose.
+
+  if (path === '/api/admin/snapshots/rooms' && req.method === 'GET') {
+    if (!await getAdminHttpUser(req)) { json(res, 403, { error: 'Forbidden' }); return; }
+
+    const db = getDB();
+    if (!db) { json(res, 503, { error: 'Database unavailable' }); return; }
+
+    try {
+      const rooms = await db.collection('room_snapshots').aggregate([
+        {
+          $group: {
+            _id: '$roomId',
+            count: { $sum: 1 },
+            newest: { $max: '$timestamp' },
+            oldest: { $min: '$timestamp' },
+            autoCount: { $sum: { $cond: ['$auto', 1, 0] } }
+          }
+        },
+        { $sort: { newest: -1 } },
+        { $limit: 500 }
+      ]).toArray();
+
+      json(res, 200, {
+        rooms: rooms.map(r => ({
+          roomId: r._id || '',
+          count: r.count || 0,
+          newest: r.newest || null,
+          oldest: r.oldest || null,
+          autoCount: r.autoCount || 0,
+          manualCount: Math.max(0, (r.count || 0) - (r.autoCount || 0))
+        }))
+      });
+    } catch (err) {
+      console.error('[Admin/Snapshots] Room list failed:', err);
+      json(res, 500, { error: 'Failed to list snapshot rooms' });
+    }
+    return;
+  }
+
+  if (path === '/api/admin/snapshots' && req.method === 'GET') {
+    if (!await getAdminHttpUser(req)) { json(res, 403, { error: 'Forbidden' }); return; }
+
+    const db = getDB();
+    if (!db) { json(res, 503, { error: 'Database unavailable' }); return; }
+
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    const roomId = String(url.searchParams.get('roomId') || '').trim();
+    if (!roomId) { json(res, 400, { error: 'roomId is required' }); return; }
+
+    const requestedLimit = Number(url.searchParams.get('limit'));
+    const limit = Math.max(1, Math.min(100, Number.isFinite(requestedLimit) ? requestedLimit : 50));
+    const before = Number(url.searchParams.get('before'));
+
+    try {
+      const filter = { roomId };
+      if (Number.isFinite(before) && before > 0) filter.timestamp = { $lt: before };
+
+      const [docs, total] = await Promise.all([
+        db.collection('room_snapshots')
+          .find(filter)
+          .sort({ timestamp: -1 })
+          .limit(limit)
+          .toArray(),
+        db.collection('room_snapshots').countDocuments({ roomId })
+      ]);
+
+      const snapshots = docs.map(doc => {
+        const thumbBytes = doc.thumbnail ? (doc.thumbnail.buffer || doc.thumbnail) : null;
+        return {
+          id: doc.snapshotId,
+          roomId: doc.roomId,
+          ts: doc.timestamp || 0,
+          issuer: doc.issuer || 'Unknown',
+          auto: !!doc.auto,
+          initial: !!doc.initial,
+          seq: doc.seq ?? null,
+          name: doc.name || '',
+          // Stored container format. Absent/'bundle' = pre-migration protobuf;
+          // the /file route transcodes those to `.ddraw` before serving.
+          format: doc.format || 'bundle',
+          hasFile: !!doc.r2Key,
+          r2Key: doc.r2Key || '',
+          // Inlined so the strip renders without touching R2 at all (the JPEG
+          // is already in the Mongo doc — a separate route would just be an
+          // extra round trip per row).
+          thumb: thumbBytes ? Buffer.from(thumbBytes).toString('base64') : null
+        };
+      });
+
+      json(res, 200, {
+        roomId,
+        total,
+        limit,
+        snapshots,
+        nextBefore: snapshots.length === limit ? snapshots[snapshots.length - 1].ts : null
+      });
+    } catch (err) {
+      console.error('[Admin/Snapshots] List failed:', err);
+      json(res, 500, { error: 'Failed to list snapshots' });
+    }
+    return;
+  }
+
+  const adminSnapshotFileMatch = path.match(/^\/api\/admin\/snapshots\/([A-Za-z0-9_.-]+)\/file$/);
+  if (adminSnapshotFileMatch && req.method === 'GET') {
+    if (!await getAdminHttpUser(req)) { json(res, 403, { error: 'Forbidden' }); return; }
+
+    const db = getDB();
+    if (!db) { json(res, 503, { error: 'Database unavailable' }); return; }
+
+    const snapshotId = adminSnapshotFileMatch[1];
+    try {
+      const doc = await db.collection('room_snapshots').findOne({ snapshotId });
+      if (!doc) { json(res, 404, { error: 'Snapshot not found' }); return; }
+      if (!doc.r2Key) { json(res, 404, { error: 'Snapshot has no stored file' }); return; }
+
+      const bytes = await getSnapshotFile(doc.r2Key);
+      if (!bytes) { json(res, 404, { error: 'Snapshot file missing from storage' }); return; }
+
+      const sourceFormat = doc.format || 'bundle';
+      let out = bytes;
+      if (sourceFormat !== 'ddraw') {
+        // Legacy protobuf `.bundle`. Decode + repack as a degenerate `.ddraw`
+        // so the client only ever has to understand one container.
+        const { layers, thumbnail } = await decodeSnapshotFile(bytes, doc.format);
+        // protobufjs hands back Node Buffers, and JSON.stringify calls
+        // Buffer#toJSON before ddrawCodec's Uint8Array replacer ever sees the
+        // value — the layers would serialize as {type:'Buffer',data:[...]} and
+        // decode client-side as unusable objects. Re-wrap as plain Uint8Array.
+        const plainLayers = (layers || []).map(
+          (l) => (l && l.length ? new Uint8Array(l.buffer ? l.buffer.slice(l.byteOffset, l.byteOffset + l.byteLength) : l) : null)
+        );
+        out = await encodeSnapshotFile(plainLayers, thumbnail || null);
+      }
+
+      res.writeHead(200, {
+        'Content-Type': 'application/x-ddraw-replay',
+        'Content-Length': out.length,
+        'Cache-Control': 'private, max-age=300',
+        'X-Snapshot-Format': 'ddraw',
+        'X-Snapshot-Source-Format': sourceFormat,
+        'X-Snapshot-Room': encodeURIComponent(doc.roomId || ''),
+        'X-Snapshot-Ts': String(doc.timestamp || 0),
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Expose-Headers': 'X-Snapshot-Format, X-Snapshot-Source-Format, X-Snapshot-Room, X-Snapshot-Ts'
+      });
+      res.end(Buffer.from(out));
+    } catch (err) {
+      console.error('[Admin/Snapshots] File fetch failed:', err);
+      json(res, 500, { error: 'Failed to fetch snapshot file' });
+    }
     return;
   }
 
@@ -3130,6 +3290,14 @@ wss.on('connection', async (ws, req) => {
       ws.joinSyncPendingSince = Date.now();
     }
     room.addClient(ws);
+    // Start the periodic auto-checkpoint timer now that the room has an
+    // occupant. This pairs with the removeClient()/updateSnapshotTimer() call in
+    // the disconnect handler. Without it the timer was only ever started as a
+    // SIDE EFFECT of a disconnect (or a room-register / account-register /
+    // account-login), so a room whose users only ever joined — the common case,
+    // and every anonymous lobby session — never minted a single checkpoint and
+    // served every late joiner a stale one.
+    room.updateSnapshotTimer();
 
     debug(`[Room.Connection] Client joined room: ${roomId}, total clients after addClient: ${room.getClientCount()}`);
 

@@ -94,7 +94,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const TARGET_URL = process.env.TARGET_URL || 'http://localhost:3000/go/';
 const WS_URL     = process.env.WS_URL     || 'ws://127.0.0.1:8030';
-const CODEC_URL  = '/src/replay/ddrawCodec.js';
+const CODEC_URL = '/shared/ddrawCodec.js';
 
 // Server-side constants this suite is built around (server/SessionManager.js).
 // Mirrored, not imported, so a drift shows up as a suite failure rather than

@@ -71,7 +71,7 @@ for (const a of process.argv.slice(2)) {
 // A fixed viewport keeps client→board coordinate mapping identical between runs,
 // which is what makes the scenarios reproducible rather than merely repeatable.
 const VIEWPORT = { width: 1280, height: 800 };
-const CODEC_URL = '/src/replay/ddrawCodec.js';
+const CODEC_URL = '/shared/ddrawCodec.js';
 
 const RUN_ID      = new Date().toISOString().replace(/[:.]/g, '-');
 const RESULTS_DIR = path.join(__dirname, '..', 'sync_results', `selparity_${RUN_ID}`);

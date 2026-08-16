@@ -3,6 +3,8 @@ import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } fro
 import { Buffer } from 'buffer'; // Node.js Buffer is globally available
 import protobuf from 'protobufjs';
 
+// Only needed to read pre-migration `.bundle` objects still sitting in R2 —
+// see decodeLegacyBundle below and docs/ddraw_server_snapshots_plan.md.
 const root = await protobuf.load("public/messages.proto");
 const SnapshotBundle = root.lookupType("SnapshotBundle");
 
@@ -57,36 +59,36 @@ function requireSnapshotClient() {
 }
 
 /**
- * Uploads a snapshot bundle to Cloudflare R2.
- * @param {string} r2Key - The object key for the snapshot bundle (e.g., 'snapshots/roomId/snapshotId.bundle').
- * @param {object} bundleData - The bundle data (e.g., { layers: [], thumbnail: Uint8Array }).
+ * Uploads a snapshot file (raw bytes — a `.ddraw` container, format-agnostic)
+ * to Cloudflare R2.
+ * @param {string} r2Key - The object key (e.g., 'snapshots/roomId/snapshotId.ddraw').
+ * @param {Uint8Array|Buffer} bytes - The encoded file bytes.
  * @returns {Promise<void>}
  */
-export async function uploadSnapshotBundle(r2Key, bundleData) {
-  const message = SnapshotBundle.create(bundleData);
-  const bundleDataSerialized = SnapshotBundle.encode(message).finish();
-
+export async function uploadSnapshotFile(r2Key, bytes) {
   const params = {
     Bucket: BUCKET_NAME,
     Key: r2Key,
-    Body: Buffer.from(bundleDataSerialized), // AWS SDK expects Buffer or Uint8Array
-    ContentType: 'application/protobuf', // Set content type for proper handling
+    Body: Buffer.from(bytes),
+    ContentType: 'application/x-ddraw-replay',
   };
 
   try {
     await requireSnapshotClient().send(new PutObjectCommand(params));
   } catch (error) {
-    console.error(`Error uploading snapshot bundle to R2 (${r2Key}):`, error);
+    console.error(`Error uploading snapshot file to R2 (${r2Key}):`, error);
     throw error; // Re-throw to indicate failure
   }
 }
 
 /**
- * Retrieves a snapshot bundle from Cloudflare R2.
- * @param {string} r2Key - The object key for the snapshot bundle.
- * @returns {Promise<object|null>} The decoded bundle data or null if not found or error.
+ * Retrieves a snapshot file's raw bytes from Cloudflare R2. Caller decodes —
+ * this function doesn't know or care whether the bytes are `.ddraw` or a
+ * legacy `.bundle` (see decodeLegacyBundle).
+ * @param {string} r2Key - The object key for the snapshot file.
+ * @returns {Promise<Buffer|null>} The raw bytes, or null if not found.
  */
-export async function getSnapshotBundle(r2Key) {
+export async function getSnapshotFile(r2Key) {
   const params = {
     Bucket: BUCKET_NAME,
     Key: r2Key,
@@ -97,7 +99,7 @@ export async function getSnapshotBundle(r2Key) {
     const { Body } = await requireSnapshotClient().send(command);
 
     if (!Body) {
-      console.warn(`Snapshot bundle not found in R2: ${r2Key}`);
+      console.warn(`Snapshot file not found in R2: ${r2Key}`);
       return null;
     }
 
@@ -105,26 +107,34 @@ export async function getSnapshotBundle(r2Key) {
     for await (const chunk of Body) {
       chunks.push(Buffer.from(chunk));
     }
-    const buffer = Buffer.concat(chunks);
-
-    const decoded = SnapshotBundle.toObject(SnapshotBundle.decode(buffer));
-    return decoded;
+    return Buffer.concat(chunks);
   } catch (error) {
     if (error.name === 'NoSuchKey') {
-      console.warn(`Snapshot bundle not found in R2 (NoSuchKey): ${r2Key}`);
+      console.warn(`Snapshot file not found in R2 (NoSuchKey): ${r2Key}`);
       return null;
     }
-    console.error(`Error retrieving snapshot bundle from R2 (${r2Key}):`, error);
+    console.error(`Error retrieving snapshot file from R2 (${r2Key}):`, error);
     throw error; // Re-throw to indicate failure
   }
 }
 
 /**
- * Deletes a snapshot bundle from Cloudflare R2.
- * @param {string} r2Key - The object key for the snapshot bundle.
+ * Decodes a legacy protobuf `SnapshotBundle` (`.bundle`, pre-migration
+ * format). Read-only — nothing writes this format anymore. See
+ * docs/ddraw_server_snapshots_plan.md.
+ * @param {Buffer|Uint8Array} bytes
+ * @returns {{layers: Uint8Array[], thumbnail: Uint8Array|null}}
+ */
+export function decodeLegacyBundle(bytes) {
+  return SnapshotBundle.toObject(SnapshotBundle.decode(bytes));
+}
+
+/**
+ * Deletes a snapshot file from Cloudflare R2.
+ * @param {string} r2Key - The object key for the snapshot file.
  * @returns {Promise<void>}
  */
-export async function deleteSnapshotBundle(r2Key) {
+export async function deleteSnapshotFile(r2Key) {
   if (!r2Key) return;
 
   const params = {
@@ -135,7 +145,7 @@ export async function deleteSnapshotBundle(r2Key) {
   try {
     await requireSnapshotClient().send(new DeleteObjectCommand(params));
   } catch (error) {
-    console.error(`Error deleting snapshot bundle from R2 (${r2Key}):`, error);
+    console.error(`Error deleting snapshot file from R2 (${r2Key}):`, error);
     throw error;
   }
 }

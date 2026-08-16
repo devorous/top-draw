@@ -4,7 +4,8 @@ import { getDB } from './db.js';
 import { T } from '../shared/MessageTypes.js';
 import { authorize, Action } from './permissions.js';
 import { getRecorder } from './deltaRecorder.js';
-import { uploadSnapshotBundle, getSnapshotBundle, deleteSnapshotBundle } from './r2.js';
+import { uploadSnapshotFile, getSnapshotFile, deleteSnapshotFile } from './r2.js';
+import { encodeSnapshotFile, decodeSnapshotFile } from './snapshotCodec.js';
 import { snapshotCoversRoomBoard } from '../shared/qoi.js';
 
 const DEFAULT_SNAPSHOT_MAX_PER_ROOM = 100;
@@ -52,7 +53,7 @@ function getSnapshotMaxPerRoom() {
 
 async function deleteSnapshotRecord(db, room, doc) {
   if (doc.r2Key) {
-    await deleteSnapshotBundle(doc.r2Key);
+    await deleteSnapshotFile(doc.r2Key);
   }
 
   await db.collection('room_snapshots').deleteOne({ snapshotId: doc.snapshotId });
@@ -172,8 +173,9 @@ async function persistRestoredCheckpoint(room, snapshotData, seq) {
       room.createdAt
     );
 
-    const r2Key = `snapshots/${room.id}/${snapshotData.id}.bundle`;
-    await uploadSnapshotBundle(r2Key, { layers: snapshotData.layers, thumbnail: null });
+    const r2Key = `snapshots/${room.id}/${snapshotData.id}.ddraw`;
+    const fileBytes = await encodeSnapshotFile(snapshotData.layers, null);
+    await uploadSnapshotFile(r2Key, fileBytes);
 
     await db.collection('room_snapshots').insertOne({
       snapshotId: snapshotData.id,
@@ -184,6 +186,7 @@ async function persistRestoredCheckpoint(room, snapshotData, seq) {
       seq: seq,
       thumbnail: null,
       r2Key: r2Key,
+      format: 'ddraw',
       name: `Board restore ${new Date(snapshotData.ts).toLocaleTimeString()}`
     });
     await unsetLegacyEmbeddedSnapshots(db, room.id);
@@ -285,14 +288,11 @@ export async function handleSnapshotSave(ws, data, room) {
       }
 
       // Prepare data for R2 and MongoDB
-      const r2Key = `snapshots/${room.id}/${snapshotId}.bundle`;
-      const bundleData = {
-        layers: layers,
-        thumbnail: thumbBytes
-      };
+      const r2Key = `snapshots/${room.id}/${snapshotId}.ddraw`;
 
-      // Upload snapshot bundle to R2
-      await uploadSnapshotBundle(r2Key, bundleData);
+      // Upload snapshot file to R2
+      const fileBytes = await encodeSnapshotFile(layers, thumbBytes);
+      await uploadSnapshotFile(r2Key, fileBytes);
 
       const mongoDoc = {
         snapshotId: snapshotId,
@@ -302,6 +302,7 @@ export async function handleSnapshotSave(ws, data, room) {
         seq: checkpointSeq,
         thumbnail: thumbBytes,
         r2Key: r2Key,
+        format: 'ddraw',
         name: data.n || (isAuto ? `Auto-save ${new Date(snapshotTs).toLocaleTimeString()}` : `Snapshot ${new Date(snapshotTs).toLocaleString()}`)
       };
 
@@ -468,11 +469,12 @@ export async function handleSnapshotRestore(ws, data, room) {
       }
 
       if (doc.r2Key) {
-        const bundle = await getSnapshotBundle(doc.r2Key);
-        if (!bundle) {
-          console.warn(`[Snapshot] Restore failed: Snapshot bundle not found in R2 for key ${doc.r2Key}.`);
+        const fileBytes = await getSnapshotFile(doc.r2Key);
+        if (!fileBytes) {
+          console.warn(`[Snapshot] Restore failed: Snapshot file not found in R2 for key ${doc.r2Key}.`);
           return;
         }
+        const bundle = await decodeSnapshotFile(fileBytes, doc.format);
         snapshotData = {
           id: doc.snapshotId,
           ts: doc.timestamp,
@@ -583,11 +585,12 @@ export async function handleSnapshotGet(ws, data, room) {
 
       if (doc.r2Key) {
         snapshotIsAuto = !!doc.auto;
-        const bundle = await getSnapshotBundle(doc.r2Key);
-        if (!bundle) {
-          console.warn(`[Snapshot] Get failed: Snapshot bundle not found in R2 for key ${doc.r2Key}.`);
+        const fileBytes = await getSnapshotFile(doc.r2Key);
+        if (!fileBytes) {
+          console.warn(`[Snapshot] Get failed: Snapshot file not found in R2 for key ${doc.r2Key}.`);
           return;
         }
+        const bundle = await decodeSnapshotFile(fileBytes, doc.format);
         snapshotData = {
           id: doc.snapshotId,
           ts: doc.timestamp,
@@ -671,11 +674,12 @@ export async function handleSnapshotRegionRestore(ws, data, room) {
       }
 
       if (doc.r2Key) {
-        const bundle = await getSnapshotBundle(doc.r2Key);
-        if (!bundle) {
-          console.warn(`[Snapshot] Region restore failed: Snapshot bundle not found in R2 for key ${doc.r2Key}.`);
+        const fileBytes = await getSnapshotFile(doc.r2Key);
+        if (!fileBytes) {
+          console.warn(`[Snapshot] Region restore failed: Snapshot file not found in R2 for key ${doc.r2Key}.`);
           return;
         }
+        const bundle = await decodeSnapshotFile(fileBytes, doc.format);
         snapshotData = {
           id: doc.snapshotId,
           layers: bundle.layers

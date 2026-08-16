@@ -67,7 +67,7 @@ for (const a of process.argv.slice(2)) {
 }
 
 const FEED_SCRIPT = path.join(__dirname, '_k6_edge_feed.js');
-const CODEC_URL   = '/src/replay/ddrawCodec.js';
+const CODEC_URL = '/shared/ddrawCodec.js';
 const RUN_ID      = new Date().toISOString().replace(/[:.]/g, '-');
 const RESULTS_DIR = path.join(__dirname, '..', 'sync_results', `edge_${RUN_ID}`);
 const DDRAW_DIR   = path.join(__dirname, '..', 'ddraw');

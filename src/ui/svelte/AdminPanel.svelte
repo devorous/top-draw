@@ -1,5 +1,9 @@
 <script>
+  import { tick } from 'svelte';
   import { appState } from '../../state.svelte.js';
+  import { decodeDdraw } from '../../../shared/ddrawCodec.js';
+  import { qoiToCanvas } from '../../replay/layerStateCodec.js';
+  import initWasm from '../../wasm/ddraw_wasm.js';
 
   const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
   const TOKEN_KEY = 'topDrawAuthToken';
@@ -35,6 +39,8 @@
   const TAB_MESSAGE = 'message';
   const TAB_LIVE = 'live';
   const TAB_DB = 'db';
+  const TAB_HISTORY = 'history';
+  const SNAPSHOT_PAGE_SIZE = 24;
 
   let backdropPointerDown = false;
   let activeTab = $state(TAB_MESSAGE);
@@ -58,6 +64,28 @@
   let collectionPageCount = $derived(Math.max(1, Math.ceil((collectionData.total || 0) / collectionLimit)));
   let collectionStart = $derived((collectionData.total || 0) === 0 ? 0 : (collectionPage * collectionLimit) + 1);
   let collectionEnd = $derived(Math.min(collectionData.total || 0, (collectionPage + 1) * collectionLimit));
+  // --- Checkpoint history (docs/ddraw_server_snapshots_plan.md Phase 3) ---
+  // Read-only browser over the server-persisted `.ddraw` checkpoints in
+  // room_snapshots + R2, for any room, without being joined to it.
+  let snapRooms = $state([]);
+  let snapRoomsLoading = $state(false);
+  let snapRoomId = $state('');
+  let snapList = $state([]);          // newest-first, as the API returns it
+  let snapTotal = $state(0);
+  let snapNextBefore = $state(null);
+  let snapListLoading = $state(false);
+  let snapIndex = $state(0);          // index into snapTimeline (oldest -> newest)
+  let snapStageCanvas = $state(null);
+  let snapStageLoading = $state(false);
+  let snapStageError = $state('');
+  let snapStageInfo = $state(null);   // { layers, width, height, bytes, sourceFormat }
+  let snapRenderToken = 0;
+  let snapLastBytes = null;
+
+  // Scrubber runs oldest -> newest so dragging right moves forward in time.
+  let snapTimeline = $derived([...snapList].reverse());
+  let snapSelected = $derived(snapTimeline[snapIndex] || null);
+
   let achievementMetrics = $derived([
     { key: 'distanceDrawn', label: 'Distance', format: formatDistance },
     { key: 'timeSpentMs', label: 'Time', format: formatDuration },
@@ -85,6 +113,12 @@
     } else {
       clearInterval(liveAutoRefresh);
       liveAutoRefresh = null;
+    }
+  });
+
+  $effect(() => {
+    if (activeTab === TAB_HISTORY && visible && selfRole >= 9 && !snapRooms.length && !snapRoomsLoading) {
+      void loadSnapshotRooms();
     }
   });
 
@@ -150,6 +184,182 @@
     } finally {
       collectionLoading = false;
     }
+  }
+
+  /**
+   * Sibling of fetchAdmin for binary responses (the raw `.ddraw` bytes).
+   * Same Bearer auth, but returns an ArrayBuffer plus the format headers.
+   */
+  async function fetchAdminBinary(path) {
+    const res = await fetch(`${API_BASE}${path}`, {
+      headers: { Authorization: `Bearer ${getToken()}` }
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data?.error || 'Request failed');
+    }
+    return {
+      bytes: new Uint8Array(await res.arrayBuffer()),
+      sourceFormat: res.headers.get('X-Snapshot-Source-Format') || 'ddraw'
+    };
+  }
+
+  async function loadSnapshotRooms() {
+    snapRoomsLoading = true;
+    error = '';
+    try {
+      const data = await fetchAdmin('/api/admin/snapshots/rooms');
+      snapRooms = data?.rooms || [];
+      if (!snapRoomId && snapRooms.length) {
+        void chooseSnapshotRoom(snapRooms[0].roomId);
+      }
+    } catch (err) {
+      error = err?.message || 'Failed to load checkpoint rooms';
+    } finally {
+      snapRoomsLoading = false;
+    }
+  }
+
+  async function loadSnapshots(roomId, { append = false } = {}) {
+    if (!roomId) return;
+    snapListLoading = true;
+    error = '';
+    try {
+      const params = new URLSearchParams({ roomId, limit: String(SNAPSHOT_PAGE_SIZE) });
+      if (append && snapNextBefore) params.set('before', String(snapNextBefore));
+      const data = await fetchAdmin(`/api/admin/snapshots?${params}`);
+      const incoming = data?.snapshots || [];
+      snapTotal = data?.total || 0;
+      snapNextBefore = data?.nextBefore ?? null;
+      if (append) {
+        // Older rows land at the end of the newest-first list, so they show up
+        // at the *start* of the reversed timeline — keep the current selection
+        // pinned to the same checkpoint rather than to the same index.
+        const keepId = snapSelected?.id;
+        snapList = [...snapList, ...incoming];
+        const found = snapTimeline.findIndex((s) => s.id === keepId);
+        snapIndex = found >= 0 ? found : snapTimeline.length - 1;
+      } else {
+        snapList = incoming;
+        snapIndex = Math.max(0, incoming.length - 1); // newest
+        void renderSnapshot(snapTimeline[snapIndex]);
+      }
+    } catch (err) {
+      error = err?.message || 'Failed to load checkpoints';
+    } finally {
+      snapListLoading = false;
+    }
+  }
+
+  async function chooseSnapshotRoom(roomId) {
+    snapRoomId = roomId;
+    snapList = [];
+    snapTotal = 0;
+    snapNextBefore = null;
+    snapIndex = 0;
+    snapStageInfo = null;
+    snapStageError = '';
+    snapLastBytes = null;
+    clearSnapshotStage();
+    await loadSnapshots(roomId);
+  }
+
+  function clearSnapshotStage() {
+    const canvas = snapStageCanvas;
+    if (!canvas) return;
+    canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
+  }
+
+  function selectSnapshotIndex(index) {
+    const clamped = Math.max(0, Math.min(snapTimeline.length - 1, Number(index) || 0));
+    snapIndex = clamped;
+    void renderSnapshot(snapTimeline[clamped]);
+  }
+
+  /**
+   * Fetch one checkpoint's `.ddraw`, decode it, and paint its layers.
+   *
+   * Server checkpoints are degenerate containers today — a single flat,
+   * per-layer QOI frame with zero deltas (see snapshotCodec.js) — so this
+   * composites the layers straight onto a canvas rather than spinning up
+   * TimeMachine/ReplayEngine, which would have nothing to play.
+   */
+  async function renderSnapshot(entry) {
+    if (!entry) return;
+    const token = ++snapRenderToken;
+    snapStageLoading = true;
+    snapStageError = '';
+    try {
+      const { bytes, sourceFormat } = await fetchAdminBinary(
+        `/api/admin/snapshots/${encodeURIComponent(entry.id)}/file`
+      );
+      if (token !== snapRenderToken) return;
+
+      const recording = await decodeDdraw(bytes);
+      if (token !== snapRenderToken) return;
+
+      await initWasm(); // no-op once the app has already booted the wasm module
+      if (token !== snapRenderToken) return;
+
+      const layers = recording?.openingSnapshot?.layerBaked || [];
+      const canvases = layers.map((qoi) => (qoi && qoi.length ? qoiToCanvas(qoi) : null));
+      const width = Math.max(1, ...canvases.map((c) => c?.width || 0));
+      const height = Math.max(1, ...canvases.map((c) => c?.height || 0));
+
+      // The stage canvas only mounts once the list is non-empty, so the very
+      // first render of a room can land before it exists.
+      if (!snapStageCanvas) await tick();
+      const canvas = snapStageCanvas;
+      if (!canvas || token !== snapRenderToken) return;
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, width, height);
+      for (const layer of canvases) {
+        if (layer) ctx.drawImage(layer, 0, 0);
+      }
+
+      snapLastBytes = bytes;
+      snapStageInfo = {
+        layers: canvases.filter(Boolean).length,
+        totalLayers: layers.length,
+        width,
+        height,
+        bytes: bytes.length,
+        sourceFormat,
+        deltas: recording?.deltas?.length || 0
+      };
+    } catch (err) {
+      if (token !== snapRenderToken) return;
+      snapStageError = err?.message || 'Failed to render checkpoint';
+      snapStageInfo = null;
+      clearSnapshotStage();
+    } finally {
+      if (token === snapRenderToken) snapStageLoading = false;
+    }
+  }
+
+  function downloadSelectedSnapshot() {
+    if (!snapLastBytes || !snapSelected) return;
+    const blob = new Blob([snapLastBytes], { type: 'application/x-ddraw-replay' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${snapSelected.id}.ddraw`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  }
+
+  function formatBytes(value) {
+    const bytes = Number(value) || 0;
+    if (bytes >= 1_048_576) return `${(bytes / 1_048_576).toFixed(2)} MB`;
+    if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${bytes} B`;
+  }
+
+  function formatClock(ts) {
+    if (!ts) return '—';
+    return new Date(ts).toLocaleString();
   }
 
   function chooseCollection(name) {
@@ -318,6 +528,7 @@
           <button class:active={activeTab === TAB_STATS} onclick={() => activeTab = TAB_STATS} type="button">Stats</button>
           <button class:active={activeTab === TAB_LIVE}  onclick={() => activeTab = TAB_LIVE}  type="button">Live</button>
           <button class:active={activeTab === TAB_DB}    onclick={() => activeTab = TAB_DB}    type="button">Database</button>
+          <button class:active={activeTab === TAB_HISTORY} onclick={() => activeTab = TAB_HISTORY} type="button">History</button>
         {/if}
       </div>
 
@@ -649,6 +860,139 @@
             <button class="btn secondary small" type="button" disabled={collectionPage === 0 || collectionLoading} onclick={() => setCollectionPage(collectionPage - 1)}>Previous</button>
             <button class="btn secondary small" type="button" disabled={collectionPage >= collectionPageCount - 1 || collectionLoading} onclick={() => setCollectionPage(collectionPage + 1)}>Next</button>
             <button class="btn secondary small" type="button" disabled={collectionPage >= collectionPageCount - 1 || collectionLoading} onclick={() => setCollectionPage(collectionPageCount - 1)}>Last</button>
+          </div>
+        </section>
+        {/if}
+
+        {#if activeTab === TAB_HISTORY}
+        <section class="admin-section grow">
+          <div class="section-head">
+            <h4>Board Checkpoints</h4>
+            <div class="hist-head-meta">
+              <span>Stored server checkpoints — read-only</span>
+              <button class="btn secondary small" type="button" onclick={() => void loadSnapshotRooms()}>
+                {snapRoomsLoading ? 'Refreshing...' : 'Refresh'}
+              </button>
+            </div>
+          </div>
+
+          <div class="hist-layout">
+            <div class="hist-rooms">
+              {#if !snapRooms.length}
+                <div class="empty-state">{snapRoomsLoading ? 'Loading rooms...' : 'No stored checkpoints.'}</div>
+              {:else}
+                {#each snapRooms as room (room.roomId)}
+                  <button
+                    class="hist-room"
+                    class:active={snapRoomId === room.roomId}
+                    type="button"
+                    onclick={() => void chooseSnapshotRoom(room.roomId)}
+                  >
+                    <strong>{room.roomId}</strong>
+                    <span>{room.count} checkpoint{room.count === 1 ? '' : 's'}</span>
+                    <span>{formatClock(room.newest)}</span>
+                  </button>
+                {/each}
+              {/if}
+            </div>
+
+            <div class="hist-main">
+              {#if !snapRoomId}
+                <div class="empty-state">Pick a room to browse its checkpoints.</div>
+              {:else if !snapTimeline.length}
+                <div class="empty-state">{snapListLoading ? 'Loading checkpoints...' : 'No checkpoints for this room.'}</div>
+              {:else}
+                <div class="hist-stage">
+                  <canvas bind:this={snapStageCanvas}></canvas>
+                  {#if snapStageLoading}
+                    <div class="hist-stage-overlay">Decoding checkpoint...</div>
+                  {:else if snapStageError}
+                    <div class="hist-stage-overlay error">{snapStageError}</div>
+                  {/if}
+                </div>
+
+                <div class="hist-scrub">
+                  <button
+                    class="btn secondary small"
+                    type="button"
+                    disabled={snapIndex <= 0}
+                    onclick={() => selectSnapshotIndex(snapIndex - 1)}
+                  >‹ Older</button>
+                  <input
+                    class="hist-range"
+                    type="range"
+                    min="0"
+                    max={Math.max(0, snapTimeline.length - 1)}
+                    value={snapIndex}
+                    onchange={(e) => selectSnapshotIndex(e.currentTarget.value)}
+                    aria-label="Checkpoint position"
+                  >
+                  <button
+                    class="btn secondary small"
+                    type="button"
+                    disabled={snapIndex >= snapTimeline.length - 1}
+                    onclick={() => selectSnapshotIndex(snapIndex + 1)}
+                  >Newer ›</button>
+                </div>
+
+                <div class="hist-meta">
+                  <div class="hist-meta-main">
+                    <strong>{formatClock(snapSelected?.ts)}</strong>
+                    <span class="hist-badge {snapSelected?.auto ? 'auto' : 'manual'}">
+                      {snapSelected?.auto ? 'auto' : 'manual'}
+                    </span>
+                    {#if snapSelected && snapSelected.format !== 'ddraw'}
+                      <span class="hist-badge legacy">legacy .bundle</span>
+                    {/if}
+                    <span>{snapIndex + 1} / {snapTimeline.length}{snapTotal > snapTimeline.length ? ` (of ${snapTotal})` : ''}</span>
+                  </div>
+                  <div class="hist-meta-sub">
+                    <span>issuer: {snapSelected?.issuer || '—'}</span>
+                    <span>seq: {snapSelected?.seq ?? '—'}</span>
+                    <span>id: {snapSelected?.id || '—'}</span>
+                    {#if snapStageInfo}
+                      <span>{snapStageInfo.width}×{snapStageInfo.height}</span>
+                      <span>{snapStageInfo.layers}/{snapStageInfo.totalLayers} layers</span>
+                      <span>{formatBytes(snapStageInfo.bytes)}</span>
+                    {/if}
+                    <button class="btn secondary small" type="button" disabled={!snapStageInfo} onclick={downloadSelectedSnapshot}>
+                      Download .ddraw
+                    </button>
+                  </div>
+                  <div class="hist-note">
+                    Each stored checkpoint is a single frame — the scrubber steps between
+                    checkpoints, not within one.
+                  </div>
+                </div>
+
+                <div class="hist-strip">
+                  {#each snapTimeline as snap, i (snap.id)}
+                    <button
+                      class="hist-thumb"
+                      class:active={i === snapIndex}
+                      type="button"
+                      title={`${formatClock(snap.ts)} — ${snap.issuer}`}
+                      onclick={() => selectSnapshotIndex(i)}
+                    >
+                      {#if snap.thumb}
+                        <img src={`data:image/jpeg;base64,${snap.thumb}`} alt="" loading="lazy">
+                      {:else}
+                        <span class="hist-thumb-empty">no thumb</span>
+                      {/if}
+                      <span class="hist-thumb-ts">{new Date(snap.ts).toLocaleTimeString()}</span>
+                    </button>
+                  {/each}
+                </div>
+
+                {#if snapNextBefore}
+                  <div class="hist-more">
+                    <button class="btn secondary small" type="button" disabled={snapListLoading} onclick={() => void loadSnapshots(snapRoomId, { append: true })}>
+                      {snapListLoading ? 'Loading...' : 'Load older'}
+                    </button>
+                  </div>
+                {/if}
+              {/if}
+            </div>
           </div>
         </section>
         {/if}
@@ -1222,6 +1566,216 @@
     flex-direction: column;
     gap: 0.55rem;
     padding-right: 0.2rem;
+  }
+
+  /* --- Checkpoint history tab --- */
+
+  .hist-head-meta {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+  }
+
+  .hist-head-meta span {
+    font-size: 0.76rem;
+    color: var(--text-muted, var(--text-secondary));
+  }
+
+  .hist-layout {
+    display: grid;
+    grid-template-columns: 190px minmax(0, 1fr);
+    gap: 0.7rem;
+    flex: 1;
+    min-height: 0;
+  }
+
+  .hist-rooms {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    overflow-y: auto;
+    min-height: 0;
+    padding-right: 0.2rem;
+  }
+
+  .hist-room {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    text-align: left;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-subtle);
+    border-left: 3px solid transparent;
+    border-radius: 6px;
+    padding: 0.45rem 0.55rem;
+    cursor: pointer;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+  }
+
+  .hist-room.active {
+    border-left-color: var(--accent-primary);
+    color: var(--text-primary, var(--text-secondary));
+  }
+
+  .hist-room strong {
+    font-size: 0.82rem;
+    word-break: break-all;
+  }
+
+  .hist-room span {
+    font-size: 0.7rem;
+    color: var(--text-muted, var(--text-secondary));
+  }
+
+  .hist-main {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  .hist-stage {
+    position: relative;
+    flex: 1;
+    min-height: 220px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background:
+      repeating-conic-gradient(rgba(128, 128, 128, 0.18) 0% 25%, transparent 0% 50%) 50% / 18px 18px,
+      var(--bg-primary);
+    border: 1px solid var(--border-subtle);
+    border-radius: 7px;
+    overflow: hidden;
+  }
+
+  .hist-stage canvas {
+    max-width: 100%;
+    max-height: 46vh;
+    object-fit: contain;
+    display: block;
+  }
+
+  .hist-stage-overlay {
+    position: absolute;
+    inset: auto 0 0 0;
+    padding: 0.35rem 0.6rem;
+    font-size: 0.76rem;
+    background: rgba(0, 0, 0, 0.6);
+    color: #fff;
+    text-align: center;
+  }
+
+  .hist-stage-overlay.error {
+    background: rgba(180, 40, 40, 0.75);
+  }
+
+  .hist-scrub {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-shrink: 0;
+  }
+
+  .hist-range {
+    flex: 1;
+    min-width: 0;
+    accent-color: var(--accent-primary);
+  }
+
+  .hist-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    flex-shrink: 0;
+  }
+
+  .hist-meta-main,
+  .hist-meta-sub {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    font-size: 0.76rem;
+    color: var(--text-secondary);
+  }
+
+  .hist-meta-main strong {
+    font-size: 0.84rem;
+  }
+
+  .hist-badge {
+    padding: 0.05rem 0.4rem;
+    border-radius: 999px;
+    font-size: 0.68rem;
+    border: 1px solid var(--border-subtle);
+  }
+
+  .hist-badge.auto { color: var(--text-secondary); }
+  .hist-badge.manual { color: var(--accent-hover); border-color: var(--accent-primary); }
+  .hist-badge.legacy { color: #e0a13a; border-color: #e0a13a; }
+
+  .hist-note {
+    font-size: 0.7rem;
+    color: var(--text-muted, var(--text-secondary));
+    opacity: 0.8;
+  }
+
+  .hist-strip {
+    display: flex;
+    gap: 0.35rem;
+    overflow-x: auto;
+    padding-bottom: 0.25rem;
+    flex-shrink: 0;
+  }
+
+  .hist-thumb {
+    flex: 0 0 auto;
+    width: 96px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    padding: 2px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-subtle);
+    border-radius: 5px;
+    cursor: pointer;
+  }
+
+  .hist-thumb.active {
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 1px var(--accent-primary);
+  }
+
+  .hist-thumb img {
+    width: 100%;
+    height: 54px;
+    object-fit: cover;
+    border-radius: 3px;
+    display: block;
+  }
+
+  .hist-thumb-empty {
+    height: 54px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.64rem;
+    color: var(--text-secondary);
+  }
+
+  .hist-thumb-ts {
+    font-size: 0.62rem;
+    color: var(--text-secondary);
+    text-align: center;
+  }
+
+  .hist-more {
+    display: flex;
+    justify-content: center;
+    flex-shrink: 0;
   }
 
   .empty-state {

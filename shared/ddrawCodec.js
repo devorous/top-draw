@@ -18,6 +18,14 @@
  * JSON payload is the recording bundle. `visualCheckpoints` entries carry
  * `{ ts, blobIndex }` in JSON; the actual Blob bytes live in the blob section
  * indexed by `blobIndex`. Decode re-hydrates them back to `{ ts, blob }`.
+ *
+ * Lives in shared/ rather than src/replay/ because the server (Node) needs to
+ * decode `.ddraw` bytes too (room_snapshots checkpoints), not just the
+ * client. Every Web API this file touches — CompressionStream/
+ * DecompressionStream, Blob, atob/btoa, TextEncoder/TextDecoder — is a stable
+ * Node global as of Node 18, which is this repo's floor (see package.json
+ * engines), so no browser/Node split was needed; encode/decode gzip
+ * gracefully no-op if CompressionStream is ever missing (see _gzip/_gunzip).
  */
 const MAGIC = new Uint8Array([0x44, 0x44, 0x52, 0x41, 0x57]); // "DDRAW"
 const FORMAT_VERSION = 2;

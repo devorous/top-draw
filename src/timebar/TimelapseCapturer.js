@@ -130,6 +130,7 @@ export class TimelapseCapturer {
   }
 
   async _captureFrame() {
+    const layerManager = this.board?.layerManager;
     const src = this.board?.mainCanvas;
     if (!src || !src.width || !src.height) return null;
 
@@ -147,7 +148,15 @@ export class TimelapseCapturer {
     const [r, g, b] = this.board.backgroundColor || [255, 255, 255, 1];
     ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
     ctx.fillRect(0, 0, w, h);
-    ctx.drawImage(src, 0, 0, w, h);
+    // Render with every layer forced visible, ignoring the local show/hide
+    // toggle: mainCanvas reflects whatever the user has hidden at this
+    // instant, and sampling it directly made a mid-session layer toggle
+    // flicker the layer in/out of the finished clip.
+    if (layerManager) {
+      ctx.drawImage(layerManager.getCompositedCanvas({ ignoreVisibility: true }), 0, 0, w, h);
+    } else {
+      ctx.drawImage(src, 0, 0, w, h);
+    }
 
     const sig = this._signature(c);
     const blob = await new Promise(res => c.toBlob(res, 'image/webp', STORAGE_QUALITY));

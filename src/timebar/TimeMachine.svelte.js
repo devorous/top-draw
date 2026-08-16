@@ -8,7 +8,7 @@
 
 import { ReplayEngine } from './ReplayEngine.js';
 import { T } from '../../shared/MessageTypes.js';
-import { encodeDdraw, suggestDdrawFilename } from '../replay/ddrawCodec.js';
+import { encodeDdraw, suggestDdrawFilename } from '../../shared/ddrawCodec.js';
 import { TimeLapseExporter, compressedTapeDurationMs, suggestImageSequenceFilename, suggestVideoFilename } from '../replay/TimeLapseExporter.js';
 import { isTauriDesktop, saveBytesViaNativeDialog, revealPathInDir } from '../platform/desktop.js';
 

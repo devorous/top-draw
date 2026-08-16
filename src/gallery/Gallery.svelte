@@ -716,6 +716,35 @@
     timelapseEditorOpen = false;
   }
 
+  /** One-click removal, same permission bar as canEditTimelapse but skips the crop editor. */
+  async function removeTimelapse(item) {
+    if (!canEditTimelapse(item)) return;
+    const confirmed = await window.showAppConfirm('Remove the time-lapse from this upload? This cannot be undone.', {
+      title: 'Remove time-lapse?',
+      confirmLabel: 'Remove',
+      danger: true
+    });
+    if (!confirmed) return;
+
+    const token = localStorage.getItem(TOKEN_KEY);
+    if (!token) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/api/gallery/${item.id}/animation`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        applyTimelapseChange(null);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error || 'Failed to remove time-lapse');
+      }
+    } catch {
+      alert('Failed to remove time-lapse');
+    }
+  }
+
   function canDeleteComment(comment) {
     return !!user && (user.userId === comment.authorId || (user.role || 0) >= HOLY_ROLE);
   }
@@ -1684,7 +1713,8 @@
             </button>
             <button class="btn-ghost small" onclick={() => downloadImage(lightbox.url, `${lightbox.title || lightbox.id}.png`)}>Download</button>
             {#if canEditTimelapse(lightbox)}
-              <button class="btn-ghost small" onclick={() => timelapseEditorOpen = true} title="Re-crop, trim or remove the time-lapse">Edit lapse</button>
+              <button class="btn-ghost small" onclick={() => timelapseEditorOpen = true} title="Re-crop or trim the time-lapse">Edit lapse</button>
+              <button class="btn-ghost small" onclick={() => removeTimelapse(lightbox)} title="Remove the time-lapse">Remove lapse</button>
             {/if}
             {#if canDeleteImage(lightbox)}
               <button class="btn-danger small" onclick={() => deleteImage(lightbox)}>Delete</button>

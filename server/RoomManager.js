@@ -9,7 +9,8 @@ import { StrokeTape } from './StrokeTape.js';
 import { WebSocket } from 'ws';
 import { getDB } from './db.js';
 import { scoreProvider } from './providerScoring.js';
-import { getSnapshotBundle } from './r2.js';
+import { getSnapshotFile } from './r2.js';
+import { decodeSnapshotFile } from './snapshotCodec.js';
 import { generateFloatingGalleryVoronoi } from './floatingVoronoi.js';
 import { snapshotCoversRoomBoard } from '../shared/qoi.js';
 
@@ -398,7 +399,12 @@ export class Room {
   _requestSnapshot() {
     if (!this.canPersistSnapshots()) return;
 
-    const candidates = this._getSnapshotCandidates();
+    // A socket joins this.clients at handshake, BEFORE its T.CONNECT allocates a
+    // sessionIndex. Asking one is a wasted cycle: markSnapshotRequestPending
+    // can't record a non-finite index, so the reply fails the isServerRequested
+    // check in handleSnapshotSave and gets dropped by the manual-save gate.
+    const candidates = this._getSnapshotCandidates()
+      .filter((ws) => Number.isFinite(Number(ws.sessionIndex)));
     if (candidates.length === 0) return;
 
     const ranked = candidates
@@ -512,8 +518,9 @@ export class Room {
       );
       if (!doc || !doc.r2Key) return null;
 
-      const bundle = await getSnapshotBundle(doc.r2Key);
-      if (!bundle) return null;
+      const fileBytes = await getSnapshotFile(doc.r2Key);
+      if (!fileBytes) return null;
+      const bundle = await decodeSnapshotFile(fileBytes, doc.format);
       return { id: doc.snapshotId, ts: doc.timestamp, issuer: doc.issuer, layers: bundle.layers, seq: doc.seq || 0 };
     } catch (err) {
       console.error(`[Room] Failed to fetch latest snapshot for "${this.id}":`, err);

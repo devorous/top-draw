@@ -65,7 +65,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 const TARGET_URL = process.env.TARGET_URL || 'http://localhost:3000/go/';
-const CODEC_URL  = '/src/replay/ddrawCodec.js';
+const CODEC_URL = '/shared/ddrawCodec.js';
 const VIEWPORT   = { width: 1280, height: 800 };
 
 let HEADLESS   = process.env.HEADLESS !== 'false';

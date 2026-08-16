@@ -169,11 +169,15 @@ export class LayerManager {
 
   /**
    * Get a composited canvas of all visible layers.
+   * @param {{ ignoreVisibility?: boolean }} [opts] - ignoreVisibility renders
+   *   every layer regardless of the local show/hide toggle (gallery
+   *   time-lapse capture, so a layer someone hid mid-session doesn't flicker
+   *   in/out of the rendered clip).
    * @returns {HTMLCanvasElement}
    */
-  getCompositedCanvas() {
+  getCompositedCanvas({ ignoreVisibility = false } = {}) {
     const { canvas, ctx } = this._createCanvas();
-    this.compositeLayers(ctx);
+    this.compositeLayers(ctx, null, { ignoreVisibility });
     return canvas;
   }
 
@@ -2577,9 +2581,16 @@ export class LayerManager {
    * @param {Array|null} [backgroundColor=null] - [r, g, b, a]
    * @param {Array|null} [dirtyRects=null] - Array of dirty rectangles
    */
-  compositeLayerRange(targetCtx, startIdx, endIdx, backgroundColor = null, dirtyRects = null) {
-    this.needsComposite = false;
-    if (backgroundColor) this.backgroundColor = backgroundColor;
+  compositeLayerRange(targetCtx, startIdx, endIdx, backgroundColor = null, dirtyRects = null, { ignoreVisibility = false } = {}) {
+    // ignoreVisibility renders every group regardless of the local
+    // show/hide toggle, and skips the instance-state mutations below — this
+    // path is used for side renders (e.g. gallery time-lapse capture) that
+    // must not perturb the live composite state or consume a pending
+    // recomposite flag meant for the real mainCanvas render.
+    if (!ignoreVisibility) {
+      this.needsComposite = false;
+      if (backgroundColor) this.backgroundColor = backgroundColor;
+    }
 
     let useDirtyRects = false;
     let totalDirtyArea = 0;
@@ -2623,7 +2634,7 @@ export class LayerManager {
     const count = Math.min(endIdx, this.layerGroups.length);
     for (let i = startIdx; i < count; i++) {
       const group = this.layerGroups[i];
-      if (!group.visible) continue;
+      if (!group.visible && !ignoreVisibility) continue;
 
       if (group.flatCanvas) {
         this._compositeGroupWithFlatCanvas(targetCtx, group, backgroundColor, activeRects);
@@ -2909,14 +2920,17 @@ export class LayerManager {
    * Composite all visible layer groups onto a target context
    * @param {CanvasRenderingContext2D} targetCtx - Target context
    * @param {Array} [backgroundColor] - [r, g, b, a]
+   * @param {{ ignoreVisibility?: boolean }} [opts] - see compositeLayerRange
    */
-  compositeLayers(targetCtx, backgroundColor) {
-    if (backgroundColor) this.backgroundColor = backgroundColor;
+  compositeLayers(targetCtx, backgroundColor, { ignoreVisibility = false } = {}) {
+    if (backgroundColor && !ignoreVisibility) this.backgroundColor = backgroundColor;
 
-    this.compositeLayerRange(targetCtx, 0, this.layerGroups.length, backgroundColor || null);
+    this.compositeLayerRange(targetCtx, 0, this.layerGroups.length, backgroundColor || null, null, { ignoreVisibility });
 
-    this.needsComposite = false;
-    this._notifyStrokeHistoryPanel();
+    if (!ignoreVisibility) {
+      this.needsComposite = false;
+      this._notifyStrokeHistoryPanel();
+    }
   }
 
   /**

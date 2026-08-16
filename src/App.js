@@ -44,7 +44,7 @@ import { TimeMachine } from './timebar/TimeMachine.svelte.js';
 import { recorder } from './replay/Recorder.js';
 import { rollingTapeRecorder } from './replay/RollingTapeRecorder.js';
 import { TimelapseCapturer } from './timebar/TimelapseCapturer.js';
-import { decodeDdraw, isDdrawFile } from './replay/ddrawCodec.js';
+import { decodeDdraw, isDdrawFile } from '../shared/ddrawCodec.js';
 // PerformanceSettings is lazy-loaded by Moderation._showPerformanceSettings()
 import { highlight } from './ui/Highlight.js';
 import { SaveMode } from './ui/SaveMode.js';

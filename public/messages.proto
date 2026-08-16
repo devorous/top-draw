@@ -551,7 +551,12 @@ message Msg {
   }
 }
 
-// New message for storing snapshot layers and thumbnail bundled in R2
+// Legacy-read-only: server-persisted checkpoints (room_snapshots + R2) now
+// write `.ddraw` (shared/ddrawCodec.js) instead of this protobuf format —
+// see docs/ddraw_server_snapshots_plan.md. Kept only so server/r2.js can
+// still decode `.bundle` objects already sitting in R2 (dispatched by the
+// room_snapshots doc's `format` field) until they roll off via the existing
+// MAX_SNAPSHOTS_PER_ROOM prune. Do not write new data in this format.
 message SnapshotBundle {
   repeated bytes layers = 1; // QOI encoded layers
   bytes thumbnail = 2;       // JPEG encoded thumbnail

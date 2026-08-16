@@ -27,7 +27,7 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..', '..');
 const TARGET_URL = process.env.TARGET_URL || 'http://localhost:3000/go/';
-const CODEC_URL = '/src/replay/ddrawCodec.js';
+const CODEC_URL = '/shared/ddrawCodec.js';
 const HEADLESS = process.env.HEADLESS !== 'false';
 
 function newestTape() {

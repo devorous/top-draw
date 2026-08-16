@@ -69,7 +69,7 @@ export async function loadTape(input) {
     recording = parsed.deltas ? parsed : (parsed.recording ?? parsed.bundle);
   } else {
     const { decodeDdraw } = await import(
-      pathToFileURL(path.join(ROOT, 'src', 'replay', 'ddrawCodec.js')).href
+      pathToFileURL(path.join(ROOT, 'shared', 'ddrawCodec.js')).href
     );
     recording = await decodeDdraw(bytes);
   }
