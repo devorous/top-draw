@@ -1315,14 +1315,45 @@ export class Board {
     if (clearLocalOverlay) {
       this._maskManagedBySelectTool = false;
     }
+
+    // Unwind every clip this user's mask still holds open, rather than just
+    // forgetting about it. Dropping the ledger key alone (the old behaviour)
+    // skipped the matching ctx.restore() — and stroke canvases come from
+    // LayerManager's POOL, whose _acquireCanvas resets pixels, alpha and
+    // composite op but historically not the clip region or the save stack. So
+    // a mask turned off mid-stroke stranded a save()+clip() on a pooled canvas
+    // permanently: whichever later stroke acquired that canvas was silently
+    // clipped to a mask that no longer existed, and even clearRect could not
+    // scrub it, because clearRect obeys the clip too.
     for (const key of [...this._maskClippedStrokes]) {
-      if (key.endsWith(`_${userId}`)) {
-        this._maskClippedStrokes.delete(key);
-      }
+      const sep = key.lastIndexOf('_');
+      if (sep < 0 || key.slice(sep + 1) !== String(userId)) continue;
+      this.releaseSelectionMaskClipForStroke(Number(key.slice(0, sep)), userId);
+      this._maskClippedStrokes.delete(key); // in case release bailed early
     }
+
     if (clearLocalOverlay) {
       this.clearTop();
     }
+  }
+
+  /**
+   * Forget which stroke contexts are currently mask-clipped, without touching
+   * the masks themselves.
+   *
+   * Call this whenever the layer state those contexts live on is thrown away
+   * wholesale (LayerManager.clearAll, i.e. a resync or a board clear). The
+   * ledger is keyed by `${layerIndex}_${userId}` and
+   * applySelectionMaskClipForStroke treats a present key as "already clipped"
+   * and returns early — so a key that outlives its canvas makes the very next
+   * stroke by that user skip the clip entirely while the mask is still active.
+   * That read as an intermittent "the first thing I draw after syncing ignores
+   * the mask", because the stroke's own MU then released the stale key and the
+   * next stroke behaved.
+   * @returns {void}
+   */
+  resetSelectionMaskClipTracking() {
+    this._maskClippedStrokes.clear();
   }
 
   _getSelectionMaskForUser(userId) {
@@ -2110,6 +2141,9 @@ export class Board {
 
     if (this.layerManager) {
       this.layerManager.clearAll();
+      // Every active stroke context just went away with it — see
+      // resetSelectionMaskClipTracking.
+      this.resetSelectionMaskClipTracking();
       this.markCompositeFull();
       this.compositeAllLayers();
     } else {
@@ -3389,6 +3423,7 @@ export class Board {
 
     if (replacesFullBoard) {
       this.layerManager.clearAll();
+      this.resetSelectionMaskClipTracking();
     } else if (restoreWidth > 0 && restoreHeight > 0) {
       for (let i = 0; i < this.layerManager.layerGroups.length; i++) {
         this._clearLayerRectForSnapshotRestore(i, 0, 0, restoreWidth, restoreHeight);

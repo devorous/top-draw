@@ -93,6 +93,14 @@ const SEL_FULL  = { x0: 200, y0: 150, x1: 600, y1: 450 };  // covers all three s
 const SEL_LEFT  = { x0: 200, y0: 150, x1: 400, y1: 450 };  // covers their left half
 const MOVE_TO   = { dx: 300, dy: 120 };
 
+// Probe strokes for the MASK scenarios. Both run along y-bands that sit between
+// the content strokes (y=200/300/400, size 18 → ±9px) so the probe's ink is the
+// only thing of its colour on the board and can be counted unambiguously. Each
+// starts inside SEL_LEFT and ends well outside it, so a working mask cuts the
+// stroke in half at x=400 and a broken one lets the whole thing through.
+const MASK_PROBE  = { y: 260, x0: 240, x1: 560, size: 22, color: [255, 140, 0, 1] };
+const AFTER_PROBE = { y: 340, x0: 240, x1: 560, size: 22, color: [0, 200, 255, 1] };
+
 // ─── In-page helpers ─────────────────────────────────────────────────────────
 
 /** Plain object matching what App's pointer handlers read off a PointerEvent. */
@@ -243,6 +251,168 @@ async function setColor(page, color) {
 }
 
 async function snap(page) { return page.evaluate(captureLayerSnapshotsInPage); }
+
+// ─── Mask helpers ────────────────────────────────────────────────────────────
+// A selection MASK is the one Select feature that outlives the Select tool:
+// SelectTool.deactivate() deliberately hands a non-floating mask to the Board so
+// the user can pick up the brush and draw inside it. That makes it the only
+// selection verb whose effect is measured on OTHER tools' strokes, which is why
+// it needs its own probe rather than riding on the pixel diff alone — if masking
+// broke everywhere at once, three clients would agree perfectly on an unclipped
+// board and the parity diff would go green.
+
+/** Turn on mask mode for the current selection and record its board rect. */
+async function enableMask(page) {
+  const rect = await page.evaluate(async () => {
+    const app = window.app;
+    const rt = app.toolManager.getTool('select').realTool;
+    rt.toggleMaskMode(true);
+    app.inputBufferManager.tick();
+    await new Promise((r) => setTimeout(r, 300));
+    const m = app.board.selectionMask;
+    window.__maskRect = m ? { x: m.x, y: m.y, width: m.width, height: m.height } : null;
+    return window.__maskRect;
+  });
+  await sleep(200);
+  return rect;
+}
+
+/** Draw one straight brush stroke through the real pointer/tick pipeline. */
+async function brushStroke(page, spec) {
+  await page.evaluate(async (s, evSrc) => {
+    const app = window.app;
+    const ev = eval(evSrc);
+    const nap = (ms) => new Promise((r) => setTimeout(r, ms));
+    app.selectTool('brush');
+    app.handleSizeChange({ target: { value: s.size } });
+    app.handleColorInputChange(s.color);
+    await nap(80);
+    app.handlePointerDown(ev(s.x0, s.y));                 app.inputBufferManager.tick(); await nap(18);
+    app.handlePointerMove(ev((s.x0 + s.x1) / 2, s.y));    app.inputBufferManager.tick(); await nap(18);
+    app.handlePointerMove(ev(s.x1, s.y));                 app.inputBufferManager.tick(); await nap(18);
+    app.handlePointerUp(ev(s.x1, s.y));                   app.inputBufferManager.tick(); await nap(60);
+  }, spec, evLiteral());
+  await sleep(300);
+}
+
+/**
+ * Draw one stroke and turn the mask OFF while it is still open.
+ *
+ * This is the only way to reach the unwind path: the clip's save() has already
+ * happened at MD and its restore() has not. clearSelectionMask used to drop the
+ * ledger entry without restoring, which left the stroke's context clipped for
+ * the rest of its life — so the mask "turned off" but the second half of the
+ * stroke still hit an invisible wall at the old mask edge.
+ */
+async function brushStrokeClearingMaskMidway(page, spec) {
+  await page.evaluate(async (s, evSrc) => {
+    const app = window.app;
+    const ev = eval(evSrc);
+    const nap = (ms) => new Promise((r) => setTimeout(r, ms));
+    app.selectTool('brush');
+    app.handleSizeChange({ target: { value: s.size } });
+    app.handleColorInputChange(s.color);
+    await nap(80);
+    app.handlePointerDown(ev(s.x0, s.y));        app.inputBufferManager.tick(); await nap(18);
+    app.handlePointerMove(ev(s.x0 + 60, s.y));   app.inputBufferManager.tick(); await nap(18);
+    app.toolManager.getTool('select').realTool.toggleMaskMode(false);
+    app.inputBufferManager.tick();               await nap(80);
+    app.handlePointerMove(ev((s.x0 + s.x1) / 2, s.y)); app.inputBufferManager.tick(); await nap(18);
+    app.handlePointerMove(ev(s.x1, s.y));        app.inputBufferManager.tick(); await nap(18);
+    app.handlePointerUp(ev(s.x1, s.y));          app.inputBufferManager.tick(); await nap(60);
+  }, spec, evLiteral());
+  await sleep(300);
+}
+
+/**
+ * Count committed pixels of `color` on layer 0, split by which side of the
+ * mask's right edge they fell on.
+ *
+ * Resolves the mask rect from `window.__maskRect` (set on the actor by
+ * enableMask) or, failing that, from `board.selectionMasksByUser` — which is
+ * what an OBSERVER or a late joiner holds. On those tabs an empty map is itself
+ * the finding: the mask never arrived over the wire.
+ */
+function probeMaskInkInPage(color, tol, slack, rectOverride) {
+  const app = window.app;
+  const lm = app?.board?.layerManager;
+  if (!lm) return { error: 'no layerManager' };
+  let rect = rectOverride || window.__maskRect || null;
+  let source = rectOverride ? 'given' : 'local';
+  if (!rect) {
+    const first = app.board.selectionMasksByUser?.values?.().next?.();
+    if (first && !first.done && first.value) {
+      const m = first.value;
+      rect = { x: m.x, y: m.y, width: m.width, height: m.height };
+      source = 'synced';
+    }
+  }
+  if (!rect) return { error: 'no mask rect — board.selectionMasksByUser is empty on this tab' };
+
+  const cvs = document.createElement('canvas');
+  cvs.width = lm.width;
+  cvs.height = lm.height;
+  const ctx = cvs.getContext('2d', { willReadFrequently: true });
+  // Same call the product's compositor makes — see layerDiff's note on why the
+  // harness must never hand-roll this.
+  const prevNeedsComposite = lm.needsComposite;
+  lm.compositeLayerRange(ctx, 0, 1, null, null);
+  lm.needsComposite = prevNeedsComposite;
+
+  const d = ctx.getImageData(0, 0, cvs.width, cvs.height).data;
+  const edge = Math.round(rect.x + rect.width) + slack;
+  let inside = 0, outside = 0, maxX = -1;
+  for (let y = 0; y < cvs.height; y++) {
+    const row = y * cvs.width * 4;
+    for (let x = 0; x < cvs.width; x++) {
+      const i = row + x * 4;
+      if (d[i + 3] <= 24) continue;
+      if (Math.abs(d[i] - color[0]) > tol) continue;
+      if (Math.abs(d[i + 1] - color[1]) > tol) continue;
+      if (Math.abs(d[i + 2] - color[2]) > tol) continue;
+      if (x > maxX) maxX = x;
+      if (x > edge) outside++; else inside++;
+    }
+  }
+  return { inside, outside, edge, maxX, rect, source };
+}
+
+async function probeMaskInk(page, color, rect = null) {
+  return page.evaluate(probeMaskInkInPage, color, 40, 3, rect);
+}
+
+/**
+ * Assert the probe stroke was clipped at the mask edge on this tab.
+ * @returns {Promise<string[]>} failure lines (empty = pass)
+ */
+async function assertMaskClipped(page, label, rect = null, color = MASK_PROBE.color) {
+  const p = await probeMaskInk(page, color, rect);
+  if (p.error) return [`[${label}] mask probe: ${p.error}`];
+  const fails = [];
+  // Guards against a vacuous pass: a stroke that never drew at all is clipped
+  // by definition.
+  if (p.inside < 300) {
+    fails.push(`[${label}] mask probe: only ${p.inside}px of the probe stroke landed INSIDE `
+      + `the mask — the stroke never drew, so "clipped" proves nothing`);
+  }
+  if (p.outside > 60) {
+    fails.push(`[${label}] MASK NOT CLIPPING: ${p.outside}px of the probe stroke landed right of `
+      + `the mask edge (x>${p.edge}, rightmost ink at x=${p.maxX}, rect from ${p.source})`);
+  }
+  return fails;
+}
+
+/** Assert the probe stroke was NOT clipped — used after the mask is turned off. */
+async function assertMaskNotClipping(page, label, color, rect) {
+  const p = await probeMaskInk(page, color, rect);
+  if (p.error) return [`[${label}] post-mask probe: ${p.error}`];
+  if (p.outside < 300) {
+    return [`[${label}] STALE MASK CLIP: the mask is off, but only ${p.outside}px of this stroke `
+      + `landed right of the old mask edge (x>${p.edge}, rightmost ink at x=${p.maxX}) — a clip `
+      + `leaked onto the pooled stroke canvas`];
+  }
+  return [];
+}
 
 /** Compact per-tab state used to detect convergence and to explain failures. */
 function stateInPage() {
@@ -661,6 +831,123 @@ const SCENARIOS = [
       await menu(page, 'deleteSelection');
     },
   },
+
+  // ── Selection MASK ─────────────────────────────────────────────────────────
+  // The mask is not a commit and owns no pixels of its own; it is per-user
+  // drawing state that clips whatever the user draws next, bound onto the
+  // stroke's context at MD time. That makes it the one selection feature whose
+  // whole failure mode is a SYNC failure: every client has to hold the same
+  // mask at the same point in the stream, or the same MD/MM bytes paint
+  // different pixels on different clients. Each scenario therefore asserts
+  // twice — parity across tabs, and (via `assert`) that the clip actually
+  // happened, since a mask that stopped working everywhere at once would leave
+  // all four tabs in perfect, wrong agreement.
+  {
+    name: 'mask_brush_draw',
+    desc: 'rect-select, Mask on, switch to brush, draw across the mask edge',
+    async run(page) {
+      await armSelect(page, 'rect');
+      await selectRect(page, SEL_LEFT);
+      await enableMask(page);
+      // Picking another tool is how the mask actually reaches the brush:
+      // deactivate() keeps a non-floating mask alive and hands the overlay to
+      // the Board instead of committing and clearing it.
+      await switchTool(page, 'brush');
+      await brushStroke(page, MASK_PROBE);
+    },
+    // No rect override: every tab must resolve the mask from its OWN
+    // board.selectionMasksByUser, so "the mask never reached this client" is a
+    // reported failure rather than something the harness papers over.
+    async assert(page, label) { return assertMaskClipped(page, label); },
+  },
+  {
+    name: 'mask_lasso_brush_draw',
+    desc: 'lasso-select, Mask on, brush across the mask edge (lasso path on the wire)',
+    async run(page) {
+      await armSelect(page, 'lasso');
+      await selectLasso(page, SEL_LEFT);
+      await enableMask(page);
+      await switchTool(page, 'brush');
+      await brushStroke(page, MASK_PROBE);
+    },
+    async assert(page, label) { return assertMaskClipped(page, label); },
+  },
+  {
+    name: 'mask_draw_then_clear',
+    desc: 'mask on, draw clipped, mask off, draw again — the second stroke must be unclipped',
+    // Turning the mask off is where the clip has to be UNWOUND, not merely
+    // forgotten. Stroke canvases come from LayerManager's pool, and a
+    // save()+clip() that never gets its restore() rides that canvas into
+    // whichever stroke acquires it next — clipping a stroke to a mask that no
+    // longer exists. Pixel parity is blind to this (every client leaks
+    // identically), so the assert is the only thing that can see it.
+    async run(page) {
+      await armSelect(page, 'rect');
+      await selectRect(page, SEL_LEFT);
+      await enableMask(page);
+      await switchTool(page, 'brush');
+      await brushStroke(page, MASK_PROBE);
+      await page.evaluate(async () => {
+        const app = window.app;
+        app.toolManager.getTool('select').realTool.toggleMaskMode(false);
+        app.inputBufferManager.tick();
+        await new Promise((r) => setTimeout(r, 300));
+      });
+      await sleep(300);
+      await brushStroke(page, AFTER_PROBE);
+    },
+    // The mask is GONE by assert time, so no tab can resolve its rect from
+    // board state any more — the runner carries the actor's recorded rect over
+    // in ctx so observers and the joiner can be measured against the same edge.
+    async assert(page, label, ctx) {
+      const rect = ctx?.maskRect || null;
+      if (!rect) return [`[${label}] mask_draw_then_clear: no mask rect was recorded on the actor`];
+      return [
+        ...await assertMaskClipped(page, label, rect),
+        ...await assertMaskNotClipping(page, label, AFTER_PROBE.color, rect),
+      ];
+    },
+  },
+  {
+    name: 'mask_cleared_midstroke',
+    desc: 'mask off WHILE a stroke is open — the rest of that stroke must escape the mask',
+    // LIVE pixel parity is deliberately skipped here, and it is not a fudge:
+    // SelectTool broadcasts SEL_MASK straight down the socket while MD/MM ride
+    // the input buffer, so each observer learns the mask is gone at a slightly
+    // different point in the MM stream and cuts the clip at a different sample.
+    // That ordering hazard is a separate (unfixed) defect from the unwind bug
+    // this scenario exists to catch, and asserting on it here would just make
+    // the suite flaky. The joiner is still checked: with the mask travelling as
+    // tool state, its frame sits at its true position inside the stroke's
+    // preamble, so D reproduces A's cut exactly.
+    parityExempt: true,
+    async run(page) {
+      await armSelect(page, 'rect');
+      await selectRect(page, SEL_LEFT);
+      await enableMask(page);
+      await switchTool(page, 'brush');
+      await brushStrokeClearingMaskMidway(page, MASK_PROBE);
+    },
+    async assert(page, label, ctx) {
+      const rect = ctx?.maskRect || null;
+      if (!rect) return [`[${label}] mask_cleared_midstroke: no mask rect was recorded on the actor`];
+      // Only the ACTOR is asserted: the observers' cut point is timing-dependent
+      // for the reason above, and the joiner is covered by the pixel diff vs A.
+      if (label !== 'A') return [];
+      const p = await probeMaskInk(page, MASK_PROBE.color, rect);
+      if (p.error) return [`[${label}] midstroke probe: ${p.error}`];
+      const fails = [];
+      if (p.inside < 200) {
+        fails.push(`[${label}] midstroke probe: only ${p.inside}px landed inside the mask — the stroke never drew`);
+      }
+      if (p.outside < 200) {
+        fails.push(`[${label}] CLIP NOT UNWOUND: the mask was cleared mid-stroke but only ${p.outside}px `
+          + `of the rest of the stroke got past the old edge (x>${p.edge}, rightmost ink at x=${p.maxX}) — `
+          + `the stroke context is still holding the mask's clip`);
+      }
+      return fails;
+    },
+  },
 ];
 
 // ─── Runner ──────────────────────────────────────────────────────────────────
@@ -670,6 +957,7 @@ async function runScenario(browser, scenario) {
   const tabs = [];
   const notes = [];
   let live = null, joinRes = null, effect = null, tapeRes = null, joinTapeOk = null, ok = true;
+  let assertCtx = null;
 
   try {
     for (const label of ['A', 'B', 'C']) tabs.push(await spawnTab(browser, label, room));
@@ -719,8 +1007,16 @@ async function runScenario(browser, scenario) {
     const [sA, sB, sC] = await Promise.all(tabs.map((t) => snap(t.page)));
     const dAB = diffSnapshots(sA, sB, PIXEL_TOLERANCE);
     const dAC = diffSnapshots(sA, sC, PIXEL_TOLERANCE);
-    live = { AB: dAB, AC: dAC };
-    if (!dAB.pass || !dAC.pass) ok = false;
+    live = { AB: dAB, AC: dAC, exempt: !!scenario.parityExempt };
+    // `parityExempt` scenarios still MEASURE and report live parity — they just
+    // do not fail on it, because the divergence they produce is a known,
+    // separately-tracked ordering hazard rather than the thing under test. See
+    // the flag's comment on the scenario for why.
+    if ((!dAB.pass || !dAC.pass) && !scenario.parityExempt) ok = false;
+    if ((!dAB.pass || !dAC.pass) && scenario.parityExempt) {
+      notes.push(`live parity NOT enforced for this scenario: A↔B ${dAB.matchPct.toFixed(2)}% `
+        + `A↔C ${dAC.matchPct.toFixed(2)}%`);
+    }
 
     // Did the operation do anything? (see preSnapA)
     const selfDiff = diffSnapshots(preSnapA, sA, PIXEL_TOLERANCE);
@@ -734,6 +1030,23 @@ async function runScenario(browser, scenario) {
     } else if (selfDiff.matchPct > 99.99) {
       ok = false;
       notes.push('OPERATION HAD NO EFFECT on the actor\'s board — scenario is vacuous, not passing');
+    }
+
+    // Scenario-specific assertion, run on the actor AND both live observers.
+    //
+    // Pixel parity only says the tabs agree; for a feature like the selection
+    // mask they can agree on the wrong thing (if clipping broke outright, all
+    // three draw the same unclipped stroke). `assert` is where a scenario
+    // states what the board must actually LOOK like, and running it per-tab
+    // localises a break to "the actor never clipped" vs "the mask never
+    // reached the observers".
+    if (scenario.assert) {
+      assertCtx = { maskRect: await A.page.evaluate(() => window.__maskRect || null) };
+      for (const t of tabs) {
+        const fails = await scenario.assert(t.page, t.label, assertCtx).catch(
+          (e) => [`[${t.label}] assert threw: ${e.message}`]);
+        if (fails?.length) { ok = false; notes.push(...fails); }
+      }
     }
 
     // On failure, dump each tab's per-layer stroke stack side by side.
@@ -810,6 +1123,17 @@ async function runScenario(browser, scenario) {
           notes.push(`join stack ${label}: ${line}`);
         }
         notes.push(`join redo sizes: A=${JSON.stringify(stA.redoSizes ?? {})} D=${JSON.stringify(stD.redoSizes ?? {})}`);
+      }
+
+      // The joiner has to satisfy the scenario's own assertion too, not just
+      // match A's pixels. For the mask scenarios this is the assertion that
+      // matters most: the joiner rebuilds every stroke from the replayed
+      // command tail, and the mask has to be in scope at each stroke's MD or it
+      // redraws the stroke unclipped — a divergence the drawer can never see.
+      if (scenario.assert) {
+        const fails = await scenario.assert(D.page, 'D', assertCtx).catch(
+          (e) => [`[D] assert threw: ${e.message}`]);
+        if (fails?.length) { ok = false; notes.push(...fails); }
       }
 
       // SEQ parity for the joiner — pixels alone cannot see this.

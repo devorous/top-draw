@@ -41,6 +41,27 @@ function buildToolStateSet(T) {
     // size or colour. Without it a joiner rebuilt every historical shape with
     // its own default and drew them at the wrong size.
     T.CSDM,
+    // The selection MASK is sticky per-user drawing state, NOT selection setup.
+    // It clips every subsequent brush/pen/eraser stroke (Board.
+    // applySelectionMaskClipForStroke, bound at MD time) and it outlives the
+    // Select tool — SelectTool.deactivate() deliberately hands a non-floating
+    // mask over to the Board so the user can switch to the brush and draw
+    // inside it.
+    //
+    // It used to live in buildSelectionStateSet, which files a frame under
+    // _pendingSelection and only ever emits it in a SELECTION commit's
+    // preamble. Brush strokes build their preamble from _toolState + MD + MM,
+    // so the mask was never in it: every stroke drawn under a mask replayed
+    // UNCLIPPED for anyone who joined or resynced afterwards, while live peers
+    // showed it clipped. Silent, permanent divergence — and invisible unless
+    // the stroke actually crossed the mask boundary.
+    //
+    // As tool state it is snapshotted into every stroke's MD preamble, pushed
+    // into an already-open stroke on a mid-stroke toggle (see below), and
+    // re-sent as latest-state at the end of the join serve. Keyed by `t`, so
+    // only the newest mask per user is retained — which is the right
+    // semantics, mk=false included.
+    T.SEL_MASK,
   ]);
 }
 
@@ -55,7 +76,9 @@ function buildSelectionStateSet(T) {
   // selected content is asymmetric enough for the flip to change it.
   // These are appended in order (the list resets only on SEL_LIFT/SEL_PENDING),
   // so two flips replay as two flips and correctly cancel out.
-  return new Set([T.SEL_LIFT, T.SEL_MOVE, T.SEL_PENDING, T.SEL_MASK, T.SEL_FLIP]);
+  //
+  // SEL_MASK is NOT here — it is tool state, see buildToolStateSet.
+  return new Set([T.SEL_LIFT, T.SEL_MOVE, T.SEL_PENDING, T.SEL_FLIP]);
 }
 
 /**

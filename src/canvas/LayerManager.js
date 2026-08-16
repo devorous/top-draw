@@ -184,6 +184,15 @@ export class LayerManager {
   _acquireCanvas() {
     if (this._canvasPool.length > 0) {
       const c = this._canvasPool.pop();
+      // reset() before anything else: it is the only way to drop a clip region
+      // and unwind a save stack that a previous user of this canvas left
+      // behind (selection-mask clipping does save()+clip() at MD and
+      // restore() at MU, and any path that misses the restore would otherwise
+      // hand the next stroke a phantom clip — which clearRect below could not
+      // even scrub, since clearRect obeys the clip). Feature-checked: reset()
+      // is Chrome 101+/Safari 16.4+, and the explicit resets below remain the
+      // fallback for anything older.
+      if (typeof c.ctx.reset === 'function') c.ctx.reset();
       c.ctx.globalAlpha = 1;
       c.ctx.clearRect(0, 0, this.width, this.height);
       c.ctx.globalCompositeOperation = 'source-over';

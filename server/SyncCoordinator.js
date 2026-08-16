@@ -183,6 +183,23 @@ export class SyncCoordinator {
       boardHeight
     });
 
+    // 1b. Active selection masks, BEFORE any replay.
+    //
+    // A mask clips a stroke at MD time (Board.applySelectionMaskClipForStroke,
+    // called from RemoteUserHandler's mouse-down path), so it has to be in
+    // place before the first replayed MD, not after the last one. This used to
+    // sit down in step 3 with the floating selections, which meant the whole
+    // tail — and, worse, step 2b's in-flight stroke preambles — were replayed
+    // with no mask in scope. An in-flight stroke never recovers: its live
+    // MM/MU continuation lands on a context that was never clipped, so the
+    // joiner paints it outside the mask forever while every peer clips it.
+    //
+    // Masks in the tail itself now travel as tool state (StrokeTape), so this
+    // is the floor for masks set before the checkpoint rather than the only
+    // delivery path. Floating selections stay in step 3: those are pixels that
+    // must sit ABOVE all committed content.
+    this._sendActiveMasksToJoiner(ws);
+
     // 2. Replay the post-checkpoint command tail in seq order. Each commit may
     //    carry a geometry preamble (brush/pen strokes); self-contained commits
     //    (fill/selection/text) replay their bytes alone.
@@ -240,10 +257,10 @@ export class SyncCoordinator {
       }
     }
 
-    // 3. Live floating selections / masks / obscure regions, then complete.
+    // 3. Live floating selections / obscure regions, then complete.
+    //    (Masks went out in step 1b — they must precede the replay.)
     if (ws.readyState !== WebSocket.OPEN) return;
     this._sendActiveImagesToJoiner(ws);
-    this._sendActiveMasksToJoiner(ws);
     this._sendActiveObscureRegionsToJoiner(ws);
     this.sendTo(ws, { t: T.SYNC_COMPLETE });
   }

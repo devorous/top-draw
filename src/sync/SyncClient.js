@@ -19,6 +19,12 @@ export class SyncClient {
    */
   static _TOOL_STATE_EVENTS = new Set([
     'ct', 'cc', 'cs', 'cp', 'csp', 'csm', 'chd', 'cbr', 'cl', 'cbm', 'cf', 'cthn', 'csim',
+    // The selection mask is tool state too (StrokeTape.buildToolStateSet): it
+    // rides in every stroke's preamble AND in the join serve's final
+    // latest-state snapshot, and must apply at both positions. Deduping to the
+    // last occurrence would strip it out of the earlier strokes' preambles and
+    // replay them unclipped — the exact bug moving it into tool state fixes.
+    'sel_mask',
   ]);
 
   constructor() {
@@ -371,6 +377,11 @@ export class SyncClient {
     if (this.board?.layerManager) {
       debug('[SyncClient] Clearing existing canvas before sync...');
       this.board.layerManager.clearAll();
+      // clearAll() destroys every activeStrokeByUser entry, so every entry in
+      // the board's mask-clip ledger now names a canvas that no longer exists.
+      // Left in place, applySelectionMaskClipForStroke short-circuits on the
+      // stale key and the next stroke escapes an active mask.
+      this.board.resetSelectionMaskClipTracking?.();
       this._restoreActiveStrokes(preservedActiveStrokes);
       this.board.markCompositeFull();
       this.board.compositeAllLayers();
@@ -598,6 +609,13 @@ export class SyncClient {
       const group = lm.layerGroups[layerIdx];
       if (!group || group.activeStrokeByUser.has(userId)) continue;
       group.activeStrokeByUser.set(userId, active);
+      // _cloneActiveStrokesForUsers hands back a FRESH canvas and context, so
+      // any clip the original was carrying is gone. If this user's mask is
+      // still active, re-arm it — otherwise the remainder of a stroke that was
+      // in flight across the resync paints outside the mask on this client
+      // only. (The ledger was just cleared above, so this re-registers the key
+      // and MU releases it normally.)
+      this.board.applySelectionMaskClipForStroke?.(layerIdx, userId);
     }
   }
 
