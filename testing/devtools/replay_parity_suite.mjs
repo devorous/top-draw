@@ -140,6 +140,79 @@ const TEST_CASES = [
       await drawPath(page, [{ x: 400, y: 350 }, { x: 1100, y: 450 }]);
     },
   },
+  // A selection MASK is per-user drawing state that clips whatever the user
+  // draws next — it owns no pixels of its own, so it leaves no trace in the
+  // tape beyond a single SEL_MASK message. ReplayEngine used to stub the mask
+  // clip helpers to no-ops and had no SEL_MASK case at all, so the time machine
+  // redrew masked strokes running straight past the mask edge while the live
+  // board had clipped them. That is a pure A↔C failure: A↔B was always fine.
+  {
+    name: 'selection_mask_brush',
+    action: async (page) => {
+      await armSelectMode(page, 'rect');
+      await drawPath(page, [{ x: 300, y: 250 }, { x: 700, y: 400 }, { x: 900, y: 650 }]);
+      await enableSelectionMask(page);
+      await selectTool(page, 'brush');
+      await sleep(250);
+      await setToolSettings(page, { size: 40, color: [255, 140, 0, 1], hardness: 100 });
+      // Crosses the mask's right edge at x=900 — half of this stroke must not exist.
+      await drawPath(page, [{ x: 400, y: 450 }, { x: 900, y: 450 }, { x: 1400, y: 450 }]);
+    },
+  },
+  {
+    name: 'selection_mask_lasso',
+    action: async (page) => {
+      await armSelectMode(page, 'lasso');
+      await drawPath(page, [
+        { x: 300, y: 250 }, { x: 900, y: 250 }, { x: 900, y: 650 },
+        { x: 300, y: 650 }, { x: 300, y: 250 },
+      ]);
+      await enableSelectionMask(page);
+      await selectTool(page, 'brush');
+      await sleep(250);
+      await setToolSettings(page, { size: 40, color: [0, 200, 255, 1], hardness: 100 });
+      await drawPath(page, [{ x: 400, y: 450 }, { x: 900, y: 450 }, { x: 1400, y: 450 }]);
+    },
+  },
+  {
+    name: 'selection_mask_eraser',
+    action: async (page) => {
+      // The eraser takes a different route to the clip (destination-out strokes
+      // and the erase-all-layers branch both apply it separately), so a masked
+      // erase can regress on its own.
+      await selectTool(page, 'brush');
+      await setToolSettings(page, { size: 60, color: [220, 60, 60, 1], hardness: 100 });
+      await drawPath(page, [{ x: 300, y: 450 }, { x: 1400, y: 450 }]);
+      await armSelectMode(page, 'rect');
+      await drawPath(page, [{ x: 300, y: 250 }, { x: 700, y: 400 }, { x: 900, y: 650 }]);
+      await enableSelectionMask(page);
+      await selectTool(page, 'erase');
+      await sleep(250);
+      await setToolSettings(page, { size: 50 });
+      // Only the part of the erase inside the mask may bite.
+      await drawPath(page, [{ x: 400, y: 450 }, { x: 1400, y: 450 }]);
+    },
+  },
+  // The mask armed BEFORE the tape opens. No SEL_MASK ever lands on the tape,
+  // so the only way the replay can learn about it is the opening snapshot —
+  // making this the checkpoint-rebuild case in miniature. It is also the COMMON
+  // case in the real History tab, not a corner one: a rolling-tape scrub always
+  // opens at the nearest checkpoint, and the SEL_MASK that armed the mask has
+  // usually scrolled well behind it.
+  {
+    name: 'selection_mask_preexisting',
+    preAction: async (page) => {
+      await armSelectMode(page, 'rect');
+      await drawPath(page, [{ x: 300, y: 250 }, { x: 700, y: 400 }, { x: 900, y: 650 }]);
+      await enableSelectionMask(page);
+      await selectTool(page, 'brush');
+      await sleep(250);
+    },
+    action: async (page) => {
+      await setToolSettings(page, { size: 40, color: [140, 220, 60, 1], hardness: 100 });
+      await drawPath(page, [{ x: 400, y: 450 }, { x: 900, y: 450 }, { x: 1400, y: 450 }]);
+    },
+  },
   {
     name: 'undo_after_strokes',
     action: async (page) => {
@@ -180,6 +253,34 @@ async function setToolSettings(page, settings) {
     if (s.smoothing !== undefined) app.handleSmoothingChange({ target: { value: s.smoothing } });
     if (s.hardness !== undefined)  app.handleHardnessChange({ target: { value: s.hardness } });
   }, settings);
+}
+
+/** Put the Select tool in a known mode with no stale selection. */
+async function armSelectMode(page, mode) {
+  await page.evaluate(async (m) => {
+    const app = window.app;
+    app.selectTool('select');
+    // Await the lazy import directly instead of polling for `.realTool`.
+    // SelectTool.js is large, and a COLD vite dev transform of it on the first
+    // case of a run can outlast any reasonable poll timeout — which is exactly
+    // how this failed: case 1 timed out at 15s and every later case, running
+    // against a now-warm module, armed instantly.
+    const rt = await app.toolManager.getTool('select').loadRealTool();
+    rt.cancelSelection?.();
+    rt.setMode(m);
+  }, mode);
+  await sleep(200);
+}
+
+/** Turn the current selection into a mask (SEL_MASK on the wire). */
+async function enableSelectionMask(page) {
+  await sleep(250);
+  await page.evaluate(async () => {
+    window.app.toolManager.getTool('select').realTool.toggleMaskMode(true);
+    window.app.inputBufferManager?.tick();
+    await new Promise((r) => setTimeout(r, 250));
+  });
+  await sleep(250);
 }
 
 async function getClientCoords(page, boardX, boardY) {
@@ -242,6 +343,22 @@ async function resetToolState(page) {
   await page.evaluate(() => {
     const app = window.app;
     app?.handleBlendModeChange?.('source-over');
+
+    // A selection MASK is user state, not board state — exactly like the blend
+    // mode above, and with exactly the same failure mode: board.clear() does
+    // not touch it, so a mask left on by one case silently clipped every stroke
+    // in the next one. Turn it off through the tool where possible, so the
+    // drawer also broadcasts SEL_MASK(false) and the observer/replayer clear
+    // too; then scrub the board's own maps as a backstop for tabs that never
+    // owned the mask.
+    const rt = app?.toolManager?.getTool?.('select')?.realTool;
+    if (rt?.isMaskMode) rt.toggleMaskMode(false);
+    const board = app?.board;
+    if (board) {
+      board.selectionMask = null;
+      board.selectionMasksByUser?.clear?.();
+      board.resetSelectionMaskClipTracking?.();
+    }
   });
 }
 
@@ -378,6 +495,15 @@ async function runCase(tabs, testCase) {
   await reseedRandom(replayer.page);
   await sleep(150);
 
+  // Anything a case wants ALREADY TRUE when the tape opens goes here, before
+  // startRecording. State armed in `preAction` leaves no message on the tape at
+  // all, so it can only reach the replay through the opening snapshot — which
+  // is exactly what a checkpoint rebuild has to live on.
+  if (testCase.preAction) {
+    await testCase.preAction(drawer.page);
+    await sleep(PROPAGATION_MS);
+  }
+
   // Start the tape and run the test action.
   await startRecording(drawer.page);
   await testCase.action(drawer.page);
@@ -400,6 +526,37 @@ async function runCase(tabs, testCase) {
   const liveDiff = diffSnapshots(snapsA, snapsB);
   const replayDiff = diffSnapshots(snapsA, snapsC);
 
+  // What each tab actually HOLDS, not just how well they agree.
+  //
+  // A match percentage cannot tell "both boards are correct" from "both boards
+  // are empty" — and an A↔C of 100% is worth nothing if the case drew nothing
+  // on either. It also cannot say WHICH side is wrong when they disagree. So
+  // record the per-layer ink bbox and stroke count for all three tabs; a
+  // masked stroke that was clipped has a visibly narrower bbox than one that
+  // was not, which turns a bare percentage into a diagnosis.
+  const inkOf = (snaps) => (snaps || [])
+    .map((s) => `L${s.groupIdx}:${s.strokeStackLen}${s.hasBaked ? '*' : ''}`
+      + (s.bbox ? `[${s.bbox.x},${s.bbox.y} ${s.bbox.w}x${s.bbox.h}]` : '[empty]'))
+    .join(' ') || '(no layers with content)';
+  const ink = { A: inkOf(snapsA), B: inkOf(snapsB), C: inkOf(snapsC) };
+
+  // The mask each tab actually holds. An observer that renders NO ink for a
+  // masked stroke has clipped it away entirely, which means its mask rect is
+  // degenerate rather than merely late — and only the rect itself can say so.
+  const maskProbe = () => {
+    const b = window.app?.board;
+    const src = b?.selectionMasksByUser;
+    if (!src || src.size === 0) return 'none';
+    return [...src.entries()].map(([uid, m]) =>
+      `u${uid}:${m.x},${m.y} ${m.width}x${m.height}${m.lassoPath ? ` lasso[${m.lassoPath.length}]` : ''}`
+    ).join(' | ');
+  };
+  const masks = {
+    A: await drawer.page.evaluate(maskProbe),
+    B: await observer.page.evaluate(maskProbe),
+  };
+  const drewSomething = (snapsA || []).some((s) => s.bbox && s.bbox.w > 0 && s.bbox.h > 0);
+
   // Always tear down the replay viewer's TimeMachine so the next case starts
   // clean. (loadFromRecording leaves the replay canvas visible until stop().)
   await replayer.page.evaluate(() => window.app.TimeMachine.stop?.());
@@ -411,7 +568,13 @@ async function runCase(tabs, testCase) {
     deltaCount: bundle.deltas.length,
     liveDiff,
     replayDiff,
-    pass: liveDiff.pass && replayDiff.pass,
+    ink,
+    masks,
+    drewSomething,
+    // A case whose action left the drawer's board blank proves nothing, and
+    // would otherwise report a triumphant 100% replay match of nothing
+    // against nothing.
+    pass: liveDiff.pass && replayDiff.pass && drewSomething,
   };
 }
 
@@ -472,6 +635,16 @@ async function main() {
         if (!r.pass) {
           if (!r.liveDiff.pass)   console.log(`     live↕  maxΔ ${r.liveDiff.maxDelta}  match ${r.liveDiff.matchPct.toFixed(3)}%`);
           if (!r.replayDiff.pass) console.log(`     replay maxΔ ${r.replayDiff.maxDelta}  match ${r.replayDiff.matchPct.toFixed(3)}%`);
+          if (!r.drewSomething)   console.log('     ⚠ DREW NOTHING on the drawer — this case is vacuous, not passing');
+          if (r.ink) {
+            console.log(`     ink A: ${r.ink.A}`);
+            console.log(`     ink B: ${r.ink.B}`);
+            console.log(`     ink C: ${r.ink.C}`);
+          }
+          if (r.masks) {
+            console.log(`     mask A: ${r.masks.A}`);
+            console.log(`     mask B: ${r.masks.B}`);
+          }
         }
       } catch (err) {
         console.log(`💥 ERROR: ${err.message}`);

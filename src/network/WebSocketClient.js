@@ -2460,7 +2460,13 @@ export class WebSocketClient {
    * @returns {void}
    */
   broadcastSelectionMask(active, rect = null, lassoPath = null) {
-    const msg = { t: T.SEL_MASK, mk: active ? 1 : 0 };
+    // `mk` is a proto BOOL. Emitting 1/0 encodes to identical wire bytes, but
+    // the Recorder tapes the outbound JS object as-is while receivers tape the
+    // DECODED message — where a bool is `true`. That made every SEL_MASK look
+    // like a sender/receiver disagreement to the tape oracle (`mk:1` vs
+    // `mk:true`) even though the bytes matched. Every other bool field here
+    // already emits a real boolean; this was the one holdout.
+    const msg = { t: T.SEL_MASK, mk: !!active };
     if (active && rect) {
       msg.sx = Math.round(rect.x);
       msg.sy = Math.round(rect.y);

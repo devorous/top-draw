@@ -192,7 +192,17 @@ export class LayerManager {
       // even scrub, since clearRect obeys the clip). Feature-checked: reset()
       // is Chrome 101+/Safari 16.4+, and the explicit resets below remain the
       // fallback for anything older.
-      if (typeof c.ctx.reset === 'function') c.ctx.reset();
+      if (typeof c.ctx.reset === 'function') {
+        c.ctx.reset();
+        // reset() restores SPEC defaults, not ours — it undoes the lineCap /
+        // lineJoin / imageSmoothingQuality that _createCanvas sets, which would
+        // leave freehand strokes on a recycled canvas rendering with butt caps
+        // and miter joins while the same stroke on a fresh canvas got round
+        // ones. Re-apply them.
+        c.ctx.lineCap = 'round';
+        c.ctx.lineJoin = 'round';
+        c.ctx.imageSmoothingQuality = 'high';
+      }
       c.ctx.globalAlpha = 1;
       c.ctx.clearRect(0, 0, this.width, this.height);
       c.ctx.globalCompositeOperation = 'source-over';

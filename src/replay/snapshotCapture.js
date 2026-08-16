@@ -68,7 +68,7 @@ function capturePatternPayload(user) {
   };
 }
 
-function captureUserTransientState(user) {
+function captureUserTransientState(user, selectionMask = null) {
   const base = typeof user.toJSON === 'function' ? user.toJSON() : { ...user };
 
   // Live transient state — the engine reads these by name.
@@ -120,8 +120,41 @@ function captureUserTransientState(user) {
 
   const selection = {};
   if (user.selection) selection.selection = { ...user.selection };
-  if (user.pendingSelection) selection.pendingSelection = { ...user.pendingSelection };
-  if (Array.isArray(user.pendingLassoPath)) {
+
+  // Selection MASK. Persistent per-user drawing state that clips every stroke
+  // made while it is on, and it owns no pixels of its own — so nothing about it
+  // survives in the composited image this snapshot carries. It also does not
+  // live on the User: the drawer's own copy belongs to SelectTool and never
+  // reaches `user` at all, and User.toJSON() carries neither half. The board's
+  // per-user map is the one place both the local and remote copies exist, so
+  // the caller reads it from there and hands it in.
+  //
+  // Without this, every replay that opens from a checkpoint rebuilt the masked
+  // tail UNCLIPPED. That is the common case, not the corner one: the History /
+  // rolling-tape scrub always opens at the nearest checkpoint, and the SEL_MASK
+  // that armed the mask has usually scrolled far behind it, so the mask simply
+  // ceased to exist for the replay. ReplayEngine._createBotUser already reads
+  // `isMaskMode` + `selectionMask` back (added for dynamic checkpoints); this
+  // is the producer side that was missing.
+  if (selectionMask) {
+    selection.isMaskMode = true;
+    selection.selectionMask = {
+      x: selectionMask.x,
+      y: selectionMask.y,
+      width: selectionMask.width,
+      height: selectionMask.height,
+      lassoPath: Array.isArray(selectionMask.lassoPath)
+        ? selectionMask.lassoPath.map((p) => ({ ...p }))
+        : null,
+    };
+  }
+
+  // A live mask and a pending selection are mutually exclusive — the live
+  // `sel_mask` handler nulls the pending one when the mask arms. Carrying both
+  // would make ReplayEngine._renderReplaySelections draw the pending rect
+  // instead of the mask outline, since pending wins its else-if chain.
+  if (user.pendingSelection && !selectionMask) selection.pendingSelection = { ...user.pendingSelection };
+  if (Array.isArray(user.pendingLassoPath) && !selectionMask) {
     selection.pendingLassoPath = user.pendingLassoPath.map((p) => ({ ...p }));
   }
   if (Array.isArray(user.lassoPath)) {
@@ -296,8 +329,13 @@ export function captureOpeningSnapshot(app) {
   // session is just another participant from the replay's POV.
   const userDrawingStates = {};
   if (app.users) {
+    // Masks are keyed by `user.id` on the board, which is the same value the
+    // users map is keyed by — but read through the user so a map keyed by
+    // session index can never mis-attribute someone else's mask.
+    const masksByUser = board.selectionMasksByUser;
     for (const [id, user] of app.users.entries()) {
-      userDrawingStates[id] = captureUserTransientState(user);
+      const mask = masksByUser?.get?.(user?.id ?? id) ?? null;
+      userDrawingStates[id] = captureUserTransientState(user, mask);
     }
   }
 

@@ -76,6 +76,12 @@ class ReplayBoard {
     this.activeSelectionLayer = -1;
     this.app = null;
     this.mirrorRegions = [];
+    // Selection masks, mirroring the live Board's shape exactly (see
+    // Board.setSelectionMask). Replay has no local user, so there is no
+    // `selectionMask` overlay field here — only the per-user map that the clip
+    // helpers read.
+    this.selectionMasksByUser = new Map();
+    this._maskClippedStrokes = new Set();
     this._needsComposite = false;
     this._dirtyRects = [];
     // Per-stroke composite dirty rects. Each endStroke() appends the freshly
@@ -116,16 +122,112 @@ class ReplayBoard {
       : [];
   }
 
-  // ── stubs ──────────────────────────────────────────────────────────────
-  // RemoteUserHandler calls these on the live Board during MD/MM/MU. Replay
-  // keeps the same selection-mask and mirror helper API so live drawing paths
-  // can be routed through this facade. Missing methods throw and
-  // are silently swallowed by ReplayEngine._processAction's try/catch — so
-  // they have to exist here or strokes never commit.
-  applySelectionMaskClipForStroke(_layerIndex, _userId) { return false; }
-  releaseSelectionMaskClipForStroke(_layerIndex, _userId) {}
-  withSelectionMaskClip(ctx, _userId, drawFn) {
-    if (typeof drawFn === 'function') drawFn();
+  // ── Selection mask ──────────────────────────────────────────────────────
+  // RemoteUserHandler calls these on the live Board during MD/MM/MU, so replay
+  // has to answer the same API or strokes never commit (a missing method throws
+  // and _processAction's try/catch swallows it silently).
+  //
+  // These used to be no-op stubs, which meant the history/time-machine replayed
+  // every masked stroke UNCLIPPED — the mask's own outline was never drawn and
+  // the strokes ran straight past its edge, even though every live client had
+  // clipped them. The logic below is the live Board's, verbatim apart from
+  // having no local-overlay half: replay has no "self", only remote users.
+
+  setSelectionMask(mask, userId) {
+    if (!mask) {
+      this.clearSelectionMask(userId);
+      return;
+    }
+    this.selectionMasksByUser.set(userId, {
+      x: mask.x, y: mask.y, width: mask.width, height: mask.height,
+      lassoPath: mask.lassoPath ? [...mask.lassoPath] : null
+    });
+  }
+
+  clearSelectionMask(userId) {
+    this.selectionMasksByUser.delete(userId);
+    // Unwind, don't just forget — same reason as Board.clearSelectionMask: the
+    // stroke canvas came from LayerManager's pool and a save()+clip() with no
+    // matching restore() rides it into the next stroke that acquires it.
+    for (const key of [...this._maskClippedStrokes]) {
+      const sep = key.lastIndexOf('_');
+      if (sep < 0 || key.slice(sep + 1) !== String(userId)) continue;
+      this.releaseSelectionMaskClipForStroke(Number(key.slice(0, sep)), userId);
+      this._maskClippedStrokes.delete(key);
+    }
+  }
+
+  /**
+   * Forget which stroke contexts are mask-clipped, without touching the masks.
+   * Same contract as Board.resetSelectionMaskClipTracking: call it wherever the
+   * layer state those contexts live on is thrown away wholesale, or the stale
+   * `${layer}_${user}` keys make applySelectionMaskClipForStroke return early
+   * and the next stroke under a still-active mask goes unclipped.
+   */
+  resetSelectionMaskClipTracking() {
+    this._maskClippedStrokes.clear();
+  }
+
+  /** Drop all mask state — used when the engine rebases onto a new baseline. */
+  resetSelectionMasks() {
+    for (const userId of [...this.selectionMasksByUser.keys()]) {
+      this.clearSelectionMask(userId);
+    }
+    this.selectionMasksByUser.clear();
+    this._maskClippedStrokes.clear();
+  }
+
+  _getSelectionMaskForUser(userId) {
+    return this.selectionMasksByUser.get(userId) || null;
+  }
+
+  _applyMaskClipToCtx(ctx, userId) {
+    const mask = this._getSelectionMaskForUser(userId);
+    if (!mask || !ctx) return;
+    ctx.beginPath();
+    if (mask.lassoPath?.length > 0) {
+      ctx.moveTo(mask.lassoPath[0].x, mask.lassoPath[0].y);
+      for (let i = 1; i < mask.lassoPath.length; i++) {
+        ctx.lineTo(mask.lassoPath[i].x, mask.lassoPath[i].y);
+      }
+      ctx.closePath();
+    } else {
+      ctx.rect(mask.x, mask.y, mask.width, mask.height);
+    }
+    ctx.clip();
+  }
+
+  applySelectionMaskClipForStroke(layerIndex, userId) {
+    if (!this._getSelectionMaskForUser(userId) || !this.layerManager) return false;
+    const key = `${layerIndex}_${userId}`;
+    if (this._maskClippedStrokes.has(key)) return true;
+    const ctx = this.layerManager.getUserStrokeContext(layerIndex, userId);
+    if (!ctx) return false;
+    ctx.save();
+    this._applyMaskClipToCtx(ctx, userId);
+    this._maskClippedStrokes.add(key);
+    return true;
+  }
+
+  releaseSelectionMaskClipForStroke(layerIndex, userId) {
+    const key = `${layerIndex}_${userId}`;
+    if (!this._maskClippedStrokes.has(key) || !this.layerManager) return false;
+    const ctx = this.layerManager.getActiveStroke(layerIndex, userId)?.ctx;
+    if (ctx) ctx.restore();
+    this._maskClippedStrokes.delete(key);
+    return true;
+  }
+
+  withSelectionMaskClip(ctx, userId, drawFn) {
+    if (!ctx || typeof drawFn !== 'function') return;
+    if (!this._getSelectionMaskForUser(userId)) {
+      drawFn();
+      return;
+    }
+    ctx.save();
+    this._applyMaskClipToCtx(ctx, userId);
+    drawFn();
+    ctx.restore();
   }
   getActiveMirrorRegions() {
     if (this.mirror) {
@@ -151,6 +253,8 @@ class ReplayBoard {
     const userId = user?.id ?? 0;
     const blendMode = blendModeOverride ?? user?.blendMode ?? 'source-over';
     this.layerManager.beginUserStroke(activeLayer, userId, blendMode);
+    // Bind the mask at stroke start, exactly as Board.beginStroke does.
+    this.applySelectionMaskClipForStroke(activeLayer, userId);
   }
 
   beginStrokeAllLayers(user, blendMode) {
@@ -160,6 +264,9 @@ class ReplayBoard {
     for (let i = 0; i < count; i++) {
       this.layerManager.beginUserStroke(i, userId, blendMode);
     }
+    if (this._getSelectionMaskForUser(userId)) {
+      for (let i = 0; i < count; i++) this.applySelectionMaskClipForStroke(i, userId);
+    }
   }
 
   endStroke(user, extraProps = {}) {
@@ -167,6 +274,9 @@ class ReplayBoard {
     const isBlurFilter = extraProps.filterType === 'blur' || extraProps.filterType === 'glitchBlur';
     const activeLayer = isBlurFilter ? 0 : (user?.activeLayer ?? 0);
     const userId = user?.id ?? 0;
+    // Release BEFORE the commit: commitUserStroke drops the active-stroke entry,
+    // after which the release can no longer reach the context to restore it.
+    this.releaseSelectionMaskClipForStroke(activeLayer, userId);
     this.layerManager.commitUserStroke(activeLayer, userId, extraProps);
     this._captureCommittedDirtyRect(activeLayer, userId);
   }
@@ -176,6 +286,7 @@ class ReplayBoard {
     const batchTimestamp = Date.now();
     const count = this.layerManager.getLayerCount();
     for (let i = 0; i < count; i++) {
+      this.releaseSelectionMaskClipForStroke(i, userId);
       this.layerManager.commitUserStroke(i, userId, { eraseAll: true, timestamp: batchTimestamp });
       this._captureCommittedDirtyRect(i, userId);
     }
@@ -426,6 +537,10 @@ class ReplayBoard {
     // Wholesale replacement — drop every user's stroke/redo history so the
     // decoded pixels are the sole content (matches live full-board restore).
     lm.clearAll();
+    // Every active stroke context went away with it, so the clip ledger's keys
+    // now point at nothing — see resetSelectionMaskClipTracking. The live
+    // Board.restoreSnapshot does the same thing at the same place.
+    this.resetSelectionMaskClipTracking();
 
     for (let i = 0; i < layerDatas.length && i < lm.layerGroups.length; i++) {
       const qoi = layerDatas[i];
@@ -1310,6 +1425,13 @@ export class ReplayEngine {
    */
   reset() {
     this.botUsers.clear();
+    // Masks live on the board, not the User, so clearing botUsers does not take
+    // them with it. A stale mask left over from a previous tape position would
+    // clip strokes that were never masked — the mirror image of the bug that
+    // made replay ignore masks in the first place. Load paths (checkpoint /
+    // snapshot / dynamic checkpoint) all reset() first and then re-assert
+    // whatever mask was live at that baseline.
+    this._replayBoard?.resetSelectionMasks?.();
     this._patternStateByUser.clear();
     this._vectorTextRecords.clear();
     this._snapshotHasLayerState = false;
@@ -1414,6 +1536,14 @@ export class ReplayEngine {
         font: u.font,
         textPositionMultiplier: u.textPositionMultiplier,
         textPositionOffset: u.textPositionOffset,
+        // Same reasoning as blendBakeMode above: a selection mask is sticky
+        // per-user state that clips every stroke drawn under it, and the
+        // SEL_MASK that turned it on may sit far behind this checkpoint and
+        // never be replayed. Without carrying it, a scrub that rebuilds from
+        // here renders the masked tail unclipped. Read off the BOARD — masks
+        // are keyed by user there, not stored on the User.
+        isMaskMode: !!u.isMaskMode,
+        selectionMask: this._replayBoard?._getSelectionMaskForUser?.(id) || null,
       };
     }
     // Snapshot the pixels last, from a BACKGROUND-LESS composite — matching the
@@ -2285,6 +2415,17 @@ export class ReplayEngine {
     // Initialize smoothBuffer for handlers
     bot.smoothBuffer = { x: 0, y: 0, isFirst: true };
 
+    // Re-arm a selection mask carried in from a dynamic checkpoint (see
+    // captureDynamicCheckpoint). Must happen after the board exists and before
+    // the trailing deltas replay, so the first rebuilt stroke is already
+    // clipped.
+    if (state.selectionMask) {
+      bot.isMaskMode = !!state.isMaskMode;
+      bot.maskSelection = state.selectionMask;
+      bot.maskLassoPath = state.selectionMask.lassoPath || null;
+      this._replayBoard?.setSelectionMask?.(state.selectionMask, id);
+    }
+
     this.botUsers.set(id, bot);
     return bot;
   }
@@ -2484,17 +2625,26 @@ export class ReplayEngine {
     for (const user of this.botUsers.values()) {
       const hasFloatingSelection = !!(user.floatingCanvas && user.selection && !user.pendingImageLoad);
       const hasPendingSelection = !!user.pendingSelection;
+      // An active mask is persistent UI, unlike a pending selection: it stays
+      // on screen for as long as the user keeps drawing under it. It has to be
+      // redrawn from here every frame rather than painted once when SEL_MASK
+      // arrives, because this loop clears user.context on any frame the user
+      // has no selection — which would wipe a one-shot outline immediately.
+      const hasMask = !!(user.isMaskMode && user.maskSelection);
 
-      if (hasFloatingSelection || hasPendingSelection) {
+      if (hasFloatingSelection || hasPendingSelection || hasMask) {
         const drawOutline = this.renderSelectionOverlay !== false;
         user.context?.clearRect(0, 0, this.width, this.height);
         if (hasFloatingSelection) {
           activeSelectionLayer = user.activeLayer ?? activeSelectionLayer;
           selectionHandler.drawFloatingSelection(user, drawOutline);
-        } else if (drawOutline) {
+        } else if (hasPendingSelection && drawOutline) {
           // Pending selections are pure UI (a dashed rect, no content), so
           // there's nothing to draw when selection overlays are hidden.
           selectionHandler.drawPendingSelection(user);
+        } else if (hasMask && drawOutline) {
+          // clear=false: the context was just cleared above.
+          selectionHandler.drawStaticMaskOutline(user, user.maskSelection, false);
         }
         user._replaySelectionPreviewActive = true;
       } else if (user._replaySelectionPreviewActive && user.context) {
@@ -2825,6 +2975,10 @@ export class ReplayEngine {
     // its pre-clear contents. Same failure as BOARD_SNAPSHOT_RESTORE above.
     if (msg.t === T.CLR) {
       this._replayBoard.layerManager.clearAll();
+      // Mirrors Board.clear(): the stroke contexts the clip ledger names are
+      // gone, and a stale key would make the next stroke under a still-active
+      // mask skip its clip entirely.
+      this._replayBoard.resetSelectionMaskClipTracking();
       this._snapshotCtx?.clearRect(0, 0, this.width, this.height);
       return;
     }
@@ -3229,6 +3383,36 @@ export class ReplayEngine {
           break;
         case T.SEL_CANCEL:
           this._remoteHandler.selectionHandler.handleSelectionCancel(user);
+          break;
+        case T.SEL_MASK:
+          // The mask is per-user drawing state, not a commit: it owns no pixels
+          // of its own but clips every stroke the user makes while it is on.
+          // Replay ignored it entirely, so the time machine drew masked strokes
+          // running past the mask edge while every live client had clipped them.
+          //
+          // Mirrors the live 'sel_mask' handler in SelectionHandlers.js, minus
+          // the local-overlay half (replay has no local user). The outline
+          // itself is drawn by _renderReplaySelections off isMaskMode +
+          // maskSelection, not here — see the note there.
+          if (msg.mk) {
+            const mask = {
+              ...this._decodeSelectionRect(msg),
+              lassoPath: this._decodePointPath(msg.ps)
+            };
+            user.isMaskMode = true;
+            user.pendingSelection = null;
+            user.pendingLassoPath = null;
+            user._pendingSelectionUpdatedAt = null;
+            user.maskSelection = mask;
+            user.maskLassoPath = mask.lassoPath;
+            this._replayBoard.setSelectionMask(mask, user.id);
+          } else {
+            user.isMaskMode = false;
+            user.maskSelection = null;
+            user.maskLassoPath = null;
+            user._pendingSelectionUpdatedAt = null;
+            this._replayBoard.clearSelectionMask(user.id);
+          }
           break;
         case T.SEL_TO_BRUSH:
           this._remoteHandler.selectionHandler.handleSelectionToBrush(user, msg.g);
