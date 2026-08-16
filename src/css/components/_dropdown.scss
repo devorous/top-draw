@@ -1,0 +1,281 @@
+// ---------------------------------------------------------------------------
+// Shared dropdown control.
+//
+// One visual language for every dropdown in the app. Used by Dropdown.svelte
+// for value selection (listbox) and by action menus (Palettes) that supply
+// their own items — which is why these classes are global rather than scoped
+// inside the component: snippet content is styled by its *defining* component,
+// so scoped styles would not reach caller-supplied menu rows.
+//
+// Trigger variants exist so a primary picker can shout if it needs to, but
+// `flat` is the default and should stay the norm.
+// ---------------------------------------------------------------------------
+
+// ---------- Trigger ----------
+.dd-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  box-sizing: border-box;
+  max-width: 100%;
+  appearance: none;
+  font-family: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  outline: none;
+  transition:
+    background var(--transition-fast),
+    border-color var(--transition-fast),
+    color var(--transition-fast),
+    box-shadow var(--transition-fast);
+
+  &.full { width: 100%; }
+
+  &:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  &.uppercase {
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 500;
+  }
+
+  &.placeholder { color: var(--text-muted); }
+
+  // Keyboard focus only — pointer users get the hover treatment instead.
+  &:focus-visible {
+    box-shadow: 0 0 0 2px var(--accent-glow);
+  }
+}
+
+.dd-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dd-chevron {
+  flex: none;
+  width: 10px;
+  height: 6px;
+  opacity: 0.75;
+  transition: transform var(--transition-fast), opacity var(--transition-fast);
+
+  .dd-trigger.open & {
+    transform: rotate(180deg);
+    opacity: 1;
+  }
+}
+
+// ---------- Sizes ----------
+.dd-trigger.s-sm {
+  height: 28px;
+  padding: 0 8px 0 10px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+}
+
+.dd-trigger.s-md {
+  height: 34px;
+  padding: 0 10px 0 12px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+}
+
+// ---------- Variants ----------
+
+// flat — the default. Translucent, no fill until hover.
+.dd-trigger.v-flat {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-secondary);
+  box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.18);
+
+  &:hover:not(:disabled),
+  &.open {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.2);
+    color: var(--text-primary);
+  }
+
+  &:active:not(:disabled) {
+    background: rgba(255, 255, 255, 0.15);
+  }
+}
+
+// panel — solid field, for dialogs where flat reads as too faint.
+.dd-trigger.v-panel {
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+
+  &:hover:not(:disabled),
+  &.open {
+    background: var(--bg-elevated);
+    border-color: var(--border-active);
+  }
+}
+
+// accent — gradient + accent edge. One per panel, at most.
+.dd-trigger.v-accent {
+  border: 1px solid color-mix(in srgb, var(--accent-primary), transparent 72%);
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--bg-secondary), var(--accent-primary) 10%),
+    color-mix(in srgb, var(--bg-elevated), var(--accent-primary) 18%));
+  color: var(--text-primary);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white, transparent 90%);
+  letter-spacing: 0.02em;
+
+  .dd-chevron {
+    color: color-mix(in srgb, var(--accent-primary), white 18%);
+    opacity: 1;
+  }
+
+  &:hover:not(:disabled),
+  &.open {
+    border-color: color-mix(in srgb, var(--accent-primary), transparent 38%);
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, white, transparent 86%),
+      0 6px 16px color-mix(in srgb, var(--accent-primary), transparent 84%);
+  }
+}
+
+// inset — recessed well, pairs with sliders.
+.dd-trigger.v-inset {
+  border: 1px solid rgba(0, 0, 0, 0.35);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  box-shadow:
+    inset 0 2px 4px rgba(0, 0, 0, 0.35),
+    0 1px 0 rgba(255, 255, 255, 0.04);
+
+  &:hover:not(:disabled),
+  &.open {
+    border-color: var(--border-active);
+  }
+}
+
+// ghost — no chrome until hover, for dense toolbars.
+.dd-trigger.v-ghost {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+
+  &:hover:not(:disabled),
+  &.open {
+    background: var(--bg-tertiary);
+    border-color: var(--border-subtle);
+    color: var(--text-primary);
+  }
+}
+
+// ---------- Menu (identical for every variant) ----------
+.dd-menu {
+  position: fixed;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: min(320px, 60vh);
+  padding: 4px;
+  overflow-y: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bg-secondary) 94%, black);
+  box-shadow: var(--shadow-lg);
+  outline: none;
+  animation: dd-in 0.12s ease;
+}
+
+@keyframes dd-in {
+  from { opacity: 0; transform: translateY(-2px); }
+  to { opacity: 1; transform: none; }
+}
+
+// A row in the menu — a selectable option or an action item.
+.dd-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  appearance: none;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: var(--text-xs);
+  font-weight: 500;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+  outline: none;
+
+  .dd-menu.s-md & {
+    height: 32px;
+    font-size: var(--text-sm);
+  }
+
+  // Hover and keyboard focus share one highlight so there is never a second,
+  // competing "current" row.
+  &[data-active='true'],
+  &:hover:not(:disabled) {
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+  }
+
+  &.selected,
+  &.active {
+    color: var(--text-primary);
+    font-weight: 600;
+  }
+
+  &:disabled,
+  &.disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+}
+
+.dd-option-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+// Trailing muted text — an option hint, or an On/Off state in an action menu.
+.dd-option-hint,
+.dd-option-state {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  font-weight: 400;
+}
+
+.dd-option.active .dd-option-state {
+  color: var(--accent-primary);
+}
+
+.dd-check {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  color: var(--accent-primary);
+}
+
+// Separator between an action menu's items and its trailing action.
+.dd-menu-separator {
+  height: 1px;
+  margin: 3px 2px;
+  background: var(--border-subtle);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dd-menu { animation: none; }
+  .dd-chevron { transition: none; }
+}

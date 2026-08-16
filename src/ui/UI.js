@@ -10,6 +10,8 @@ import { LayerPreview } from './LayerPreview.js';
 import { ResizableSections } from './ResizableSections.js';
 import { isMobile } from '../platform/mobile.js';
 import { appState } from '../state.svelte.js';
+import { getRightClickActionsForTool, getRightClickActionLabel } from '../config/rightClickActions.js';
+import { replaceSelectWithDropdown } from './dropdownMount.svelte.js';
 import PointerSlider from './svelte/PointerSlider.svelte';
 import {
   DEFAULT_TEXT_FONT,
@@ -73,6 +75,7 @@ export class UI {
   async init() { // Made init async
     this.cacheElements();
     this.initPointerSliders();
+    this.initDropdowns();
     await this._preloadSVGIcons(); // Await preloading of SVG icons
     this.remoteUserUI = new RemoteUserUI(this.elements, this.icons);
     this.setRemoteUsersConnected(false);
@@ -85,6 +88,28 @@ export class UI {
     if (window.app?.appPreferences) {
       this.applySidebarWidths(window.app.appPreferences);
     }
+  }
+
+  /**
+   * Swaps the tool-option native <select>s for the shared Dropdown so every
+   * dropdown in the app shares one look and one menu.
+   */
+  initDropdowns() {
+    const { elements } = this;
+
+    elements.cursorStyleSelect = replaceSelectWithDropdown(elements.cursorStyleSelect, {
+      ariaLabel: 'Cursor style'
+    }) ?? elements.cursorStyleSelect;
+
+    elements.rightClickActionSelect = replaceSelectWithDropdown(elements.rightClickActionSelect, {
+      ariaLabel: 'Right click action'
+    }) ?? elements.rightClickActionSelect;
+
+    elements.fontSelect = replaceSelectWithDropdown(elements.fontSelect, {
+      ariaLabel: 'Font selection'
+    }) ?? elements.fontSelect;
+
+    this._initializeFontSelect();
   }
 
   /**
@@ -596,6 +621,8 @@ menuBtn: document.getElementById('menuBtn'),
       opacityContainer: document.getElementById('brush-opacity'),
       cursorStyleContainer: document.getElementById('cursor-style-container'),
       cursorStyleSelect: document.getElementById('cursorStyleSelect'),
+      rightClickActionContainer: document.getElementById('right-click-action-container'),
+      rightClickActionSelect: document.getElementById('rightClickActionSelect'),
       blurRadiusContainer: document.getElementById('blur-radius'),
       glitchFastPreviewContainer: document.getElementById('glitch-fast-preview'),
       glitchFastPreview: document.getElementById('glitchFastPreview'),
@@ -702,7 +729,8 @@ menuBtn: document.getElementById('menuBtn'),
       }
     }
 
-    this._initializeFontSelect();
+    // Font options are populated in initDropdowns(), once the native <select>
+    // has been swapped for the shared Dropdown.
   }
 
   /**
@@ -1495,8 +1523,37 @@ menuBtn: document.getElementById('menuBtn'),
       cursorStyleSelect.value = this.getCursorStyleForTool(tool, user);
     }
 
+    this.updateRightClickActionOptions(tool);
     this.updateToolButton(tool);
     this.refreshToolOptionsLayout(tool);
+  }
+
+  /**
+   * Rebuilds the right-click action dropdown for the given tool and selects
+   * the tool's configured action. Hidden for tools with only one option.
+   * @param {string} tool - Current tool name.
+   */
+  updateRightClickActionOptions(tool) {
+    const { rightClickActionContainer, rightClickActionSelect } = this.elements;
+    if (!rightClickActionContainer || !rightClickActionSelect) return;
+
+    const actions = getRightClickActionsForTool(tool);
+    if (actions.length < 2) {
+      rightClickActionContainer.style.display = 'none';
+      return;
+    }
+
+    const signature = actions.join(',');
+    if (rightClickActionSelect.dataset.actions !== signature) {
+      rightClickActionSelect.setOptions?.(actions.map(id => ({
+        value: id,
+        label: getRightClickActionLabel(id)
+      })));
+      rightClickActionSelect.dataset.actions = signature;
+    }
+
+    rightClickActionSelect.value = window.app?.getRightClickAction?.(tool) ?? actions[0];
+    rightClickActionContainer.style.display = 'block';
   }
 
   /**
@@ -2169,16 +2226,13 @@ menuBtn: document.getElementById('menuBtn'),
     if (!select) return;
 
     ensureTextFontsLoaded(document);
-    select.innerHTML = '';
 
-    TEXT_FONT_OPTIONS.forEach(font => {
-      const option = document.createElement('option');
-      option.value = font.family;
-      option.textContent = font.label;
-      option.style.fontFamily = font.family;
-      option.style.fontSize = `${font.pickerFontSize ?? 12}px`;
-      select.appendChild(option);
-    });
+    // Each row previews its own typeface, as the native <select> did.
+    select.setOptions?.(TEXT_FONT_OPTIONS.map(font => ({
+      value: font.family,
+      label: font.label,
+      style: `font-family:${font.family};font-size:${font.pickerFontSize ?? 12}px`
+    })));
 
     select.value = DEFAULT_TEXT_FONT;
     this._applyFontSelectStyle(DEFAULT_TEXT_FONT);

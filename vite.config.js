@@ -161,6 +161,8 @@ export default defineConfig({
         galleryGrid: resolve(__dirname, 'gallery/grid/index.html'),
         board: resolve(__dirname, 'board/index.html'),
         messenger: resolve(__dirname, 'messenger/index.html'),
+        dropdownPreview: resolve(__dirname, 'dropdown-preview/index.html'),
+        // dev-only variant gallery, served at /dropdown-preview/ by `npm run dev`.
       },
       output: {
         manualChunks(id) {

@@ -54,6 +54,12 @@ import { SnapshotManager } from './remote/SnapshotManager.js';
 import { readQoiDimensions } from '../shared/qoi.js';
 import { loadAppPreferences, saveAppPreferences, THEME_BASE_COLORS } from './config/AppPreferences.js';
 import { applyRoomBoardSize } from './config/BoardSizes.js';
+import {
+  getDefaultRightClickAction,
+  getRightClickActionsForTool,
+  resolveRightClickAction,
+  getRightClickActionLabel
+} from './config/rightClickActions.js';
 import { getTextFontDefaults, loadTextFont, normalizeTextFont } from './config/textFonts.js';
 import {
   isTauriDesktop,
@@ -1944,6 +1950,13 @@ export class DrawingApp {
       });
     }
 
+    if (elements.rightClickActionSelect) {
+      elements.rightClickActionSelect.addEventListener('change', (e) => {
+        this.setRightClickAction(this.self.tool, e.target.value);
+        this.ui.showToast(`Right click: ${getRightClickActionLabel(e.target.value)}`, 1500);
+      });
+    }
+
     // Lock button event listeners
     const handleLockClick = (property, e) => {
       if (e.shiftKey) {
@@ -1975,18 +1988,16 @@ export class DrawingApp {
     elements.board.addEventListener('pointerleave', (e) => this.handlePointerLeave(e));
 
     elements.board.addEventListener('wheel', (e) => this.handleWheel(e));
-    elements.board.addEventListener('contextmenu', (e) => {
+    // #board sits inside #boardContainer, so a right-click on the canvas hits
+    // both listeners — run the action only once per event.
+    const handleBoardContextMenu = (e) => {
       e.preventDefault();
-      if (this.self.tool !== 'pan' && this.self.tool !== 'rotate') {
-        this.cancelCurrentStroke();
-      }
-    });
-    elements.boardContainer.addEventListener('contextmenu', (e) => {
-      e.preventDefault();
-      if (this.self.tool !== 'pan' && this.self.tool !== 'rotate') {
-        this.cancelCurrentStroke();
-      }
-    });
+      if (e._rightClickActionHandled) return;
+      e._rightClickActionHandled = true;
+      this.performRightClickAction(e);
+    };
+    elements.board.addEventListener('contextmenu', handleBoardContextMenu);
+    elements.boardContainer.addEventListener('contextmenu', handleBoardContextMenu);
 
     // boardContainer: middle-click to pan anywhere, and pan/rotate by dragging the background
     elements.boardContainer.addEventListener('pointerdown', (e) => this.handleBoardContainerPointerDown(e));
@@ -5538,9 +5549,12 @@ export class DrawingApp {
       return;
     }
 
-    // Right-click drag zooms around the clicked point
+    // Right-click drag zooms around the clicked point, when the active tool's
+    // right-click action is set to Zoom Drag. Other actions run from the
+    // `contextmenu` handler instead.
     if (e.button === 2) {
       e.preventDefault();
+      if (this.getRightClickAction() !== 'zoom') return;
       const containerRect = this.ui.elements.boardContainer.getBoundingClientRect();
       const pos = this.board.getBoardRelativePos(e.clientX, e.clientY);
       this._rightDragZoomActive = true;
@@ -6127,6 +6141,7 @@ export class DrawingApp {
 
     if ((this.self.tool === 'zoom' && e.button === 0) || e.button === 2) {
       e.preventDefault();
+      if (e.button === 2 && this.getRightClickAction() !== 'zoom') return;
       const containerRect = this.ui.elements.boardContainer.getBoundingClientRect();
       const pos = this.board.getBoardRelativePos(e.clientX, e.clientY);
       this._rightDragZoomActive = true;
@@ -6338,6 +6353,125 @@ export class DrawingApp {
     if (!this.self?.mousedown || this.self.tool !== 'erase') return;
     const eraserTool = this.toolManager.getTool('erase');
     eraserTool?.commitCurrentLine(this.self, newPressure, newSize, newOpacity);
+  }
+
+  /**
+   * Resolves the configured right-click action for a tool.
+   * @param {string} [tool] - Tool name; defaults to the active tool.
+   * @returns {string} Action id from rightClickActions.js.
+   */
+  getRightClickAction(tool = this.self?.tool) {
+    return resolveRightClickAction(this.appPreferences?.general?.rightClickActions, tool);
+  }
+
+  /**
+   * Persists a right-click action for a tool. Defaults are stored as absences
+   * so a later change to the default follows automatically.
+   * @param {string} tool - Tool name.
+   * @param {string} action - Action id.
+   */
+  setRightClickAction(tool, action) {
+    if (!tool || !getRightClickActionsForTool(tool).includes(action)) return;
+
+    const next = { ...(this.appPreferences?.general?.rightClickActions ?? {}) };
+    if (action === getDefaultRightClickAction(tool)) {
+      delete next[tool];
+    } else {
+      next[tool] = action;
+    }
+
+    this.setAppPreferences({
+      ...this.appPreferences,
+      general: {
+        ...(this.appPreferences?.general ?? {}),
+        rightClickActions: next
+      }
+    });
+  }
+
+  /**
+   * Runs the right-click action bound to the active tool. Called from the
+   * `contextmenu` handler, so `zoom` is a no-op here — the zoom drag is started
+   * from pointerdown instead.
+   * @param {PointerEvent|MouseEvent} e - The originating event.
+   * @returns {boolean} True if an action ran.
+   */
+  performRightClickAction(e) {
+    switch (this.getRightClickAction()) {
+      case 'cancel':
+        this.cancelCurrentStroke();
+        return true;
+      case 'layerMode':
+        this.toggleActiveToolLayerMode();
+        return true;
+      case 'eyedropper':
+        this.pickColorAtClientPoint(e.clientX, e.clientY);
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  /**
+   * Flips the active tool's layer mode (Select: copy scope, Eraser: erase
+   * scope), keeping the radio buttons in the tool options in sync.
+   */
+  toggleActiveToolLayerMode() {
+    const tool = this.self?.tool;
+
+    if (tool === 'select') {
+      const selectTool = this.toolManager.getTool('select');
+      if (!selectTool) return;
+
+      const next = !selectTool.copyAllLayers;
+      selectTool.toggleCopyAllLayers(next);
+      this._syncLayerModeRadios('selectionLayerMode', next ? 'all' : 'active');
+      this.ui.showToast(next ? 'Selection: All Layers' : 'Selection: Active Layer', 1500);
+      return;
+    }
+
+    if (tool === 'erase') {
+      this.eraseAllLayers = !this.eraseAllLayers;
+      this.inputBufferManager.queueBroadcast(
+        () => this.wsClient.broadcastEraserModeChange(this.eraseAllLayers, this.self.tool)
+      );
+      this._syncLayerModeRadios('eraserMode', this.eraseAllLayers ? 'all' : 'layer');
+      this.ui.showToast(this.eraseAllLayers ? 'Erase: All Layers' : 'Erase: Active Layer', 1500);
+    }
+  }
+
+  /**
+   * Checks the radio in a named group without firing its change listener.
+   * @param {string} groupName - The radio group's `name` attribute.
+   * @param {string} value - The value to select.
+   */
+  _syncLayerModeRadios(groupName, value) {
+    document.querySelectorAll(`input[name="${groupName}"]`).forEach(radio => {
+      radio.checked = radio.value === value;
+    });
+  }
+
+  /**
+   * Samples the composited color under a viewport point into the active color,
+   * without switching tools the way the Inkdropper tool does.
+   * @param {number} clientX
+   * @param {number} clientY
+   */
+  pickColorAtClientPoint(clientX, clientY) {
+    const dropper = this.toolManager.getTool('inkdropper');
+    if (!dropper?.sampleColor) return;
+
+    const pos = this.board.getBoardRelativePos(clientX, clientY);
+
+    // sampleColor auto-switches back to `previousTool` when the Inkdropper is
+    // the active tool; here it is not, so suppress that entirely.
+    const previousTool = this.previousTool;
+    this.previousTool = null;
+    try {
+      dropper.sampleColor(pos);
+    } finally {
+      this.previousTool = previousTool;
+    }
   }
 
   cancelCurrentStroke() {

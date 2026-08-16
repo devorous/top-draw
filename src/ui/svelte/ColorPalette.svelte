@@ -7,12 +7,9 @@
     removeCustomColor,
     toggleFloatingPaletteVisibility
   } from '../../state.svelte.js';
+  import Dropdown from './Dropdown.svelte';
 
   let { onColorSelect = null } = $props();
-  let palettesOpen = $state(false);
-  let palettesTrigger = $state(null);
-  let paletteMenuHost = $state(null);
-  let paletteMenuElement = $state(null);
 
   const maxCustomColors = 12;
 
@@ -139,10 +136,6 @@
     appState.recentPaletteVisible = !appState.recentPaletteVisible;
   }
 
-  function togglePalettesMenu() {
-    palettesOpen = !palettesOpen;
-  }
-
   function handleAddFloatingPalette() {
     addFloatingPalette();
   }
@@ -151,86 +144,59 @@
     toggleFloatingPaletteVisibility(paletteId);
   }
 
-  function paletteMenuStyle() {
-    const rect = palettesTrigger?.getBoundingClientRect?.();
-    if (!rect) {
-      return '';
-    }
-
-    return [
-      `left: ${rect.left}px`,
-      `top: ${rect.bottom + 3}px`,
-      `width: ${rect.width}px`
-    ].join('; ');
-  }
-
-  $effect(() => {
-    if (typeof document === 'undefined' || !palettesOpen) {
-      return;
-    }
-
-    const handlePointerDown = (event) => {
-      if (
-        !event.target?.closest?.('.palette-menu-wrap') &&
-        !event.target?.closest?.('.palette-menu')
-      ) {
-        palettesOpen = false;
-      }
-    };
-
-    document.addEventListener('pointerdown', handlePointerDown);
-
-    return () => {
-      document.removeEventListener('pointerdown', handlePointerDown);
-    };
-  });
-
-  $effect(() => {
-    if (typeof document === 'undefined') {
-      return;
-    }
-
-    const host = document.createElement('div');
-    host.className = 'palette-menu-portal-host';
-    document.body.appendChild(host);
-    paletteMenuHost = host;
-
-    return () => {
-      host.remove();
-      paletteMenuHost = null;
-    };
-  });
-
-  $effect(() => {
-    if (!paletteMenuHost || !paletteMenuElement) {
-      return;
-    }
-
-    paletteMenuHost.appendChild(paletteMenuElement);
-
-    return () => {
-      paletteMenuElement?.remove();
-    };
-  });
+  // Positioning, portalling and outside-click now live in Dropdown.svelte.
 </script>
 
 <div class="color-palette">
   <!-- Palette Controls -->
   <div class="palette-controls">
     <div class="palette-menu-wrap">
-      <button
-        bind:this={palettesTrigger}
-        class="palette-select"
-        class:open={palettesOpen}
-        onclick={togglePalettesMenu}
-        aria-haspopup="menu"
-        aria-expanded={palettesOpen}
-        title="Manage floating palettes"
+      <Dropdown
+        variant="flat"
+        size="sm"
+        uppercase
+        label="Palettes"
+        ariaLabel="Manage floating palettes"
       >
-        <span>Palettes</span>
-        <span class="palette-toggle-icon">▾</span>
-      </button>
+        {#snippet menu(close)}
+          <button
+            class="dd-option"
+            class:active={appState.recentPaletteVisible}
+            onclick={toggleRecentPalette}
+            role="menuitemcheckbox"
+            aria-checked={appState.recentPaletteVisible}
+          >
+            <span class="dd-option-label">Recents</span>
+            <span class="dd-option-state">{appState.recentPaletteVisible ? 'On' : 'Off'}</span>
+          </button>
 
+          {#each appState.floatingPalettes as palette}
+            <button
+              class="dd-option"
+              class:active={palette.visible !== false}
+              onclick={() => toggleFloatingPalette(palette.id)}
+              role="menuitemcheckbox"
+              aria-checked={palette.visible !== false}
+              title={palette.name}
+            >
+              <span class="dd-option-label">{palette.name}</span>
+              <span class="dd-option-state">{palette.visible !== false ? 'On' : 'Off'}</span>
+            </button>
+          {/each}
+
+          <div class="dd-menu-separator"></div>
+
+          <button
+            class="dd-option"
+            onclick={() => { handleAddFloatingPalette(); close(); }}
+            role="menuitem"
+            title="Add floating palette"
+          >
+            <span class="palette-add-icon">+</span>
+            <span class="dd-option-label">Add palette</span>
+          </button>
+        {/snippet}
+      </Dropdown>
     </div>
   </div>
 
@@ -267,39 +233,6 @@
   </div>
 </div>
 
-{#if palettesOpen}
-  <div bind:this={paletteMenuElement} class="palette-menu" role="menu" style={paletteMenuStyle()}>
-    <button
-      class="palette-menu-item"
-      class:active={appState.recentPaletteVisible}
-      onclick={toggleRecentPalette}
-      role="menuitemcheckbox"
-      aria-checked={appState.recentPaletteVisible}
-    >
-      <span>Recents</span>
-      <span class="palette-menu-state">{appState.recentPaletteVisible ? 'On' : 'Off'}</span>
-    </button>
-
-    {#each appState.floatingPalettes as palette}
-      <button
-        class="palette-menu-item"
-        class:active={palette.visible !== false}
-        onclick={() => toggleFloatingPalette(palette.id)}
-        role="menuitemcheckbox"
-        aria-checked={palette.visible !== false}
-        title={palette.name}
-      >
-        <span>{palette.name}</span>
-        <span class="palette-menu-state">{palette.visible !== false ? 'On' : 'Off'}</span>
-      </button>
-    {/each}
-
-    <button class="palette-menu-add" onclick={handleAddFloatingPalette} role="menuitem" title="Add floating palette">
-      <span class="palette-add-icon">+</span>
-      <span>Add palette</span>
-    </button>
-  </div>
-{/if}
 
 <style>
   .color-palette {
@@ -343,95 +276,6 @@
     position: relative;
     flex: 1;
     z-index: 1;
-  }
-
-  .palette-select {
-    appearance: none;
-    width: 100%;
-    height: 30px;
-    padding: 0 0.45rem 0 0.55rem;
-    font-size: 0.75rem;
-    font-weight: 500;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 4px;
-    background: rgba(255, 255, 255, 0.05);
-    color: rgba(255, 255, 255, 0.7);
-    cursor: pointer;
-    transition: all 0.15s ease;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.18);
-  }
-
-  .palette-select:hover,
-  .palette-select.open {
-    background: rgba(255, 255, 255, 0.1);
-    border-color: rgba(255, 255, 255, 0.2);
-    color: rgba(255, 255, 255, 0.9);
-  }
-
-  .palette-select:active {
-    background: rgba(255, 255, 255, 0.15);
-  }
-
-  .palette-toggle-icon {
-    display: inline-block;
-    margin-left: 0.25rem;
-    font-size: 0.85rem;
-    line-height: 1;
-  }
-
-  .palette-menu {
-    position: fixed;
-    z-index: 10000;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    padding: 4px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 6px;
-    background: color-mix(in srgb, var(--bg-secondary) 94%, black);
-    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.38);
-    pointer-events: auto;
-  }
-
-  .palette-menu-item,
-  .palette-menu-add {
-    min-height: 28px;
-    padding: 0 8px;
-    border: 0;
-    border-radius: 4px;
-    background: transparent;
-    color: rgba(255, 255, 255, 0.72);
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    font-size: 0.75rem;
-  }
-
-  .palette-menu-item:hover,
-  .palette-menu-add:hover {
-    background: rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.92);
-  }
-
-  .palette-menu-item.active {
-    color: var(--accent-primary);
-  }
-
-  .palette-menu-state {
-    font-size: 0.68rem;
-    color: rgba(255, 255, 255, 0.46);
-  }
-
-  .palette-menu-add {
-    justify-content: flex-start;
-    color: var(--accent-primary);
   }
 
   .palette-add-icon {

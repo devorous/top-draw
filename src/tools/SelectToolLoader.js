@@ -17,6 +17,26 @@ export class SelectToolLoader extends Tool {
     this.realTool = null;
     this.loadingPromise = null;
     this._patternMode = false; // Store pattern mode even before real tool loads
+    this._copyAllLayers = false; // Same, for the layer mode toggle
+  }
+
+  /**
+   * Gets the all-layers copy/cut mode.
+   * @returns {boolean}
+   */
+  get copyAllLayers() {
+    return this.realTool ? this.realTool.copyAllLayers : this._copyAllLayers;
+  }
+
+  /**
+   * Sets the all-layers copy/cut mode.
+   * @param {boolean} value
+   */
+  set copyAllLayers(value) {
+    this._copyAllLayers = !!value;
+    if (this.realTool) {
+      this.realTool.copyAllLayers = !!value;
+    }
   }
 
   /**
@@ -58,6 +78,8 @@ export class SelectToolLoader extends Tool {
         if (this._patternMode !== undefined) {
           this.realTool.patternMode = this._patternMode;
         }
+        // Layer mode may have been toggled before the tool finished loading.
+        this.realTool.copyAllLayers = this._copyAllLayers;
         this.loadingPromise = null;
         return this.realTool;
       })
@@ -300,8 +322,11 @@ export class SelectToolLoader extends Tool {
    * @param {boolean} [value]
    */
   toggleCopyAllLayers(value) {
+    // Read through the getter: the real tool's flag is also written directly
+    // elsewhere (paste setup), so the cached copy can be stale.
+    this._copyAllLayers = value !== undefined ? !!value : !this.copyAllLayers;
     if (this.realTool) {
-      this.realTool.toggleCopyAllLayers(value);
+      this.realTool.toggleCopyAllLayers(this._copyAllLayers);
     }
   }
 

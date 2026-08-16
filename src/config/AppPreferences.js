@@ -1,8 +1,9 @@
 import { getDefaultKeybindings, KEYBIND_ACTIONS_BY_ID } from '../input/keybinds/KeybindRegistry.js';
 import { normalizeBinding } from '../input/keybinds/KeybindMatcher.js';
+import { sanitizeRightClickActions } from './rightClickActions.js';
 
 export const APP_PREFERENCES_STORAGE_KEY = 'topDrawAppPreferences';
-const APP_PREFERENCES_VERSION = 13;
+const APP_PREFERENCES_VERSION = 14;
 const SIDEBAR_SIDES = new Set(['left', 'right']);
 // The 3 base colors from which all theme CSS variables are derived.
 // Empty string means "use the CSS default".
@@ -42,6 +43,8 @@ export function createDefaultAppPreferences() {
       showFloatingArt: true,
       galleryTimelapseEnabled: true,
       chatOpacity: 0.95,
+      // Tool name -> right-click action id; only non-default choices are stored.
+      rightClickActions: {},
       sfx: { ...DEFAULT_SFX_PREFERENCES },
       replay: { ...DEFAULT_REPLAY_PREFERENCES }
     },
@@ -248,6 +251,7 @@ function sanitizePreferences(rawPreferences) {
         ? !!parsed.general.galleryTimelapseEnabled
         : true,
       chatOpacity: sanitizeChatOpacity(parsed.general?.chatOpacity),
+      rightClickActions: sanitizeRightClickActions(parsed.general?.rightClickActions),
       sfx: sanitizeSfx(migratedSfx),
       replay: sanitizeReplay(parsed.general?.replay)
     },

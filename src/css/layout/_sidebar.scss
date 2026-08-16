@@ -715,136 +715,14 @@ html[data-mobile='true'] {
   background: var(--bg-elevated);
 }
 
+/* Font / Cursor / Right-click pickers.
+   The controls themselves are the shared Dropdown (see components/_dropdown.scss);
+   only the wrapper spacing lives here. */
 #font-container,
-#cursor-style-container {
+#cursor-style-container,
+#right-click-action-container {
   .fontSelectWrap {
-    position: relative;
-
-    &::after {
-      content: '';
-      position: absolute;
-      top: 50%;
-      right: 12px;
-      width: 8px;
-      height: 8px;
-      padding-top: 10px;
-      border-right: 2px solid color-mix(in srgb, var(--accent-primary), white 18%);
-      border-bottom: 2px solid color-mix(in srgb, var(--accent-primary), white 18%);
-      transform: translateY(-70%) rotate(45deg);
-      pointer-events: none;
-      opacity: 0.9;
-    }
-  }
-
-  #cursor-style-container .fontSelectWrap::after {
-    right: 11px;
-    width: 4px;
-    height: 4px;
-    padding-top: 0;
-    border-right-width: 1px;
-    border-bottom-width: 1px;
-    transform: translateY(-50%) rotate(45deg);
-  }
-
-  #font-select,
-  #cursorStyleSelect {
-    width: 100%;
-    appearance: none;
-    padding: 10px 38px 10px 12px;
-    margin-top: 9px;
-    border: 1px solid color-mix(in srgb, var(--accent-primary), transparent 72%);
-    border-radius: 10px;
-    background:
-      linear-gradient(135deg,
-        color-mix(in srgb, var(--bg-secondary), var(--accent-primary) 10%),
-        color-mix(in srgb, var(--bg-elevated), var(--accent-primary) 18%)
-      );
-    box-shadow:
-      inset 0 1px 0 color-mix(in srgb, white, transparent 90%),
-      0 8px 18px color-mix(in srgb, black, transparent 85%);
-    color: var(--text-primary);
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    cursor: pointer;
-    outline: none;
-    transition:
-      border-color var(--transition-fast),
-      box-shadow var(--transition-fast),
-      transform var(--transition-fast),
-      background var(--transition-fast);
-  }
-
-  #cursorStyleSelect {
-    width: auto;
-    min-width: 132px;
-    max-width: 170px;
-    padding: 7px 22px 7px 10px;
     margin-top: 7px;
-    background: var(--bg-secondary);
-    box-shadow: none;
-    font-size: 11px;
-    letter-spacing: 0.02em;
-  }
-
-  #cursorStyleSelect:hover {
-    box-shadow: none;
-    background: var(--bg-secondary);
-  }
-
-  #font-select:hover,
-  #cursorStyleSelect:hover {
-    border-color: color-mix(in srgb, var(--accent-primary), transparent 38%);
-    box-shadow:
-      inset 0 1px 0 color-mix(in srgb, white, transparent 86%),
-      0 10px 22px color-mix(in srgb, var(--accent-primary), transparent 82%);
-  }
-
-  #font-select:focus,
-  #cursorStyleSelect:focus {
-    border-color: var(--accent-primary);
-    background:
-      linear-gradient(135deg,
-        color-mix(in srgb, var(--bg-elevated), var(--accent-primary) 18%),
-        color-mix(in srgb, var(--bg-secondary), var(--accent-primary) 30%)
-      );
-    box-shadow:
-      0 0 0 2px color-mix(in srgb, var(--accent-primary), transparent 72%),
-      0 12px 24px color-mix(in srgb, var(--accent-primary), transparent 80%);
-  }
-
-  #cursorStyleSelect:focus {
-    background: var(--bg-secondary);
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-primary), transparent 72%);
-  }
-
-  #cursor-style-container #cursorStyleSelect {
-    width: auto;
-    min-width: 132px;
-    max-width: 170px;
-    padding: 7px 22px 7px 10px;
-    margin-top: 7px;
-    background: var(--bg-secondary);
-    box-shadow: none;
-    font-size: 11px;
-    letter-spacing: 0.02em;
-  }
-
-  #cursor-style-container #cursorStyleSelect:hover {
-    background: var(--bg-secondary);
-    box-shadow: none;
-  }
-
-  #cursor-style-container #cursorStyleSelect:focus {
-    background: var(--bg-secondary);
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-primary), transparent 72%);
-  }
-
-  #font-select option,
-  #cursorStyleSelect option {
-    background: var(--bg-secondary);
-    color: var(--text-primary);
-    font-weight: 600;
   }
 }
 
