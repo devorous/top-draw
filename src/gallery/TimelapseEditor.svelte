@@ -10,6 +10,7 @@
    */
   import { onDestroy } from 'svelte';
   import { loadClip, reencodeClip, clampCrop, MIN_CROP_PX } from './timelapseReencode.js';
+  import ReplayTimeline from '../timebar/ReplayTimeline.svelte';
 
   let { item, apiBase = '', token, onSaved, onRemoved, onClose } = $props();
 
@@ -25,11 +26,14 @@
   let crop = $state(null);            // source-video px; null = full frame
   let trimStart = $state(0);
   let trimEnd = $state(0);
+  let playhead = $state(0);           // preview position, seconds
 
   let clip = null;                    // { video, duration, release }
   let videoHost = $state(null);
   let cropSurface = $state(null);
   let drag = null;
+  let rafId = 0;
+  let scrubbing = false;              // playhead drag owns the video position
 
   const HANDLES = ['tl', 'tr', 'bl', 'br'];
   const HANDLE_GRAB_PX = 16;          // hit radius in CSS px
@@ -65,12 +69,13 @@
       duration = clip.duration;
       trimStart = 0;
       trimEnd = duration;
+      playhead = 0;
       clip.video.loop = false;
-      // `timeupdate` alone can miss the last beat of a clip, so `ended` backs
-      // the loop up — otherwise a preview stops dead on its final frame.
-      clip.video.addEventListener('timeupdate', enforceTrimLoop);
-      clip.video.addEventListener('ended', playPreview);
       stage = 'ready';
+      // `timeupdate` fires ~4Hz and can miss the last beat of a clip, so the
+      // preview is driven from rAF instead: it reads the playhead every frame
+      // and wraps it at the trim brackets.
+      rafId = requestAnimationFrame(tick);
       playPreview();
     } catch (err) {
       stage = 'failed';
@@ -78,28 +83,38 @@
     }
   }
 
-  /** Loop the preview inside the trim brackets instead of over the whole clip. */
-  function enforceTrimLoop() {
+  function tick() {
+    rafId = requestAnimationFrame(tick);
     const v = clip?.video;
-    if (!v || stage === 'working') return;
-    if (v.currentTime >= trimEnd - 0.02 || v.currentTime < trimStart - 0.05) {
-      v.currentTime = trimStart;
+    if (!v || stage === 'working' || scrubbing) return;
+    playhead = v.currentTime;
+    // Loop inside the trim brackets instead of over the whole clip.
+    if (playhead >= trimEnd - 0.02 || playhead < trimStart - 0.05) {
+      seek(trimStart);
       if (v.paused) v.play().catch(() => {});
     }
+  }
+
+  /** Move the preview without disturbing playback state. */
+  function seek(t) {
+    const v = clip?.video;
+    if (!v) return;
+    const clamped = clamp(t, 0, duration);
+    try { v.currentTime = clamped; } catch { /* not seekable yet */ }
+    playhead = clamped;
   }
 
   function playPreview() {
     const v = clip?.video;
     if (!v || stage === 'working') return; // the render loop owns the playhead
-    try { v.currentTime = trimStart; } catch { /* not seekable yet */ }
+    if (v.currentTime < trimStart || v.currentTime >= trimEnd) seek(trimStart);
     v.play().catch(() => {});
   }
 
   onDestroy(() => {
+    if (rafId) cancelAnimationFrame(rafId);
     const v = clip?.video;
     if (v) {
-      v.removeEventListener('timeupdate', enforceTrimLoop);
-      v.removeEventListener('ended', playPreview);
       v.pause();
       v.remove();
     }
@@ -224,18 +239,43 @@
     crop = null;
   }
 
-  // ---- trim -------------------------------------------------------------
+  // ---- trim / scrub -----------------------------------------------------
+  // ReplayTimeline is the same multi-thumb control the replay pipeline uses; it
+  // talks in milliseconds, so everything crossing the boundary is scaled by 1000.
 
-  function onTrimStart(e) {
-    const v = Number(e.currentTarget.value);
-    trimStart = Math.min(v, trimEnd - 0.5);
+  function onTrimChange(startMs, endMs) {
+    const nextStart = startMs / 1000;
+    const nextEnd = endMs / 1000;
+    // Dragging an edge parks the preview on that frame so you can see what
+    // you're cutting to — it must never restart the clip from the top.
+    const edge = Math.abs(nextStart - trimStart) > Math.abs(nextEnd - trimEnd)
+      ? nextStart
+      : Math.max(nextStart, nextEnd - 0.05);
+    trimStart = nextStart;
+    trimEnd = nextEnd;
+    clip?.video?.pause();
+    scrubbing = true;
+    seek(edge);
+  }
+
+  /** Trim drags and playhead drags both end here: resume inside the brackets. */
+  function resumePreview() {
+    scrubbing = false;
     playPreview();
   }
 
-  function onTrimEnd(e) {
-    const v = Number(e.currentTarget.value);
-    trimEnd = Math.max(v, trimStart + 0.5);
-    playPreview();
+  function onScrubStart() {
+    scrubbing = true;
+    clip?.video?.pause();
+  }
+
+  function onScrub(ms) {
+    seek(ms / 1000);
+  }
+
+  function onScrubEnd(ms) {
+    seek(ms / 1000);
+    resumePreview();
   }
 
   // ---- save / remove ----------------------------------------------------
@@ -350,21 +390,27 @@
       </div>
 
       <p class="tle-hint">
-        Drag on the clip to crop it, or drag inside the box to move it. Edits work on the
-        published clip, so a crop can only tighten the frame.
+        Drag on the clip to crop it, or drag inside the box to move it. Drag the flags above
+        the timeline to trim, the track itself to scrub. Edits work on the published clip, so a
+        crop can only tighten the frame.
       </p>
 
       <div class="tle-trim">
-        <label>
-          <span>Start</span>
-          <input type="range" min="0" max={duration} step="0.1" value={trimStart} oninput={onTrimStart} disabled={stage === 'working'}>
-        </label>
-        <label>
-          <span>End</span>
-          <input type="range" min="0" max={duration} step="0.1" value={trimEnd} oninput={onTrimEnd} disabled={stage === 'working'}>
-        </label>
-        <span class="tle-readout">{outputLabel}</span>
+        <ReplayTimeline
+          min={0}
+          max={duration * 1000}
+          value={playhead * 1000}
+          trimStart={trimStart * 1000}
+          trimEnd={trimEnd * 1000}
+          trimmed={trimStart > 0.001 || trimEnd < duration - 0.001}
+          {onScrubStart}
+          {onScrub}
+          {onScrubEnd}
+          {onTrimChange}
+          onTrimCommit={resumePreview}
+        />
       </div>
+      <span class="tle-readout">{outputLabel}</span>
 
       {#if errorMessage}
         <p class="tle-error">{errorMessage}</p>
@@ -482,21 +528,17 @@
     color: var(--text-dim, rgba(255, 255, 255, 0.45));
   }
 
+  /* ReplayTimeline sizes itself with `flex: 1`, so its row must be a flex box. */
   .tle-trim {
-    display: grid;
-    grid-template-columns: auto 1fr;
+    display: flex;
     align-items: center;
-    gap: 0.4rem 0.75rem;
     margin-top: 0.9rem;
+    /* The timeline paints trim flags and a tooltip bubble above the track. */
+    padding-top: 0.6rem;
+    --accent-primary: var(--accent, #00d4aa);
   }
-  .tle-trim label {
-    display: contents;
-    font-size: 0.78rem;
-    color: var(--text-dim, rgba(255, 255, 255, 0.45));
-  }
-  .tle-trim input { width: 100%; accent-color: var(--accent, #00d4aa); }
   .tle-readout {
-    grid-column: 1 / -1;
+    display: block;
     font-size: 0.75rem;
     color: var(--text-dim, rgba(255, 255, 255, 0.45));
   }

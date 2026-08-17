@@ -15,6 +15,7 @@
     onScrub = null,       // (timestamp) => void
     onScrubEnd = null,    // (timestamp) => void
     onTrimChange = null,  // (start, end) => void — parent normalizes/collapses
+    onTrimCommit = null,  // () => void — a trim edge was released/settled
   } = $props();
 
   let containerElement = $state(null);
@@ -97,6 +98,7 @@
       onScrubEnd?.(t);
     } else {
       applyDrag(t);
+      onTrimCommit?.();
     }
     dragging = null;
     containerElement?.releasePointerCapture?.(event.pointerId);
@@ -107,6 +109,8 @@
     const grabbed = hitTest(event.clientX, event.clientY);
     if (grabbed === 'start') onTrimChange?.(min, trimEnd);
     else if (grabbed === 'end') onTrimChange?.(trimStart, max);
+    else return;
+    onTrimCommit?.();
   }
 
   function handlePlayheadKey(event) {
@@ -132,6 +136,7 @@
     } else {
       onTrimChange?.(trimStart, Math.max(trimEnd + dir * step, trimStart + minGap));
     }
+    onTrimCommit?.();
   }
 
   const bubblePct = $derived(toPercent(dragTime));

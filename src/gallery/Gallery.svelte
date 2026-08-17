@@ -1,5 +1,5 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { ProfileDialog } from '../ui/ProfileDialog.js';
   import TimelapseEditor from './TimelapseEditor.svelte';
 
@@ -8,6 +8,7 @@
 
   const TOKEN_KEY = 'topDrawAuthToken';
   const USERNAME_KEY = 'topDrawUsername';
+  const REMEMBER_ME_KEY = 'topDrawRememberMe'; // shared with the app's Auth.js
   const LAYOUT_KEY = 'topDrawGalleryLayout';
   const HOLY_ROLE = 8;
   const BOARD_COMMENT_PREVIEW = 4;
@@ -169,9 +170,55 @@
   let showAuthModal = $state(false);
   let authMode = $state('login'); // 'login' | 'register'
   let authForm = $state({ username: '', password: '', email: '' });
+  let discordEnabled = $state(false);
+  let discordPopupPoll = null;
+  let rememberMe = $state(getRememberMe());
+
+  // "Stay logged in" decides *where* the token lives: localStorage survives the
+  // browser closing, sessionStorage dies with the tab. Reads check session
+  // first so a tab-scoped login wins over a stale persisted one.
+  function getRememberMe() {
+    try {
+      // Unset means "yes" — the gallery persisted logins before this existed.
+      return localStorage.getItem(REMEMBER_ME_KEY) !== 'false';
+    } catch {
+      return true;
+    }
+  }
+
+  function readToken() {
+    try {
+      return sessionStorage.getItem(TOKEN_KEY) || localStorage.getItem(TOKEN_KEY);
+    } catch {
+      return null;
+    }
+  }
+
+  function writeToken(token, username) {
+    const [store, other] = rememberMe
+      ? [localStorage, sessionStorage]
+      : [sessionStorage, localStorage];
+    try {
+      store.setItem(TOKEN_KEY, token);
+      store.setItem(USERNAME_KEY, username);
+      // Drop the copy in the other store so the two can never disagree.
+      other.removeItem(TOKEN_KEY);
+      other.removeItem(USERNAME_KEY);
+      localStorage.setItem(REMEMBER_ME_KEY, rememberMe ? 'true' : 'false');
+    } catch { /* private mode — the session just won't persist */ }
+  }
+
+  function clearToken() {
+    for (const store of [localStorage, sessionStorage]) {
+      try {
+        store.removeItem(TOKEN_KEY);
+        store.removeItem(USERNAME_KEY);
+      } catch { /* ignore */ }
+    }
+  }
 
   function authHeaders(extra = {}) {
-    const token = localStorage.getItem(TOKEN_KEY);
+    const token = readToken();
     return {
       ...extra,
       ...(token ? { 'Authorization': `Bearer ${token}` } : {})
@@ -415,7 +462,7 @@
   }
 
   async function fetchFavorites() {
-    const token = localStorage.getItem(TOKEN_KEY);
+    const token = readToken();
     if (!token) return;
 
     loading = true;
@@ -455,7 +502,7 @@
   }
 
   async function fetchLikedImages() {
-    const token = localStorage.getItem(TOKEN_KEY);
+    const token = readToken();
     if (!token) return;
 
     loading = true;
@@ -522,7 +569,7 @@
   }
 
   async function toggleFavorite(item) {
-    const token = localStorage.getItem(TOKEN_KEY);
+    const token = readToken();
     if (!token || !user) return;
 
     const wasFavorited = favoritedIds.has(item.id);
@@ -575,7 +622,7 @@
   }
 
   async function checkFavorite(id) {
-    const token = localStorage.getItem(TOKEN_KEY);
+    const token = readToken();
     if (!token) return;
 
     try {
@@ -607,7 +654,7 @@
 
   async function submitComment() {
     if (!lightbox || !newComment.trim() || commentSubmitting) return;
-    const token = localStorage.getItem(TOKEN_KEY);
+    const token = readToken();
     if (!token) return;
 
     commentSubmitting = true;
@@ -642,7 +689,7 @@
 
   async function saveCommentEdit(commentId) {
     await checkAuth();
-    const token = localStorage.getItem(TOKEN_KEY);
+    const token = readToken();
     const nextText = editingCommentText.trim();
     const comment = comments.find((entry) => entry.id === commentId);
     if (!token || !comment || !canEditComment(comment) || !nextText || commentActionBusy) return;
@@ -677,7 +724,7 @@
     const comment = comments.find((entry) => entry.id === commentId);
     if (!comment || !canDeleteComment(comment) || commentActionBusy) return;
 
-    const token = localStorage.getItem(TOKEN_KEY);
+    const token = readToken();
     if (!token) return;
 
     commentActionBusy = true;
@@ -726,7 +773,7 @@
     });
     if (!confirmed) return;
 
-    const token = localStorage.getItem(TOKEN_KEY);
+    const token = readToken();
     if (!token) return;
 
     try {
@@ -822,7 +869,7 @@
   async function saveTags() {
     await checkAuth();
     if (!lightbox || !canEditTags(lightbox) || tagSaving) return;
-    const token = localStorage.getItem(TOKEN_KEY);
+    const token = readToken();
     if (!token) return;
 
     tagSaving = true;
@@ -867,7 +914,7 @@
     });
     if (!confirmed) return;
 
-    const token = localStorage.getItem(TOKEN_KEY);
+    const token = readToken();
     if (!token) return;
 
     try {
@@ -890,7 +937,7 @@
   }
 
   async function checkAuth() {
-    const token = localStorage.getItem(TOKEN_KEY);
+    const token = readToken();
     if (!token) {
       user = null;
       return null;
@@ -909,8 +956,7 @@
         }
       } else {
         // Token invalid, clear it
-        localStorage.removeItem(TOKEN_KEY);
-        localStorage.removeItem(USERNAME_KEY);
+        clearToken();
         user = null;
       }
     } catch {}
@@ -937,8 +983,7 @@
       const data = await res.json();
 
       if (data.success) {
-        localStorage.setItem(TOKEN_KEY, data.token);
-        localStorage.setItem(USERNAME_KEY, data.username);
+        writeToken(data.token, data.username);
         user = { username: data.username, role: data.role, userId: data.userId };
         likedIds = new Set(Array.isArray(data.likedGalleryIds) ? data.likedGalleryIds : []);
         closeAuthModal();
@@ -950,6 +995,91 @@
     } finally {
       authLoading = false;
     }
+  }
+
+  // ---- Discord OAuth ----------------------------------------------------
+  // Mirrors the messenger's popup flow: /start hands back an authorize URL, the
+  // callback page posts `ddraw:discord-auth` back to this window.
+
+  async function loadDiscordConfig() {
+    try {
+      const res = await fetch(`${API_BASE}/api/discord/config`, { cache: 'no-store' });
+      if (!res.ok) return;
+      const config = await res.json();
+      discordEnabled = !!config.oauthEnabled;
+    } catch {
+      // Silent fail — the Discord button just stays hidden
+    }
+  }
+
+  async function startDiscordOAuth() {
+    if (authLoading) return;
+    authError = null;
+    authLoading = true;
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/discord/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'login' })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.url) {
+        throw new Error(data.error || 'Discord login failed to start');
+      }
+
+      const popup = window.open(
+        data.url,
+        'ddrawDiscordOAuth',
+        'popup=yes,width=520,height=720,menubar=no,toolbar=no,location=yes,status=no,scrollbars=yes,resizable=yes'
+      );
+
+      // Popup blocked — fall back to a full-page redirect. The OAuth callback
+      // is hardcoded to return to /go/, so this lands the user in the drawing
+      // app (logged in) rather than back here. Same as the messenger does.
+      if (!popup) {
+        window.location.href = data.url;
+        return;
+      }
+
+      if (discordPopupPoll) clearInterval(discordPopupPoll);
+      discordPopupPoll = window.setInterval(() => {
+        if (!popup.closed) return;
+        clearInterval(discordPopupPoll);
+        discordPopupPoll = null;
+        authLoading = false;
+      }, 500);
+    } catch (err) {
+      authError = err.message || 'Discord login failed';
+      authLoading = false;
+    }
+  }
+
+  function handleDiscordMessage(event) {
+    if (event.origin !== window.location.origin) return;
+    const payload = event.data;
+    if (!payload || payload.type !== 'ddraw:discord-auth') return;
+    applyDiscordAuth(payload);
+  }
+
+  async function applyDiscordAuth(payload) {
+    authLoading = false;
+    if (discordPopupPoll) {
+      clearInterval(discordPopupPoll);
+      discordPopupPoll = null;
+    }
+
+    if (payload.status !== 'success' || !payload.token || !payload.username) {
+      authError = payload.error || 'Discord login failed';
+      showAuthModal = true;
+      return;
+    }
+
+    writeToken(payload.token, payload.username);
+    // The payload carries no role/userId, and the gallery gates edit, delete and
+    // moderation on both — so resolve the real account off /api/auth/me rather
+    // than guessing, which also refreshes likedIds.
+    await checkAuth();
+    closeAuthModal();
   }
 
   async function handleRegister() {
@@ -975,8 +1105,7 @@
       const data = await res.json();
 
       if (data.success) {
-        localStorage.setItem(TOKEN_KEY, data.token);
-        localStorage.setItem(USERNAME_KEY, data.username);
+        writeToken(data.token, data.username);
         user = { username: data.username, role: data.role, userId: data.userId };
         likedIds = new Set(Array.isArray(data.likedGalleryIds) ? data.likedGalleryIds : []);
         closeAuthModal();
@@ -991,8 +1120,7 @@
   }
 
   function logout() {
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(USERNAME_KEY);
+    clearToken();
     user = null;
     likedIds = new Set();
     showLiked = false;
@@ -1032,7 +1160,7 @@
   }
 
   async function like(item) {
-    const token = localStorage.getItem(TOKEN_KEY);
+    const token = readToken();
     if (!token || !user) {
       openAuthModal('login');
       return;
@@ -1254,11 +1382,18 @@
   onMount(() => {
     layout = initialLayoutFromEnv();
     checkAuth();
+    loadDiscordConfig();
+    window.addEventListener('message', handleDiscordMessage);
     checkUrlParams();
     fetchGallery();
     fetchSidebar();
     // Tag widths are measured with a canvas; re-measure once Inter is actually loaded.
     document.fonts?.ready.then(() => { tagFontVersion++; });
+  });
+
+  onDestroy(() => {
+    window.removeEventListener('message', handleDiscordMessage);
+    if (discordPopupPoll) clearInterval(discordPopupPoll);
   });
 </script>
 
@@ -1713,8 +1848,8 @@
             </button>
             <button class="btn-ghost small" onclick={() => downloadImage(lightbox.url, `${lightbox.title || lightbox.id}.png`)}>Download</button>
             {#if canEditTimelapse(lightbox)}
-              <button class="btn-ghost small" onclick={() => timelapseEditorOpen = true} title="Re-crop or trim the time-lapse">Edit lapse</button>
-              <button class="btn-ghost small" onclick={() => removeTimelapse(lightbox)} title="Remove the time-lapse">Remove lapse</button>
+              <button class="btn-ghost small" onclick={() => timelapseEditorOpen = true} title="Re-crop or trim the timelapse">Edit timelapse</button>
+              <button class="btn-ghost small" onclick={() => removeTimelapse(lightbox)} title="Remove the timelapse">Remove timelapse</button>
             {/if}
             {#if canDeleteImage(lightbox)}
               <button class="btn-danger small" onclick={() => deleteImage(lightbox)}>Delete</button>
@@ -1815,7 +1950,7 @@
   <TimelapseEditor
     item={lightbox}
     apiBase={API_BASE}
-    token={localStorage.getItem(TOKEN_KEY)}
+    token={readToken()}
     onSaved={(animatedUrl) => applyTimelapseChange(animatedUrl)}
     onRemoved={() => applyTimelapseChange(null)}
     onClose={() => timelapseEditorOpen = false}
@@ -1829,6 +1964,14 @@
     <div class="modal" role="dialog" aria-modal="true" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
       <button class="modal-close" onclick={closeAuthModal}>×</button>
       <h2>{authMode === 'login' ? 'Login' : 'Register'}</h2>
+
+      {#if discordEnabled}
+        <button type="button" class="btn-discord" onclick={startDiscordOAuth} disabled={authLoading}>
+          <svg width="18" height="18" viewBox="0 0 127.14 96.36" aria-hidden="true"><path fill="currentColor" d="M107.7,8.07A105.15,105.15,0,0,0,81.47,0a72.06,72.06,0,0,0-3.36,6.83A97.68,97.68,0,0,0,49,6.83,72.37,72.37,0,0,0,45.64,0,105.89,105.89,0,0,0,19.39,8.09C2.79,32.65-1.71,56.6.54,80.21h0A105.73,105.73,0,0,0,32.71,96.36,77.7,77.7,0,0,0,39.6,85.25a68.42,68.42,0,0,1-10.85-5.18c.91-.66,1.8-1.34,2.66-2a75.57,75.57,0,0,0,64.32,0c.87.71,1.76,1.39,2.66,2a68.68,68.68,0,0,1-10.87,5.19,77,77,0,0,0,6.89,11.1A105.25,105.25,0,0,0,126.6,80.22h0C129.24,52.84,122.09,29.11,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60,31,53s5-12.74,11.43-12.74S54,46,53.89,53,48.84,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.25,60,73.25,53s5-12.74,11.44-12.74S96.23,46,96.12,53,91.08,65.69,84.69,65.69Z"/></svg>
+          Continue with Discord
+        </button>
+        <div class="auth-divider"><span>or</span></div>
+      {/if}
 
       <form onsubmit={(e) => { e.preventDefault(); authMode === 'login' ? handleLogin() : handleRegister(); }}>
         <label>
@@ -1845,6 +1988,11 @@
             <input type="email" bind:value={authForm.email} autocomplete="email" />
           </label>
         {/if}
+
+        <label class="auth-remember">
+          <input type="checkbox" bind:checked={rememberMe} />
+          <span>Stay logged in (30 days)</span>
+        </label>
 
         {#if authError}
           <p class="auth-error">{authError}</p>
@@ -3172,6 +3320,21 @@
     border-color: var(--accent);
   }
 
+  /* Overrides the column-flex `.modal label` / padded `.modal input` defaults. */
+  .modal label.auth-remember {
+    flex-direction: row;
+    align-items: center;
+    gap: 0.55rem;
+    cursor: pointer;
+    user-select: none;
+  }
+  .modal .auth-remember input {
+    width: auto;
+    padding: 0;
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+
   .auth-error {
     color: #e07070;
     font-size: 0.82rem;
@@ -3182,6 +3345,43 @@
     font-size: 0.82rem;
     color: var(--text-dim);
     text-align: center;
+  }
+
+  .btn-discord {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.6rem;
+    width: 100%;
+    margin-top: 1.25rem;
+    padding: 0.7rem;
+    background: #5865f2;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.2s;
+  }
+  .btn-discord:hover:not(:disabled) { opacity: 0.9; }
+  .btn-discord:disabled { opacity: 0.6; cursor: not-allowed; }
+
+  .auth-divider {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin: 1rem 0;
+    color: var(--text-dim);
+    font-size: 0.78rem;
+  }
+  .auth-divider::before,
+  .auth-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
   }
 
   /* ── View toggle (icon buttons) ── */
