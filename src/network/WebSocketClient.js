@@ -988,6 +988,7 @@ export class WebSocketClient {
           hasDiscord: !!u.hdsc,
           selectedBadge: u.bdg || '',
           isSupporter: !!u.sup,
+          countryCode: u.ctry || '',
           visibleIp: u.vip || ''
         }));
         this.emit('users', { users });
@@ -1346,7 +1347,8 @@ export class WebSocketClient {
           lassoPath,
           imageData: data.g || null,
           allLayers: !!data.a,
-          extendedWarp: !!data.sel_extended_warp,
+          extendedWarp: !!data.selExtendedWarp,
+          mirrored: !!data.m,
           // The lift commits a destination-out erase of the source area on every
           // client. It needs its OWN seq so the later stamp (which carries
           // SEL_COMMIT's, necessarily higher) sorts above it — see the pairing
@@ -1368,12 +1370,12 @@ export class WebSocketClient {
           sourceCrop: data.cb && data.cb.length === 4
             ? { x: data.cb[0], y: data.cb[1], width: data.cb[2], height: data.cb[3] }
             : null,
-          extendedWarp: !!data.sel_extended_warp
+          extendedWarp: !!data.selExtendedWarp
         });
         break;
 
       case T.SEL_COMMIT:
-        this.emit('sel_commit', { sessionIndex: data.u, layerIndex: data.ly, seq: data.seq, extendedWarp: !!data.sel_extended_warp });
+        this.emit('sel_commit', { sessionIndex: data.u, layerIndex: data.ly, seq: data.seq, extendedWarp: !!data.selExtendedWarp, mirrored: !!data.m });
         break;
 
       case T.SEL_PENDING: {
@@ -1418,13 +1420,14 @@ export class WebSocketClient {
           layerIndex: data.ly ?? 0,
           rect: data.sw ? { x: data.sx || 0, y: data.sy || 0, width: data.sw, height: data.sh || 0 } : null,
           lassoPath: fillLassoPath,
-          seq: data.seq
+          seq: data.seq,
+          mirrored: !!data.m
         });
         break;
       }
 
       case T.SEL_STAMP:
-        this.emit('sel_stamp', { sessionIndex: data.u, layerIndex: data.ly, seq: data.seq, extendedWarp: !!data.sel_extended_warp });
+        this.emit('sel_stamp', { sessionIndex: data.u, layerIndex: data.ly, seq: data.seq, extendedWarp: !!data.selExtendedWarp, mirrored: !!data.m });
         break;
 
       case T.SEL_MERGE:
@@ -2406,9 +2409,12 @@ export class WebSocketClient {
    * @param {boolean} [extendedWarp=false] - Let folded corner-warps for this
    *   selection spill beyond the corner bbox instead of clipping. Must travel
    *   with the lift so every client rasterizes the same commit pixels.
+   * @param {boolean} [mirrored=false] - Full-board mirror state at lift time. The
+   *   lift erases the source area AND every mirrored counterpart, so receivers
+   *   need it for the same reason SEL_DELETE carries it.
    * @returns {void}
    */
-  broadcastSelectionLift(rect, lassoPath = null, imageData = null, allLayers = false, extendedWarp = false) {
+  broadcastSelectionLift(rect, lassoPath = null, imageData = null, allLayers = false, extendedWarp = false, mirrored = false) {
     const msg = {
       t: T.SEL_LIFT,
       sx: Math.round(rect.x),
@@ -2424,7 +2430,8 @@ export class WebSocketClient {
     // layer group. `imageData` is the flattened composite, so a receiver has no
     // way to infer that the source spanned more than the sender's active layer.
     if (allLayers) msg.a = true;
-    if (extendedWarp) msg.sel_extended_warp = true;
+    if (extendedWarp) msg.selExtendedWarp = true;
+    if (mirrored) msg.m = true;
     if (imageData) {
       msg.g = imageData;
     }
@@ -2498,7 +2505,7 @@ export class WebSocketClient {
         corners.bl.x, corners.bl.y
       ]
     };
-    if (extendedWarp) msg.sel_extended_warp = true;
+    if (extendedWarp) msg.selExtendedWarp = true;
 
     if (sourceCrop) {
       msg.cb = [
@@ -2528,10 +2535,12 @@ export class WebSocketClient {
    *   toggled mid-selection) — the value that actually decided this bake.
    * @returns {void}
    */
-  broadcastSelectionCommit(layerIndex, extendedWarp = false) {
+  broadcastSelectionCommit(layerIndex, extendedWarp = false, mirrored = false) {
     const msg = { t: T.SEL_COMMIT };
     if (layerIndex !== undefined) msg.ly = layerIndex;
-    if (extendedWarp) msg.sel_extended_warp = true;
+    if (extendedWarp) msg.selExtendedWarp = true;
+    // Full-board mirror state at commit time — see broadcastSelectionDelete.
+    if (mirrored) msg.m = true;
     this.send(msg);
   }
 
@@ -2557,9 +2566,13 @@ export class WebSocketClient {
    * @param {number} [layerIndex] - Target layer index.
    * @returns {void}
    */
-  broadcastSelectionFill(color, layerIndex, rect = null, lassoPath = null) {
+  broadcastSelectionFill(color, layerIndex, rect = null, lassoPath = null, mirrored = false) {
     const msg = { t: T.SEL_FILL, c: packColor(color) };
     if (layerIndex !== undefined) msg.ly = layerIndex;
+    // Full-board mirror state at fill time — see broadcastSelectionDelete. The
+    // local fill has mirrored since long before the receiver did, so a mirrored
+    // selection fill existed only on the drawer's own screen.
+    if (mirrored) msg.m = true;
     // The lasso SHAPE must travel with the fill for the same reason the rect
     // does: it cannot be inferred by the receiver. It used to be read off
     // whatever `pendingLassoPath` / `lassoPath` the receiver happened to hold,
@@ -2591,10 +2604,12 @@ export class WebSocketClient {
    * @param {boolean} [extendedWarp=false] - See broadcastSelectionCommit.
    * @returns {void}
    */
-  broadcastSelectionStamp(layerIndex, extendedWarp = false) {
+  broadcastSelectionStamp(layerIndex, extendedWarp = false, mirrored = false) {
     const msg = { t: T.SEL_STAMP };
     if (layerIndex !== undefined) msg.ly = layerIndex;
-    if (extendedWarp) msg.sel_extended_warp = true;
+    if (extendedWarp) msg.selExtendedWarp = true;
+    // Full-board mirror state at stamp time — see broadcastSelectionDelete.
+    if (mirrored) msg.m = true;
     this.send(msg);
   }
 

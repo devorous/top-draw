@@ -259,14 +259,19 @@ export class BrushTool extends Tool {
   getPreviewDirtyRect(user) {
     const bounds = user?._brushPreviewBounds;
     if (!bounds || bounds.maxX < bounds.minX || bounds.maxY < bounds.minY) return false;
-    if (this.board.mirrorRegions?.length > 0) return null;
+    // A partial preview rect must cover the mirrored copies too, and they are
+    // nowhere near the stroke. `hasMirrors()` — NOT `mirrorRegions.length`: that
+    // missed the full-board mirror entirely, so with it on the live preview was
+    // clipped to a bbox around the unmirrored stroke and the reflected half only
+    // appeared at mouse-up (the commit path does not use this rect). null = redraw all.
+    if (this.board.hasMirrors?.()) return null;
 
     return this._boundsToPreviewRect(user, bounds.minX, bounds.minY, bounds.maxX, bounds.maxY);
   }
 
   getSegmentPreviewDirtyRect(user, from, to) {
     if (!from || !to) return this.getPreviewDirtyRect(user);
-    if (this.board.mirrorRegions?.length > 0) return null;
+    if (this.board.hasMirrors?.()) return null;
 
     const minX = Math.min(from.x, to.x);
     const minY = Math.min(from.y, to.y);

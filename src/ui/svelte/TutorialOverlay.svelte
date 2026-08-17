@@ -11,7 +11,7 @@
       section: 'Basic Tutorial',
       title: 'Tweak Your Settings',
       target: '[data-tut="perf-settings"], #appSettingsBtn',
-      text: 'Before you start drawing, you can open Settings to adjust performance, power use, controls, and app preferences for your device.',
+      text: 'Before you start drawing, you can open Settings to adjust your preferences. You can change the theme and keybinds in this menu.',
       actionTarget: '[data-tut="perf-settings"], #appSettingsBtn',
       actionLabel: 'Click Settings to review your setup, or press Next'
     },
@@ -51,7 +51,7 @@
       section: 'Basic Tutorial',
       title: 'Draw Mirror Region',
       target: '[data-tut="mirror"], #mirrorBtn',
-      text: 'Draw a region on the canvas. Mirror regions can reflect strokes horizontally, vertically, or both depending on the mode, which is useful for faces, icons, patterns, and balanced compositions.',
+      text: 'Drag to draw a mirror region on the canvas.',
       allowCanvas: true,
       actionLabel: 'The canvas is unlocked. Draw a mirror region, then press Next'
     },
@@ -93,14 +93,14 @@
       section: 'Basic Tutorial',
       title: 'User List',
       target: '[data-tut="user-list"], #userList',
-      text: 'The user list shows who is present, their activity, and rank colors for moderation context.'
+      text: 'The user list shows who is present, their activity, and rank colors.'
     },
     {
       section: 'Basic Tutorial',
       title: 'Right-Click Menu',
       target: '[data-tut="context-menu"], #userContextMenu, #selfContextMenu',
       fallbackTarget: '[data-tut="user-list"], #userList',
-      text: 'Right-click a user to open actions like profile, sync, spectate, message, and moderation tools.',
+      text: 'Right-click a user to see their profile, sync, spectate, or send a DM.',
       waitForTarget: true,
       actionLabel: 'Right-click yourself or another user, then press Next'
     },
@@ -130,10 +130,10 @@
     },
     {
       section: 'Basic Tutorial',
-      title: 'BG vs Existing',
+      title: 'Blend Mode Types',
       target: '[data-tut="blend-bake-toggle"], .blend-bake-toggle',
       fallbackTarget: '.blend-dropdown, [data-tut="blend-mode"], .blend-btn',
-      text: 'BG blends each stroke against the room background. Existing blends only where pixels already exist. Try switching between BG and Existing, then draw on the canvas to compare.',
+      text: 'BG mode blends each stroke against the room background. Existing mode blends only where pixels already exist. Try switching between BG and Existing, then draw on the canvas to compare.',
       allowCanvas: true,
       actionLabel: 'The canvas is unlocked for testing on this step'
     },
@@ -237,8 +237,8 @@
       section: 'Advanced Tools',
       title: 'Text Tool',
       target: '#textBtn',
-      text: 'The Text tool lets you place editable text on the canvas. Click anywhere on the board to start typing. Clicking with no text entered swaps you back to your previous tool.',
-      awaitTool: 'text'
+      text: 'The Text tool lets you place text on the canvas.. Click anywhere on the board to start typing. Clicking or pressing enter with no text entered swaps you back to your previous tool.',
+      beforeEnter: () => window.app?.selectTool?.('text')
     },
     {
       section: 'Advanced Tools',
@@ -252,7 +252,8 @@
       section: 'Advanced Tools',
       title: 'Fonts',
       target: '#font-container',
-      text: 'Pick a font from the gallery. Each one has its own personality — try a few on the canvas to see how they read.',
+      text: 'Have a look at the fonts available in the tool options and pick one that you like best!',
+      beforeEnter: () => window.app?.selectTool?.('text'),
       allowCanvas: true,
       skipIfMissing: true
     },
@@ -267,7 +268,7 @@
       section: 'Advanced Tools',
       title: 'Draw a Circle to Fill',
       target: '#circleBtn',
-      text: 'First, let\'s give the fill something to work with. The Circle tool is now active — draw a circle on the canvas, then press Next.',
+      text: 'First, let\'s give the fill something to work with. The Circle tool is now active: draw a circle on the canvas, then press Next.',
       beforeEnter: () => window.app?.selectTool?.('circle'),
       allowCanvas: true,
       actionLabel: 'Draw a circle on the canvas, then press Next'
@@ -276,7 +277,7 @@
       section: 'Advanced Tools',
       title: 'Advanced Fill',
       target: '#fillModeOptions',
-      text: 'Switching back to Fill. Enable Advanced, then click inside your circle and drag: up/down to increase or decrease the blur of the fill edge, and left/right to expand or contract the fill area.',
+      text: 'Switching back to Fill. Enable Advanced, then click and DRAG inside your circle: move up/down to increase or decrease the blur of the fill edge, and left/right to expand or contract the fill area.',
       beforeEnter: () => window.app?.selectTool?.('fill'),
       allowCanvas: true,
       skipIfMissing: true
@@ -285,7 +286,7 @@
       section: 'Advanced Tools',
       title: 'Glitch Blur',
       target: '#glitchBlurBtn',
-      text: 'Glitch Blur smears and corrupts the pixels already on the canvas for a glitchy, data-moshed look.',
+      text: 'Glitch Blur smears and corrupts the pixels already on the canvas for a glitchy, data mosh effect.',
       awaitTool: 'glitchBlur'
     },
     {
@@ -315,7 +316,7 @@
       section: 'Replay',
       title: 'The Time Machine',
       target: '[data-tut="history"], .history-btn',
-      text: 'Top Draw quietly keeps a timeline of everything drawn in the room — so you can scrub back through it, replay it, and even export it as a video. The History button opens the Time Machine: the Recent tab auto-plays the last couple of minutes, and Server history reconstructs much older states from room checkpoints.',
+      text: 'Top Draw quietly keeps a timeline of everything drawn in the room - so you can scrub back through it, replay it, and even export it as a video. The History button opens the Time Machine: the Recent tab auto-plays the last couple of minutes, and Server history reconstructs much older states from room checkpoints.',
       actionTarget: '[data-tut="history"], .history-btn',
       actionLabel: 'Click History to open the Time Machine, or press Next'
     },
@@ -355,7 +356,7 @@
       title: 'Render Just a Region',
       target: '[data-tut="replay-region"]',
       fallbackTarget: '[data-tut="replay-transport"], .rp-controls',
-      text: 'Select region lets you draw a box on the canvas and export only that part of the board — perfect for focusing a time-lapse on a single character or detail.',
+      text: 'Select region lets you draw a box on the canvas and export only that part of the board.',
       skipIfMissing: true
     },
     {
@@ -363,7 +364,7 @@
       title: 'Save the Raw Replay',
       target: '[data-tut="replay-save"]',
       fallbackTarget: '[data-tut="replay-transport"], .rp-controls',
-      text: 'Save .ddraw downloads the replay itself, not a video. Re-open a .ddraw file later to scrub, re-render, or restore from it — it is the full, editable recording.',
+      text: 'Exporting the .ddraw file downloads the replay itself, not a video. Re-open a .ddraw file later to scrub, re-render, or restore from it. You can drag and drop a .ddraw file onto the app any time to view it.',
       skipIfMissing: true
     },
     {
@@ -371,7 +372,7 @@
       title: 'Rewind the Board',
       target: '[data-tut="replay-undo"]',
       fallbackTarget: '[data-tut="replay-transport"], .rp-controls',
-      text: 'Undo to here rolls your board back to the moment you\'re viewing — and with a region selected, it rewinds only that area. On shared server replays this can restore the board for everyone, so use it carefully.',
+      text: 'Undo to here rolls your board back to the moment you\'re viewing - and with a region selected, it rewinds only that area. On shared server replays this can restore the board for everyone, so use it carefully.',
       skipIfMissing: true
     },
     {
@@ -386,7 +387,7 @@
       section: 'Replay',
       title: 'Session Recorder',
       target: '[data-tut="recorder-panel"], .rec-panel',
-      text: 'The Session Recorder captures everything happening on your device into a local replay. Press Start recording, draw for a while, then Stop to open it in the player. Nothing is uploaded — the tape lives on your machine.',
+      text: 'The Session Recorder captures everything happening on your device into a local replay. Press Start recording, draw for a while, then Stop to open it in the player. Nothing is uploaded - the tape lives on your machine.',
       skipIfMissing: true
     },
     {
@@ -439,7 +440,7 @@
   let active = $state(false);
   let promptVisible = $state(false);
   // True for an `awaitTool` step only when the awaited tool was already active
-  // as the step opened — suppresses the auto-advance so the user can read it.
+  // as the step opened - suppresses the auto-advance so the user can read it.
   let awaitToolPreSatisfied = $state(false);
   let activeSection = $state(null);
   let index = $state(0);
@@ -458,7 +459,7 @@
   let currentStep = $derived(visibleSteps[index] || visibleSteps[visibleSteps.length - 1]);
   let total = $derived(visibleSteps.length);
   let sections = $derived([...new Set(steps.filter(s => !s.when || s.when()).map((step) => step.section || 'Tutorial'))]);
-  // The tracks that actually have at least one available step right now — used
+  // The tracks that actually have at least one available step right now - used
   // to build the picker / switcher so empty tracks never show up.
   let availableSections = $derived(SECTIONS.filter((section) => sections.includes(section.key)));
   // An `awaitTool` step is "gated" until the user actually selects the tool it
@@ -615,7 +616,7 @@
     revealTargetContainers(currentStep);
 
     // While an `awaitTool` step is still gated (tool not yet picked), keep the
-    // spotlight on the tool button — not the canvas — so the user knows where
+    // spotlight on the tool button - not the canvas - so the user knows where
     // to click. Once they select it, the spotlight moves on like any other step.
     const gatedOnTool = !!currentStep?.awaitTool && appState.currentTool !== currentStep.awaitTool;
     const targets = currentStep?.allowCanvas && !currentStep?.targetControl && !gatedOnTool
@@ -658,6 +659,12 @@
 
   function stepIsAvailable(step) {
     if (!step?.skipIfMissing) return true;
+    // A step with its own beforeEnter (e.g. one that switches tools to reveal
+    // its target) hasn't run that setup yet when we're just scanning for the
+    // next available step - checking its target here would always fail and
+    // permanently skip the step. Trust beforeEnter to make it available once
+    // it actually becomes current.
+    if (step.beforeEnter) return true;
     return !!findTarget(step);
   }
 
@@ -710,7 +717,7 @@
 
   function back() {
     // Mirror next()/dot-nav: tear down anything the current step opened (e.g. the
-    // App Settings dialog the Replay Settings step pops) before stepping back —
+    // App Settings dialog the Replay Settings step pops) before stepping back -
     // otherwise the dialog stays up and blocks the controls we return to.
     cleanupStep(currentStep);
     let candidate = Math.max(0, index - 1);
@@ -869,7 +876,7 @@
 
   // Auto-advance an `awaitTool` step the instant the user selects the tool it
   // teaches (unless it was already selected as the step opened). This is the
-  // "tool tutorials appear when you pick the tool" flow — no forced switching.
+  // "tool tutorials appear when you pick the tool" flow - no forced switching.
   $effect(() => {
     if (!active) return;
     const step = currentStep;

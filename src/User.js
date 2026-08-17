@@ -86,6 +86,7 @@ export class User {
     this.hasDiscord = !!options.hasDiscord;
     this.selectedBadge = options.selectedBadge || '';
     this.isSupporter = !!options.isSupporter;
+    this.countryCode = options.countryCode || '';
     this.isMuted = options.isMuted || false;
     this.ipHash = options.ipHash || options.iph || '';
     this.visibleIp = options.visibleIp || '';

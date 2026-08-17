@@ -184,17 +184,11 @@ class ReplayBoard {
   _applyMaskClipToCtx(ctx, userId) {
     const mask = this._getSelectionMaskForUser(userId);
     if (!mask || !ctx) return;
-    ctx.beginPath();
-    if (mask.lassoPath?.length > 0) {
-      ctx.moveTo(mask.lassoPath[0].x, mask.lassoPath[0].y);
-      for (let i = 1; i < mask.lassoPath.length; i++) {
-        ctx.lineTo(mask.lassoPath[i].x, mask.lassoPath[i].y);
-      }
-      ctx.closePath();
-    } else {
-      ctx.rect(mask.x, mask.y, mask.width, mask.height);
-    }
-    ctx.clip();
+    // Shared with the live board so a masked stroke drawn inside a mirror
+    // replays with the same reflected copies it had when it was drawn — see
+    // Board.clipToMaskAndMirrors. `this` IS the replay board: it carries
+    // mirror/mirrorRegions and the mirror helpers under the same names.
+    Board.clipToMaskAndMirrors(ctx, mask, this);
   }
 
   applySelectionMaskClipForStroke(layerIndex, userId) {
@@ -1078,6 +1072,27 @@ class ReplayBoard {
       a.y + a.height >= b.y
     );
   }
+}
+
+// Borrowed from Board rather than re-implemented. RemoteSelectionHandler drives
+// both the live board and this one, and it calls these on every mirrored
+// selection verb — a ReplayBoard missing one throws inside _processAction's
+// try/catch, which swallows it and silently drops the whole stroke from the
+// replay. Everything here depends only on methods ReplayBoard already has
+// (getWidth/getHeight, _expandMirrorRegionTransforms, mirrorPointToRegion,
+// _rectIntersects), so sharing the implementation is also what stops the two
+// classes drifting the way the rest of this mirror math already has.
+for (const name of [
+  'getActiveMirrorRegionsFor',
+  'getSelectionMirrorTargets',
+  'mirrorRectBounds',
+  'unionWithMirrorTargets',
+  '_mirrorRegionMatrix',
+  // The tools call this every tick from getPreviewDirtyRect; without it replay
+  // silently answers undefined and previews a partial rect while mirrors are on.
+  'hasMirrors',
+]) {
+  ReplayBoard.prototype[name] = Board.prototype[name];
 }
 
 
@@ -3322,7 +3337,8 @@ export class ReplayEngine {
               msg.g || null,
               !!msg.a,
               undefined,
-              !!msg.sel_extended_warp
+              !!msg.selExtendedWarp,
+              !!msg.m
             );
             if (user.pendingImageLoad) {
               await user.pendingImageLoad;
@@ -3344,13 +3360,13 @@ export class ReplayEngine {
                 user,
                 corners,
                 this._decodeSelectionSourceCrop(msg),
-                !!msg.sel_extended_warp
+                !!msg.selExtendedWarp
               );
             }
           }
           break;
         case T.SEL_COMMIT:
-          this._remoteHandler.selectionHandler.handleSelectionCommit(user, msg.ly ?? 0, 0, !!msg.sel_extended_warp);
+          this._remoteHandler.selectionHandler.handleSelectionCommit(user, msg.ly ?? 0, 0, !!msg.selExtendedWarp, !!msg.m);
           break;
         case T.SEL_DELETE:
           // Replay commits all strokes at seq=0 and orders by timestamp (MU is
@@ -3370,10 +3386,11 @@ export class ReplayEngine {
             0,
             // Seeking replays out of order too, so the fill's own lasso shape is
             // as necessary here as it is on a sync tail.
-            this._decodePointPath(msg.ps));
+            this._decodePointPath(msg.ps),
+            !!msg.m);
           break;
         case T.SEL_STAMP:
-          this._remoteHandler.selectionHandler.handleSelectionStamp(user, msg.ly ?? 0, 0, !!msg.sel_extended_warp);
+          this._remoteHandler.selectionHandler.handleSelectionStamp(user, msg.ly ?? 0, 0, !!msg.selExtendedWarp, !!msg.m);
           break;
         case T.SEL_MERGE:
           this._remoteHandler.selectionHandler.handleSelectionMerge(user, msg.g || 'down', msg.ly ?? 0);

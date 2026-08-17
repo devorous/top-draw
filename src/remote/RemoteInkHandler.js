@@ -289,7 +289,7 @@ export class RemoteInkHandler {
   updateInkPreview(user) {
     if (!user._inkOffscreen) return;
 
-    const previewRect = this.board.mirrorRegions?.length > 0 ? null : this.getPreviewDirtyRect(user);
+    const previewRect = this.board.hasMirrors?.() ? null : this.getPreviewDirtyRect(user);
     const clearRect = previewRect ? this._clampRectToCanvas(previewRect, user.context.canvas) : null;
     if (clearRect) {
       user.context.clearRect(clearRect.x, clearRect.y, clearRect.width, clearRect.height);

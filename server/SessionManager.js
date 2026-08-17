@@ -165,6 +165,7 @@ export class SessionManager {
       isMuted: false,
       isShadowBanned: false,
       isVPN: false,
+      countryCode: '',
       ipHash,
       uploadBps: null,        // Measured upload throughput in bytes/sec (null = never measured)
       lastProbeTs: 0,         // Timestamp of last successful bandwidth probe

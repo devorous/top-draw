@@ -405,7 +405,12 @@ export class PixelBrushTool {
   getPreviewDirtyRect(user = this._activeUser) {
     const bounds = user?._pixelPreviewDirtyBounds;
     if (!bounds) return false;
-    if (this.board.mirrorRegions?.length > 0) return null;
+    // A partial preview rect must cover the mirrored copies too, and they are
+    // nowhere near the stroke. `hasMirrors()` — NOT `mirrorRegions.length`: that
+    // missed the full-board mirror entirely, so with it on the live preview was
+    // clipped to a bbox around the unmirrored stroke and the reflected half only
+    // appeared at mouse-up (the commit path does not use this rect). null = redraw all.
+    if (this.board.hasMirrors?.()) return null;
     return this._boundsToRect(bounds) ?? false;
   }
 

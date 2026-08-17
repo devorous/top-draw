@@ -85,6 +85,7 @@
     "delaunator": "^5.0.1",
     "discord.js": "^14.26.4",
     "dotenv": "^17.2.4",
+    "geoip-lite": "^1.4.10",
     "jsonwebtoken": "^9.0.3",
     "maxmind": "^5.0.6",
     "mongodb": "^7.1.0",

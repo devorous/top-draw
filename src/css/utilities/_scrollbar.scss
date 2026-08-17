@@ -10,8 +10,15 @@
 
 .mirrorLine {
   stroke: var(--accent-primary);
-  stroke-width: 2;
+  // Hairline: the line sits over the artwork, so it should read as a guide.
+  // Non-scaling-stroke keeps it 1 device pixel at any board zoom instead of
+  // growing into a bar when zoomed in.
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
   stroke-dasharray: 8, 4;
   opacity: 0.6;
+  // Board.noteMirrorActivity drives opacity 1/0 on an idle timer; this is the
+  // fade it rides on. The 0.6 above is the base and is overridden inline.
+  transition: opacity 320ms ease;
 }
 

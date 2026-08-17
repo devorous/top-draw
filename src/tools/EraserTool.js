@@ -372,7 +372,7 @@ export class EraserTool extends Tool {
     // drawPreview without one, so fall back to this stroke's pending preview
     // bounds to avoid a full-board copy/composite every frame.
     let dirtyRect = rect && Number.isFinite(rect.x) ? rect : null;
-    if (!dirtyRect && this.board.mirrorRegions?.length === 0) {
+    if (!dirtyRect && !this.board.hasMirrors?.()) {
       const state = this._getStrokeState(user);
       if (state?.previewDirtyBounds) dirtyRect = this._expandBoundsForComposite(state.previewDirtyBounds);
     }
@@ -614,7 +614,12 @@ export class EraserTool extends Tool {
   getPreviewDirtyRect(user) {
     const state = this._getStrokeState(user);
     if (!state?.previewDirtyBounds) return false;
-    if (this.board.mirrorRegions?.length > 0) return null;
+    // A partial preview rect must cover the mirrored copies too, and they are
+    // nowhere near the stroke. `hasMirrors()` — NOT `mirrorRegions.length`: that
+    // missed the full-board mirror entirely, so with it on the live preview was
+    // clipped to a bbox around the unmirrored stroke and the reflected half only
+    // appeared at mouse-up (the commit path does not use this rect). null = redraw all.
+    if (this.board.hasMirrors?.()) return null;
     return this._expandBoundsForComposite(state.previewDirtyBounds) ?? false;
   }
 

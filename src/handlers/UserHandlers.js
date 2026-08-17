@@ -4,6 +4,7 @@ import { User } from '../User.js';
 import { debug } from '../utils/debug.js';
 import { appState } from '../state.svelte.js';
 import { BOARD_SIZE_PRESETS, applyRoomBoardSize } from '../config/BoardSizes.js';
+import { countryCodeToFlagEmoji } from '../utils/countryFlag.js';
 
 const ROLE_NAMES = ['Guest', 'User', 'Trusted', 'Helper', 'Mod', 'Admin', 'Owner', 'Noble', 'Holy', 'Deity'];
 const ROOM_ROLE_NAMES = ['Guest', 'User', 'Trusted', 'Helper', 'Moderator', 'Admin', 'Owner'];
@@ -48,7 +49,9 @@ function formatPresenceName(user) {
 }
 
 function formatRoomPresenceMessage(user, verb) {
-  return `${formatPresenceRank(user)} ${formatPresenceName(user)} ${verb}`;
+  const flag = countryCodeToFlagEmoji(user?.countryCode);
+  const namePart = flag ? `${formatPresenceName(user)} ${flag}` : formatPresenceName(user);
+  return `${formatPresenceRank(user)} ${namePart} ${verb}`;
 }
 
 function formatJoinPresenceMessage(user) {
@@ -164,7 +167,8 @@ export function setupUserHandlers(wsClient, app) {
       role: user.role || 0,
       globalRole: user.globalRole || 0,
       roomRole: user.roomRole || 0,
-      instanceId: user.instanceId || ''
+      instanceId: user.instanceId || '',
+      countryCode: user.countryCode || ''
     });
   };
 
@@ -265,6 +269,9 @@ export function setupUserHandlers(wsClient, app) {
         }
         if (userData.registeredName) {
           app.self.registeredName = userData.registeredName;
+        }
+        if (userData.countryCode !== undefined) {
+          app.self.countryCode = userData.countryCode || '';
         }
         if (userData.hasDiscord !== undefined || userData.selectedBadge !== undefined) {
           if (userData.hasDiscord !== undefined) app.self.hasDiscord = !!userData.hasDiscord;
@@ -449,6 +456,9 @@ export function setupUserHandlers(wsClient, app) {
         if (userData.registeredName) {
           user.registeredName = userData.registeredName;
         }
+        if (userData.countryCode !== undefined) {
+          user.countryCode = userData.countryCode || '';
+        }
         const nextSelectedBadge = userData.selectedBadge !== undefined ? (userData.selectedBadge || '') : user.selectedBadge;
         if ((userData.hasDiscord !== undefined && user.hasDiscord !== !!userData.hasDiscord) ||
             (userData.selectedBadge !== undefined && user.selectedBadge !== nextSelectedBadge)) {
@@ -539,6 +549,9 @@ export function setupUserHandlers(wsClient, app) {
     board.setMirror(data.mirror);
     board.setMirrorRegions(data.mirrorRegions || []);
     ui.updateMirrorDisplay(data.mirror);
+    // SETTINGS is also how the server corrects a client whose full-board mirror
+    // toggle was refused, so the checkbox has to follow it.
+    app.mirrorRegionController?.syncBoardMirrorCheckbox?.();
     if (data.backgroundColor) {
       board.setBackgroundColor(data.backgroundColor);
       app.updatePatternPreviewIfVisible?.();

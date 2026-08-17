@@ -1,5 +1,5 @@
 <script>
-  import { onMount, tick } from 'svelte';
+  import { onDestroy, onMount, tick } from 'svelte';
   import { appState } from '../../state.svelte.js';
   import { isTauriDesktop } from '../../platform/desktop.js';
   import { isMobile } from '../../platform/mobile.js';
@@ -38,6 +38,13 @@
   ]);
   const MENTION_CANDIDATE_RE = /(^|\s)@([A-Za-z0-9_-]*)$/;
   const MENTION_TOKEN_RE = /(^|\s)@([A-Za-z0-9_-]{1,32})\b/g;
+  const CHAT_PIN_STORAGE_KEY = 'topdraw-chat-pinned';
+  /* Peek stack: how long the last lines linger on the canvas after the room
+     goes quiet, and how much slack the pointer gets before the window folds
+     back down (so clipping a corner doesn't slam it shut mid-read). */
+  const PEEK_QUIET_MS = 20000;
+  const PEEK_GRACE_MS = 600;
+  const PEEK_FORCE_OPEN_MS = 7000;
   const CHAT_TOOL_ICONS = {
     brush: '/images/brush-icon.svg',
     flowPen: '/images/brush-icon.svg',
@@ -87,6 +94,13 @@
   });
   let dmMeta = $state(new Map());
   let isDragging = $state(false);
+  let hudAwake = $state(false);
+  let hudWakeTimer = null;
+  let hudOpen = $state(false);
+  let hudPinned = $state(false);
+  let peekQuiet = $state(true);
+  let peekQuietTimer = null;
+  let hudCollapseTimer = null;
   let chatEl = $state(null);
   let publicMessagesEl = $state(null);
   let dmMessagesEl = $state(null);
@@ -117,6 +131,11 @@
   // compact controls would only shrink touch targets there.
   let effectiveChatMode = $derived(isPopout ? 'full' : isSmallScreen && !isMobile() ? 'mini' : chatMode);
   let hideRoomNotifications = $derived(!!appState.currentRoomData?.hideChatNotifications);
+  // Collapsed is the resting state for the in-app HUD; the popout is a real
+  // window and the pin opts out of collapsing altogether.
+  // Mobile has no hover to summon it back and its own centred geometry, so
+  // peek stays a pointer-device behaviour.
+  let isPeekCollapsed = $derived(!isPopout && !isMobile() && !hudPinned && !hudOpen);
   let isDesktopClient = $state(false);
   let desktopWindowApi = null;
   let desktopWindowState = $state({
@@ -1000,10 +1019,173 @@
     return `${reaction.emoji} by ${names.join(', ')}`;
   }
 
+  /* Ambient HUD: the window sits faded over the canvas and solidifies on
+     hover/focus (pure CSS) — this covers the third trigger, a message
+     arriving while the pointer is elsewhere. Popout is a real OS window, so
+     it never fades. */
+  function wakeHud(holdMs = 4200) {
+    if (isPopout) return;
+    hudAwake = true;
+    clearTimeout(hudWakeTimer);
+    hudWakeTimer = setTimeout(() => { hudAwake = false; }, holdMs);
+
+    // A message also restarts the peek stack's lifetime: the last lines stay
+    // on the canvas for PEEK_QUIET_MS, then everything but the dot melts away.
+    peekQuiet = false;
+    clearTimeout(peekQuietTimer);
+    peekQuietTimer = setTimeout(() => { peekQuiet = true; }, PEEK_QUIET_MS);
+  }
+
+  /* ── Peek stack open/close ───────────────────────────────────────────
+     Collapsed is the resting state: no panel, no bar text, no composer —
+     just the last few lines over the canvas. Hovering, tapping or focusing
+     anything inside rebuilds the window; the pin keeps it built. */
+  function expandHud() {
+    if (isPopout) return;
+    clearTimeout(hudCollapseTimer);
+    hudCollapseTimer = null;
+    hudOpen = true;
+  }
+
+  function composerHasDraft() {
+    if (messageInput.trim().length > 0) return true;
+    return !!composerInputEl && document.activeElement === composerInputEl;
+  }
+
+  function collapseHud({ force = false } = {}) {
+    clearTimeout(hudCollapseTimer);
+    hudCollapseTimer = null;
+    if (!force && (hudPinned || composerHasDraft())) return;
+    hudOpen = false;
+  }
+
+  function scheduleCollapseHud(delay = PEEK_GRACE_MS) {
+    if (isPopout || hudPinned) return;
+    clearTimeout(hudCollapseTimer);
+    hudCollapseTimer = setTimeout(() => {
+      // Never fold away a half-typed message, and never fold out from under a
+      // pointer that is still inside the window.
+      const stillEngaged = composerHasDraft()
+        || chatEl?.matches(':hover')
+        || (chatEl && chatEl.contains(document.activeElement));
+      if (stillEngaged) {
+        scheduleCollapseHud(PEEK_GRACE_MS);
+        return;
+      }
+      hudOpen = false;
+    }, delay);
+  }
+
+  /** A mention or a DM outranks the peek stack — open the window uninvited. */
+  function forceOpenHud() {
+    if (isPopout) return;
+    expandHud();
+    scheduleCollapseHud(PEEK_FORCE_OPEN_MS);
+  }
+
+  /* ── Peek plate width ────────────────────────────────────────────────
+     The plate shrink-wraps its lines, and `width: fit-content` cannot be
+     transitioned: its computed value stays the keyword, so only the used width
+     moves and the plate snaps between sizes as messages arrive. Measuring the
+     live element would be self-defeating — reading its size commits the keyword
+     as the transition's start value — so the natural width comes off a
+     throwaway copy of the visible rows, and the real element gets that number
+     as a pixel value the transition can animate. */
+  const PEEK_PLATE_ROWS = 3;
+
+  function measurePeekPlateWidth(streamEl) {
+    const rows = [...streamEl.children].slice(-PEEK_PLATE_ROWS);
+    if (rows.length === 0) return null;
+
+    // Same class and same parent chain, so it picks up the peek rules — most
+    // importantly the max-width that decides where long lines wrap.
+    const probe = document.createElement('div');
+    probe.className = streamEl.className;
+    probe.setAttribute('aria-hidden', 'true');
+    probe.style.cssText =
+      'position:absolute;left:0;top:0;visibility:hidden;pointer-events:none;width:fit-content;';
+    for (const row of rows) probe.appendChild(row.cloneNode(true));
+
+    streamEl.parentElement?.appendChild(probe);
+    // getBoundingClientRect, not offsetWidth: offsetWidth rounds down to a whole
+    // pixel, and the row's rem gap makes fractional widths the norm — losing
+    // that fraction shaves the plate just under its widest line, which then
+    // wraps at its first space.
+    const plate = probe.getBoundingClientRect().width;
+    // Rows are width:100% inside the probe, so they report the content box —
+    // the plate minus its padding, without hardcoding that padding. Take the
+    // widest rather than the first: a hidden row measures 0.
+    const row = Math.max(0, ...[...probe.children].map((el) => el.getBoundingClientRect().width));
+    probe.remove();
+    return plate > 0 ? { plate: Math.ceil(plate), row: Math.ceil(row) } : null;
+  }
+
+  function syncPeekPlateWidth(streamEl) {
+    if (!streamEl) return;
+    // Expanded, the stream is the full-width scroll area again — a width left
+    // over from the collapsed state would strand it narrow.
+    if (!isPeekCollapsed) {
+      streamEl.style.removeProperty('--peek-plate-w');
+      streamEl.style.removeProperty('--peek-row-w');
+      return;
+    }
+
+    const measured = measurePeekPlateWidth(streamEl);
+    if (!measured) {
+      streamEl.style.removeProperty('--peek-plate-w');
+      streamEl.style.removeProperty('--peek-row-w');
+      return;
+    }
+
+    /* Two widths, not one. The plate's animates; the rows' is applied flat, so
+       the lines are already laid out at their final width while the plate is
+       still growing into it. Without that the rows reflow every frame of the
+       transition — a two-word message spends the animation wrapped across two
+       lines and then snaps back to one. */
+    streamEl.style.setProperty('--peek-plate-w', `${measured.plate}px`);
+    if (measured.row > 0) {
+      streamEl.style.setProperty('--peek-row-w', `${measured.row}px`);
+    } else {
+      streamEl.style.removeProperty('--peek-row-w');
+    }
+  }
+
+  function toggleHudPin() {
+    hudPinned = !hudPinned;
+    if (hudPinned) {
+      expandHud();
+    } else {
+      scheduleCollapseHud(PEEK_GRACE_MS);
+    }
+    try {
+      localStorage.setItem(CHAT_PIN_STORAGE_KEY, hudPinned ? '1' : '0');
+    } catch {
+      /* private mode — the pin just won't survive a reload */
+    }
+  }
+
+  function handleHudKeydown(event) {
+    if (event.key !== 'Escape' || isPopout || !hudOpen) return;
+    collapseHud({ force: true });
+    composerInputEl?.blur();
+  }
+
+  onDestroy(() => {
+    clearTimeout(hudWakeTimer);
+    clearTimeout(peekQuietTimer);
+    clearTimeout(hudCollapseTimer);
+  });
+
   function addPublicMessage(message) {
     messages.all = [...messages.all, message];
 
     if (message.type === 'system') return;
+
+    wakeHud();
+
+    if (Number(message.userId) !== Number(appState.sessionIndex) && messageMentionsSelf(message.text)) {
+      forceOpenHud();
+    }
 
     if ((!visible || documentNeedsNotification()) && !isChatPopoutOpen()) {
       appState.chatUnreadCount++;
@@ -1020,6 +1202,10 @@
 
   function addStaffChannelMessage(message) {
     messages.staff = [...messages.staff, message];
+    wakeHud();
+    if (Number(message.userId) !== Number(appState.sessionIndex) && messageMentionsSelf(message.text)) {
+      forceOpenHud();
+    }
     const popoutOpen = isChatPopoutOpen();
     const shouldCountUnread = !popoutOpen && (!visible || activeView !== 'staff' || documentNeedsNotification());
     if (shouldCountUnread) {
@@ -1044,6 +1230,8 @@
       ...messages,
       dms: nextDms
     };
+    wakeHud();
+    if (!message.fromSelf) forceOpenHud();
 
     if (!message.fromSelf && (!visible || documentNeedsNotification()) && !isChatPopoutOpen()) {
       appState.chatUnreadCount++;
@@ -1080,6 +1268,14 @@
     const roleNames = ['Guest', 'User', 'Trusted', 'Helper', 'Mod', 'Admin', 'Owner', 'Noble', 'Holy', 'Deity'];
     const roleName = roleNames[user.role || 0] || 'Guest';
     return user.visibleIp ? `${roleName} | ${user.visibleIp}` : roleName;
+  }
+
+  /* The name column truncates, so the tooltip has to carry the full name —
+     the moderator meta is appended rather than replacing it. */
+  function messageUserTitle(msg) {
+    if (msg?.userId === null || msg?.userId === undefined) return msg?.username || '';
+    const meta = formatModeratorMeta(getChatUser(msg.userId));
+    return meta ? `${msg.username} — ${meta}` : msg.username;
   }
 
   function directoryUserMeta(user) {
@@ -1809,6 +2005,13 @@
   onMount(() => {
     isDesktopClient = isTauriDesktop();
 
+    try {
+      hudPinned = localStorage.getItem(CHAT_PIN_STORAGE_KEY) === '1';
+    } catch {
+      hudPinned = false;
+    }
+    if (hudPinned) hudOpen = true;
+
     if (!isPopout || !isDesktopClient) {
       return;
     }
@@ -1848,6 +2051,17 @@
     }
   });
 
+  /* Opening the chat deliberately (the toolbar button, a DM link) has to show
+     the window, not the collapsed dot — then hand it back to the peek stack if
+     the pointer never arrives. */
+  $effect(() => {
+    if (!visible) {
+      collapseHud({ force: true });
+      return;
+    }
+    forceOpenHud();
+  });
+
   $effect(() => {
     const recipientId = recipient?.id;
     if (recipientId === undefined || recipientId === null) return;
@@ -1878,6 +2092,19 @@
 
   $effect(() => {
     if (visible) appState.chatUnreadCount = 0;
+  });
+
+  // Re-pin the collapsed plate's width whenever its content, its channel or the
+  // collapsed state itself changes.
+  $effect(() => {
+    isPeekCollapsed;
+    activeView;
+    messages.all;
+    messages.staff;
+    messages.dms;
+    windowWidth;
+    syncPeekPlateWidth(publicMessagesEl);
+    syncPeekPlateWidth(dmMessagesEl);
   });
 
   $effect(() => {
@@ -2023,11 +2250,23 @@
 {#snippet channelRow(msg)}
   <article class="message-row" class:system={msg.type === 'system'} class:grouped={msg.groupedWithPrevious} class:group-tail={!msg.groupedWithNext}>
     <span class="message-time" title={formatTime(msg.timestamp)}>{msg.groupedWithPrevious ? '' : formatTime(msg.timestamp)}</span>
+    <!-- Name column. The name is always in the DOM and grouped rows hide it in
+         CSS rather than dropping it, so the peek stack — which shows only the
+         last few lines, often none of them the one that carried the name — can
+         put it back. A run of messages from one person then lines up under the
+         first instead of the follow-ups jumping left into the name's gutter. -->
+    {#if msg.type !== 'system'}
+      <div class="message-author">
+        <button class={`message-user ${getRoleClass(msg.userId, msg.userRole)}`} oncontextmenu={(event) => openUserContextMenu(event, msg.userId)} title={messageUserTitle(msg)} type="button">{msg.username}</button>
+      </div>
+    {/if}
     <div class="message-body">
       {#if msg.type === 'system'}
         <p class="message-line system"><span class="message-text-inline">{msg.text}</span></p>
       {:else}
-        <p class="message-line">{#if !msg.groupedWithPrevious}<button class={`message-user ${getRoleClass(msg.userId, msg.userRole)}`} oncontextmenu={(event) => openUserContextMenu(event, msg.userId)} title={msg.userId !== null ? formatModeratorMeta(getChatUser(msg.userId)) : ''} type="button">{msg.username}</button>{' '}{/if}{#if msg.text}<span class="message-text-inline">{@html linkify(msg.text)}</span>{/if}</p>
+        {#if msg.text}
+          <p class="message-line"><span class="message-text-inline">{@html linkify(msg.text)}</span></p>
+        {/if}
         {#if msg.text}
           {@const galleryLinks = extractGalleryLinks(msg.text)}
           {#each galleryLinks as link (link.id)}
@@ -2071,6 +2310,8 @@
   </div>
 {/if}
 
+<svelte:window onkeydown={handleHudKeydown} />
+
 {#if expandedImage}
   <button class="chat-image-viewer" onclick={closeImageViewer} type="button" aria-label="Close image viewer">
     <div class="chat-image-viewer-frame">
@@ -2080,25 +2321,68 @@
 {/if}
 
 {#if visible}
-  <div class="chat-shell" class:dragging={isDragging} class:resizing={isResizing} class:popout={isPopout} class:desktop-popout={isPopout && isDesktopClient} class:mini={effectiveChatMode === 'mini'} class:compact={effectiveChatMode === 'compact'} class:full={effectiveChatMode === 'full'} bind:this={chatEl} onclick={handleChatLinkClick} role="presentation">
-    <WindowTitleBar
-      title="Chat"
-      subtitle=""
-      branded={true}
-      draggable={!isPopout}
-      tauriDragRegion={isPopout && isDesktopClient}
-      onDragStart={startDrag}
-      showPopoutButton={!isPopout && isDesktopClient}
-      onPopout={popoutChat}
-      showModeToggle={false}
-      mode={effectiveChatMode}
-      onModeToggle={toggleMode}
-      showWindowControls={isPopout && isDesktopClient}
-      showCloseButton={!isPopout}
-      onClose={!isPopout ? hide : null}
-      className="chat-titlebar"
-    >
-      {#snippet children()}
+  <div
+    class="chat-shell"
+    class:dragging={isDragging}
+    class:resizing={isResizing}
+    class:popout={isPopout}
+    class:desktop-popout={isPopout && isDesktopClient}
+    class:mini={effectiveChatMode === 'mini'}
+    class:compact={effectiveChatMode === 'compact'}
+    class:full={effectiveChatMode === 'full'}
+    class:hud={!isPopout}
+    class:awake={hudAwake}
+    class:peek={isPeekCollapsed}
+    class:quiet={peekQuiet}
+    class:pinned={hudPinned}
+    bind:this={chatEl}
+    onclick={handleChatLinkClick}
+    onpointerenter={expandHud}
+    onpointerdown={expandHud}
+    onpointerleave={() => scheduleCollapseHud()}
+    onfocusin={expandHud}
+    role="presentation"
+  >
+    {#if isPopout}
+      <WindowTitleBar
+        title="Chat"
+        subtitle=""
+        branded={true}
+        draggable={false}
+        tauriDragRegion={isDesktopClient}
+        showModeToggle={false}
+        mode={effectiveChatMode}
+        showWindowControls={isDesktopClient}
+        showCloseButton={false}
+        className="chat-titlebar"
+      />
+    {/if}
+
+    <!-- Ambient HUD bar: channel nav + window controls in one line, and the
+         drag handle now that there is no titlebar to grab. -->
+    <nav class="hud-bar" onmousedown={startDrag} ontouchstart={startDrag} role="presentation" aria-label="Chat channels">
+      <span class="hud-dot" aria-hidden="true"></span>
+
+      <div class="hud-tabs">
+        <button class="hud-tab" class:on={activeView === 'all'} onclick={showPublic} title="Public" type="button">Public</button>
+
+        {#if canAccessStaff}
+          <button class="hud-tab" class:on={activeView === 'staff'} onclick={showStaff} title="Staff" type="button">Staff</button>
+        {/if}
+
+        {#each activeThreads as thread (thread.id)}
+          <button class="hud-tab" class:on={activeView === 'dm' && Number(recipient?.id) === Number(thread.id)} class:inactive={thread.user?.afk} onclick={() => openThreadById(thread.id)} title={thread.user?.username || 'Direct message'} type="button">
+            {thread.user?.username || 'Unknown'}
+            {#if getUnreadCount(thread.id) > 0}
+              <span class="hud-count">{getUnreadCount(thread.id)}</span>
+            {/if}
+          </button>
+        {/each}
+
+        <button class="hud-tab hud-new" class:on={activeView === 'directory'} onclick={showDirectory} title="Start direct message" aria-label="Start direct message" type="button">+</button>
+      </div>
+
+      <div class="hud-controls">
         <div class="titlebar-sfx" title="SFX volume">
           <button
             class="titlebar-btn sfx-mute-btn"
@@ -2134,9 +2418,22 @@
             style="--sfx-fill: {Math.round(getSfxVolume() * 100)}%"
           />
         </div>
-        <button class="titlebar-btn ranks-btn" onclick={() => appState.ranksDialogVisible = true} title="View ranks and their abilities" type="button">Ranks</button>
-      {/snippet}
-    </WindowTitleBar>
+
+        <button class="hud-btn" onclick={() => appState.ranksDialogVisible = true} title="View ranks and their abilities" type="button">Ranks</button>
+
+        {#if !isPopout}
+          <button class="hud-btn hud-pin" class:on={hudPinned} onclick={toggleHudPin} title={hudPinned ? 'Let chat collapse again' : 'Keep chat open'} aria-label={hudPinned ? 'Let chat collapse again' : 'Keep chat open'} aria-pressed={hudPinned} type="button"><span class="hud-pin-icon" aria-hidden="true"></span></button>
+        {/if}
+
+        {#if !isPopout && isDesktopClient}
+          <button class="hud-btn" onclick={popoutChat} title="Open chat in a separate window" aria-label="Pop out chat" type="button">⧉</button>
+        {/if}
+
+        {#if !isPopout}
+          <button class="hud-btn hud-close" onclick={hide} title="Close chat" aria-label="Close chat" type="button">✕</button>
+        {/if}
+      </div>
+    </nav>
 
     <header class="chat-topbar" data-refactor-placeholder="true" style="display: none;" onmousedown={startDrag} ontouchstart={startDrag} role="presentation" aria-label="Chat window header" data-tauri-drag-region={isPopout && isDesktopClient ? 'true' : undefined}>
       <div class="chat-topbar-copy">
@@ -2181,37 +2478,6 @@
     </header>
 
     <div class="chat-content">
-      <aside class="chat-rail">
-        <button class="rail-tab public-tab" class:active={activeView === 'all'} onclick={showPublic} title="Public" type="button">
-          <span class="rail-tab-name">Public</span>
-        </button>
-
-        {#if canAccessStaff}
-          <button class="rail-tab public-tab" class:active={activeView === 'staff'} onclick={showStaff} title="Staff" type="button">
-            <span class="rail-tab-name">Staff</span>
-          </button>
-        {/if}
-
-        {#if activeThreads.length > 0}
-          <div class="rail-section-label">DMs</div>
-        {/if}
-
-        <div class="rail-thread-list">
-          {#each activeThreads as thread (thread.id)}
-            <button class="rail-tab thread-tab" class:active={activeView === 'dm' && Number(recipient?.id) === Number(thread.id)} class:inactive={thread.user?.afk} onclick={() => openThreadById(thread.id)} title={thread.user?.username || 'Direct message'} type="button">
-              <span class="rail-tab-name">{thread.user?.username || 'Unknown'}</span>
-              {#if getUnreadCount(thread.id) > 0}
-                <span class="rail-badge">{getUnreadCount(thread.id)}</span>
-              {/if}
-            </button>
-          {/each}
-        </div>
-
-        <button class="rail-action" class:active={activeView === 'directory'} onclick={showDirectory} title="Start direct message" type="button">
-          <span>+</span>
-          <span>New DM</span>
-        </button>
-      </aside>
       <div class="chat-main">
         <div class="chat-stage" class:drop-target={isDropTarget} ondragenter={handleDragEnter} ondragover={handleDragOver} ondragleave={handleDragLeave} ondrop={handleDrop} role="region" aria-label="Chat messages">
           {#if (activeView === 'all' && !chatPinnedToBottom.all) || (activeView === 'staff' && !chatPinnedToBottom.staff) || (activeView === 'dm' && !chatPinnedToBottom.dm)}
@@ -2333,7 +2599,7 @@
         </button>
         <button class="composer-tool emoji-tool" onclick={openEmojiPicker} disabled={activeView === 'directory'} title="Add emoji" type="button">{COMPOSER_EMOJIS[0]}</button>
         <div class="chat-input-wrap">
-          <textarea class="chat-input" bind:this={composerInputEl} bind:value={messageInput} onkeydown={handleKeydown} onkeyup={syncMentionSuggestion} onclick={syncMentionSuggestion} oninput={syncMentionSuggestion} placeholder={activeView === 'all' ? 'Message the room...' : activeView === 'staff' ? 'Message staff...' : activeView === 'dm' && recipient ? `Message ${recipient.username}...` : 'Select someone to start a DM...'} rows="1" disabled={activeView === 'directory'}></textarea>
+          <textarea class="chat-input" bind:this={composerInputEl} bind:value={messageInput} onkeydown={handleKeydown} onkeyup={syncMentionSuggestion} onclick={syncMentionSuggestion} oninput={syncMentionSuggestion} placeholder={activeView === 'dm' && recipient ? `Message ${recipient.username}...` : activeView === 'directory' ? 'Select someone to start a DM...' : 'Type something...'} rows="1" disabled={activeView === 'directory'}></textarea>
           {#if mentionSuggestion}
             <div class="mention-suggestion" aria-live="polite">
               @{mentionSuggestion.username}
@@ -2362,22 +2628,6 @@
 {/if}
 
 <style>
-  .ranks-btn {
-    background: transparent;
-    border: none;
-    color: var(--text-primary);
-    opacity: 0.7;
-    cursor: pointer;
-    transition: opacity 0.15s, background 0.15s;
-  }
-
-  .ranks-btn:hover {
-    background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
-    color: var(--text-primary);
-    transform: none;
-    opacity: 1;
-  }
-
   .titlebar-sfx {
     display: inline-flex;
     align-items: center;
@@ -2516,10 +2766,23 @@
     --chat-accent: var(--accent-primary);
     --chat-shadow: var(--shadow-lg);
     --chat-opacity-raw: var(--chat-opacity, 1);
-    --chat-surface-idle: 0.64;
+    /* Ambient HUD idle levels, loudest to quietest: names and message text
+       never dim at all, timestamps and the channel bar go quiet, and the
+       composer nearly disappears until you reach for it. */
+    --chat-surface-idle: 0.38;
     --chat-surface-active: 1;
-    --chat-message-idle: 0.74;
-    --chat-message-active: 0.96;
+    --chat-message-idle: 1;
+    --chat-message-active: 1;
+    --chat-meta-idle: 0.5;
+    --chat-bar-idle: 0.5;
+    --chat-composer-idle: 0.26;
+    /* Chat copy takes its own near-white rather than --text-primary. That
+       token is #f0f2f5 — hue 210 at 20% saturation — which reads violet over a
+       warm or busy board. Snow is neutral at full brightness. */
+    --chat-ink: #fbfbfb;
+    /* Widths of the message stream's clock and name gutters — see .message-row. */
+    --chat-time-col: 32px;
+    --chat-name-col: 78px;
     position: fixed;
     right: 18px;
     bottom: 22px;
@@ -2544,6 +2807,9 @@
      chat-open-mobile effect), so the window centers in the full viewport.
      Dragging still wins — inline left/top override these defaults. */
   :global(html[data-mobile='true']) .chat-shell:not(.popout) {
+    /* Narrower gutters — a phone can't spare 110px of the message column. */
+    --chat-time-col: 30px;
+    --chat-name-col: 62px;
     --chat-mobile-w: calc(100vw - 24px);
     --chat-mobile-h: min(540px, calc(100dvh - 170px));
     /* !important: the (max-width: 640px) fallback below forces mini
@@ -2577,7 +2843,7 @@
      uniform 44px touch targets, overriding compact mode's two-row grid
      (stacked tools + a Send button spanning both rows). */
   :global(html[data-mobile='true']) .chat-shell:not(.popout) .composer-row {
-    grid-template-columns: 44px 44px minmax(0, 1fr) 52px;
+    grid-template-columns: 44px 44px minmax(0, 1fr) 44px;
     grid-template-rows: auto;
     column-gap: 8px;
     row-gap: 0;
@@ -2608,8 +2874,8 @@
   :global(html[data-mobile='true']) .chat-shell:not(.popout) .chat-send {
     grid-column: auto;
     grid-row: auto;
-    width: 52px;
-    min-width: 52px;
+    width: 44px;
+    min-width: 44px;
     height: 44px;
     min-height: 44px;
     padding: 0;
@@ -2617,8 +2883,8 @@
   }
 
   :global(html[data-mobile='true']) .chat-shell:not(.popout) .chat-send-icon {
-    width: 24px;
-    height: 24px;
+    width: 28px;
+    height: 28px;
   }
 
   .chat-shell::before {
@@ -2629,8 +2895,11 @@
     border-radius: inherit;
     background: var(--chat-bg);
     border: 1px solid var(--chat-border);
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
+    /* No backdrop-filter. .chat-shell sets `isolation: isolate`, which makes it
+       a backdrop root, and this pseudo sits at the bottom of it (z-index: -1) —
+       so the filter had nothing to sample but an empty backdrop. It never
+       frosted anything; it just forced a composited layer that Chrome washed
+       flat grey behind the message area. */
     opacity: var(--chat-opacity-raw);
     pointer-events: none;
   }
@@ -2825,6 +3094,8 @@
   }
 
   .chat-shell.full {
+    --chat-time-col: 36px;
+    --chat-name-col: 108px;
     width: min(880px, calc(100vw - 44px));
     height: min(612px, calc(100vh - 56px));
   }
@@ -2834,6 +3105,8 @@
   }
 
   .chat-shell.mini {
+    --chat-time-col: 26px;
+    --chat-name-col: 56px;
     width: min(300px, calc(100vw - 48px));
     height: min(360px, calc(100vh - 80px));
     right: 24px;
@@ -2842,62 +3115,7 @@
     max-height: 360px;
   }
 
-  .chat-shell.mini .chat-rail {
-    width: 54px !important;
-    padding: 4px 0 !important;
-    gap: 2px !important;
-  }
-
-  .chat-shell.mini .rail-tab,
-  .chat-shell.mini .rail-action {
-    width: 100% !important;
-    min-height: 23px !important;
-    margin: 0 !important;
-    padding: 0.2rem !important;
-    gap: 2px !important;
-    min-width: 0 !important;
-    border-radius: 0 !important;
-  }
-
-  .chat-shell.mini .rail-action span:first-child {
-    font-size: 0.75rem !important;
-    line-height: 1 !important;
-  }
-
-  .chat-shell.mini .rail-action span:last-child {
-    font-size: 0.6rem !important;
-    line-height: 1 !important;
-  }
-
-  .chat-shell.mini .rail-tab-name {
-    font-size: 0.6rem !important;
-    line-height: 1 !important;
-  }
-
-  .chat-shell.mini .rail-tab-name {
-    font-size: 0.55rem;
-    font-weight: 600;
-  }
-
-  .chat-shell.mini .public-tab .rail-tab-name {
-    font-size: 0.55rem;
-  }
-
-  .chat-shell.mini .rail-section-label {
-    font-size: 0.5rem;
-    padding: 0 0.2rem;
-  }
-
-  .chat-shell.mini .rail-badge {
-    width: 14px;
-    height: 14px;
-    font-size: 0.55rem;
-    top: 4px;
-    right: 3px;
-  }
-
   .chat-shell.mini .chat-content {
-    grid-template-columns: 54px minmax(0, 1fr);
     min-height: 0;
   }
 
@@ -2916,18 +3134,21 @@
   }
 
   .chat-shell.mini .message-row {
-    grid-template-columns: 32px minmax(0, 1fr);
     gap: 0.3rem;
     padding: 0;
     width: 100%;
     align-items: baseline;
   }
 
+  .chat-shell.mini .message-author {
+    font-size: 0.65rem;
+    line-height: 1.2;
+  }
+
   .chat-shell.mini .message-time {
     display: block;
     font-size: 0.55rem;
-    text-align: right;
-    padding-right: 0.2rem;
+    text-align: left;
   }
 
   .chat-shell.mini .message-body {
@@ -3172,6 +3393,698 @@
     font-size: 0.64rem;
   }
 
+  /* ─────────────────────────────────────────────────────────────
+     Ambient HUD
+
+     The channel rail and the titlebar are gone: nav, SFX, Ranks, pop-out
+     and close all live in one line at the top, which doubles as the drag
+     handle. The surface itself sits faded over the canvas and solidifies
+     when you hover it, focus anything inside it, or a message lands
+     (.awake, set by wakeHud()). Pop-out is a real OS window, so it keeps
+     its titlebar and never fades.
+     ───────────────────────────────────────────────────────────── */
+  .hud-bar {
+    position: relative;
+    z-index: 6;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 34px;
+    padding: 5px 7px 4px 11px;
+    cursor: grab;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  .chat-shell.dragging .hud-bar {
+    cursor: grabbing;
+  }
+
+  /* The popout is moved by the OS window, not by dragging the bar. */
+  .chat-shell.popout .hud-bar {
+    cursor: default;
+  }
+
+  .hud-dot {
+    flex: 0 0 6px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent-primary);
+  }
+
+  .hud-tabs {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .hud-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .hud-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    flex: 0 0 auto;
+    max-width: 11ch;
+    padding: 3px 9px;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--chat-muted);
+    font-family: inherit;
+    font-size: 0.76rem;
+    font-weight: 650;
+    line-height: 1.5;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+    transition: background 0.16s ease, color 0.16s ease;
+  }
+
+  .hud-tab:hover {
+    background: color-mix(in srgb, var(--accent-primary) 13%, transparent);
+    color: var(--chat-text);
+  }
+
+  .hud-tab.on {
+    background: color-mix(in srgb, var(--accent-primary) 20%, transparent);
+    color: var(--chat-text);
+  }
+
+  .hud-tab.inactive {
+    opacity: 0.62;
+  }
+
+  .hud-tab.hud-new {
+    padding: 3px 8px;
+    font-size: 0.92rem;
+    line-height: 1.1;
+  }
+
+  .hud-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    border-radius: 999px;
+    background: var(--accent-primary);
+    color: var(--bg-primary);
+    font-size: 0.62rem;
+    font-weight: 800;
+  }
+
+  .hud-controls {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    margin-left: auto;
+    flex: 0 0 auto;
+  }
+
+  /* The SFX control moved here from the titlebar, which used to stretch it to
+     the bar height — pin it instead so it matches the 24px HUD buttons. */
+  .hud-controls .titlebar-sfx {
+    align-self: center;
+    padding: 0 2px;
+  }
+
+  .hud-controls .sfx-mute-btn {
+    align-self: center;
+    height: 22px;
+    color: var(--chat-muted);
+  }
+
+  .hud-controls .sfx-mute-btn:hover {
+    color: var(--chat-text);
+  }
+
+  .hud-controls .sfx-slider {
+    width: 54px;
+  }
+
+  .hud-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 24px;
+    height: 24px;
+    padding: 0 7px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--chat-muted);
+    font-family: inherit;
+    font-size: 0.72rem;
+    font-weight: 650;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+
+  .hud-btn:hover {
+    background: color-mix(in srgb, var(--accent-primary) 14%, transparent);
+    color: var(--chat-text);
+  }
+
+  .hud-close:hover {
+    background: color-mix(in srgb, #ff6b5c 26%, transparent);
+    color: #ffd8d3;
+  }
+
+  .hud-tab:focus-visible,
+  .hud-btn:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--accent-primary) 55%, transparent);
+    outline-offset: -2px;
+  }
+
+  /* Idle: the whole window recedes so it stops competing with the canvas.
+     --chat-opacity-raw is the user's own chat-opacity setting, so this
+     dims relative to whatever they picked rather than overriding it. */
+  .chat-shell.hud {
+    box-shadow: none;
+  }
+
+  .chat-shell.hud::before {
+    opacity: calc(var(--chat-opacity-raw) * var(--chat-surface-idle));
+    transition: opacity 0.3s ease;
+  }
+
+  .chat-shell.hud:hover::before,
+  .chat-shell.hud:focus-within::before,
+  .chat-shell.hud.awake::before,
+  .chat-shell.hud.dragging::before,
+  .chat-shell.hud.resizing::before {
+    opacity: var(--chat-opacity-raw);
+  }
+
+  /* Idle tiers, applied per-part rather than to a wrapper: a parent's opacity
+     can't be undone by a child, so anything that must stay bright (the names
+     and text, the Send button) can't sit inside a faded ancestor. */
+  .chat-shell.hud .chat-content {
+    opacity: var(--chat-message-idle);
+  }
+
+  .chat-shell.hud .message-time {
+    opacity: var(--chat-meta-idle);
+    transition: opacity 0.3s ease;
+  }
+
+  /* The bar morphs between a full-width strip and the collapsed pill, so the
+     pill's own properties animate rather than snapping. */
+  .chat-shell.hud .hud-bar {
+    opacity: var(--chat-bar-idle);
+    background-color: transparent;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    transition: opacity 0.3s ease, background-color 0.28s ease,
+      border-color 0.28s ease, box-shadow 0.28s ease, padding 0.28s ease,
+      margin 0.28s ease;
+  }
+
+  /* The field drops its own fill at idle, not just its opacity — otherwise the
+     panel behind it goes transparent and the input is left as a dark pill
+     sitting on the canvas by itself. */
+  .chat-shell.hud .chat-input {
+    opacity: var(--chat-composer-idle);
+    background: transparent;
+    border-color: transparent;
+    transition: opacity 0.3s ease, background 0.28s ease, border-color 0.28s ease;
+  }
+
+  .chat-shell.hud:hover .message-time,
+  .chat-shell.hud:hover .hud-bar,
+  .chat-shell.hud:focus-within .message-time,
+  .chat-shell.hud:focus-within .hud-bar,
+  .chat-shell.hud.awake .message-time,
+  .chat-shell.hud.awake .hud-bar {
+    opacity: 1;
+  }
+
+  .chat-shell.hud:hover .chat-input,
+  .chat-shell.hud:focus-within .chat-input,
+  .chat-shell.hud.awake .chat-input {
+    opacity: 1;
+    background: color-mix(in srgb, var(--bg-primary) 88%, transparent);
+    border-color: color-mix(in srgb, var(--text-primary) 12%, transparent);
+  }
+
+  /* Focus outranks the wake group above (same specificity, declared later), so
+     typing still gets the solid field and the accent edge. */
+  .chat-shell.hud .chat-input:focus {
+    opacity: 1;
+    background: color-mix(in srgb, var(--bg-primary) 96%, transparent);
+    border-color: color-mix(in srgb, var(--accent-primary) 70%, transparent);
+  }
+
+  /* Grouped rows repeat no clock — keep them blank at every wake level. */
+  .chat-shell.hud .message-row.grouped .message-time {
+    opacity: 0;
+  }
+
+  /* No drop shadow on chat copy. In the open window the shell's own surface is
+     the backing, so the stream must stay fully transparent — a scrim of its own
+     reads as a panel inside the panel. Only the peek stack, which has no
+     surface behind it at all, gets a plate. */
+  .chat-shell.hud .message-line,
+  .chat-shell.hud .message-time,
+  .chat-shell.hud .message-text {
+    text-shadow: none;
+  }
+
+  .chat-shell.hud .message-stream {
+    background: transparent;
+  }
+
+  /* Controls stay out of the way until the window is awake. */
+  .chat-shell.hud .hud-controls {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.18s ease;
+  }
+
+  .chat-shell.hud:hover .hud-controls,
+  .chat-shell.hud:focus-within .hud-controls,
+  .chat-shell.hud.awake .hud-controls {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  /* Composer collapses to a single pill; the tools slide back in on wake.
+     The negative margin cancels the row gap so nothing shifts sideways.
+
+     The mode rules (.chat-shell.compact/.full .chat-composer) paint an opaque
+     footer tint and are declared later in this file at equal specificity, so
+     the HUD has to name the mode too — otherwise the composer stays a solid
+     bar while the surface behind it thins out. */
+  .chat-shell.hud .chat-composer,
+  .chat-shell.hud.compact .chat-composer,
+  .chat-shell.hud.full .chat-composer,
+  .chat-shell.hud.mini .chat-composer {
+    border-top: 0;
+    background: transparent;
+  }
+
+  /* Send is the one composer part with a solid fill of its own, so it needs the
+     same idle level as the field it sits beside or it reads as a bright accent
+     chip floating over a window that has otherwise faded out. */
+  .chat-shell.hud .chat-send:not(:disabled) {
+    opacity: var(--chat-composer-idle);
+    box-shadow: none;
+    transition: opacity 0.3s ease, background 0.18s ease, box-shadow 0.28s ease,
+      transform 0.18s ease;
+  }
+
+  .chat-shell.hud:hover .chat-send:not(:disabled),
+  .chat-shell.hud:focus-within .chat-send:not(:disabled),
+  .chat-shell.hud.awake .chat-send:not(:disabled) {
+    opacity: 1;
+    box-shadow: inset 0 1px 0 color-mix(in srgb, white 22%, transparent);
+  }
+
+  .chat-shell.hud .chat-input,
+  .chat-shell.hud .chat-send,
+  .chat-shell.hud .composer-tool {
+    border-radius: 999px;
+  }
+
+  .chat-shell.hud .composer-tool {
+    width: 0;
+    min-width: 0;
+    padding: 0;
+    margin-right: -0.5rem;
+    border-width: 0;
+    opacity: 0;
+    overflow: hidden;
+    pointer-events: none;
+    transition: width 0.18s ease, opacity 0.18s ease, margin 0.18s ease;
+  }
+
+  .chat-shell.hud:hover .composer-tool,
+  .chat-shell.hud:focus-within .composer-tool,
+  .chat-shell.hud.awake .composer-tool {
+    width: 46px;
+    margin-right: 0;
+    border-width: 1px;
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  /* No hover on touch — the tools must always be reachable there. */
+  :global(html[data-mobile='true']) .chat-shell.hud .composer-tool {
+    width: 44px;
+    margin-right: 0;
+    border-width: 1px;
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  :global(html[data-mobile='true']) .chat-shell.hud .hud-controls {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .chat-shell.hud::before,
+    .chat-shell.hud .message-time,
+    .chat-shell.hud .hud-bar,
+    .chat-shell.hud .chat-input,
+    .chat-shell.hud .hud-controls,
+    .chat-shell.hud .chat-send,
+    .chat-shell.hud .composer-tool {
+      transition: none;
+    }
+  }
+
+  /* ─────────────────────────────────────────────────────────────
+     Peek stack (collapsed)
+
+     Resting state for the in-app chat: the panel, the channel bar and the
+     composer all melt away and the last three messages sit straight on the
+     canvas, oldest faintest. After PEEK_QUIET_MS of silence even those go,
+     leaving a single accent dot to aim at. Anything that opens the window
+     (hover, tap, focus, a mention) drops the .peek class and the whole thing
+     rebuilds itself.
+     ───────────────────────────────────────────────────────────── */
+  /* Collapse and expand are one continuous motion: the shell's own height
+     animates (interpolate-size lets it interpolate to and from `auto`), the
+     stream's tail stays pinned to the bottom edge so the visible lines never
+     jump, and the composer slides out from under it. */
+  .chat-shell.hud {
+    interpolate-size: allow-keywords;
+    transition: height 0.34s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  .chat-shell.hud.peek {
+    height: auto;
+    min-height: 0;
+    max-height: 42vh;
+    /* The shell keeps its full width, so it must not be a hit target itself —
+       only the pill and the lines are, or there'd be an invisible hover trap
+       sitting over the canvas. */
+    pointer-events: none;
+  }
+
+  /* display:none, not just opacity:0 — a transparent pseudo still gets a layer,
+     and that layer is what showed up as a pale rectangle over the board. */
+  .chat-shell.hud.peek::before {
+    display: none;
+    opacity: 0;
+  }
+
+  /* Nothing in the chat body paints a surface of its own. The shell's ::before
+     is the only backing; anything else here reads as a panel inside the panel. */
+  .chat-shell.hud .chat-content,
+  .chat-shell.hud .chat-main,
+  .chat-shell.hud .chat-stage,
+  .chat-shell.hud .conversation-view {
+    background: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  .chat-shell.hud.peek .chat-content,
+  .chat-shell.hud.peek .chat-main,
+  .chat-shell.hud.peek .chat-stage,
+  .chat-shell.hud.peek .conversation-view {
+    flex: 0 0 auto;
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+    /* `flex: 0 0 auto` frees the height, but .chat-main is a *row* flex item, so
+       it also freed the width — the chain shrink-wrapped the longest message's
+       max-content size. Every percentage downstream then resolved against that
+       runaway width, so the plate never hit a wrap point and ran off past the
+       window. Pin the width back to the shell's and let the plate do the
+       shrink-wrapping on its own terms. */
+    width: 100%;
+    min-width: 0;
+  }
+
+  /* Peek: no panel at all behind the lines, so the scrim shrink-wraps them and
+     becomes the only thing holding them off the canvas. `margin: 0 auto` on a
+     fit-content block centres the plate under the pill, so a line wider than
+     the pill spreads to both sides of it rather than only to the right. */
+  .chat-shell.hud.peek .message-stream {
+    flex: 0 0 auto;
+    /* Tail pinned to the bottom: as the window shrinks around the surviving
+       lines they stay where they were instead of sliding up the container. */
+    justify-content: flex-end;
+    overflow: hidden;
+    /* fit-content is the no-JS fallback; syncPeekPlateWidth pins the same
+       number as a pixel value so the width can actually transition. */
+    width: var(--peek-plate-w, fit-content);
+    max-width: calc(100% - 20px);
+    margin: 0 auto;
+    padding: 5px 11px 6px;
+    border-radius: 9px;
+    /* No backdrop-filter here. .chat-shell sets `isolation: isolate`, which
+       makes it a backdrop root — a blur inside it can only sample the shell's
+       own (empty) content, never the board. It bought nothing, forced a
+       composited layer, and left a stale pale rectangle at the old width
+       whenever the plate shrank. */
+    background: rgba(11, 13, 16, 0.52);
+    pointer-events: auto;
+    transition: width 0.26s cubic-bezier(0.32, 0.72, 0, 1), background 0.3s ease;
+  }
+
+  /* Nothing left to plate once the lines have faded out. */
+  .chat-shell.hud.peek.quiet .message-stream {
+    background: transparent;
+  }
+
+  /* Every line in the stack names its sender: the stack is only three rows
+     deep, so a run of messages would otherwise show an anonymous tail. */
+  .chat-shell.hud.peek .message-row.grouped .message-user {
+    visibility: visible;
+  }
+
+  /* Only the tail of the stream, and only while it is fresh. */
+  .chat-shell.hud.peek .message-row:not(:nth-last-child(-n + 3)),
+  .chat-shell.hud.peek .dm-bubble-row:not(:nth-last-child(-n + 3)) {
+    display: none;
+  }
+
+  .chat-shell.hud.peek .message-row:nth-last-child(3),
+  .chat-shell.hud.peek .dm-bubble-row:nth-last-child(3) {
+    opacity: 0.34;
+  }
+
+  .chat-shell.hud.peek .message-row:nth-last-child(2),
+  .chat-shell.hud.peek .dm-bubble-row:nth-last-child(2) {
+    opacity: 0.62;
+  }
+
+  .chat-shell.hud.peek .hud-controls,
+  .chat-shell.hud.peek .return-to-present {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  /* No clock in the peek stack, and it leaves the grid entirely rather than
+     zeroing its track — a 0-width column still costs its column-gap, which read
+     as dead padding down the left edge of the plate. */
+  .chat-shell.hud.peek .message-time {
+    display: none;
+  }
+
+  .chat-shell.hud.peek .message-row {
+    grid-template-columns: var(--chat-name-col) minmax(0, 1fr);
+    /* max-content, not a measured width: the row then hugs its own single line
+       no matter how wide the plate happens to be at that instant, so a short
+       message can never be squeezed into two lines by a plate that is still
+       animating — or by a --peek-row-w that is one frame stale. The measured
+       value is only the ceiling, for messages long enough to genuinely wrap. */
+    width: max-content;
+    max-width: var(--peek-row-w, 100%);
+  }
+
+  /* The plate widens first, then the line arrives — the delay covers the width
+     transition, so nothing is ever revealed mid-resize. */
+  .chat-shell.hud.peek .message-row:last-child {
+    animation: peek-row-in 0.18s ease 0.2s both;
+  }
+
+  @keyframes peek-row-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  .chat-shell.hud.peek .message-row.system .message-body {
+    grid-column: 1 / 3;
+  }
+
+  /* The bar becomes a small solid pill holding the dot and the current channel
+     — the one thing that is always on screen, so an empty or silent room still
+     has something to see and to aim at. It is shrink-wrapped rather than
+     full-width, so there's no invisible strip to catch a stray brush stroke. */
+  .chat-shell.hud.peek .hud-bar {
+    /* Centred rather than flush left: the plate below is centred too, so the
+       two share a centre line and the stack grows out symmetrically around the
+       pill instead of only ever running off to the right of it. */
+    align-self: center;
+    width: fit-content;
+    min-height: 0;
+    height: auto;
+    gap: 6px;
+    margin: 0 0 4px;
+    padding: 3px 10px 3px 9px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--bg-secondary) 90%, black);
+    border: 1px solid var(--border-subtle);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+    /* Brighter than the bar's normal idle level (--chat-bar-idle): when the
+       room is silent this pill is the only thing on screen. */
+    opacity: 0.78;
+    cursor: pointer;
+    pointer-events: auto;
+  }
+
+  /* Only the channel you're actually in survives the collapse. */
+  .chat-shell.hud.peek .hud-tab:not(.on) {
+    display: none;
+  }
+
+  .chat-shell.hud.peek .hud-tab.on {
+    max-width: 14ch;
+    padding: 0;
+    background: transparent;
+    color: var(--chat-text);
+    font-size: 0.7rem;
+    /* The whole pill is the target, not the label inside it. */
+    pointer-events: none;
+  }
+
+  .chat-shell.hud.peek .hud-tabs {
+    overflow: visible;
+  }
+
+  /* On the way in the composer waits for the panel to establish, then slides
+     up; on the way out it leaves first, so you never see a dark input pill
+     floating on its own over the canvas. */
+  .chat-shell.hud .chat-composer {
+    transition: height 0.3s cubic-bezier(0.32, 0.72, 0, 1),
+      padding 0.3s cubic-bezier(0.32, 0.72, 0, 1),
+      opacity 0.2s ease 0.1s,
+      transform 0.28s cubic-bezier(0.32, 0.72, 0, 1) 0.06s;
+  }
+
+  .chat-shell.hud.peek .chat-composer {
+    height: 0;
+    min-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    border: 0;
+    opacity: 0;
+    overflow: hidden;
+    transform: translateY(10px);
+    pointer-events: none;
+    transition: height 0.3s cubic-bezier(0.32, 0.72, 0, 1),
+      padding 0.3s cubic-bezier(0.32, 0.72, 0, 1),
+      opacity 0.14s ease,
+      transform 0.24s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  /* Nothing to grab while collapsed — the handles would be invisible traps. */
+  .chat-shell.hud.peek .chat-resize-handle,
+  .chat-shell.hud.peek .chat-resize-grip {
+    display: none;
+  }
+
+  /* Quiet room: the lines fade out and the space they held closes with them. */
+  .chat-shell.hud.peek .chat-content {
+    transition: opacity 0.3s ease, height 0.34s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  .chat-shell.hud.peek.quiet .chat-content {
+    opacity: 0;
+    height: 0;
+    overflow: hidden;
+    transition: opacity 0.3s ease, height 0.4s cubic-bezier(0.32, 0.72, 0, 1) 0.12s;
+  }
+
+  /* The pin is drawn from public/images/pin-icon.svg as a mask rather than an
+     <img> so it takes the button's colour (the file's fill is hard-coded). */
+  .hud-pin {
+    padding: 0 6px;
+  }
+
+  .hud-pin-icon {
+    display: block;
+    width: 13px;
+    height: 13px;
+    background: currentColor;
+    -webkit-mask: url('/images/pin-icon.svg') center / contain no-repeat;
+    mask: url('/images/pin-icon.svg') center / contain no-repeat;
+    /* The glyph ships tilted 45°, needle down-left. Unpinned leaves it leaning;
+       pinning drives it straight in. */
+    transform: rotate(0deg);
+    transition: transform 0.18s ease;
+  }
+
+  .hud-pin.on .hud-pin-icon {
+    transform: rotate(-45deg);
+  }
+
+  .hud-pin.on {
+    background: color-mix(in srgb, var(--accent-primary) 24%, transparent);
+    color: var(--chat-text);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .hud-pin-icon {
+      transition: none;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .chat-shell.hud,
+    .chat-shell.hud .chat-composer,
+    .chat-shell.hud.peek .chat-composer,
+    .chat-shell.hud.peek .chat-content,
+    .chat-shell.hud.peek.quiet .chat-content {
+      transition: none;
+    }
+
+    .chat-shell.hud.peek .chat-composer {
+      transform: none;
+    }
+
+    .chat-shell.hud.peek .message-stream {
+      transition: none;
+    }
+
+    .chat-shell.hud.peek .message-row:last-child {
+      animation: none;
+    }
+  }
+
+  .chat-shell.mini .hud-bar {
+    min-height: 26px;
+    padding: 3px 4px 2px 8px;
+    gap: 4px;
+  }
+
+  .chat-shell.mini .hud-tab {
+    padding: 2px 7px;
+    font-size: 0.64rem;
+    max-width: 8ch;
+  }
+
+  .chat-shell.mini .hud-btn {
+    min-width: 20px;
+    height: 20px;
+    padding: 0 5px;
+    font-size: 0.62rem;
+  }
+
   .chat-content {
     display: flex;
     flex-direction: row;
@@ -3184,10 +4097,6 @@
     height: 100%;
   }
 
-  .chat-shell.compact .chat-content {
-    grid-template-columns: 92px minmax(0, 1fr);
-  }
-
   .chat-shell.compact .chat-main {
     position: relative;
     min-width: 0;
@@ -3196,22 +4105,6 @@
     z-index: 3;
   }
 
-  .chat-rail {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    flex: 0 0 70px;
-    min-height: 0;
-    padding: 14px 2px;
-    background: color-mix(in srgb, black 12%, transparent);
-    border-right: 1px solid var(--border-subtle);
-    position: relative;
-    z-index: 1;
-    overflow: hidden;
-  }
-
-  .rail-tab,
-  .rail-action,
   .topbar-btn,
   .directory-user,
   .return-to-present,
@@ -3227,42 +4120,6 @@
     cursor: pointer;
   }
 
-  .rail-section-label {
-    padding: 0 0.35rem;
-    color: color-mix(in srgb, var(--text-secondary) 70%, transparent);
-    font-size: 0.62rem;
-    font-weight: 700;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-  }
-
-  .rail-thread-list {
-    display: flex;
-    flex: 0 1 auto;
-    flex-direction: column;
-    gap: 8px;
-    min-height: 0;
-    overflow-y: auto;
-    max-height: 150px;
-  }
-
-  .rail-tab,
-  .rail-action {
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 6px;
-    width: 100%;
-    padding: 2px;
-    background: color-mix(in srgb, var(--bg-elevated) 42%, transparent);
-    color: var(--chat-muted);
-    border-radius: 16px;
-    transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease;
-  }
-
-  .rail-tab:hover,
-  .rail-action:hover,
   .topbar-btn:hover,
   .directory-user:hover,
   .chat-send:hover,
@@ -3276,39 +4133,6 @@
     transform: translateY(-1px);
   }
 
-  .rail-tab:hover,
-  .rail-action:hover {
-    background: color-mix(in srgb, var(--accent-primary) 9%, var(--bg-elevated));
-    color: var(--chat-text);
-  }
-
-  .rail-tab.active,
-  .rail-action.active {
-    background: color-mix(in srgb, var(--accent-primary) 17%, var(--bg-elevated));
-    color: var(--chat-text);
-  }
-
-  .rail-tab::before,
-  .rail-action::before {
-    content: '';
-    position: absolute;
-    left: 0;
-    top: 50%;
-    width: 3px;
-    height: 58%;
-    border-radius: 0 3px 3px 0;
-    background: var(--accent-primary);
-    transform: translateY(-50%) scaleY(0);
-    transition: transform 0.16s ease;
-  }
-
-  .rail-tab.active::before,
-  .rail-action.active::before {
-    transform: translateY(-50%) scaleY(1);
-  }
-
-  .rail-tab:active,
-  .rail-action:active,
   .directory-user:active,
   .composer-tool:active:not(:disabled),
   .emoji-btn:active:not(:disabled),
@@ -3318,8 +4142,6 @@
     transform: translateY(0) scale(0.985);
   }
 
-  .rail-tab:focus-visible,
-  .rail-action:focus-visible,
   .directory-user:focus-visible,
   .composer-tool:focus-visible,
   .emoji-btn:focus-visible,
@@ -3329,99 +4151,12 @@
     outline-offset: -2px;
   }
 
-  .public-tab {
-    justify-content: center;
-    text-align: left;
-    min-height: 46px;
-    width: calc(100% + 24px);
-    margin-left: -12px;
-    padding-left: 12px;
-    padding-right: 12px;
-    border-top-left-radius: 0;
-    border-bottom-left-radius: 0;
-  }
-
-  .rail-action {
-    margin-top: auto;
-    justify-content: center;
-    text-align: left;
-    min-height: 46px;
-    width: calc(100% + 24px);
-    margin-left: -12px;
-    padding-top: 0.7rem;
-    padding-bottom: 0.7rem;
-    padding-left: 12px;
-    padding-right: 12px;
-    background: color-mix(in srgb, var(--bg-elevated) 42%, transparent);
-    color: var(--chat-muted);
-    border-radius: 0;
-  }
-
-  .rail-action:hover {
-    background: color-mix(in srgb, var(--accent-primary) 9%, var(--bg-elevated));
-    color: var(--chat-text);
-  }
-
-  .rail-action.active {
-    background: color-mix(in srgb, var(--accent-primary) 17%, var(--bg-elevated));
-    color: var(--chat-text);
-  }
-
-  .public-tab,
-  .rail-action,
-  .rail-tab.public-tab.active,
-  .rail-tab.public-tab:hover,
-  .rail-action.active,
-  .rail-action:hover {
-    border-radius: 0;
-  }
-
-  .rail-avatar {
-    display: grid;
-    place-items: center;
-    width: 34px;
-    height: 34px;
-    border-radius: 12px;
-    background: color-mix(in srgb, var(--bg-elevated) 88%, white 12%);
-    font-size: 1rem;
-    font-weight: 800;
-  }
-
-  .rail-avatar,
   .directory-avatar {
     background: color-mix(in srgb, var(--avatar-color) 82%, black 18%);
     color: white;
     text-shadow: 0 1px 1px rgba(0, 0, 0, 0.18);
   }
 
-  .rail-tab-name {
-    max-width: 100%;
-    overflow: hidden;
-    color: inherit;
-    font-size: 0.72rem;
-    font-weight: 700;
-    line-height: 1.1;
-    text-align: center;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .public-tab .rail-tab-name,
-  .rail-action span:last-child {
-    font-size: 0.91rem;
-    letter-spacing: 0.01em;
-  }
-
-  .public-tab .rail-tab-name {
-    font-weight: 600;
-  }
-
-  .rail-action span:first-child {
-    font-size: 1rem;
-    line-height: 1;
-  }
-
-  .rail-badge,
   .directory-badge {
     display: inline-flex;
     min-width: 18px;
@@ -3434,12 +4169,6 @@
     color: var(--bg-primary);
     font-size: 0.68rem;
     font-weight: 800;
-  }
-
-  .rail-badge {
-    position: absolute;
-    top: 7px;
-    right: 6px;
   }
 
   .chat-main {
@@ -3702,20 +4431,17 @@
   }
 
   .message-stream::-webkit-scrollbar,
-  .directory-list::-webkit-scrollbar,
-  .rail-thread-list::-webkit-scrollbar {
+  .directory-list::-webkit-scrollbar {
     width: 8px;
   }
 
   .message-stream::-webkit-scrollbar-track,
-  .directory-list::-webkit-scrollbar-track,
-  .rail-thread-list::-webkit-scrollbar-track {
+  .directory-list::-webkit-scrollbar-track {
     background: transparent;
   }
 
   .message-stream::-webkit-scrollbar-thumb,
-  .directory-list::-webkit-scrollbar-thumb,
-  .rail-thread-list::-webkit-scrollbar-thumb {
+  .directory-list::-webkit-scrollbar-thumb {
     background: color-mix(in srgb, var(--text-secondary) 30%, transparent);
     border-radius: 999px;
     border: 2px solid transparent;
@@ -3723,8 +4449,7 @@
   }
 
   .message-stream::-webkit-scrollbar-thumb:hover,
-  .directory-list::-webkit-scrollbar-thumb:hover,
-  .rail-thread-list::-webkit-scrollbar-thumb:hover {
+  .directory-list::-webkit-scrollbar-thumb:hover {
     background: color-mix(in srgb, var(--accent-primary) 48%, transparent);
     background-clip: padding-box;
   }
@@ -3739,18 +4464,47 @@
     text-align: center;
   }
 
+  /* Three columns — clock, name, message — each a fixed-width gutter ahead of
+     the text, so every message body starts on the same x regardless of who is
+     talking or how long the timestamp reads, and a run of messages from one
+     person stays in the message column instead of the follow-ups sliding left
+     under the name. */
   .message-row {
     display: grid;
-    grid-template-columns: 46px minmax(0, 1fr);
-    gap: 0.55rem;
+    /* Both gutters are fixed rather than auto: each row is its own grid, so an
+       auto clock column would collapse to nothing on grouped rows (which print
+       no time) and drag that row's name and text left out of line. */
+    grid-template-columns: var(--chat-time-col) var(--chat-name-col) minmax(0, 1fr);
+    align-items: baseline;
+    gap: 0.45rem;
     width: 100%;
     max-width: 100%;
     min-width: 0;
     border-bottom: 0;
   }
 
-  .message-row.system {
-    grid-template-columns: 46px minmax(0, 1fr);
+  /* System lines have no author — they take the name gutter as well. */
+  .message-row.system .message-body {
+    grid-column: 2 / 4;
+  }
+
+  /* Grouped rows drop the repeated name but keep its cell, so the run stays in
+     one column. Hidden rather than removed — see the peek override. */
+  .message-row.grouped .message-user {
+    visibility: hidden;
+  }
+
+  .message-author {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--chat-ink);
+    font-size: 0.9rem;
+    line-height: 1.32;
+    /* Right-aligned so the names hug the message column and the gap between
+       the two stays constant however long the name is. */
+    text-align: right;
+    white-space: nowrap;
+    text-overflow: ellipsis;
   }
 
   .message-row.grouped {
@@ -3767,14 +4521,16 @@
   }
 
   .message-time {
-    color: color-mix(in srgb, var(--text-secondary) 46%, transparent);
-    font-size: 0.66rem;
+    color: color-mix(in srgb, var(--chat-ink) 52%, transparent);
+    font-size: 0.62rem;
     font-weight: 500;
     font-variant-numeric: tabular-nums;
     letter-spacing: 0.02em;
     white-space: nowrap;
-    text-align: right;
-    padding-right: 0.1rem;
+    text-align: left;
+    /* The gutter is fixed-width and collapses to 0 in the peek stack — clip
+       rather than let the digits spill into the name column. */
+    overflow: hidden;
     user-select: none;
   }
 
@@ -3792,7 +4548,7 @@
   .message-line {
     display: block;
     margin: 0;
-    color: var(--text-primary);
+    color: var(--chat-ink);
     font-size: 0.9rem;
     line-height: 1.32;
     word-break: break-word;
@@ -3855,7 +4611,7 @@
     box-shadow: none;
     cursor: context-menu;
     line-height: inherit;
-    text-align: left;
+    text-align: right;
     vertical-align: baseline;
   }
 
@@ -3865,19 +4621,14 @@
     width: 0;
   }
 
-  .message-line .message-user + .message-text-inline::before {
-    content: ' · ';
-    color: color-mix(in srgb, var(--text-secondary) 35%, transparent);
-    margin: 0 0.08rem 0 0.12rem;
-    font-weight: 500;
-  }
-
   .message-user.rank-guest {
     color: var(--role-guest);
   }
 
+  /* --role-user is the same #f0f2f5 being replaced, so plain users' names
+     follow the ink rather than staying behind at the old cool white. */
   .message-user.rank-user {
-    color: var(--role-user);
+    color: var(--chat-ink);
   }
 
   .message-user.rank-trusted {
@@ -3955,27 +4706,9 @@
     text-shadow: 0 0 7px color-mix(in srgb, var(--role-deity), transparent 58%);
   }
 
-  .thread-tab {
-    justify-content: center;
-    text-align: center;
-    min-height: 46px;
-    width: 100%;
-    margin-left: 0;
-    padding-left: 0.75rem;
-    padding-right: 0.75rem;
-    border-radius: 16px;
-  }
-
-  .thread-tab .rail-tab-name {
-    width: 100%;
-    font-size: 0.86rem;
-    font-weight: 600;
-    text-align: center;
-  }
-
   .message-text {
     margin: 0 0 0;
-    color: var(--text-primary);
+    color: var(--chat-ink);
     font-size: 0.9rem;
     line-height: 1.32;
     word-break: break-word;
@@ -4061,11 +4794,6 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-
-  .rail-tab.thread-tab.inactive {
-    color: color-mix(in srgb, var(--chat-muted) 82%, var(--chat-text) 18%);
-    opacity: 0.68;
   }
 
   .gallery-preview-copy strong {
@@ -4307,12 +5035,10 @@
   }
 
   /* Image preview + emoji picker float above the composer instead of taking
-     part in the layout — expanding them must not push the chat/rail around. */
+     part in the layout — expanding them must not push the stream around. */
   .composer-popovers {
     position: absolute;
-    /* Footer spans the full shell width — start the popovers past the 70px
-       channel rail so they only cover the message area. */
-    left: 80px;
+    left: 10px;
     right: 10px;
     bottom: calc(100% + 8px);
     z-index: 12;
@@ -4339,7 +5065,7 @@
   .composer-row {
     display: grid;
     grid-template-columns: auto auto minmax(0, 1fr) auto;
-    gap: 0.6rem;
+    gap: 0.5rem;
     align-items: end;
   }
 
@@ -4355,12 +5081,14 @@
     display: none;
   }
 
+  /* 46px square to match .chat-input's min-height and .chat-send, so the whole
+     composer row lines up on one baseline. */
   .composer-tool {
     display: grid;
     place-items: center;
-    width: 42px;
-    height: 42px;
-    border-radius: 12px;
+    width: 46px;
+    height: 46px;
+    border-radius: 14px;
     background: color-mix(in srgb, var(--bg-elevated) 82%, transparent);
     border: 1px solid color-mix(in srgb, var(--border-subtle) 70%, transparent);
     color: var(--chat-text);
@@ -4536,8 +5264,12 @@
     font-size: 1rem;
   }
 
+  /* Flex + a block textarea: as an inline-block the textarea sat on a text
+     baseline, leaving descender space under it that pushed the box a few px
+     above the 46px tool/send buttons in the bottom-aligned composer row. */
   .chat-input-wrap {
     position: relative;
+    display: flex;
     min-width: 0;
   }
 
@@ -4558,13 +5290,16 @@
   }
 
   .chat-input {
+    display: block;
     min-height: 46px;
     max-height: 120px;
-    padding: 0.8rem 1rem;
-    border: 1px solid var(--border-subtle);
+    padding: 0.78rem 1.05rem;
+    border: 1px solid color-mix(in srgb, var(--text-primary) 12%, transparent);
     border-radius: 14px;
     width: 100%;
-    background: color-mix(in srgb, var(--bg-primary) 70%, transparent);
+    /* Near-opaque: the field has to stay a solid place to type even when the
+       HUD surface behind it is faded down over the canvas. */
+    background: color-mix(in srgb, var(--bg-primary) 88%, transparent);
     color: var(--chat-text);
     font-family: inherit;
     font-size: 0.88rem;
@@ -4593,16 +5328,21 @@
   }
 
   .chat-input {
-    transition: border-color 0.16s ease, box-shadow 0.16s ease;
+    transition: border-color 0.16s ease, background 0.16s ease;
+  }
+
+  .chat-input::placeholder {
+    color: color-mix(in srgb, var(--text-secondary) 62%, transparent);
   }
 
   .chat-input:hover:not(:disabled):not(:focus) {
-    border-color: color-mix(in srgb, var(--border-active) 55%, var(--border-subtle));
+    border-color: color-mix(in srgb, var(--text-primary) 22%, transparent);
   }
 
+  /* A 1px accent edge instead of a 3px glow ring. */
   .chat-input:focus {
-    border-color: var(--border-active);
-    box-shadow: 0 0 0 3px var(--accent-glow);
+    border-color: color-mix(in srgb, var(--accent-primary) 70%, transparent);
+    background: color-mix(in srgb, var(--bg-primary) 96%, transparent);
   }
 
   .chat-input:disabled {
@@ -4614,50 +5354,56 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    min-width: 82px;
+    width: 46px;
+    min-width: 46px;
+    height: 46px;
     min-height: 46px;
-    padding: 0 1.05rem;
+    padding: 0;
     border-radius: 14px;
-    background: linear-gradient(135deg, var(--accent-hover), var(--accent-primary));
+    background: var(--accent-primary);
     color: var(--bg-primary);
     font-size: 0.84rem;
     font-weight: 800;
-    box-shadow: 0 2px 10px color-mix(in srgb, var(--accent-primary) 26%, transparent),
-      inset 0 1px 0 color-mix(in srgb, white 22%, transparent);
+    box-shadow: inset 0 1px 0 color-mix(in srgb, white 22%, transparent);
     transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
   }
 
   .chat-send-icon {
-    width: 24px;
-    height: 24px;
+    width: 30px;
+    height: 30px;
     display: block;
+    /* The glyph's ink sits left of the viewBox centre, so it reads off-centre
+       in a square button until it's nudged back. */
+    transform: translateX(1.5px);
     pointer-events: none;
   }
 
   /* Compact's Send spans two composer rows — scale the glyph with it. */
   .chat-shell.compact .chat-send-icon {
-    width: 28px;
-    height: 28px;
+    width: 34px;
+    height: 34px;
   }
 
   .chat-shell.mini .chat-send-icon {
-    width: 15px;
-    height: 15px;
+    width: 18px;
+    height: 18px;
   }
 
+  /* Compact's Send spans both composer rows — 78px square to match that span. */
   .chat-shell.compact .chat-send {
     grid-column: 3;
     grid-row: 1 / span 2;
-    min-width: 88px;
+    width: 78px;
+    min-width: 78px;
+    height: 78px;
     min-height: 78px;
-    padding: 0 1.15rem;
+    padding: 0;
   }
 
   .chat-send:hover {
-    background: linear-gradient(135deg, var(--accent-primary), var(--accent-hover));
+    background: var(--accent-hover);
     color: var(--bg-primary);
-    box-shadow: 0 4px 16px color-mix(in srgb, var(--accent-primary) 38%, transparent),
-      inset 0 1px 0 color-mix(in srgb, white 22%, transparent);
+    box-shadow: inset 0 1px 0 color-mix(in srgb, white 28%, transparent);
   }
 
   .chat-send:disabled {
@@ -4808,15 +5554,6 @@
       bottom: 24px !important;
     }
 
-    .chat-content,
-    .chat-shell.compact .chat-content {
-      grid-template-columns: 84px minmax(0, 1fr);
-    }
-
-    .chat-shell.mini .chat-content {
-      grid-template-columns: 54px minmax(0, 1fr) !important;
-    }
-
     .chat-topbar,
     .directory-header,
     .message-stream,
@@ -4880,7 +5617,7 @@
     }
 
     .chat-shell.mini .message-row {
-      grid-template-columns: 32px minmax(0, 1fr) !important;
+      grid-template-columns: minmax(0, 1fr) auto !important;
       gap: 0.35rem !important;
       padding: 0 !important;
       width: 100% !important;

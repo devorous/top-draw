@@ -559,6 +559,172 @@ async function spawnTab(browser, label, room, { recordFromJoin = false } = {}) {
 
 let pageErrors = [];
 
+// ─── Mirror setup helpers ────────────────────────────────────────────────────
+
+/**
+ * Creates one shared mirror region, straight through the same board + broadcast
+ * pair MirrorRegionController.apply() uses.
+ *
+ * Regions rather than the full-board mirror on purpose. T.MIR is permission-
+ * gated (server/permissions.js Action.TOGGLE_MIRROR: room ADMIN(5)+ / global
+ * HOLY(8)+) and every tab here is an anonymous guest in an ad-hoc room, so a
+ * `board.toggleMirror() + broadcastMirror()` fixture is REFUSED — the server
+ * answers with the authoritative SETTINGS and the mirror silently stays off,
+ * leaving the scenario green because all four tabs agree on an unmirrored
+ * board. (That is exactly what happened to the original `delete_mirrored`
+ * fixture the moment the gate landed.) MIRROR_REGION is not gated, reaches late
+ * joiners through SETTINGS, and drives the identical code path: a full-board
+ * `vertical` region is geometrically the same transform as the global mirror.
+ *
+ * Region geometry is built from CLIENT coords converted in-page — the scenarios'
+ * selection rectangles are client coords too, and board coords differ by the
+ * viewport's pan/zoom, so a hard-coded board rect would drift off the content.
+ *
+ * @param {string} mode - vertical | horizontal | quad | rotational | radial | fib
+ * @param {Object} [opts]
+ * @param {boolean} [opts.fullBoard] - Span the whole board (global-mirror equivalent).
+ * @param {Object} [opts.extra] - Mode options, e.g. `{ slices: 5 }` for radial.
+ */
+async function addMirrorRegion(page, mode, { fullBoard = false, extra = {} } = {}) {
+  await page.evaluate(async (mode, fullBoard, extra) => {
+    const app = window.app;
+    let box;
+    if (fullBoard) {
+      box = { x: 0, y: 0, width: app.board.getWidth(), height: app.board.getHeight() };
+    } else {
+      const tl = app.board.getBoardRelativePos(180, 130);
+      const br = app.board.getBoardRelativePos(620, 570);
+      // Square: the region editor authors every non-fib mode square, and radial
+      // in particular is only symmetric about a square's centre.
+      const size = Math.round(Math.min(br.x - tl.x, br.y - tl.y));
+      box = { x: Math.round(tl.x), y: Math.round(tl.y), width: size, height: size };
+    }
+    const region = {
+      id: 'mr_selparity_fixture',
+      ...box,
+      mode,
+      axis: mode,
+      showLine: true,
+      owner: app.self?.id || null,
+      ...extra,
+    };
+    app.board.setMirrorRegions([...(app.board.mirrorRegions || []), region]);
+    app.wsClient.broadcastMirrorRegion({ action: 'create', region });
+    await new Promise((r) => setTimeout(r, 400));
+  }, mode, fullBoard, extra);
+}
+
+/** Full-board vertical region — the global mirror's geometry, without the gate. */
+const mirrorWholeBoard = (page) => addMirrorRegion(page, 'vertical', { fullBoard: true });
+
+/**
+ * Board-space SEL_LEFT and its vertical reflection about the board centre.
+ *
+ * The reflection is computed here from first principles rather than by calling
+ * Board.getSelectionMirrorTargets, so the assertion does not depend on the code
+ * it exists to check.
+ */
+async function mirroredSelectionRects(page) {
+  return page.evaluate((sel) => {
+    const b = window.app.board;
+    const tl = b.getBoardRelativePos(sel.x0, sel.y0);
+    const br = b.getBoardRelativePos(sel.x1, sel.y1);
+    const rect = {
+      x: Math.round(tl.x), y: Math.round(tl.y),
+      width: Math.round(br.x - tl.x), height: Math.round(br.y - tl.y),
+    };
+    return {
+      rect,
+      mirror: { x: b.getWidth() - rect.x - rect.width, y: rect.y, width: rect.width, height: rect.height },
+    };
+  }, SEL_LEFT);
+}
+
+/** Counts opaque pixels within `tol` of `color` inside a board-space rect. */
+async function countInk(page, rect, color, tol = 48) {
+  return page.evaluate((rect, color, tol) => {
+    const b = window.app.board;
+    const d = b.mainCtx.getImageData(rect.x, rect.y, rect.width, rect.height).data;
+    let n = 0;
+    for (let i = 0; i < d.length; i += 4) {
+      if (d[i + 3] < 8) continue;
+      if (Math.abs(d[i] - color[0]) <= tol
+        && Math.abs(d[i + 1] - color[1]) <= tol
+        && Math.abs(d[i + 2] - color[2]) <= tol) n++;
+    }
+    return n;
+  }, rect, color, tol);
+}
+
+/**
+ * Asserts the reflected copy of a fill actually exists on THIS tab.
+ *
+ * Cross-tab pixel parity alone cannot catch a mirror regression: if neither the
+ * drawer nor the receivers mirror, all four tabs agree perfectly on an
+ * unmirrored board and the scenario goes green. Every mirror scenario therefore
+ * asserts the reflected pixels are present (or gone, for a clear) on each tab
+ * independently, exactly like the MASK scenarios do for clipping.
+ */
+async function assertMirroredFill(page, label, ctx, color) {
+  const { rect, mirror } = ctx.rects;
+  const here = await countInk(page, rect, color);
+  const there = await countInk(page, mirror, color);
+  const fails = [];
+  // Guards the guard: a fill that never happened is trivially "not mirrored".
+  if (here < 2000) {
+    fails.push(`[${label}] mirror probe: only ${here}px of the fill landed in the selection `
+      + `itself — the fill never happened, so its reflection proves nothing`);
+  } else if (there < here * 0.5) {
+    fails.push(`[${label}] FILL NOT MIRRORED: ${here}px filled at the selection but only `
+      + `${there}px in its reflection (${JSON.stringify(mirror)})`);
+  }
+  return fails;
+}
+
+/**
+ * Asserts a stroke drawn under a selection MASK still produced its mirrored
+ * copies on THIS tab.
+ *
+ * Mask mode clips the stroke context once at MD time and the mirror-aware tools
+ * then draw their reflected copies into that same clipped context — so a clip
+ * covering only the mask itself throws every reflection away, and drawing inside
+ * a mask silently stops mirroring. See Board.clipToMaskAndMirrors.
+ */
+async function assertMaskedStrokeMirrored(page, label, ctx, color = MASK_PROBE.color) {
+  const { rect, mirror } = ctx.rects;
+  const here = await countInk(page, rect, color);
+  const there = await countInk(page, mirror, color);
+  const fails = [];
+  if (here < 300) {
+    fails.push(`[${label}] masked mirror probe: only ${here}px of the probe stroke landed inside `
+      + `the mask — the stroke never drew, so its reflection proves nothing`);
+  } else if (there < here * 0.5) {
+    fails.push(`[${label}] MASKED STROKE NOT MIRRORED: ${here}px inside the mask but only `
+      + `${there}px in its reflection (${JSON.stringify(mirror)}) — the mask clip is `
+      + `swallowing the mirrored copies`);
+  }
+  return fails;
+}
+
+/** Asserts the reflected copy of a cleared area really was cleared on THIS tab. */
+async function assertMirroredClear(page, label, ctx) {
+  const { rect, mirror } = ctx.rects;
+  const fails = [];
+  for (const color of CONTENT.strokes.map((s) => s.color)) {
+    const here = await countInk(page, rect, color);
+    const there = await countInk(page, mirror, color);
+    if (here > 200) {
+      fails.push(`[${label}] clear probe: ${here}px of content colour ${color.slice(0, 3)} `
+        + `survived inside the selection — the clear itself did not happen`);
+    }
+    if (there > 200) {
+      fails.push(`[${label}] CLEAR NOT MIRRORED: ${there}px of content colour ${color.slice(0, 3)} `
+        + `left in the reflection (${JSON.stringify(mirror)})`);
+    }
+  }
+  return fails;
+}
+
 // ─── Scenarios ───────────────────────────────────────────────────────────────
 // Each `run(A)` performs the operation on tab A. Content is drawn beforehand
 // per `layers`. Keep every scenario's geometry fixed — no randomness.
@@ -809,26 +975,134 @@ const SCENARIOS = [
       });
     },
   },
+  // ── MIRRORS ────────────────────────────────────────────────────────────────
+  // Every placement/destructive selection verb repeats itself into each active
+  // mirror. The drawer and the receiver derive those copies from two different
+  // code paths (SelectTool vs RemoteSelectionHandler), which is exactly how the
+  // fill mirrored on the drawer's screen and nowhere else for so long. A
+  // one-sided mirror is invisible to a single client, so it can only be caught
+  // by cross-tab parity — these scenarios are that check.
+  //
+  // Mirrors go on BEFORE the content is drawn so the reflected areas actually
+  // hold ink and a clear has something to remove there. Turning them on after
+  // drawing instead tests MIRROR_REGION ordering in the join tail, which is a
+  // separate concern from whether a selection verb mirrors at all.
   {
     name: 'delete_mirrored',
-    desc: 'global mirror on: rect-select, Clear (mirrored half must clear too)',
-    // Mirror goes on BEFORE the content is drawn so the mirrored half actually
-    // holds ink and the clear has something to remove there. Toggling it after
-    // drawing instead tests MIR ordering in the join tail, which is a separate
-    // concern from whether a selection clear mirrors.
-    async beforeContent(page) {
-      await page.evaluate(async () => {
-        const app = window.app;
-        const m = app.board.toggleMirror();
-        app.ui.updateMirrorDisplay(m);
-        app.wsClient.broadcastMirror();
-        await new Promise((r) => setTimeout(r, 400));
-      });
-    },
+    desc: 'full-board mirror: rect-select, Clear (mirrored half must clear too)',
+    beforeContent: mirrorWholeBoard,
     async run(page) {
       await armSelect(page, 'rect');
       await selectRect(page, SEL_LEFT);
       await menu(page, 'deleteSelection');
+    },
+    async assert(page, label, ctx) { return assertMirroredClear(page, label, ctx); },
+  },
+  {
+    name: 'fill_mirrored',
+    desc: 'full-board mirror: rect-select, Fill (reflected half must fill too)',
+    beforeContent: mirrorWholeBoard,
+    async run(page) {
+      await armSelect(page, 'rect');
+      await selectRect(page, SEL_LEFT);
+      await setColor(page, [128, 0, 200, 1]);
+      await menu(page, 'fillSelection');
+    },
+    async assert(page, label, ctx) { return assertMirroredFill(page, label, ctx, [128, 0, 200]); },
+  },
+  {
+    name: 'fill_lasso_mirrored',
+    desc: 'full-board mirror: lasso-select, Fill (mirrored lasso shape, not its bbox)',
+    // A lasso's outline is all antialiased edge and the mirror doubles it; the
+    // assert below is what actually proves the reflection happened.
+    passPct: 99.3,
+    beforeContent: mirrorWholeBoard,
+    async run(page) {
+      await armSelect(page, 'lasso');
+      await selectLasso(page, SEL_LEFT);
+      await setColor(page, [200, 120, 0, 1]);
+      await menu(page, 'fillSelection');
+    },
+    async assert(page, label, ctx) { return assertMirroredFill(page, label, ctx, [200, 120, 0]); },
+  },
+  {
+    name: 'move_commit_mirrored',
+    desc: 'full-board mirror: rect-select, drag, Apply (lift-erase AND stamp mirror)',
+    beforeContent: mirrorWholeBoard,
+    async run(page) {
+      await armSelect(page, 'rect');
+      await selectRect(page, SEL_LEFT);
+      await moveSelection(page, [300, 300], MOVE_TO.dx, MOVE_TO.dy);
+      await menu(page, 'deselect');
+    },
+  },
+  {
+    name: 'stamp_mirrored',
+    desc: 'full-board mirror: rect-select, move, Stamp, Apply (two mirrored placements)',
+    beforeContent: mirrorWholeBoard,
+    async run(page) {
+      await armSelect(page, 'rect');
+      await selectRect(page, SEL_LEFT);
+      await moveSelection(page, [300, 300], MOVE_TO.dx, MOVE_TO.dy);
+      await menu(page, 'stamp');
+      await sleep(400);
+      await menu(page, 'deselect');
+    },
+  },
+  {
+    name: 'region_fill_quad',
+    desc: 'quad mirror region: rect-select inside it, Fill (three reflected copies)',
+    beforeContent: (page) => addMirrorRegion(page, 'quad'),
+    async run(page) {
+      await armSelect(page, 'rect');
+      await selectRect(page, SEL_LEFT);
+      await setColor(page, [0, 180, 160, 1]);
+      await menu(page, 'fillSelection');
+    },
+  },
+  {
+    name: 'region_commit_radial',
+    desc: 'radial mirror region: rect-select, drag, Apply (rotated copies per slice)',
+    // Radial is the mode a rect-and-lasso mirror helper could never express — a
+    // rotated rectangle is not a rectangle — so it is the one that proves the
+    // ctx-transform approach really covers every mode.
+    beforeContent: (page) => addMirrorRegion(page, 'radial', { extra: { slices: 5 } }),
+    async run(page) {
+      await armSelect(page, 'rect');
+      await selectRect(page, SEL_LEFT);
+      await moveSelection(page, [300, 300], MOVE_TO.dx, MOVE_TO.dy);
+      await menu(page, 'deselect');
+    },
+  },
+  {
+    name: 'region_delete_rotational',
+    desc: 'rotational mirror region: rect-select, Clear (180° copy must clear too)',
+    beforeContent: (page) => addMirrorRegion(page, 'rotational'),
+    async run(page) {
+      await armSelect(page, 'rect');
+      await selectRect(page, SEL_LEFT);
+      await menu(page, 'deleteSelection');
+    },
+  },
+  {
+    name: 'mask_brush_draw_mirrored',
+    desc: 'full-board mirror + Mask on: brush across the mask edge (reflection must survive the clip)',
+    beforeContent: mirrorWholeBoard,
+    async run(page) {
+      await armSelect(page, 'rect');
+      await selectRect(page, SEL_LEFT);
+      await enableMask(page);
+      await switchTool(page, 'brush');
+      await brushStroke(page, MASK_PROBE);
+    },
+    // Two assertions in one: the mask still clips (nothing leaked past its right
+    // edge) AND the mirrored copy exists. Checking only the clip would go green
+    // on a mask that ate every reflection.
+    async assert(page, label, ctx) {
+      return [
+        ...(await assertMaskClipped(page, label)),
+        ...(await assertMaskedStrokeMirrored(page, label, ctx)),
+      ];
     },
   },
 
@@ -1005,8 +1279,14 @@ async function runScenario(browser, scenario) {
 
     // Live parity
     const [sA, sB, sC] = await Promise.all(tabs.map((t) => snap(t.page)));
-    const dAB = diffSnapshots(sA, sB, PIXEL_TOLERANCE);
-    const dAC = diffSnapshots(sA, sC, PIXEL_TOLERANCE);
+    // Antialiased edges never match exactly between the drawer (which blits a
+    // pre-rendered canvas) and a receiver (which re-renders the shape) — a known,
+    // accepted difference. A mirror duplicates every edge, so a mirrored
+    // scenario spends roughly twice as much of the budget on it; `passPct` lets
+    // those scenarios say so instead of the suite carrying a looser bar globally.
+    const passPct = scenario.passPct ?? PASS_PCT;
+    const dAB = diffSnapshots(sA, sB, PIXEL_TOLERANCE, passPct);
+    const dAC = diffSnapshots(sA, sC, PIXEL_TOLERANCE, passPct);
     live = { AB: dAB, AC: dAC, exempt: !!scenario.parityExempt };
     // `parityExempt` scenarios still MEASURE and report live parity — they just
     // do not fail on it, because the divergence they produce is a known,
@@ -1041,7 +1321,13 @@ async function runScenario(browser, scenario) {
     // localises a break to "the actor never clipped" vs "the mask never
     // reached the observers".
     if (scenario.assert) {
-      assertCtx = { maskRect: await A.page.evaluate(() => window.__maskRect || null) };
+      assertCtx = {
+        maskRect: await A.page.evaluate(() => window.__maskRect || null),
+        // Resolved from A and reused for every tab: board coords are identical
+        // across tabs (same viewport), and a per-tab lookup would let a tab with
+        // a broken board silently probe a different rect.
+        rects: await mirroredSelectionRects(A.page),
+      };
       for (const t of tabs) {
         const fails = await scenario.assert(t.page, t.label, assertCtx).catch(
           (e) => [`[${t.label}] assert threw: ${e.message}`]);
@@ -1110,7 +1396,7 @@ async function runScenario(browser, scenario) {
       await sleep(1500);
       await waitConverged(tabs, { timeoutMs: 20_000 });
       const [sA2, sD] = await Promise.all([snap(A.page), snap(D.page)]);
-      joinRes = diffSnapshots(sA2, sD, PIXEL_TOLERANCE);
+      joinRes = diffSnapshots(sA2, sD, PIXEL_TOLERANCE, scenario.passPct ?? PASS_PCT);
       if (!joinRes.pass) {
         ok = false;
         // A join-only failure is the joiner's own rebuild, so the live trio's

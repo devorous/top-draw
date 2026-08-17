@@ -32,7 +32,7 @@ export function setupSelectionHandlers(wrapHandler, app) {
       return;
     }
 
-    remoteUserHandler.selectionHandler.handleSelectionLift(user, data.selection, data.lassoPath, data.imageData, data.allLayers, data.seq, data.extendedWarp);
+    remoteUserHandler.selectionHandler.handleSelectionLift(user, data.selection, data.lassoPath, data.imageData, data.allLayers, data.seq, data.extendedWarp, data.mirrored);
   });
 
   wrapHandler('sel_move', (data) => {
@@ -57,7 +57,7 @@ export function setupSelectionHandlers(wrapHandler, app) {
       return;
     }
 
-    remoteUserHandler.selectionHandler.handleSelectionCommit(user, data.layerIndex, data.seq, data.extendedWarp);
+    remoteUserHandler.selectionHandler.handleSelectionCommit(user, data.layerIndex, data.seq, data.extendedWarp, data.mirrored);
   });
 
   wrapHandler('sel_pending', (data) => {
@@ -97,7 +97,7 @@ export function setupSelectionHandlers(wrapHandler, app) {
       return;
     }
 
-    remoteUserHandler.selectionHandler.handleSelectionFill(user, data.color, data.layerIndex, data.rect, data.seq, data.lassoPath);
+    remoteUserHandler.selectionHandler.handleSelectionFill(user, data.color, data.layerIndex, data.rect, data.seq, data.lassoPath, data.mirrored);
   });
 
   wrapHandler('sel_stamp', (data) => {
@@ -112,7 +112,7 @@ export function setupSelectionHandlers(wrapHandler, app) {
       return;
     }
 
-    remoteUserHandler.selectionHandler.handleSelectionStamp(user, data.layerIndex, data.seq, data.extendedWarp);
+    remoteUserHandler.selectionHandler.handleSelectionStamp(user, data.layerIndex, data.seq, data.extendedWarp, data.mirrored);
   });
 
   wrapHandler('sel_merge', (data) => {

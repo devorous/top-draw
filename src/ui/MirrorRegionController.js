@@ -35,6 +35,8 @@ export class MirrorRegionController {
     this.panelTitle = null;
     this.panelDescription = null;
     this.applyButton = null;
+    this.boardMirrorToggle = null;
+    this.globalMirrorInput = null;
 
     // Handle system for resizing/moving
     this.handles = [];
@@ -156,6 +158,7 @@ export class MirrorRegionController {
     this.slicesValue = this.panel.querySelector('[data-role="mirror-slices-value"]');
     this.fibDepthRow = this.panel.querySelector('[data-role="mirror-fib-depth-row"]');
     this.fibDepthValue = this.panel.querySelector('[data-role="mirror-fib-depth-value"]');
+    this._buildBoardMirrorToggle();
 
     this.panel.querySelectorAll('input[name="mirrorRegionAxis"]').forEach(input => {
       input.addEventListener('change', () => {
@@ -211,6 +214,7 @@ export class MirrorRegionController {
     this._refreshRegionControls();
     this._showMirrorCursor();
     this._hidePanel();
+    this._showBoardMirrorToggle();
     this._clearOverlay();
     this._startMarchingAnts();
     this.ui.showToast('Drag to add a mirror region, or use the region controls to edit/remove one.', 2200);
@@ -221,6 +225,7 @@ export class MirrorRegionController {
     this.active = false;
     this.stage = 'idle';
     this._resetSelectionState();
+    this._hideBoardMirrorToggle();
     this._hidePanel();
     this._clearOverlay();
     this._hideControlsLayer();
@@ -451,6 +456,103 @@ export class MirrorRegionController {
     this.originalEditingRegion = null;
     this.lastEditingPreviewSignature = '';
     this.options = { axis: 'vertical', slices: 6, fibDepth: 4, showLine: true };
+  }
+
+  /**
+   * Builds the admin-only "Mirror whole board" checkbox that sits directly under
+   * the Mirror toolbar button while mirror mode is open. Deliberately a bare
+   * checkbox and not part of the region panel: the full-board mirror is not a
+   * property of any region, and the panel only exists once a region has been
+   * dragged out.
+   * @private
+   */
+  _buildBoardMirrorToggle() {
+    const btn = this.ui.elements.mirrorBtn;
+    const anchor = btn?.closest('.mirrorContainer') || btn?.parentElement;
+    if (!anchor) return;
+    if (getComputedStyle(anchor).position === 'static') anchor.style.position = 'relative';
+
+    const wrap = document.createElement('label');
+    wrap.id = 'mirrorWholeBoardToggle';
+    wrap.dataset.tut = 'mirror-whole-board';
+    wrap.style.cssText = [
+      'position:absolute', 'top:calc(100% + 6px)', 'left:0', 'z-index:60',
+      'display:none', 'align-items:center', 'gap:6px', 'white-space:nowrap',
+      'padding:5px 9px', 'border-radius:8px',
+      'border:1px solid rgba(255,255,255,0.08)',
+      'background:rgba(19,23,29,0.96)', 'backdrop-filter:blur(12px)',
+      'box-shadow:0 6px 18px rgba(0,0,0,0.3)',
+      'font-size:11px', 'color:rgba(255,255,255,0.85)', 'cursor:pointer',
+    ].join(';');
+
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.name = 'mirrorWholeBoard';
+    input.style.cursor = 'pointer';
+    input.addEventListener('change', (e) => this._setBoardMirror(!!e.target.checked));
+
+    wrap.appendChild(input);
+    wrap.appendChild(document.createTextNode('Mirror whole board'));
+    anchor.appendChild(wrap);
+
+    this.boardMirrorToggle = wrap;
+    this.globalMirrorInput = input;
+  }
+
+  _showBoardMirrorToggle() {
+    if (!this.boardMirrorToggle) return;
+    // Admin-only, re-checked on every open so a mid-session promotion or demotion
+    // takes effect without a reload.
+    this.boardMirrorToggle.style.display = this._canToggleBoardMirror() ? 'flex' : 'none';
+    this.syncBoardMirrorCheckbox();
+  }
+
+  _hideBoardMirrorToggle() {
+    if (this.boardMirrorToggle) this.boardMirrorToggle.style.display = 'none';
+  }
+
+  /**
+   * Whether this client may flip the room-wide full-board mirror. Mirrors the
+   * server rule exactly (permissions.js Action.TOGGLE_MIRROR: room ADMIN(5)+ or
+   * global HOLY(8)+) — `Moderation.isAdmin()` is that same pair. Deliberately
+   * NOT `isMod()`, which uses the *effective* role and would show the control to
+   * someone the server then refuses.
+   * @returns {boolean}
+   * @private
+   */
+  _canToggleBoardMirror() {
+    return !!this.app.moderation?.isAdmin?.();
+  }
+
+  /**
+   * Turns the room-wide full-board mirror on or off. Optimistic: the local board
+   * flips first and T.MIR tells the server to flip the room setting, because the
+   * message is a relative toggle with no payload. If the server refuses it
+   * answers with the authoritative SETTINGS, which puts this client back.
+   * @private
+   */
+  _setBoardMirror(enabled) {
+    if (!this._canToggleBoardMirror()) {
+      this.syncBoardMirrorCheckbox();
+      return;
+    }
+    if (this.board.mirror === !!enabled) return;
+
+    this.board.setMirror(!!enabled);
+    this.wsClient?.broadcastMirror();
+    this._syncMirrorDisplay();
+    this.ui.showToast(
+      enabled ? 'Full-board mirror on for everyone in this room' : 'Full-board mirror off',
+      2000
+    );
+  }
+
+  /**
+   * Re-reads the room's mirror state into the checkbox. Called when another
+   * admin's T.MIR arrives, so an open panel does not show a stale state.
+   */
+  syncBoardMirrorCheckbox() {
+    if (this.globalMirrorInput) this.globalMirrorInput.checked = !!this.board.mirror;
   }
 
   _showPanel() {
@@ -950,6 +1052,9 @@ export class MirrorRegionController {
 
   _syncMirrorDisplay() {
     this.ui.updateMirrorDisplay(this.active || this.board.mirror);
+    // Guides normally fade after ~1s idle; while the editor is open they are the
+    // thing being edited, so hold them up.
+    this.board.setMirrorGuidesPinned(this.active);
   }
 
   _getRegionById(regionId) {

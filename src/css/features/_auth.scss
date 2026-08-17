@@ -124,19 +124,71 @@ body.desktop-window-chrome #overlay {
   white-space: nowrap;
 }
 
-/* Discord login on its own row, full-width under Login/Register */
-.authDiscordRow {
+/* Register + Discord stay visible while the login section is collapsed */
+.authAltActions {
   display: flex;
+  gap: 8px;
   width: 100%;
   margin-top: 8px;
 
-  .authDiscordBtn {
-    width: 100%;
+  .btn {
+    flex: 1 1 0;
+    width: auto;
+    min-width: 0;
     max-width: none;
     min-height: 32px;
     margin-top: 0;
     padding-inline: 12px;
     font-size: 13px;
+    white-space: nowrap;
+  }
+}
+
+/* Join CTAs — a crisp ring plus a light sweep, instead of the soft blurred
+   glow halo that made these read as hazy. */
+@mixin joinCtaGleam($period: 5s) {
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-primary) 45%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28);
+
+  &::after {
+    content: '';
+    position: absolute;
+    top: -50%;
+    bottom: -50%;
+    left: 0;
+    width: 42%;
+    pointer-events: none;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.45), transparent);
+    transform: translateX(-180%) skewX(-20deg);
+    animation: joinCtaGleam $period cubic-bezier(0.35, 0, 0.2, 1) infinite;
+  }
+
+  &:hover {
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-hover) 60%, transparent),
+      inset 0 1px 0 rgba(255, 255, 255, 0.38);
+
+    &::after {
+      animation-duration: calc(#{$period} / 2.5);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    &::after {
+      animation: none;
+      opacity: 0;
+    }
+  }
+}
+
+@keyframes joinCtaGleam {
+  0% {
+    transform: translateX(-180%) skewX(-20deg);
+  }
+  40%,
+  100% {
+    transform: translateX(320%) skewX(-20deg);
   }
 }
 
@@ -150,16 +202,14 @@ body.desktop-window-chrome #overlay {
   border-color: var(--accent-primary);
   color: var(--bg-primary);
   font-weight: 700;
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-primary) 35%, transparent),
-    0 8px 20px color-mix(in srgb, var(--accent-primary) 22%, transparent);
+
+  @include joinCtaGleam(5s);
 
   &:hover {
     background: var(--accent-hover);
     border-color: var(--accent-hover);
     color: var(--bg-primary);
     transform: translateY(-1px);
-    box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-hover) 42%, transparent),
-      0 10px 24px color-mix(in srgb, var(--accent-primary) 28%, transparent);
   }
 }
 
@@ -237,7 +287,6 @@ body.desktop-window-chrome #overlay {
   color: #fff;
   font-weight: 700;
   text-decoration: none;
-  box-shadow: 0 8px 20px rgba(88, 101, 242, 0.24);
 
   &::before {
     content: '';
@@ -252,7 +301,6 @@ body.desktop-window-chrome #overlay {
     border-color: #4752c4;
     color: #fff;
     transform: translateY(-1px);
-    box-shadow: 0 10px 24px rgba(88, 101, 242, 0.32);
   }
 }
 
@@ -467,16 +515,14 @@ body.desktop-window-chrome #overlay {
     border-color: var(--accent-primary);
     color: var(--bg-primary);
     font-weight: 700;
-    box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-primary) 35%, transparent),
-      0 10px 24px color-mix(in srgb, var(--accent-primary) 20%, transparent);
+
+    @include joinCtaGleam(5s);
 
     &:hover {
       background: var(--accent-hover);
       border-color: var(--accent-hover);
       color: var(--bg-primary);
       transform: translateY(-1px);
-      box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-hover) 42%, transparent),
-        0 12px 28px color-mix(in srgb, var(--accent-primary) 26%, transparent);
     }
   }
 }
@@ -1052,8 +1098,7 @@ body.desktop-window-chrome #landingPage {
   .landingSecondaryActions > .btn,
   .landingSecondaryActions #feedbackWidgetMount,
   .landingSecondaryActions #feedbackWidgetMount .feedback-widget,
-  .landingSecondaryActions #feedbackWidgetMount .feedback-toggle,
-  .landingSecondaryActions #feedbackWidgetMount .feedback-success {
+  .landingSecondaryActions #feedbackWidgetMount .feedback-toggle {
     width: 100%;
     min-width: 0;
   }
@@ -1063,7 +1108,7 @@ body.desktop-window-chrome #landingPage {
     min-height: 42px;
     margin: 0;
     padding-inline: 10px;
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 700;
     box-shadow: none;
   }
@@ -1078,22 +1123,31 @@ body.desktop-window-chrome #landingPage {
   #downloadBtn,
   #loginOfflineBtn,
   .landingDiscordInviteBtn,
-  #feedbackWidgetMount .feedback-toggle,
-  #feedbackWidgetMount .feedback-success {
+  #feedbackWidgetMount .feedback-toggle {
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    gap: 8px;
     min-height: 46px;
     height: 46px;
     padding: 13px 12px;
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 700;
     line-height: 1.2;
     border-radius: var(--radius-sm);
   }
 
-  #feedbackWidgetMount .feedback-toggle,
-  #feedbackWidgetMount .feedback-success {
+  // Windows flag on the desktop-app download button
+  #downloadBtn::before {
+    content: '';
+    flex: 0 0 16px;
+    width: 16px;
+    height: 16px;
+    background: currentColor;
+    mask: $windows-svg-data-url center / contain no-repeat;
+  }
+
+  #feedbackWidgetMount .feedback-toggle {
     background: color-mix(in srgb, var(--accent-primary) 10%, var(--bg-tertiary));
     border-color: color-mix(in srgb, var(--accent-primary) 28%, var(--border-subtle));
     color: var(--accent-primary);
@@ -1135,8 +1189,7 @@ body.desktop-window-chrome #landingPage {
 
     #feedbackWidgetMount,
     #feedbackWidgetMount .feedback-widget,
-    #feedbackWidgetMount .feedback-toggle,
-    #feedbackWidgetMount .feedback-success {
+    #feedbackWidgetMount .feedback-toggle {
       display: flex;
       width: 100%;
       min-height: 24px;
@@ -1144,13 +1197,11 @@ body.desktop-window-chrome #landingPage {
     }
 
     #feedbackWidgetMount .feedback-widget,
-    #feedbackWidgetMount .feedback-toggle,
-    #feedbackWidgetMount .feedback-success {
+    #feedbackWidgetMount .feedback-toggle {
       height: 100%;
     }
 
-    #feedbackWidgetMount .feedback-toggle,
-    #feedbackWidgetMount .feedback-success {
+    #feedbackWidgetMount .feedback-toggle {
       align-items: center;
       justify-content: center;
     }
@@ -1169,14 +1220,16 @@ body.desktop-window-chrome #landingPage {
     margin: 0 0 4px 0;
     font-size: 51px;
     font-weight: 700;
-    color: #00d4aa;
+    // Tracks the user's accent colour so the title never clashes with a
+    // custom theme (--accent-primary is set on :root by applyThemeColors).
+    color: var(--accent-primary);
     font-family: 'Fredoka', sans-serif;
     text-align: center;
     transform: rotate(-2deg);
     transition: all 0.2s;
 
     &:hover {
-      color: #c800c8;
+      color: var(--accent-hover);
       transform: rotate(-2deg) scale(1.05);
     }
   }
@@ -1402,21 +1455,45 @@ body.desktop-window-chrome #landingPage {
     border-color: var(--accent-primary);
     color: var(--bg-primary);
     font-weight: 700;
-    box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-primary) 35%, transparent),
-      0 8px 20px color-mix(in srgb, var(--accent-primary) 22%, transparent);
+
+    @include joinCtaGleam(6s);
 
     &:hover {
       background: var(--accent-hover);
       border-color: var(--accent-hover);
       color: var(--bg-primary);
       transform: translateY(-1px);
-      box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-hover) 42%, transparent),
-        0 10px 24px color-mix(in srgb, var(--accent-primary) 28%, transparent);
     }
   }
 
   #refreshRoomsBtn {
     margin-left: auto;
+  }
+
+  // Icon-only refresh: square button, glyph spins on click/hover.
+  // `.btn.roomRefreshBtn` so the padding beats `.btn.small` further down.
+  .btn.roomRefreshBtn {
+    width: 40px;
+    padding: 0;
+    color: var(--text-secondary);
+
+    svg {
+      transition: transform 0.45s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    &:hover svg {
+      transform: rotate(180deg);
+    }
+
+    &:active svg {
+      transform: rotate(360deg);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      svg {
+        transition: none;
+      }
+    }
   }
 }
 
@@ -1706,16 +1783,20 @@ body.desktop-window-chrome #landingPage {
   font-size: 15px;
   font-weight: 700;
   line-height: 1.25;
-  background: linear-gradient(135deg, var(--accent-primary), color-mix(in srgb, var(--accent-primary) 70%, #fff));
-  color: #000;
-  border: none;
+  background: color-mix(in srgb, var(--accent-primary) 82%, var(--bg-tertiary));
+  color: var(--bg-primary);
+  border: 1px solid var(--accent-primary);
   border-radius: var(--radius-md);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28);
   cursor: pointer;
   letter-spacing: 0;
-  transition: opacity var(--transition-fast), transform var(--transition-fast);
+  transition: background var(--transition-fast), border-color var(--transition-fast),
+    transform var(--transition-fast);
 
   &:hover {
-    opacity: 0.9;
+    background: var(--accent-hover);
+    border-color: var(--accent-hover);
+    color: var(--bg-primary);
     transform: translateY(-1px);
   }
 

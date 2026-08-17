@@ -26,6 +26,8 @@
       }
       status = 'success';
       text = '';
+      // Let the thanks message read, then drop the modal on its own.
+      setTimeout(() => { if (status === 'success') reset(); }, 1800);
     } catch (err) {
       status = 'error';
       errorMsg = err.message || 'Something went wrong.';
@@ -37,47 +39,76 @@
     errorMsg = '';
     expanded = false;
   }
+
+  /** Moves the modal to <body> so it escapes the landing grid's stacking/overflow. */
+  function portal(node) {
+    document.body.appendChild(node);
+    return {
+      destroy() {
+        node.remove();
+      }
+    };
+  }
+
+  function autofocus(node) {
+    node.focus();
+  }
 </script>
 
 <div class="feedback-widget" class:in-app={page === 'app'}>
-  {#if !expanded && status !== 'success'}
-    <button class="feedback-toggle" onclick={() => (expanded = true)}>
-      💬 Give Feedback
-    </button>
-  {:else if status === 'success'}
-    <div class="feedback-success">
-      <span>Thanks for the feedback!</span>
-      <button class="feedback-close-btn" onclick={reset}>✕</button>
-    </div>
-  {:else}
-    <div class="feedback-panel">
+  <button class="feedback-toggle" onclick={() => (expanded = true)}>
+    Give Feedback
+  </button>
+</div>
+
+{#if expanded}
+  <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
+  <div
+    class="feedback-overlay"
+    use:portal
+    onclick={reset}
+    role="dialog"
+    aria-modal="true"
+    aria-label="Share feedback"
+    tabindex="-1"
+  >
+    <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+    <div class="feedback-panel" onclick={(e) => e.stopPropagation()} role="document">
       <div class="feedback-header">
         <span>Share Feedback</span>
-        <button class="feedback-close-btn" onclick={reset}>✕</button>
+        <button class="feedback-close-btn" onclick={reset} aria-label="Close"></button>
       </div>
-      <textarea
-        bind:value={text}
-        placeholder="What's on your mind? Bug reports, feature ideas, anything goes. All feedback is anonymous."
-        maxlength={MAX}
-        rows="4"
-        disabled={status === 'submitting'}
-      ></textarea>
-      <div class="feedback-footer">
-        <span class="char-count" class:warn={remaining < 200}>{remaining}</span>
-        <button
-          class="feedback-submit"
-          onclick={submit}
-          disabled={!text.trim() || status === 'submitting'}
-        >
-          {status === 'submitting' ? 'Sending...' : 'Send'}
-        </button>
-      </div>
-      {#if status === 'error'}
-        <div class="feedback-error">{errorMsg}</div>
+
+      {#if status === 'success'}
+        <div class="feedback-success">Thanks for the feedback!</div>
+      {:else}
+        <textarea
+          use:autofocus
+          bind:value={text}
+          placeholder="What's on your mind? Bug reports, feature ideas, anything goes. All feedback is anonymous."
+          maxlength={MAX}
+          rows="7"
+          disabled={status === 'submitting'}
+        ></textarea>
+        <div class="feedback-footer">
+          <span class="char-count" class:warn={remaining < 200}>{remaining}</span>
+          <button
+            class="feedback-submit"
+            onclick={submit}
+            disabled={!text.trim() || status === 'submitting'}
+          >
+            {status === 'submitting' ? 'Sending...' : 'Send'}
+          </button>
+        </div>
+        {#if status === 'error'}
+          <div class="feedback-error">{errorMsg}</div>
+        {/if}
       {/if}
     </div>
-  {/if}
-</div>
+  </div>
+{/if}
+
+<svelte:window onkeydown={(e) => { if (expanded && e.key === 'Escape') reset(); }} />
 
 <style>
   .feedback-widget {
@@ -121,11 +152,27 @@
     height: 46px;
     padding: 13px 12px;
     border-radius: 6px;
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 700;
     display: inline-flex;
     align-items: center;
     justify-content: center;
+  }
+
+  /* The form lives in a portaled modal so it never reflows the button grid it
+     was mounted into. z-index clears #landingPage (1000) and the timebar
+     modals (10010). */
+  .feedback-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 10020;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    background: rgba(0, 0, 0, 0.55);
+    font-family: 'Inter', sans-serif;
+    animation: feedback-fade 0.15s ease-out;
   }
 
   .feedback-panel {
@@ -133,15 +180,17 @@
     border: 1px solid rgba(0, 212, 170, 0.25);
     border-radius: 12px;
     padding: 1rem;
-    width: 320px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    width: min(380px, 100%);
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+    animation: feedback-rise 0.18s ease-out;
   }
 
-  .in-app .feedback-panel {
-    width: 100%;
-    box-shadow: none;
-    background: rgba(255, 255, 255, 0.03);
-    border-color: rgba(255, 255, 255, 0.08);
+  @keyframes feedback-fade {
+    from { opacity: 0; }
+  }
+
+  @keyframes feedback-rise {
+    from { opacity: 0; transform: translateY(8px) scale(0.98); }
   }
 
   .feedback-header {
@@ -186,7 +235,7 @@
     font-size: 13px;
     line-height: 1.5;
     resize: vertical;
-    min-height: 80px;
+    min-height: 140px;
     transition: border-color 0.15s;
   }
 
@@ -254,18 +303,13 @@
   .feedback-success {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    justify-content: center;
     background: rgba(0, 212, 170, 0.12);
     border: 1px solid rgba(0, 212, 170, 0.3);
     color: #00d4aa;
-    padding: 0.6rem 1rem;
-    border-radius: 50px;
+    padding: 0.9rem 1rem;
+    border-radius: 8px;
     font-size: 13px;
     font-weight: 600;
-  }
-
-  .in-app .feedback-success {
-    border-radius: 8px;
-    justify-content: center;
   }
 </style>

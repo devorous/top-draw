@@ -533,7 +533,12 @@ export class InkTool extends Tool {
     // Returning false here causes the batched ink preview path to skip redraws,
     // which is most noticeable while smoothing catch-up is still converging.
     if (!bounds || bounds.maxX < bounds.minX || bounds.maxY < bounds.minY) return false;
-    if (this.board.mirrorRegions?.length > 0) return null;
+    // A partial preview rect must cover the mirrored copies too, and they are
+    // nowhere near the stroke. `hasMirrors()` — NOT `mirrorRegions.length`: that
+    // missed the full-board mirror entirely, so with it on the live preview was
+    // clipped to a bbox around the unmirrored stroke and the reflected half only
+    // appeared at mouse-up (the commit path does not use this rect). null = redraw all.
+    if (this.board.hasMirrors?.()) return null;
 
     const size = user?.size ?? this._strokeSize;
     const blurAmount = (1 - this.userHardness / 100) * (20 + size * 0.2);

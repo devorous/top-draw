@@ -48,6 +48,7 @@ import {
   authLimiter, uploadLimiter, wsMessageLimiter, wsSyncMessageLimiter, wsConnectionLimiter, feedbackLimiter
 } from './security.js';
 import { getAsnCheckStatus, lookupAsnForIp, initAsnCheck, isVpnAsn } from './asnCheck.js';
+import { lookupCountryForIp } from './geoCountry.js';
 import { getUsernameValidationMessage, isValidUsername, normalizeUsername } from '../shared/identity.js';
 import { getIpSubnet, mergeHistory, normalizeIdentityPayload, recordConnectionEvent } from './identityTracking.js';
 import { generateFloatingGalleryVoronoi, getFloatingGalleryVoronoiJson } from './floatingVoronoi.js';
@@ -1566,6 +1567,7 @@ function mapUsersForBroadcast(users, viewer = null, room = null) {
         hdsc: !!u.hasDiscord,
         bdg: u.selectedBadge || '',
         sup: !!u.isSupporter,
+        ctry: u.countryCode || '',
         vip: room ? getVisibleIpForViewer(viewer, u, room) : '',
         fpId: u.fingerprintId || '' // Include fingerprintId for persistent user tracking
       };
@@ -2426,6 +2428,14 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
       break;
 
     case T.MIR:
+      // Gated HERE, not with the other permission checks below the switch: those
+      // run after this case body, and by then the room setting would already be
+      // flipped for everyone. Senders toggle their own board optimistically, so
+      // on denial push the authoritative settings back to put them straight.
+      if (!authorize(ws, Action.TOGGLE_MIRROR, sendTo, T.MOD_RESULT)) {
+        sendTo(ws, buildSettingsPayload(room));
+        return;
+      }
       room.settings.mirror = !room.settings.mirror;
       break;
 
@@ -2539,7 +2549,11 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
         // splitting it into a second sender-only echo would assign a different seq
         // and break the pairing it exists to establish.
         if (!ws?.isShadowBanned) {
-          broadcastToRoom(room, { t: T.SEL_LIFT, u: sessionIndex, sx: data.sx, sy: data.sy, sw: data.sw, sh: data.sh, cr: data.cr, g: data.g, a: data.a, sel_extended_warp: data.sel_extended_warp });
+          // Rebuilt, not relayed — so every field the receiver needs has to be
+          // listed here by hand. `m` is the drawer's full-board mirror state:
+          // the lift erases the mirrored counterparts too, and the receiver
+          // cannot infer the toggle (see broadcastSelectionLift).
+          broadcastToRoom(room, { t: T.SEL_LIFT, u: sessionIndex, sx: data.sx, sy: data.sy, sw: data.sw, sh: data.sh, cr: data.cr, g: data.g, a: data.a, m: data.m, selExtendedWarp: data.selExtendedWarp });
         }
         return;
       }
@@ -3224,6 +3238,7 @@ wss.on('connection', async (ws, req) => {
     ws.username = null;
     ws.isMuted = false;
     ws.clientAsn = lookupAsnForIp(ws.clientIp);
+    ws.clientCountry = lookupCountryForIp(ws.clientIp);
     ws.isVpnNetwork = isVpnAsn(ws.clientAsn);
     ws.isVPN = ws.isVpnNetwork;
     ws.rateLimitId = crypto.randomUUID();
@@ -3584,6 +3599,7 @@ wss.on('connection', async (ws, req) => {
             createdUser.isMuted = !!ws.isMuted;
             createdUser.isShadowBanned = !!ws.isShadowBanned;
             createdUser.isVPN = !!ws.isVPN;
+            createdUser.countryCode = ws.clientCountry || '';
           }
 
           await recordConnectionEvent(getDB(), {

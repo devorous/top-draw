@@ -653,6 +653,13 @@ export class DrawingApp {
     this.saveMode = new SaveMode(this);
     this.mirrorRegionController = new MirrorRegionController(this);
     this.mirrorRegionController.init();
+
+    // The board owns the mask state and renders the "Stop masking" button, but
+    // turning a mask off is the Select tool's job (it also broadcasts SEL_MASK),
+    // so the button calls back through here rather than clearing state directly.
+    this.board.onStopMasking = () => {
+      this.toolManager?.getTool('select')?.toggleMaskMode(false);
+    };
     this.boardViewer = new BoardViewer(this);
     this.boardViewer.init();
 
@@ -5336,6 +5343,9 @@ export class DrawingApp {
 
     // Update cursor immediately for visual responsiveness
     this.ui.updateSelfCursor(x, y, this.self.size);
+    // Hovering inside a mirror region counts as activity: the guides must be up
+    // while you line a stroke up, not only once you commit to drawing.
+    this.board.noteMirrorActivity({ point: { x, y } });
     if (this.self.tool === 'text') this._updateTextPreview();
     if (this.self.tool === 'inkdropper') {
       const tool = this.toolManager.getCurrentTool();

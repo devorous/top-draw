@@ -412,7 +412,7 @@ export function strokeMetadataInPage() {
  * @param {number} [tolerance]
  * @returns {{ pass: boolean, matchPct: number, maxDelta: number, matched: number, checked: number, perGroup: Array }}
  */
-export function diffSnapshots(refSnaps, otherSnaps, tolerance = PIXEL_TOLERANCE) {
+export function diffSnapshots(refSnaps, otherSnaps, tolerance = PIXEL_TOLERANCE, passPct = PASS_PCT) {
   const groupIdxs = new Set([...refSnaps.map((s) => s.groupIdx), ...otherSnaps.map((s) => s.groupIdx)]);
   const refByIdx = new Map(refSnaps.map((s) => [s.groupIdx, s]));
   const otherByIdx = new Map(otherSnaps.map((s) => [s.groupIdx, s]));
@@ -484,7 +484,7 @@ export function diffSnapshots(refSnaps, otherSnaps, tolerance = PIXEL_TOLERANCE)
       }
     }
     const pct = checked ? (matched / checked) * 100 : 100;
-    const pass = pct >= PASS_PCT;
+    const pass = pct >= passPct;
     if (!pass) allPass = false;
     overallMatched += matched;
     overallChecked += checked;

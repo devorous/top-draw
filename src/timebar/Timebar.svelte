@@ -370,7 +370,6 @@
 
     &.bar-hidden {
       border: 2px solid #a0aec0;
-      box-shadow: 0 0 15px rgba(160, 174, 192, 0.4);
       opacity: 0.9;
     }
   }

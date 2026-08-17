@@ -487,19 +487,42 @@ export class SelectTool extends Tool {
       ctx.stroke();
     });
 
-    if (this.board.mirror && points.length >= 2) {
-      const bw = this.board.getWidth();
-      const mPoints = points.map(p => ({ x: bw - p.x, y: p.y }));
-      ctx.save();
-      ctx.globalAlpha = 0.4;
-      this._strokeMarchingAnts(ctx, this.livePreviewDashOffset, () => {
-        ctx.beginPath();
-        ctx.moveTo(mPoints[0].x, mPoints[0].y);
-        for (let i = 1; i < mPoints.length; i++) ctx.lineTo(mPoints[i].x, mPoints[i].y);
-        ctx.stroke();
+    this._strokeMirroredOutline(ctx, points, this.livePreviewDashOffset);
+  }
+
+  /**
+   * Strokes a faded ghost copy of a board-space polyline into every active
+   * mirror region it reaches, so the preview shows where a selection operation
+   * will actually land. Shared by the lasso preview, the rectangle drag preview
+   * and the floating-selection ghost.
+   *
+   * Uses `forEachMirrorRegion` rather than `getSelectionMirrorTargets` because
+   * an outline can be degenerate (a perfectly straight drag has zero height)
+   * and needs no paint bounds — only the region's clip and point transform.
+   * @private
+   */
+  _strokeMirroredOutline(ctx, points, dashOffset, closePath = false) {
+    if (!points || points.length < 2) return;
+
+    let opened = false;
+    this.board.forEachMirrorRegion({ points }, (region) => {
+      if (!opened) {
+        ctx.save();
+        ctx.globalAlpha = 0.4;
+        opened = true;
+      }
+      const mirrored = this.board.mirrorPointsToRegion(points, region);
+      this.board.withMirrorRegionClip(ctx, region, () => {
+        this._strokeMarchingAnts(ctx, dashOffset, () => {
+          ctx.beginPath();
+          ctx.moveTo(mirrored[0].x, mirrored[0].y);
+          for (let i = 1; i < mirrored.length; i++) ctx.lineTo(mirrored[i].x, mirrored[i].y);
+          if (closePath) ctx.closePath();
+          ctx.stroke();
+        });
       });
-      ctx.restore();
-    }
+    });
+    if (opened) ctx.restore();
   }
 
   /**
@@ -844,50 +867,31 @@ export class SelectTool extends Tool {
   }
 
   /**
-   * Draws a ghost marching-ants outline of the mirrored selection, if mirror is on.
+   * Draws a ghost marching-ants outline of the selection as each active mirror
+   * will reproduce it — one per region, so a radial region shows every slice.
    * @param {CanvasRenderingContext2D} ctx
    */
   _drawMirrorGhost(ctx) {
-    if (!this.board.mirror || !this.selection) return;
+    if (!this.selection) return;
 
-    const bw = this.board.getWidth();
     const s = this.selection;
-
-    ctx.save();
-    ctx.globalAlpha = 0.4;
+    let shape;
 
     if (this.corners && this.hasTransformedCorners()) {
       const c = this.corners;
-      const mc = {
-        tl: { x: bw - c.tr.x, y: c.tr.y },
-        tr: { x: bw - c.tl.x, y: c.tl.y },
-        bl: { x: bw - c.br.x, y: c.br.y },
-        br: { x: bw - c.bl.x, y: c.bl.y }
-      };
-      this._strokeMarchingAnts(ctx, this.marchingAntsOffset, () => {
-        ctx.beginPath();
-        ctx.moveTo(mc.tl.x, mc.tl.y);
-        ctx.lineTo(mc.tr.x, mc.tr.y);
-        ctx.lineTo(mc.br.x, mc.br.y);
-        ctx.lineTo(mc.bl.x, mc.bl.y);
-        ctx.closePath();
-        ctx.stroke();
-      });
+      shape = [c.tl, c.tr, c.br, c.bl];
     } else if (this.mode === 'lasso' && this.lassoSimplified && this.lassoSimplified.length > 0 && !this.floatingCanvas) {
-      const mLasso = this.lassoSimplified.map(p => ({ x: bw - p.x, y: p.y }));
-      this._strokeMarchingAnts(ctx, this.marchingAntsOffset, () => {
-        ctx.beginPath();
-        ctx.moveTo(mLasso[0].x, mLasso[0].y);
-        for (let i = 1; i < mLasso.length; i++) ctx.lineTo(mLasso[i].x, mLasso[i].y);
-        ctx.closePath();
-        ctx.stroke();
-      });
+      shape = this.lassoSimplified;
     } else {
-      const mx = bw - s.x - s.width;
-      this._strokeMarchingAnts(ctx, this.marchingAntsOffset, () => ctx.strokeRect(mx, s.y, s.width, s.height));
+      shape = [
+        { x: s.x, y: s.y },
+        { x: s.x + s.width, y: s.y },
+        { x: s.x + s.width, y: s.y + s.height },
+        { x: s.x, y: s.y + s.height }
+      ];
     }
 
-    ctx.restore();
+    this._strokeMirroredOutline(ctx, shape, this.marchingAntsOffset, true);
   }
 
   /**
@@ -1108,15 +1112,17 @@ export class SelectTool extends Tool {
 
       this.drawSelectionBox(this.board.topCtx, { x, y }, { x: x + width, y: y + height });
 
-      if (this.board.mirror) {
-        const bw = this.board.getWidth();
-        const mx = bw - x - width;
-        const ctx = this.board.topCtx;
-        ctx.save();
-        ctx.globalAlpha = 0.4;
-        this.drawSelectionBox(ctx, { x: mx, y }, { x: mx + width, y: y + height });
-        ctx.restore();
-      }
+      this._strokeMirroredOutline(
+        this.board.topCtx,
+        [
+          { x, y },
+          { x: x + width, y },
+          { x: x + width, y: y + height },
+          { x, y: y + height }
+        ],
+        this.livePreviewDashOffset,
+        true
+      );
 
       this.throttledBroadcastSelectionPending({ x, y, width, height });
     }
@@ -1645,13 +1651,10 @@ export class SelectTool extends Tool {
 
     if (!this.needsHomographyTransform()) {
       this._cachedTransform = null;
-      ctx.drawImage(
-        this.floatingCanvas,
-        this.selection.x,
-        this.selection.y,
-        this.selection.width,
-        this.selection.height
-      );
+      const s = this.selection;
+      const paint = (c) => c.drawImage(this.floatingCanvas, s.x, s.y, s.width, s.height);
+      paint(ctx);
+      this._paintMirroredPreview(ctx, s, paint);
 
       const handleCtx = this.board.getSelectionCtx() || ctx;
       this.drawTransformOutline(handleCtx);
@@ -1694,14 +1697,7 @@ export class SelectTool extends Tool {
 
     // Check if we can use the cached transform (corners shape hasn't changed, only position)
     if (this._cachedTransform && this._cachedTransform.cornersKey === cornersKey) {
-      const dr = this._cachedTransform.drawRect;
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = quality;
-      if (dr) {
-        ctx.drawImage(this._cachedTransform.canvas, dr.x, dr.y, dr.width, dr.height);
-      } else {
-        ctx.drawImage(this._cachedTransform.canvas, Math.round(bounds.minX), Math.round(bounds.minY), bounds.width, bounds.height);
-      }
+      this._blitWarpedPreview(ctx, this._cachedTransform.canvas, this._cachedTransform.drawRect, bounds, quality);
       return true;
     }
 
@@ -1751,14 +1747,29 @@ export class SelectTool extends Tool {
     };
 
     // Draw the warped result scaled up to full size
+    this._blitWarpedPreview(ctx, tempCanvas, drawRect, bounds, quality);
+    return true;
+  }
+
+  /**
+   * Blits a warp result to the preview context and repeats it into every mirror.
+   * Single place both the cache-hit and fresh-warp paths go through, so the
+   * mirrored copies cannot be drawn on one path and forgotten on the other.
+   * @private
+   */
+  _blitWarpedPreview(ctx, canvas, drawRect, bounds, quality) {
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = quality;
-    if (drawRect) {
-      ctx.drawImage(tempCanvas, drawRect.x, drawRect.y, drawRect.width, drawRect.height);
-    } else {
-      ctx.drawImage(tempCanvas, Math.round(bounds.minX), Math.round(bounds.minY), bounds.width, bounds.height);
-    }
-    return true;
+    const paint = drawRect
+      ? (c) => c.drawImage(canvas, drawRect.x, drawRect.y, drawRect.width, drawRect.height)
+      : (c) => c.drawImage(canvas, Math.round(bounds.minX), Math.round(bounds.minY), bounds.width, bounds.height);
+    paint(ctx);
+    this._paintMirroredPreview(ctx, drawRect || {
+      x: Math.round(bounds.minX),
+      y: Math.round(bounds.minY),
+      width: bounds.width,
+      height: bounds.height,
+    }, paint);
   }
 
   drawTransformOutline(ctx) {
@@ -1774,6 +1785,10 @@ export class SelectTool extends Tool {
       ctx.closePath();
       ctx.stroke();
     });
+
+    // Ghost the warped quad in each mirror so the outline tracks the preview it
+    // belongs to instead of stopping at the unmirrored copy.
+    this._strokeMirroredOutline(ctx, [c.tl, c.tr, c.br, c.bl], this.marchingAntsOffset, true);
   }
 
   drawTransformHandles(ctx) {
@@ -1801,11 +1816,17 @@ export class SelectTool extends Tool {
 
     // Draw bounding box rectangle (dashed gray line) — content-aligned, stays on
     // the board overlay so it tracks the selection while panning/zooming.
-    ctx.strokeStyle = 'rgba(128, 128, 128, 0.5)';
-    ctx.lineWidth = 1;
-    ctx.setLineDash([4, 4]);
-    ctx.strokeRect(minX, minY, maxX - minX, maxY - minY);
-    ctx.setLineDash([]);
+    const strokeBbox = (c2) => {
+      c2.strokeStyle = 'rgba(128, 128, 128, 0.5)';
+      c2.lineWidth = 1;
+      c2.setLineDash([4, 4]);
+      c2.strokeRect(minX, minY, maxX - minX, maxY - minY);
+      c2.setLineDash([]);
+    };
+    strokeBbox(ctx);
+    this._paintMirroredPreview(
+      ctx, { x: minX, y: minY, width: maxX - minX, height: maxY - minY }, strokeBbox
+    );
 
     if (!hctx) return;
 
@@ -1818,16 +1839,6 @@ export class SelectTool extends Tool {
       { x: (bbox.tl.x + bbox.bl.x) / 2, y: (bbox.tl.y + bbox.bl.y) / 2 }, // ml
       { x: (bbox.tr.x + bbox.br.x) / 2, y: (bbox.tr.y + bbox.br.y) / 2 }  // mr
     ];
-
-    // Draw bounding box handles as white squares (screen-space overlay)
-    for (const pos of bboxHandlePositions) {
-      const p = toC(pos);
-      hctx.fillStyle = '#fff';
-      hctx.strokeStyle = '#000';
-      hctx.lineWidth = 1;
-      hctx.fillRect(p.x - squareSize / 2, p.y - squareSize / 2, squareSize, squareSize);
-      hctx.strokeRect(p.x - squareSize / 2, p.y - squareSize / 2, squareSize, squareSize);
-    }
 
     // Draw perspective handles (extending from actual corners)
     const getPerspectiveHandlePos = (corner) => {
@@ -1853,50 +1864,87 @@ export class SelectTool extends Tool {
       { corner: c.br, handle: getPerspectiveHandlePos(c.br) }
     ];
 
-    // Draw perspective handle connecting lines first (dark grey, very thin)
-    for (const { corner, handle } of perspectiveHandles) {
-      const a = toC(corner);
-      const b = toC(handle);
-      hctx.strokeStyle = '#222';
-      hctx.lineWidth = 0.75;
-      hctx.beginPath();
-      hctx.moveTo(a.x, a.y);
-      hctx.lineTo(b.x, b.y);
-      hctx.stroke();
-    }
+    const rotHandle = this.getRotationHandlePosition(center, tm.x, tm.y);
 
-    // Draw perspective handle circles
-    for (const { handle } of perspectiveHandles) {
-      const b = toC(handle);
-      hctx.fillStyle = '#88CCCC';
+    /**
+     * Draws the whole handle set through a board-space point mapping. The
+     * handles live on a SCREEN-space overlay at a constant on-screen size, so
+     * they cannot ride a mirrored canvas transform like the preview does —
+     * mapping the board positions and re-running the same glyph code is the
+     * equivalent, and it is only point math on top of numbers already computed.
+     */
+    const drawHandleSet = (mapBoard, alpha) => {
+      const P = (p) => toC(mapBoard(p));
+      hctx.save();
+      hctx.globalAlpha = alpha;
+
+      // Bounding box handles as white squares
+      for (const pos of bboxHandlePositions) {
+        const p = P(pos);
+        hctx.fillStyle = '#fff';
+        hctx.strokeStyle = '#000';
+        hctx.lineWidth = 1;
+        hctx.fillRect(p.x - squareSize / 2, p.y - squareSize / 2, squareSize, squareSize);
+        hctx.strokeRect(p.x - squareSize / 2, p.y - squareSize / 2, squareSize, squareSize);
+      }
+
+      // Perspective handle connecting lines first (dark grey, very thin)
+      for (const { corner, handle } of perspectiveHandles) {
+        const a = P(corner);
+        const b = P(handle);
+        hctx.strokeStyle = '#222';
+        hctx.lineWidth = 0.75;
+        hctx.beginPath();
+        hctx.moveTo(a.x, a.y);
+        hctx.lineTo(b.x, b.y);
+        hctx.stroke();
+      }
+
+      // Perspective handle circles
+      for (const { handle } of perspectiveHandles) {
+        const b = P(handle);
+        hctx.fillStyle = '#88CCCC';
+        hctx.strokeStyle = '#000';
+        hctx.lineWidth = 1;
+        hctx.beginPath();
+        hctx.arc(b.x, b.y, circleRadius, 0, Math.PI * 2);
+        hctx.fill();
+        hctx.stroke();
+      }
+
+      // Rotation handle: connecting line from top-middle, then the circle
+      const tmC = P(tm);
+      const rotC = P(rotHandle);
       hctx.strokeStyle = '#000';
       hctx.lineWidth = 1;
       hctx.beginPath();
-      hctx.arc(b.x, b.y, circleRadius, 0, Math.PI * 2);
+      hctx.moveTo(tmC.x, tmC.y);
+      hctx.lineTo(rotC.x, rotC.y);
+      hctx.stroke();
+
+      hctx.fillStyle = '#fff';
+      hctx.strokeStyle = '#000';
+      hctx.beginPath();
+      hctx.arc(rotC.x, rotC.y, circleRadius, 0, Math.PI * 2);
       hctx.fill();
       hctx.stroke();
+
+      hctx.restore();
+    };
+
+    drawHandleSet((p) => p, 1);
+
+    // Ghost copies in each mirror, so the handles read as belonging to the
+    // mirrored preview rather than stopping at the unmirrored one. Faded because
+    // they are NOT grabbable — getHandleAtPoint only ever hit-tests the real set,
+    // and dragging a reflected handle would have to invert the mirror transform
+    // to mean anything.
+    if (this.board.hasMirrors?.()) {
+      const bboxRect = { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+      for (const { region } of this.board.getSelectionMirrorTargets(bboxRect)) {
+        drawHandleSet((p) => this.board.mirrorPointToRegion(p, region), 0.35);
+      }
     }
-
-    // Draw rotation handle
-    const rotHandle = this.getRotationHandlePosition(center, tm.x, tm.y);
-    const tmC = toC(tm);
-    const rotC = toC(rotHandle);
-
-    // Draw connecting line from top-middle to rotation handle
-    hctx.strokeStyle = '#000';
-    hctx.lineWidth = 1;
-    hctx.beginPath();
-    hctx.moveTo(tmC.x, tmC.y);
-    hctx.lineTo(rotC.x, rotC.y);
-    hctx.stroke();
-
-    // Draw rotation handle as a circle
-    hctx.fillStyle = '#fff';
-    hctx.strokeStyle = '#000';
-    hctx.beginPath();
-    hctx.arc(rotC.x, rotC.y, circleRadius, 0, Math.PI * 2);
-    hctx.fill();
-    hctx.stroke();
   }
 
   applyTransform() {
@@ -2253,11 +2301,17 @@ export class SelectTool extends Tool {
       const maxX = Math.max(c.tl.x, c.tr.x, c.bl.x, c.br.x);
       const minY = Math.min(c.tl.y, c.tr.y, c.bl.y, c.br.y);
       const maxY = Math.max(c.tl.y, c.tr.y, c.bl.y, c.br.y);
-      overlayCtx.strokeStyle = 'rgba(128, 128, 128, 0.5)';
-      overlayCtx.lineWidth = 1;
-      overlayCtx.setLineDash([4, 4]);
-      overlayCtx.strokeRect(minX, minY, maxX - minX, maxY - minY);
-      overlayCtx.setLineDash([]);
+      const strokeBbox = (c2) => {
+        c2.strokeStyle = 'rgba(128, 128, 128, 0.5)';
+        c2.lineWidth = 1;
+        c2.setLineDash([4, 4]);
+        c2.strokeRect(minX, minY, maxX - minX, maxY - minY);
+        c2.setLineDash([]);
+      };
+      strokeBbox(overlayCtx);
+      this._paintMirroredPreview(
+        overlayCtx, { x: minX, y: minY, width: maxX - minX, height: maxY - minY }, strokeBbox
+      );
 
       // Draw handles on the same overlay context
       this.updateHandles();
@@ -2302,76 +2356,115 @@ export class SelectTool extends Tool {
     const { squareSize, circleRadius } = this._getHandleMetrics();
     const toC = (p) => this.board.boardToContainerPos(p.x, p.y);
 
-    // PASS 1: Draw perspective handle connecting lines first (so corner handles appear on top)
-    for (const handle of this.handles) {
-      if (handle.isPerspective) {
-        const cornerMap = { ptl: 'tl', ptr: 'tr', pbl: 'bl', pbr: 'br' };
-        const cornerId = cornerMap[handle.id];
-        const corner = this.corners[cornerId];
+    // Same shape as drawTransformHandles: the glyphs live on a screen-space
+    // overlay, so a mirrored copy is the same code run through a board-space
+    // point mapping rather than a canvas transform. See the note there on why
+    // the mirrored set is ghosted and never hit-tested.
+    const drawSet = (mapBoard, alpha) => {
+      const P = (p) => toC(mapBoard(p));
+      ctx.save();
+      ctx.globalAlpha = alpha;
 
-        if (corner) {
-          // Draw connecting line from corner to perspective handle (dark grey, very thin)
-          const a = toC(corner);
-          const b = toC(handle);
-          ctx.strokeStyle = '#222';
-          ctx.lineWidth = 0.75;
-          ctx.setLineDash([]);
+      // PASS 1: perspective handle connecting lines first (so corner handles appear on top)
+      for (const handle of this.handles) {
+        if (handle.isPerspective) {
+          const cornerMap = { ptl: 'tl', ptr: 'tr', pbl: 'bl', pbr: 'br' };
+          const corner = this.corners[cornerMap[handle.id]];
+
+          if (corner) {
+            // Connecting line from corner to perspective handle (dark grey, very thin)
+            const a = P(corner);
+            const b = P(handle);
+            ctx.strokeStyle = '#222';
+            ctx.lineWidth = 0.75;
+            ctx.setLineDash([]);
+            ctx.beginPath();
+            ctx.moveTo(a.x, a.y);
+            ctx.lineTo(b.x, b.y);
+            ctx.stroke();
+          }
+        }
+      }
+
+      // PASS 2: perspective handle circles
+      for (const handle of this.handles) {
+        if (handle.isPerspective) {
+          const b = P(handle);
+          // Desaturated cyan circle
+          ctx.fillStyle = '#88CCCC';
+          ctx.strokeStyle = '#000';
+          ctx.lineWidth = 1;
           ctx.beginPath();
-          ctx.moveTo(a.x, a.y);
-          ctx.lineTo(b.x, b.y);
+          ctx.arc(b.x, b.y, circleRadius, 0, Math.PI * 2);
+          ctx.fill();
           ctx.stroke();
         }
       }
-    }
 
-    // PASS 2: Draw perspective handle circles
-    for (const handle of this.handles) {
-      if (handle.isPerspective) {
-        const b = toC(handle);
-        // Draw perspective handle as desaturated cyan circle
-        ctx.fillStyle = '#88CCCC';
+      // PASS 3: regular corner/edge handles (on top of the perspective lines)
+      for (const handle of this.handles) {
+        if (!handle.isPerspective && !handle.isRotation) {
+          const p = P(handle);
+          ctx.fillStyle = '#fff';
+          ctx.strokeStyle = '#000';
+          ctx.lineWidth = 1;
+          ctx.fillRect(p.x - squareSize / 2, p.y - squareSize / 2, squareSize, squareSize);
+          ctx.strokeRect(p.x - squareSize / 2, p.y - squareSize / 2, squareSize, squareSize);
+        }
+      }
+
+      // PASS 4: rotation handle last
+      const rotHandle = this.handles.find(h => h.isRotation);
+      if (rotHandle) {
+        const r = P(rotHandle);
+        const tm = this.handles.find(h => h.id === 'tm');
+        if (tm) {
+          const t = P(tm);
+          ctx.strokeStyle = '#000';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(t.x, t.y);
+          ctx.lineTo(r.x, r.y);
+          ctx.stroke();
+        }
+
+        ctx.fillStyle = '#fff';
         ctx.strokeStyle = '#000';
-        ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.arc(b.x, b.y, circleRadius, 0, Math.PI * 2);
+        ctx.arc(r.x, r.y, circleRadius, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
       }
-    }
 
-    // PASS 3: Draw regular corner/edge handles (these appear on top of perspective lines)
-    for (const handle of this.handles) {
-      if (!handle.isPerspective && !handle.isRotation) {
-        const p = toC(handle);
-        ctx.fillStyle = '#fff';
-        ctx.strokeStyle = '#000';
-        ctx.lineWidth = 1;
-        ctx.fillRect(p.x - squareSize / 2, p.y - squareSize / 2, squareSize, squareSize);
-        ctx.strokeRect(p.x - squareSize / 2, p.y - squareSize / 2, squareSize, squareSize);
+      ctx.restore();
+    };
+
+    drawSet((p) => p, 1);
+
+    if (this.board.hasMirrors?.() && this.selection) {
+      for (const { region } of this.board.getSelectionMirrorTargets(this.selection)) {
+        drawSet((p) => this.board.mirrorPointToRegion(p, region), 0.35);
       }
     }
+  }
 
-    // PASS 4: Draw rotation handle last
-    const rotHandle = this.handles.find(h => h.isRotation);
-    if (rotHandle) {
-      const r = toC(rotHandle);
-      const tm = this.handles.find(h => h.id === 'tm');
-      if (tm) {
-        const t = toC(tm);
-        ctx.strokeStyle = '#000';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(t.x, t.y);
-        ctx.lineTo(r.x, r.y);
-        ctx.stroke();
-      }
-
-      ctx.fillStyle = '#fff';
-      ctx.strokeStyle = '#000';
-      ctx.beginPath();
-      ctx.arc(r.x, r.y, circleRadius, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
+  /**
+   * Repeats an already-rendered preview draw into every active mirror region.
+   *
+   * `paint` closes over a canvas that has ALREADY been rasterized (the warp
+   * result, or the floating canvas itself), so a mirrored preview costs one
+   * extra drawImage per region — no second homography, no second raster. That is
+   * what makes mirroring the live transform preview affordable at all.
+   *
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {{x:number,y:number,width:number,height:number}} rect - Where the
+   *   unmirrored draw lands; used to skip regions it cannot reach.
+   * @param {(ctx: CanvasRenderingContext2D) => void} paint
+   * @private
+   */
+  _paintMirroredPreview(ctx, rect, paint) {
+    for (const { region } of this.board.getSelectionMirrorTargets(rect)) {
+      this.board.withMirroredRegionTransform(ctx, region, () => paint(ctx));
     }
   }
 
@@ -2387,13 +2480,10 @@ export class SelectTool extends Tool {
     }
 
     // Fallback: simple draw at current position
-    ctx.drawImage(
-      this.floatingCanvas,
-      this.selection.x,
-      this.selection.y,
-      this.selection.width,
-      this.selection.height
-    );
+    const s = this.selection;
+    const paint = (c) => c.drawImage(this.floatingCanvas, s.x, s.y, s.width, s.height);
+    paint(ctx);
+    this._paintMirroredPreview(ctx, s, paint);
   }
 
   liftSelection() {
@@ -2480,7 +2570,9 @@ export class SelectTool extends Tool {
       const selectionSnapshot = cloneSelectionRect(this.selection);
       const lassoPathSnapshot = clonePathPoints(this.lassoPath);
       const liftAllLayers = !!(this.copyAllLayers && this.floatingLayers && this.floatingLayers.length > 0);
-      this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionLift(selectionSnapshot, lassoPathSnapshot, imageData, liftAllLayers, this.extendedWarp));
+      // The lift erased the mirrored counterparts too — see _eraseSelectionDirectly.
+      const liftMirrored = !!this.board.mirror;
+      this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionLift(selectionSnapshot, lassoPathSnapshot, imageData, liftAllLayers, this.extendedWarp, liftMirrored));
     }
   }
 
@@ -2500,7 +2592,11 @@ export class SelectTool extends Tool {
     // extendedWarp can change mid-selection (toggled after lift, before this
     // commit) — send the CURRENT value rather than relying on the one that
     // travelled with SEL_LIFT, or remote/replay would bake with a stale flag.
-    app.inputBufferManager.queueBroadcast(() => app.wsClient.broadcastSelectionCommit(layerIndex, this.extendedWarp));
+    // The full-board mirror travels with the commit for the same reason it does
+    // with SEL_DELETE: it is a room setting outside the stroke log, so a joiner
+    // replaying a tail cannot infer what it was when this commit was made.
+    const wasMirrored = !!this.board.mirror;
+    app.inputBufferManager.queueBroadcast(() => app.wsClient.broadcastSelectionCommit(layerIndex, this.extendedWarp, wasMirrored));
     // Applying a pasted image transitions it from "active floating image" to
     // committed pixels. Flush that state change immediately so late joiners do
     // not receive a stale IMG_PASTE before the next input tick.
@@ -2513,9 +2609,23 @@ export class SelectTool extends Tool {
    * or a plain scaled blit otherwise. Returns the warp output bounds when a
    * transform was applied (so callers can size their dirty rect), else null.
    * Shared by commitSelection (both branches) and stamp().
+   *
+   * When mirrors are active the identical draw is replayed once per mirror
+   * target with the region's matrix and clip applied to the context. Replaying
+   * the draw rather than mirroring geometry is what makes every mode work —
+   * quad, rotational, radial and fibonacci included — and it reuses the single
+   * warp result instead of re-running the homography per region.
+   *
+   * @param {Array<{region: Object}>} [mirrorTargets] - From
+   *   `Board.getSelectionMirrorTargets`. Callers must have folded the targets'
+   *   bounds into `active.dirtyRect` first: `commitUserStroke` crops the stroke
+   *   to that rect, so mirrored pixels outside it are silently discarded.
    * @private
    */
-  _drawFloatingToActiveStroke(active, sourceCanvas, hasTransform, outputBounds) {
+  _drawFloatingToActiveStroke(active, sourceCanvas, hasTransform, outputBounds, mirrorTargets = []) {
+    let paint = null;
+    let warpBounds = null;
+
     if (hasTransform) {
       if (!this.homography) this.homography = new Homography('projective');
       const result = performHomographyTransform({
@@ -2528,18 +2638,39 @@ export class SelectTool extends Tool {
       });
       if (result) {
         const tempCanvas = imageDataToCanvas(result.imageData);
-        active.ctx.drawImage(tempCanvas, Math.round(result.bounds.minX), Math.round(result.bounds.minY));
-        return result.bounds;
+        const drawX = Math.round(result.bounds.minX);
+        const drawY = Math.round(result.bounds.minY);
+        paint = (ctx) => ctx.drawImage(tempCanvas, drawX, drawY);
+        warpBounds = result.bounds;
       }
     }
-    active.ctx.drawImage(
-      sourceCanvas,
-      Math.round(this.selection.x),
-      Math.round(this.selection.y),
-      this.selection.width,
-      this.selection.height
-    );
-    return null;
+
+    if (!paint) {
+      const drawX = Math.round(this.selection.x);
+      const drawY = Math.round(this.selection.y);
+      const drawW = this.selection.width;
+      const drawH = this.selection.height;
+      paint = (ctx) => ctx.drawImage(sourceCanvas, drawX, drawY, drawW, drawH);
+    }
+
+    paint(active.ctx);
+    for (const { region } of mirrorTargets) {
+      this.board.withMirroredRegionTransform(active.ctx, region, () => paint(active.ctx));
+    }
+    return warpBounds;
+  }
+
+  /**
+   * Mirror targets for a commit/stamp of the current float, plus the dirty rect
+   * that covers the original paint and every mirrored copy of it.
+   * @param {{x:number,y:number,width:number,height:number}} paintRect - Area the
+   *   unmirrored paint covers.
+   * @returns {{targets: Array, dirty: {x:number,y:number,width:number,height:number}}}
+   * @private
+   */
+  _getFloatingMirrorPlan(paintRect) {
+    const targets = this.board.getSelectionMirrorTargets(paintRect);
+    return { targets, dirty: this.board.unionWithMirrorTargets(paintRect, targets) };
   }
 
   /**
@@ -2567,9 +2698,16 @@ export class SelectTool extends Tool {
    * begins the stroke, pins its dirty rect to the selection bounds, fills the
    * shape, expands the board dirty rect, and commits with the given props.
    * Shared by _eraseSelectionDirectly (per-layer) and _eraseSingleLayerSelection.
+   *
+   * `mirrorTargets` (from `Board.getSelectionMirrorTargets`) makes the erase
+   * clear each mirrored counterpart in the SAME stroke. One stroke, not one per
+   * copy: they then share a timestamp and a commit tag, so a single SEL_DELETE
+   * echo reconciles the whole erase to one authoritative seq. Erased separately
+   * and untagged, the mirrored halves stayed at seq 0 and floated to the top of
+   * the stroke stack as permanent holes.
    * @private
    */
-  _eraseRegionStroke(layerIdx, s, lassoPath, userId, commitProps) {
+  _eraseRegionStroke(layerIdx, s, lassoPath, userId, commitProps, mirrorTargets = []) {
     const lm = this.board.layerManager;
     if (!lm) return false;
 
@@ -2577,19 +2715,26 @@ export class SelectTool extends Tool {
     const active = lm.layerGroups[layerIdx]?.activeStrokeByUser.get(userId);
     if (!active) return false;
 
-    // Pin dirty rect to the selection bounds so commitUserStroke doesn't drop it
+    // Pin dirty rect to the erased bounds so commitUserStroke doesn't drop it —
+    // it crops the stroke to this rect, so the mirrored copies must be inside.
+    const dirty = this.board.unionWithMirrorTargets(s, mirrorTargets);
     if (active.dirtyRect) {
-      active.dirtyRect.minX = s.x;
-      active.dirtyRect.minY = s.y;
-      active.dirtyRect.maxX = s.x + s.width;
-      active.dirtyRect.maxY = s.y + s.height;
+      active.dirtyRect.minX = dirty.x;
+      active.dirtyRect.minY = dirty.y;
+      active.dirtyRect.maxX = dirty.x + dirty.width;
+      active.dirtyRect.maxY = dirty.y + dirty.height;
     }
 
     active.ctx.fillStyle = 'white';
     this._fillSelectionShape(active.ctx, s, lassoPath);
+    for (const { region } of mirrorTargets) {
+      this.board.withMirroredRegionTransform(active.ctx, region, () => {
+        this._fillSelectionShape(active.ctx, s, lassoPath);
+      });
+    }
 
     const user = this.board.app?.self;
-    if (user) this.board.expandDirtyRect(user, s.x, s.y, s.width, s.height, layerIdx);
+    if (user) this.board.expandDirtyRect(user, dirty.x, dirty.y, dirty.width, dirty.height, layerIdx);
 
     lm.commitUserStroke(layerIdx, userId, commitProps);
     return true;
@@ -2618,6 +2763,17 @@ export class SelectTool extends Tool {
         dirtyW = Math.ceil(bounds.width);
         dirtyH = Math.ceil(bounds.height);
       }
+
+      // Mirrored copies land outside the selection, so every downstream extent —
+      // the stroke's dirty rect, tile ownership, the composite mark — has to be
+      // the union, not the selection alone.
+      const { targets: mirrorTargets, dirty } = this._getFloatingMirrorPlan(
+        { x: dirtyX, y: dirtyY, width: dirtyW, height: dirtyH }
+      );
+      dirtyX = dirty.x;
+      dirtyY = dirty.y;
+      dirtyW = dirty.width;
+      dirtyH = dirty.height;
 
       // Get affected tile indices for undo tracking
       const tileOwnership = this.board.tileTracker;
@@ -2656,7 +2812,7 @@ export class SelectTool extends Tool {
           }
         }
 
-        this._drawFloatingToActiveStroke(active, canvas, this.needsHomographyTransform(), commitOutputBounds);
+        this._drawFloatingToActiveStroke(active, canvas, this.needsHomographyTransform(), commitOutputBounds, mirrorTargets);
 
         // Tagged now that the lift-erase is sequenced too (2026-08-10) — see the
         // pairing note on the single-layer commit below.
@@ -2720,13 +2876,33 @@ export class SelectTool extends Tool {
     // Calculate dirty rect bounds for tracking
     let dirtyX, dirtyY, dirtyWidth, dirtyHeight;
 
-    // Draw the floating selection (with optional transform) into the stroke canvas
+    // Where the unmirrored paint will land. Resolved BEFORE drawing so the mirror
+    // targets (and therefore the stroke's dirty rect) are known up front —
+    // commitUserStroke crops to that rect and would drop the mirrored pixels.
     const hasTransform = this.needsHomographyTransform();
+    const commitOutputBounds = hasTransform ? this._getWarpOutputBounds() : null;
+    const paintRect = commitOutputBounds
+      ? {
+        x: Math.round(commitOutputBounds.minX),
+        y: Math.round(commitOutputBounds.minY),
+        width: Math.ceil(commitOutputBounds.width),
+        height: Math.ceil(commitOutputBounds.height)
+      }
+      : {
+        x: Math.round(this.selection.x),
+        y: Math.round(this.selection.y),
+        width: this.selection.width,
+        height: this.selection.height
+      };
+    const { targets: mirrorTargets, dirty } = this._getFloatingMirrorPlan(paintRect);
+
+    // Draw the floating selection (with optional transform) into the stroke canvas
     const warpBounds = this._drawFloatingToActiveStroke(
       active,
       this.floatingCanvas,
       hasTransform,
-      hasTransform ? this._getWarpOutputBounds() : null
+      commitOutputBounds,
+      mirrorTargets
     );
     if (warpBounds) {
       dirtyX = Math.round(warpBounds.minX);
@@ -2738,6 +2914,19 @@ export class SelectTool extends Tool {
       dirtyY = Math.round(this.selection.y);
       dirtyWidth = this.selection.width;
       dirtyHeight = this.selection.height;
+    }
+    // `_getWarpOutputBounds` is a prediction; the homography's real output can
+    // differ slightly, so union the mirror plan with the bounds actually drawn
+    // rather than trusting paintRect.
+    if (mirrorTargets.length > 0) {
+      const minX = Math.min(dirtyX, dirty.x);
+      const minY = Math.min(dirtyY, dirty.y);
+      const maxX = Math.max(dirtyX + dirtyWidth, dirty.x + dirty.width);
+      const maxY = Math.max(dirtyY + dirtyHeight, dirty.y + dirty.height);
+      dirtyX = minX;
+      dirtyY = minY;
+      dirtyWidth = maxX - minX;
+      dirtyHeight = maxY - minY;
     }
 
     // Track the dirty region so the stroke is properly saved
@@ -2894,8 +3083,11 @@ export class SelectTool extends Tool {
 
     if (this.isMaskMode) {
       this.fitToContent = false;
-      this._applyCurrentMaskToBoard();
+      // Flag first: setSelectionMask reads it to decide whether to show the
+      // "Stop masking" button, and it used to be set afterwards, so the button
+      // never appeared on the toggle that created the mask.
       this.board._maskManagedBySelectTool = true;
+      this._applyCurrentMaskToBoard();
       this.board.app?.ui?.showToast?.('Mask active — drawing restricted to selection');
       const sel = this.selection;
       const lasso = this.lassoPath;
@@ -3058,7 +3250,7 @@ export class SelectTool extends Tool {
       ? lm.allocateHistoryTimestamp()
       : Date.now();
     const snapshots = [];
-    const mirroredShapes = this.board.getMirroredSelectionShapes(s, lassoPath);
+    const mirrorTargets = this.board.getSelectionMirrorTargets(s);
 
     const eraseGroup = (groupIdx) => {
       const group = lm.layerGroups[groupIdx];
@@ -3097,15 +3289,9 @@ export class SelectTool extends Tool {
         ...(commitTag ? { pendingCommitEcho: commitTag } : {})
       };
 
-      this._eraseRegionStroke(groupIdx, s, lassoPath, userId, commitProps);
-
-      // Mirrored counterpart, in the SAME batch: it shares batchTimestamp and
-      // the commit tag, so the single SEL_DELETE echo reconciles both to the
-      // authoritative seq. Erased separately (untagged) it stayed at seq 0 and
-      // floated to the top of the stack as a permanent hole.
-      for (const m of mirroredShapes) {
-        this._eraseRegionStroke(groupIdx, m.s, m.lassoPath, userId, commitProps);
-      }
+      // The mirrored counterparts ride inside this same stroke — see
+      // _eraseRegionStroke for why they must not be separate commits.
+      this._eraseRegionStroke(groupIdx, s, lassoPath, userId, commitProps, mirrorTargets);
     };
 
     if (isMultiLayer) {
@@ -3430,12 +3616,12 @@ export class SelectTool extends Tool {
       }
 
       // The mirrored erase itself now rides inside _eraseSelectionDirectly's
-      // batch above (so it shares the commit tag and reconciles to the same
+      // stroke above (so it shares the commit tag and reconciles to the same
       // seq); only the mirrored tile bookkeeping is left to do here.
       if (tileOwnership) {
-        for (const m of this.board.getMirroredSelectionShapes(s, lassoPath)) {
+        for (const { bounds } of this.board.getSelectionMirrorTargets(s)) {
           const mirrorTiles = tileOwnership.getTileIndicesForRect(
-            m.s.x, m.s.y, m.s.width, m.s.height
+            bounds.x, bounds.y, bounds.width, bounds.height
           );
           if (mirrorTiles.length > 0) {
             this.board.checkErasedTilesForOwnershipByIndices(new Set(mirrorTiles));
@@ -3659,68 +3845,65 @@ export class SelectTool extends Tool {
       this.drawSelectionUI();
     } else {
       // Fill on the active layer via a temp canvas, then blit to layer coords.
-      // _fillToLayer temporarily swaps this.lassoPath to support mirror path overrides.
+      // The temp canvas already has the lasso shape (and any pattern) baked in,
+      // so each mirrored copy is the same blit under the region's transform —
+      // no mirrored lasso path to derive, and every mirror mode works.
       this.board.beginStroke(app.self);
       const layerCtx = this.board.getActiveLayerContext();
 
-      const _fillToLayer = (rect, lassoOverride) => {
-        const temp = document.createElement('canvas');
-        temp.width = rect.width;
-        temp.height = rect.height;
-        const origLasso = this.lassoPath;
-        if (lassoOverride !== undefined) this.lassoPath = lassoOverride;
-        this._executeFill(temp.getContext('2d'), rect, app.self, opacity, rect.x, rect.y);
-        this.lassoPath = origLasso;
-        layerCtx.drawImage(temp, rect.x, rect.y);
+      // Fill the rect we are about to BROADCAST, not the raw selection.
+      // broadcastSelectionFill rounds, and a lasso selection's bounds are
+      // fractional, so filling at `s` painted a sub-pixel-offset rect while
+      // every receiver painted the rounded one. The seam is one pixel of edge —
+      // invisible under the parity tolerance on a single copy, and enough to
+      // fail it once a mirror doubles the edges (fill_lasso_mirrored).
+      const area = {
+        x: Math.round(s.x),
+        y: Math.round(s.y),
+        width: Math.round(s.width),
+        height: Math.round(s.height),
       };
 
-      _fillToLayer(s);
+      const temp = document.createElement('canvas');
+      temp.width = area.width;
+      temp.height = area.height;
+      this._executeFill(temp.getContext('2d'), area, app.self, opacity, area.x, area.y);
 
-      // Dirty rect + tile tracking
-      this.board.expandDirtyRect(app.self, s.x, s.y, s.width, s.height);
+      const blit = (ctx) => ctx.drawImage(temp, area.x, area.y);
+      blit(layerCtx);
+
+      const mirrorTargets = this.board.getSelectionMirrorTargets(area);
+      for (const { region } of mirrorTargets) {
+        this.board.withMirroredRegionTransform(layerCtx, region, () => blit(layerCtx));
+      }
+
+      // Dirty rect + tile tracking, over the union so the committed stroke isn't
+      // cropped back to the unmirrored fill.
       const userId = app.self?.id ?? 0;
       const activeLayer = app.self?.activeLayer ?? 0;
       const tileOwnership = this.board.tileTracker;
       const lm = this.board.layerManager;
       const active = lm?.layerGroups[activeLayer]?.activeStrokeByUser.get(userId);
-      if (tileOwnership && active?.affectedTiles) {
-        for (const idx of tileOwnership.getTileIndicesForRect(s.x, s.y, s.width, s.height)) {
-          active.affectedTiles.add(idx);
-        }
-      }
+      const paintedRects = [area, ...mirrorTargets.map(t => t.bounds)];
 
-      if (this.board.mirror) {
-        const bw = this.board.getWidth();
-        const mx = bw - s.x - s.width;
-        const mirrorRect = { x: mx, y: s.y, width: s.width, height: s.height };
-        const mLasso = this.lassoPath ? this.lassoPath.map(p => ({ x: bw - p.x, y: p.y })) : null;
-        _fillToLayer(mirrorRect, mLasso);
-
-        this.board.expandDirtyRect(app.self, mx, s.y, s.width, s.height);
+      for (const rect of paintedRects) {
+        this.board.expandDirtyRect(app.self, rect.x, rect.y, rect.width, rect.height);
         if (tileOwnership && active?.affectedTiles) {
-          for (const idx of tileOwnership.getTileIndicesForRect(mx, s.y, s.width, s.height)) {
+          for (const idx of tileOwnership.getTileIndicesForRect(rect.x, rect.y, rect.width, rect.height)) {
             active.affectedTiles.add(idx);
           }
         }
+        this.board.compositeTileGrid?.markRect(rect.x, rect.y, rect.width, rect.height);
       }
 
-      this.board.compositeTileGrid?.markRect(s.x, s.y, s.width, s.height);
-      if (this.board.mirror) {
-        const bw = this.board.getWidth();
-        const mx = bw - s.x - s.width;
-        this.board.compositeTileGrid?.markRect(mx, s.y, s.width, s.height);
-      }
       this.board.compositeAllLayers();
       // Tagged so the SEL_FILL self echo assigns the authoritative seq — same
       // pairing rule as commitSelection.
       this.board.endStroke(app.self, { pendingCommitEcho: 'sel_fill' });
 
       // Tile occupancy (must be after composite)
-      this.board.addOccupancyForVisibleTilesInRect(userId, s.x, s.y, s.width, s.height);
-      if (this.board.mirror) {
-        const bw = this.board.getWidth();
-        const mx = bw - s.x - s.width;
-        this.board.addOccupancyForVisibleTilesInRect(userId, mx, s.y, s.width, s.height);
+      for (const rect of paintedRects) {
+        this.board.addOccupancyForVisibleTilesInRect(userId, rect.x, rect.y, rect.width, rect.height);
       }
     }
 
@@ -3733,8 +3916,12 @@ export class SelectTool extends Tool {
       const filledLasso = (this.mode === 'lasso' && this.lassoPath && this.lassoPath.length >= 3)
         ? this.lassoPath.map((p) => ({ x: p.x, y: p.y }))
         : null;
+      // Mirror state at fill time, for the same reason SEL_DELETE carries it:
+      // a joiner replaying the tail has not necessarily applied the room's
+      // mirror toggle yet, so the receiver cannot infer it.
+      const wasMirrored = !!this.board.mirror;
       this.board.app.inputBufferManager.queueBroadcast(
-        () => this.board.app.wsClient.broadcastSelectionFill(app.self.color, app.self.activeLayer, filled, filledLasso));
+        () => this.board.app.wsClient.broadcastSelectionFill(app.self.color, app.self.activeLayer, filled, filledLasso, wasMirrored));
     }
 
     // After filling, expand selection to encompass the entire filled lasso region
@@ -3816,6 +4003,16 @@ export class SelectTool extends Tool {
       dirtyH = Math.ceil(bounds.height);
     }
 
+    // See commitSelection: mirrored copies must be inside the dirty rect before
+    // commitUserStroke crops the stroke to it.
+    const { targets: mirrorTargets, dirty } = this._getFloatingMirrorPlan(
+      { x: dirtyX, y: dirtyY, width: dirtyW, height: dirtyH }
+    );
+    dirtyX = dirty.x;
+    dirtyY = dirty.y;
+    dirtyW = dirty.width;
+    dirtyH = dirty.height;
+
     // Get affected tile indices for undo tracking
     const tileOwnership = this.board.tileTracker;
     const stampTileIndices = tileOwnership
@@ -3846,7 +4043,7 @@ export class SelectTool extends Tool {
         }
       }
 
-      this._drawFloatingToActiveStroke(active, canvas, hasTransform, stampOutputBounds);
+      this._drawFloatingToActiveStroke(active, canvas, hasTransform, stampOutputBounds, mirrorTargets);
 
       // Tagged so the SEL_STAMP self echo assigns the authoritative seq. Same
       // pairing rule as commitSelection: safe only because the lift-erase beneath
@@ -3866,9 +4063,11 @@ export class SelectTool extends Tool {
       if (stampTileIndices.length > 0) {
         this.board.app.wsClient.broadcastTileUpdate(stampTileIndices);
       }
-      // See _broadcastSelectionCommit: extendedWarp travels fresh with the
-      // stamp too, since it can change between lift and any given stamp.
-      this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionStamp(app.self?.activeLayer ?? 0, this.extendedWarp));
+      // See _broadcastSelectionCommit: extendedWarp and the full-board mirror
+      // state travel fresh with the stamp too, since either can change between
+      // the lift and any given stamp.
+      const wasMirrored = !!this.board.mirror;
+      this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionStamp(app.self?.activeLayer ?? 0, this.extendedWarp, wasMirrored));
     }
 
     // Redraw the floating selection on top canvas

@@ -2783,7 +2783,6 @@
   .btn-primary:hover {
     background: #00f0c3;
     transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 212, 170, 0.3);
   }
   .btn-primary:disabled { opacity: 0.5; cursor: default; }
 

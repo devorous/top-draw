@@ -278,6 +278,9 @@ export function setupDrawingHandlers(wrapHandler, app) {
   wrapHandler('mir', () => {
     const mirror = board.toggleMirror();
     ui.updateMirrorDisplay(mirror);
+    // Keep an open mirror panel's "Mirror whole board" checkbox honest when a
+    // different admin flips it.
+    app.mirrorRegionController?.syncBoardMirrorCheckbox?.();
   });
 
   wrapHandler('cancel', (data) => {

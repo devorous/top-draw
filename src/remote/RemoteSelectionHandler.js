@@ -97,6 +97,24 @@ export class RemoteSelectionHandler {
     ctx.restore();
   }
 
+  /**
+   * Repeats an already-rendered remote preview draw into every active mirror.
+   *
+   * The observer's counterpart to SelectTool._paintMirroredPreview, and cheap
+   * for the same reason: `paint` closes over a canvas or path that has already
+   * been rasterized, so a mirrored copy is one extra draw per region rather than
+   * a second warp. Mirrors are resolved from LIVE board state here, not from a
+   * wire flag — a preview is ephemeral and is never rebuilt from the stroke log,
+   * so there is no "what was the mirror when this was drawn" to recover.
+   * @private
+   */
+  _paintMirroredPreview(ctx, rect, paint) {
+    if (!rect || !this.board.hasMirrors?.()) return;
+    for (const { region } of this.board.getSelectionMirrorTargets(rect)) {
+      this.board.withMirroredRegionTransform(ctx, region, () => paint(ctx));
+    }
+  }
+
   _drawPendingSelectionLikeLocal(user) {
     if (!user?.pendingSelection) return;
 
@@ -105,16 +123,21 @@ export class RemoteSelectionHandler {
     const isLivePreview = !!(user.mousedown && user.startPos && !user.floatingCanvas);
 
     if (user.pendingLassoPath && user.pendingLassoPath.length >= 2) {
-      this._drawDashedPath(ctx, user.pendingLassoPath, this.remoteSelectionOffset, !isLivePreview);
-      if (!isLivePreview && user.pendingLassoPath.length >= 3) {
-        ctx.strokeStyle = 'rgba(128, 128, 128, 0.5)';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(s.x, s.y, s.width, s.height);
-      }
+      const drawLasso = (c) => {
+        this._drawDashedPath(c, user.pendingLassoPath, this.remoteSelectionOffset, !isLivePreview);
+        if (!isLivePreview && user.pendingLassoPath.length >= 3) {
+          c.strokeStyle = 'rgba(128, 128, 128, 0.5)';
+          c.lineWidth = 1;
+          c.strokeRect(s.x, s.y, s.width, s.height);
+        }
+      };
+      drawLasso(ctx);
+      this._paintMirroredPreview(ctx, s, drawLasso);
       return;
     }
 
     this._drawDashedRect(ctx, s, this.remoteSelectionOffset);
+    this._paintMirroredPreview(ctx, s, (c) => this._drawDashedRect(c, s, this.remoteSelectionOffset));
   }
 
   _drawFloatingOutlineLikeLocal(user) {
@@ -125,11 +148,31 @@ export class RemoteSelectionHandler {
     const c = user.selectionCorners;
 
     if (c && user.originalCorners && this.hasTransformedCorners(user)) {
-      this._drawDashedPath(ctx, [c.tl, c.tr, c.br, c.bl], this.remoteSelectionOffset, true);
+      const quad = [c.tl, c.tr, c.br, c.bl];
+      const drawQuad = (t) => this._drawDashedPath(t, quad, this.remoteSelectionOffset, true);
+      drawQuad(ctx);
+      // Observers get the warped box in the mirrors too — without this the
+      // drawer saw their transform reflected and everyone else saw it only at
+      // the original position.
+      this._paintMirroredPreview(ctx, this._boundsOfPoints(quad), drawQuad);
       return;
     }
 
     this._drawDashedRect(ctx, s, this.remoteSelectionOffset);
+    this._paintMirroredPreview(ctx, s, (t) => this._drawDashedRect(t, s, this.remoteSelectionOffset));
+  }
+
+  /** Axis-aligned bounds of a point list, for mirror-target intersection tests. */
+  _boundsOfPoints(points) {
+    if (!points?.length) return null;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const p of points) {
+      if (p.x < minX) minX = p.x;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.y > maxY) maxY = p.y;
+    }
+    return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
   }
 
   _disposeCanvas(canvas) {
@@ -465,14 +508,14 @@ export class RemoteSelectionHandler {
    * @param {string|null} imageData - Sender's flattened lift snapshot (data URL)
    * @param {boolean} allLayers - Lift spans every visible layer (SelectTool.copyAllLayers)
    */
-  handleSelectionLift(user, selection, lassoPath = null, imageData = null, allLayers = false, seq = 0, extendedWarp = false) {
+  handleSelectionLift(user, selection, lassoPath = null, imageData = null, allLayers = false, seq = 0, extendedWarp = false, mirrored = false) {
     // A lift REPLACES the entire selection state — floatingCanvas, selection,
     // selectionCorners, originalCorners, lassoPath, _selectionRestoreData — and
     // installs a fresh `pendingImageLoad`, which orphans the chain every other
     // verb queued onto. Running it ahead of that chain means a second lift's
     // state is what the FIRST selection's still-queued moves and stamps get
     // applied to. Same discipline as every reader; see handleImagePaste.
-    if (this._queueIfLoading(user, () => this.handleSelectionLift(user, selection, lassoPath, imageData, allLayers, seq, extendedWarp))) return;
+    if (this._queueIfLoading(user, () => this.handleSelectionLift(user, selection, lassoPath, imageData, allLayers, seq, extendedWarp, mirrored))) return;
 
     // Clear pending selection since it's now being lifted
     user.pendingSelection = null;
@@ -519,12 +562,16 @@ export class RemoteSelectionHandler {
       // place on observers while the drawer's board had the hole.
       let firstRestore = null;
       for (const { groupIdx } of (user.floatingLayers || [])) {
-        const restore = this._eraseSelectionFromLayer(s, groupIdx, liftLasso, user.id, seq);
+        const restore = this._eraseSelectionFromLayer(s, groupIdx, liftLasso, user.id, seq, mirrored);
         if (!firstRestore) firstRestore = restore;
       }
       user._selectionRestoreData = firstRestore;
     } else {
-      user._selectionRestoreData = this._eraseSelectionFromLayer(s, user.activeLayer ?? 0, liftLasso, user.id, seq);
+      // Mirrored too: the drawer's lift erases the source area AND every mirrored
+      // counterpart in one step (SelectTool.liftSelection →
+      // _eraseSelectionDirectly), so an observer that skipped the mirrored half
+      // kept pixels the drawer no longer has.
+      user._selectionRestoreData = this._eraseSelectionFromLayer(s, user.activeLayer ?? 0, liftLasso, user.id, seq, mirrored);
     }
 
     // Check affected tiles for emptiness and clear ownership from empty ones
@@ -953,8 +1000,16 @@ export class RemoteSelectionHandler {
    * Extracted so the all-layers commit can run the identical draw per layer.
    * @returns {{x:number,y:number,width:number,height:number}}
    */
-  _drawLiftedCanvasToActiveStroke(user, active, sourceCanvas, hasTransform, corners, rect, outputBounds) {
+  /**
+   * @param {boolean} [mirrored=false] - Full-board mirror state off the wire. The
+   *   same blit is replayed into every active mirror region, matching
+   *   SelectTool._drawFloatingToActiveStroke. Returns the dirty rect INCLUDING
+   *   the mirrored copies, since commitUserStroke crops the stroke to it.
+   */
+  _drawLiftedCanvasToActiveStroke(user, active, sourceCanvas, hasTransform, corners, rect, outputBounds, mirrored = false) {
     const { x: ix, y: iy, width: iw, height: ih } = rect;
+    let paint = null;
+    let dirty = null;
 
     if (hasTransform && user.originalCorners) {
       try {
@@ -975,8 +1030,8 @@ export class RemoteSelectionHandler {
           const tempCanvas = imageDataToCanvas(result.imageData);
           const drawX = Math.round(result.bounds.minX);
           const drawY = Math.round(result.bounds.minY);
-          active.ctx.drawImage(tempCanvas, drawX, drawY);
-          return {
+          paint = (ctx) => ctx.drawImage(tempCanvas, drawX, drawY);
+          dirty = {
             x: drawX,
             y: drawY,
             width: Math.ceil(result.bounds.width),
@@ -988,8 +1043,19 @@ export class RemoteSelectionHandler {
       }
     }
 
-    active.ctx.drawImage(sourceCanvas, ix, iy, iw, ih);
-    return { x: ix, y: iy, width: iw, height: ih };
+    if (!paint) {
+      paint = (ctx) => ctx.drawImage(sourceCanvas, ix, iy, iw, ih);
+      dirty = { x: ix, y: iy, width: iw, height: ih };
+    }
+
+    paint(active.ctx);
+
+    const mirrorTargets = this.board.getSelectionMirrorTargets(dirty, mirrored);
+    for (const { region } of mirrorTargets) {
+      this.board.withMirroredRegionTransform(active.ctx, region, () => paint(active.ctx));
+    }
+
+    return this.board.unionWithMirrorTargets(dirty, mirrorTargets);
   }
 
   /**
@@ -1002,7 +1068,7 @@ export class RemoteSelectionHandler {
    * both halves to the same two seqs on the echoes.
    * @param {number} [seq=0] - Authoritative SEL_COMMIT seq.
    */
-  handleSelectionCommit(user, layerIndex, seq = 0, extendedWarp = false) {
+  handleSelectionCommit(user, layerIndex, seq = 0, extendedWarp = false, mirrored = false) {
     // Forward `seq` through the requeue. Dropping it here fell back to the
     // `seq = 0` default, and _sortStrokeStack floats seq 0 to the TOP of the
     // stack — so the stamp sorted above everything committed after it and no
@@ -1017,7 +1083,7 @@ export class RemoteSelectionHandler {
     // same messages spread over time, decodes first, never requeues, and keeps
     // the seq — which is exactly the split measured on a 3-client room:
     // live observer held the stamp at S89, the joiner at S0.
-    if (this._queueIfLoading(user, () => this.handleSelectionCommit(user, layerIndex, seq, extendedWarp))) return;
+    if (this._queueIfLoading(user, () => this.handleSelectionCommit(user, layerIndex, seq, extendedWarp, mirrored))) return;
     if (!user.floatingCanvas || !user.selection) {
       // A commit with no float is ALWAYS a lost apply: the pixels stay wherever
       // they were before the lift, because the SEL_LIFT that should have erased
@@ -1080,7 +1146,7 @@ export class RemoteSelectionHandler {
       if (!active) continue;
 
       const dirty = this._drawLiftedCanvasToActiveStroke(
-        user, active, canvas, hasTransform, c, rect, outputBounds
+        user, active, canvas, hasTransform, c, rect, outputBounds, mirrored
       );
 
       // Track the dirty region so the stroke is properly saved. Pass the explicit
@@ -1163,15 +1229,11 @@ export class RemoteSelectionHandler {
       // which _sortStrokeStack pushes to the top, permanently erasing every
       // other user's strokes beneath it in this region (the persistent white spot).
       for (const li of targets) {
-        this._eraseSelectionFromLayer(intS, li, lasso, user.id, seq);
-
-        // The drawer also clears the mirrored counterpart of the selection
-        // (SelectTool.deleteSelection). SEL_DELETE carries no geometry, so this
-        // has to be reconstructed from the same shared helper — otherwise the
-        // reflected half stayed on every observer's board after a clear.
-        for (const m of this.board.getMirroredSelectionShapes(intS, lasso, mirrored)) {
-          this._eraseSelectionFromLayer(m.s, li, m.lassoPath, user.id, seq);
-        }
+        // The drawer also clears every mirrored counterpart of the selection
+        // (SelectTool.deleteSelection). SEL_DELETE carries no geometry, so the
+        // erase reconstructs them from the same shared helper — otherwise the
+        // reflected halves stayed on every observer's board after a clear.
+        this._eraseSelectionFromLayer(intS, li, lasso, user.id, seq, mirrored);
       }
 
       // Check affected tiles for emptiness and clear ownership from empty ones
@@ -1195,8 +1257,8 @@ export class RemoteSelectionHandler {
     this._cleanupUserSelection(user);
   }
 
-  handleSelectionFill(user, color, layerIndex, rect = null, seq = 0, wireLassoPath = null) {
-    if (this._queueIfLoading(user, () => this.handleSelectionFill(user, color, layerIndex, rect, seq, wireLassoPath))) return;
+  handleSelectionFill(user, color, layerIndex, rect = null, seq = 0, wireLassoPath = null, mirrored = false) {
+    if (this._queueIfLoading(user, () => this.handleSelectionFill(user, color, layerIndex, rect, seq, wireLassoPath, mirrored))) return;
 
     // The drawer's own path at fill time, when it sent one. Authoritative: it is
     // captured with this fill instead of read out of receiver state that other
@@ -1307,6 +1369,7 @@ export class RemoteSelectionHandler {
       }
 
       const path = firmLassoPath || user.lassoPath || (user.pendingLassoPath && user.pendingLassoPath.length >= 3 ? user.pendingLassoPath : null);
+      let paintFill;
       if (path) {
         // Recalculate bounds from path to ensure dirty rect covers the entire shape
         // (User selection bounds might be stale or not perfectly aligned with path)
@@ -1318,35 +1381,70 @@ export class RemoteSelectionHandler {
           if (p.y > maxY) maxY = p.y;
         }
 
-        // Update variables for fill and dirty rect
+        // Update variables for fill and dirty rect...
         ix = Math.floor(minX);
         iy = Math.floor(minY);
         iw = Math.ceil(maxX) - ix;
         ih = Math.ceil(maxY) - iy;
 
-        layerCtx.save();
-        layerCtx.beginPath();
-        layerCtx.moveTo(path[0].x, path[0].y);
-        for (let i = 1; i < path.length; i++) {
-          layerCtx.lineTo(path[i].x, path[i].y);
-        }
-        layerCtx.closePath();
-        layerCtx.clip();
-        layerCtx.fillRect(ix, iy, iw, ih);
-        layerCtx.restore();
+        // ...then CLAMP to the filled rect, exactly as _eraseSelectionFromLayer
+        // clamps the lift erase and for the same reason: the drawer renders a
+        // lasso fill into a canvas sized to the SELECTION
+        // (SelectTool.fillSelection), so its paint is cropped there, while the
+        // transmitted path stays the full drawn loop —
+        // `cropNewSelectionToContent` shrinks the selection to its content and
+        // leaves the path alone. Unclamped, the receiver painted a rim of fill
+        // the drawer never had. It hid inside the pixel tolerance on a single
+        // copy; with a mirror doubling it, fill_lasso_mirrored fails.
+        const sx0 = Math.floor(s.x);
+        const sy0 = Math.floor(s.y);
+        const sx1 = Math.ceil(s.x + s.width);
+        const sy1 = Math.ceil(s.y + s.height);
+        const cx = Math.max(sx0, ix);
+        const cy = Math.max(sy0, iy);
+        const cw = Math.min(sx1, ix + iw) - cx;
+        const ch = Math.min(sy1, iy + ih) - cy;
+        if (cw > 0 && ch > 0) { ix = cx; iy = cy; iw = cw; ih = ch; }
+
+        paintFill = () => {
+          layerCtx.save();
+          layerCtx.beginPath();
+          layerCtx.moveTo(path[0].x, path[0].y);
+          for (let i = 1; i < path.length; i++) {
+            layerCtx.lineTo(path[i].x, path[i].y);
+          }
+          layerCtx.closePath();
+          layerCtx.clip();
+          layerCtx.fillRect(ix, iy, iw, ih);
+          layerCtx.restore();
+        };
       } else {
-        layerCtx.fillRect(ix, iy, iw, ih);
+        paintFill = () => layerCtx.fillRect(ix, iy, iw, ih);
+      }
+
+      paintFill();
+
+      // The drawer fills every active mirror region too (SelectTool.fillSelection).
+      // This side did not, so until now a mirrored selection fill painted its
+      // reflected half on the drawer's screen and nowhere else.
+      const fillRect = { x: ix, y: iy, width: iw, height: ih };
+      const mirrorTargets = this.board.getSelectionMirrorTargets(fillRect, mirrored);
+      for (const { region } of mirrorTargets) {
+        this.board.withMirroredRegionTransform(layerCtx, region, paintFill);
       }
       layerCtx.globalAlpha = 1.0;
 
-      this.board.expandDirtyRect(user, ix, iy, iw, ih, layerIdx);
-
-      // Store affected tiles in the stroke record for undo
+      const paintedRects = [fillRect, ...mirrorTargets.map(t => t.bounds)];
       const tileOwnership = this.board.tileTracker;
-      if (tileOwnership && active.affectedTiles) {
-        const tileIndices = tileOwnership.getTileIndicesForRect(ix, iy, iw, ih);
-        for (const idx of tileIndices) {
-          active.affectedTiles.add(idx);
+      for (const r of paintedRects) {
+        // Dirty rect must span the mirrored copies — commitUserStroke crops to it.
+        this.board.expandDirtyRect(user, r.x, r.y, r.width, r.height, layerIdx);
+
+        // Store affected tiles in the stroke record for undo
+        if (tileOwnership && active.affectedTiles) {
+          for (const idx of tileOwnership.getTileIndicesForRect(r.x, r.y, r.width, r.height)) {
+            active.affectedTiles.add(idx);
+          }
         }
       }
 
@@ -1355,12 +1453,14 @@ export class RemoteSelectionHandler {
       this.board.compositeAllLayers();
 
       // Add tile ownership for visible filled tiles (after composite)
-      this.board.addOccupancyForVisibleTilesInRect(user.id, ix, iy, iw, ih);
+      for (const r of paintedRects) {
+        this.board.addOccupancyForVisibleTilesInRect(user.id, r.x, r.y, r.width, r.height);
+      }
     }
   }
 
-  handleSelectionStamp(user, layerIndex, seq = 0, extendedWarp = false) {
-    if (this._queueIfLoading(user, () => this.handleSelectionStamp(user, layerIndex, seq, extendedWarp))) return;
+  handleSelectionStamp(user, layerIndex, seq = 0, extendedWarp = false, mirrored = false) {
+    if (this._queueIfLoading(user, () => this.handleSelectionStamp(user, layerIndex, seq, extendedWarp, mirrored))) return;
     // Same as commit but keep floating canvas active for further moves/stamps
     if (!user.floatingCanvas || !user.selection) {
       // See handleSelectionCommit: no float means the SEL_LIFT never arrived and
@@ -1382,57 +1482,24 @@ export class RemoteSelectionHandler {
     const active = lm.layerGroups[layerIdx]?.activeStrokeByUser.get(user.id);
     if (!active) return;
 
-    // Calculate dirty rect bounds for tracking
-    let dirtyX, dirtyY, dirtyWidth, dirtyHeight;
-
+    // Shares the commit's painter: same warp handling, same mirror replay, same
+    // "dirty rect must cover the mirrored copies" contract. The two used to be
+    // separate copies of the homography block and drifted.
     const hasTransform = this.hasTransformedCorners(user);
-
-    if (hasTransform && user.originalCorners) {
-      try {
-        if (!user.homography) {
-          user.homography = new Homography('projective');
-        }
-
-        const result = performHomographyTransform({
-          sourceCanvas: user.floatingCanvas,
-          sourceCorners: user.originalCorners,
-          destCorners: c,
-          scale: 1, // Full resolution for stamp
-          homographyInstance: user.homography,
-          outputBounds: this._getWarpOutputBounds(user, c)
-        });
-
-        if (result) {
-          const tempCanvas = imageDataToCanvas(result.imageData);
-          const drawX = Math.round(result.bounds.minX);
-          const drawY = Math.round(result.bounds.minY);
-          active.ctx.drawImage(tempCanvas, drawX, drawY);
-          dirtyX = drawX;
-          dirtyY = drawY;
-          dirtyWidth = Math.ceil(result.bounds.width);
-          dirtyHeight = Math.ceil(result.bounds.height);
-        } else {
-          active.ctx.drawImage(user.floatingCanvas, s.x, s.y, s.width, s.height);
-          dirtyX = s.x;
-          dirtyY = s.y;
-          dirtyWidth = s.width;
-          dirtyHeight = s.height;
-        }
-      } catch (e) {
-        console.warn('Remote stamp homography failed:', e);
-        active.ctx.drawImage(user.floatingCanvas, s.x, s.y, s.width, s.height);
-        dirtyX = s.x;
-        dirtyY = s.y;
-        dirtyWidth = s.width;
-        dirtyHeight = s.height;
-      }
-    } else {
-      active.ctx.drawImage(user.floatingCanvas, s.x, s.y, s.width, s.height);
-      dirtyX = s.x;
-      dirtyY = s.y;
-      dirtyWidth = s.width;
-      dirtyHeight = s.height;
-    }
+    const dirtyRect = this._drawLiftedCanvasToActiveStroke(
+      user,
+      active,
+      user.floatingCanvas,
+      hasTransform,
+      c,
+      { x: s.x, y: s.y, width: s.width, height: s.height },
+      hasTransform ? this._getWarpOutputBounds(user, c) : null,
+      mirrored
+    );
+    const dirtyX = dirtyRect.x;
+    const dirtyY = dirtyRect.y;
+    const dirtyWidth = dirtyRect.width;
+    const dirtyHeight = dirtyRect.height;
 
     // Track the dirty region so the stroke is properly saved
     this.board.expandDirtyRect(user, dirtyX, dirtyY, dirtyWidth, dirtyHeight, layerIdx);
@@ -1995,30 +2062,43 @@ export class RemoteSelectionHandler {
       user.board.style.mixBlendMode = 'normal';
     }
 
+    // Blit the warped preview (cached) or the plain float, then repeat it into
+    // every mirror. One helper for all three fallbacks so a mirrored copy cannot
+    // be drawn on one path and forgotten on another.
+    const blitCached = () => {
+      const bounds = user._cachedPreviewBounds;
+      const x = Math.round(bounds.minX);
+      const y = Math.round(bounds.minY);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'low';
+      const paint = (t) => t.drawImage(user._cachedPreviewCanvas, x, y, bounds.width, bounds.height);
+      paint(ctx);
+      this._paintMirroredPreview(ctx, { x, y, width: bounds.width, height: bounds.height }, paint);
+    };
+    const blitFloat = () => {
+      const paint = (t) => t.drawImage(user.floatingCanvas, s.x, s.y, s.width, s.height);
+      paint(ctx);
+      this._paintMirroredPreview(ctx, s, paint);
+    };
+
     // Check if we need to use cached transform preview
     if (c && user.originalCorners && this.hasTransformedCorners(user)) {
       // Use cached preview canvas if available
       if (user._cachedPreviewCanvas && user._cachedPreviewBounds) {
-        const bounds = user._cachedPreviewBounds;
-        ctx.imageSmoothingEnabled = true;
-        ctx.imageSmoothingQuality = 'low';
-        ctx.drawImage(user._cachedPreviewCanvas, Math.round(bounds.minX), Math.round(bounds.minY), bounds.width, bounds.height);
+        blitCached();
       } else {
         // Fallback: regenerate if cache missing (shouldn't happen)
         this._regeneratePreviewCache(user);
         if (user._cachedPreviewCanvas && user._cachedPreviewBounds) {
-          const bounds = user._cachedPreviewBounds;
-          ctx.imageSmoothingEnabled = true;
-          ctx.imageSmoothingQuality = 'low';
-          ctx.drawImage(user._cachedPreviewCanvas, Math.round(bounds.minX), Math.round(bounds.minY), bounds.width, bounds.height);
+          blitCached();
         } else {
           // Final fallback
-          ctx.drawImage(user.floatingCanvas, s.x, s.y, s.width, s.height);
+          blitFloat();
         }
       }
     } else {
       // No transform, simple draw at current position
-      ctx.drawImage(user.floatingCanvas, s.x, s.y, s.width, s.height);
+      blitFloat();
     }
 
     // Draw animated marching ants border (skipped by replay renders, which
@@ -2047,8 +2127,12 @@ export class RemoteSelectionHandler {
    * @param {number} [seq=0] - Authoritative server seq for this erase stroke. When
    *   0 (lift/merge, which carry no seq) the stroke sorts to the top until a later
    *   commit/delete reconciles it; pass the real seq for a standalone clear.
+   * @param {boolean} [mirrored=false] - Full-board mirror state the DRAWER had for
+   *   this operation, off the wire. Every active mirror region also gets erased,
+   *   inside this same stroke — the drawer does the same in
+   *   SelectTool._eraseRegionStroke, and the two must not drift.
    */
-  _eraseSelectionFromLayer(s, layerIdx, lassoPath, userId, seq = 0) {
+  _eraseSelectionFromLayer(s, layerIdx, lassoPath, userId, seq = 0, mirrored = false) {
     const lm = this.board.layerManager;
     if (!lm) return null;
 
@@ -2124,28 +2208,47 @@ export class RemoteSelectionHandler {
       iw = Math.min(sx1, Math.ceil(maxX)) - ix;
       ih = Math.min(sy1, Math.ceil(maxY)) - iy;
       if (iw <= 0 || ih <= 0) { ix = sx0; iy = sy0; iw = sx1 - sx0; ih = sy1 - sy0; }
-
-      ctx.fillStyle = 'white';
-      ctx.beginPath();
-      ctx.moveTo(lassoPath[0].x, lassoPath[0].y);
-      for (let i = 1; i < lassoPath.length; i++) {
-        ctx.lineTo(lassoPath[i].x, lassoPath[i].y);
-      }
-      ctx.closePath();
-      ctx.fill();
-    } else {
-      ctx.fillStyle = 'white';
-      ctx.fillRect(ix, iy, iw, ih);
     }
 
-    // Track the dirty region so the erase stroke is properly saved
+    const paintShape = (lassoPath && lassoPath.length >= 3)
+      ? () => {
+        ctx.fillStyle = 'white';
+        ctx.beginPath();
+        ctx.moveTo(lassoPath[0].x, lassoPath[0].y);
+        for (let i = 1; i < lassoPath.length; i++) {
+          ctx.lineTo(lassoPath[i].x, lassoPath[i].y);
+        }
+        ctx.closePath();
+        ctx.fill();
+      }
+      : () => {
+        ctx.fillStyle = 'white';
+        ctx.fillRect(ix, iy, iw, ih);
+      };
+
+    paintShape();
+
+    // Mirrored counterparts ride in THIS stroke, not their own: they then share
+    // the erase's timestamp and seq, so a single reconcile orders the whole
+    // erase. Committed separately they would sit at seq 0, which
+    // _sortStrokeStack floats to the top of the stack as a permanent hole.
+    const mirrorTargets = this.board.getSelectionMirrorTargets(s, mirrored);
+    for (const { region } of mirrorTargets) {
+      this.board.withMirroredRegionTransform(ctx, region, paintShape);
+    }
+
+    // Track the dirty region so the erase stroke is properly saved. Must span the
+    // mirrored copies too — commitUserStroke crops the stroke to this rect.
+    const eraseDirty = this.board.unionWithMirrorTargets(
+      { x: ix, y: iy, width: iw, height: ih }, mirrorTargets
+    );
     const user = this.getUsersMap().get(userId);
     // Pass the layer being erased. Without it expandDirtyRect falls back to
     // user.activeLayer, so erasing any OTHER layer (merge-all erases every
     // source layer, not just the active one) expanded the wrong group's dirty
     // rect and commitUserStroke discarded the erase as empty — merge-all wiped
     // nothing on observers.
-    this.board.expandDirtyRect(user, ix, iy, iw, ih, layerIdx);
+    this.board.expandDirtyRect(user, eraseDirty.x, eraseDirty.y, eraseDirty.width, eraseDirty.height, layerIdx);
 
     // Commit the stroke. Use an explicit timestamp so it can be found during undo.
     const eraseTimestamp = typeof lm?.allocateHistoryTimestamp === 'function'

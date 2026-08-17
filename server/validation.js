@@ -518,6 +518,8 @@ export async function sanitizeMessage(data) {
           sanitized.cbt = cbt;
         }
       }
+      // Extended-warp flag seeds the receiver's warp bounds for this drag.
+      if (data.selExtendedWarp !== undefined) sanitized.selExtendedWarp = sanitizeBoolean(data.selExtendedWarp);
       return sanitized.cr.length === 8 ? sanitized : null;
 
     case T.SEL_COMMIT:
@@ -534,6 +536,9 @@ export async function sanitizeMessage(data) {
       // necessarily applied the room's mirror toggle yet (MIR is not a commit
       // and is not in the stroke log), so it cannot read this off its own board.
       if (data.m !== undefined) sanitized.m = sanitizeBoolean(data.m);
+      // Extended-warp flag: the commit/stamp bakes with its OWN value, which can
+      // differ from the one that travelled with SEL_LIFT.
+      if (data.selExtendedWarp !== undefined) sanitized.selExtendedWarp = sanitizeBoolean(data.selExtendedWarp);
       return sanitized;
 
     case T.SEL_FILL:
@@ -555,6 +560,9 @@ export async function sanitizeMessage(data) {
           max: MAX_PS_VALUE
         });
       }
+      // Mirror state at fill time: the drawer fills every active mirror region
+      // too, and the receiver cannot infer the room's mirror toggle.
+      if (data.m !== undefined) sanitized.m = sanitizeBoolean(data.m);
       return sanitized;
 
     // Without this case the sanitizer fell through to the bare `return sanitized`
@@ -979,6 +987,12 @@ export async function sanitizeMessage(data) {
     // matching SEL_COMMIT will re-stamp every visible layer; `g` is the flattened
     // composite, so a receiver cannot infer the span from the payload.
     if (data.a !== undefined) sanitized.a = sanitizeBoolean(data.a);
+    // Mirror state at lift time (SEL_LIFT): the lift also erased every mirrored
+    // counterpart of the source area. Same reasoning as SEL_DELETE's `m`.
+    if (data.m !== undefined) sanitized.m = sanitizeBoolean(data.m);
+    // Extended-warp flag (SEL_LIFT). This whitelist is exhaustive, so a field
+    // missing here is dropped no matter what the sender put on the wire.
+    if (data.selExtendedWarp !== undefined) sanitized.selExtendedWarp = sanitizeBoolean(data.selExtendedWarp);
 
     // SEL_LIFT may legitimately omit `g`: the receiver's
     // RemoteSelectionHandler.handleSelectionLift falls back to

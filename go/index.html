@@ -363,7 +363,7 @@
                     <button type="button" class="btn primary large authGuestJoinBtn" id="guestJoinBtn">Join &amp; Draw!</button>
                     <p class="authGuestHint">No account needed</p>
                     <details class="authAccountSection">
-                      <summary>Have an account? <span class="authSummaryAction">Log in</span></summary>
+                      <summary>Already have an account? <span class="authSummaryAction">Log in</span></summary>
                       <input autocomplete="current-password" type="password" class="authInput" id="loginPassword" name="password" placeholder="Password">
                       <label class="authCheckbox">
                         <input type="checkbox" id="rememberMe">
@@ -372,12 +372,13 @@
                       <button type="button" class="authLinkButton" id="forgotPasswordBtn">Forgot password?</button>
                       <div class="authButtons">
                         <button type="button" class="btn primary large" id="loginBtn">Login</button>
-                        <button type="button" class="btn secondary large" id="registerBtn">Register</button>
-                      </div>
-                      <div class="authDiscordRow">
-                        <button type="button" class="btn large authDiscordBtn" id="discordLoginBtn" style="display: none;">Login with Discord</button>
                       </div>
                     </details>
+                    <!-- Always visible, even while the login section is collapsed -->
+                    <div class="authAltActions">
+                      <button type="button" class="btn secondary large" id="registerBtn">Register</button>
+                      <button type="button" class="btn large authDiscordBtn" id="discordLoginBtn" style="display: none;" title="Login with Discord" aria-label="Login with Discord">Login</button>
+                    </div>
                   </div>
 
                   <!-- Logged in state -->
@@ -465,7 +466,7 @@
                   <input autocomplete="on" class="authInput roomIdLandingInput" id="roomIdInput" name="room" placeholder="Room name">
                   <button type="button" class="btn primary small landingJoinForGuest" id="loginJoinBtn">Join</button>
                   <button type="button" class="btn primary small landingJoinForUser" id="joinBtnLoggedIn">Join</button>
-                  <button class="btn secondary small" id="refreshRoomsBtn">Refresh</button>
+                  <button class="btn secondary small roomRefreshBtn" id="refreshRoomsBtn" title="Refresh room list" aria-label="Refresh room list"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10M23 4v6h-6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
                 </div>
                 <div id="roomList" class="roomList">
                   <div class="roomListEmpty">Loading rooms...</div>

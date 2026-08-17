@@ -15,6 +15,7 @@ import { Role } from './SessionManager.js';
 export const Action = Object.freeze({
   // Board actions
   CLEAR_CANVAS:     'clear_canvas',
+  TOGGLE_MIRROR:    'toggle_mirror',   // ADMIN+ — full-board mirror is room-wide
 
   // Moderation — room-scoped
   MOD_MUTE:         'mod_mute',         // TRUSTED+
@@ -43,6 +44,9 @@ export const Action = Object.freeze({
 // Every action maps to the minimum room role required.
 const ACTION_MIN_ROLE = Object.freeze({
   [Action.CLEAR_CANVAS]:   Role.MOD,     // 4
+  // Stricter than CLEAR_CANVAS on purpose: the full-board mirror reflects every
+  // subsequent stroke for everyone in the room until it is turned back off.
+  [Action.TOGGLE_MIRROR]:  Role.ADMIN,   // 5
 
   [Action.MOD_MUTE]:       Role.TRUSTED, // 2
   [Action.MOD_UNMUTE]:     Role.TRUSTED, // 2
@@ -70,6 +74,7 @@ const GLOBAL_ACTION_MIN_ROLE = Object.freeze({
   [Action.MOD_WIPE]:        Role.NOBLE,
 
   [Action.CLEAR_CANVAS]:    Role.HOLY,
+  [Action.TOGGLE_MIRROR]:   Role.HOLY,
   [Action.MOD_BAN]:         Role.HOLY,
   [Action.MOD_UNBAN]:       Role.HOLY,
   [Action.MOD_SHADOWBAN]:   Role.HOLY,

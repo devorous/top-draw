@@ -55,8 +55,24 @@ export class Board {
     this.selectionCtx = null;
     this.cursorsSvg = null;
     this.mirrorLine = null;
+    this._maskStopButton = null;
+    /** @type {?Function} Wired by App: turns the local selection mask off. */
+    this.onStopMasking = null;
     this.mirrorRegionsLayer = null;
+    this.mirrorGuidesLayer = null;
     this.onMirrorRegionsChange = null;
+
+    // The mirror CENTRE LINES (the global mirror line and each region's axis
+    // guide) fade out after a short idle so they stop sitting on top of the
+    // artwork. Region border rectangles are NOT part of this — they say where a
+    // region is, which stays useful when you are looking rather than drawing, so
+    // they live on their own always-visible layer. Any drawing that reaches a
+    // mirror region, or the local pointer moving inside one, brings the lines
+    // back. Pinned while the region editor is open.
+    this.mirrorGuideIdleMs = 500;
+    this.mirrorGuidesPinned = false;
+    this._mirrorGuidesVisible = true;
+    this._mirrorGuideIdleTimer = null;
 
     this.layerManager = null;
     this.app = null;
@@ -348,6 +364,20 @@ export class Board {
 
     this.mirrorRegionsCtx = this._createBoard2DContext(this.mirrorRegionsLayer, 'mirror');
 
+    // Centre lines live on their own layer so they can fade independently of the
+    // region borders — see mirrorGuideIdleMs.
+    this.mirrorGuidesLayer = document.createElement('canvas');
+    this.mirrorGuidesLayer.id = 'mirrorGuidesLayer';
+    this.mirrorGuidesLayer.style.position = 'absolute';
+    this.mirrorGuidesLayer.style.top = '0';
+    this.mirrorGuidesLayer.style.left = '0';
+    this.mirrorGuidesLayer.style.pointerEvents = 'none';
+    this.mirrorGuidesLayer.style.zIndex = '3';
+    this.mirrorGuidesLayer.style.transition = 'opacity 260ms ease';
+    this.boardsWrapper.appendChild(this.mirrorGuidesLayer);
+
+    this.mirrorGuidesCtx = this._createBoard2DContext(this.mirrorGuidesLayer, 'mirrorGuides');
+
     this.textOverlay = new TextOverlay(this);
     this.textOverlay.mount(this.boardsWrapper);
 
@@ -475,11 +505,12 @@ export class Board {
     }
 
     this.boardsWrapper.style.transformOrigin = 'top left';
-    if (this.mirrorRegionsLayer) {
-      this.mirrorRegionsLayer.width = width;
-      this.mirrorRegionsLayer.height = height;
-      this.mirrorRegionsLayer.style.width = `${width}px`;
-      this.mirrorRegionsLayer.style.height = `${height}px`;
+    for (const layer of [this.mirrorRegionsLayer, this.mirrorGuidesLayer]) {
+      if (!layer) continue;
+      layer.width = width;
+      layer.height = height;
+      layer.style.width = `${width}px`;
+      layer.style.height = `${height}px`;
     }
     this.renderInteractionBlocks();
     this.renderMirrorRegions();
@@ -1077,9 +1108,7 @@ export class Board {
    * @returns {boolean} New mirror state
    */
   toggleMirror() {
-    this.mirror = !this.mirror;
-    this.mirrorLine.style.display = this.mirror ? 'block' : 'none';
-    this.renderMirrorRegions();
+    this.setMirror(!this.mirror);
     return this.mirror;
   }
 
@@ -1088,9 +1117,62 @@ export class Board {
    * @param {boolean} value - Mirror state
    */
   setMirror(value) {
-    this.mirror = value;
-    this.mirrorLine.style.display = this.mirror ? 'block' : 'none';
+    this.mirror = !!value;
+    // Guarded: `.mirrorLine` lives in the app shell markup and is absent in
+    // headless/replay boards, where setMirror is still called from SETTINGS.
+    if (this.mirrorLine) this.mirrorLine.style.display = this.mirror ? 'block' : 'none';
     this.renderMirrorRegions();
+    // A toggle is itself activity — show the guides so the change is visible,
+    // then let them fade on the normal idle timer.
+    this.noteMirrorActivity();
+  }
+
+  /**
+   * Records mirror-relevant activity, bringing the guides back and restarting the
+   * idle fade. Called from the drawing paths (via `forEachMirrorRegion`) and from
+   * local pointer movement, so guides are up exactly while a region is in use.
+   * @param {Object|null} [target] - Same shape as `forEachMirrorRegion`'s target
+   *   ({rect}, {point} or {points}). When given, activity that misses every
+   *   active region is ignored so drawing elsewhere doesn't resurrect the guides.
+   */
+  noteMirrorActivity(target = null) {
+    // Hot path: this runs on every local pointer move. Nothing to show or hide
+    // when the room has no mirrors at all.
+    if (!this.mirror && this.mirrorRegions.length === 0 && !this.mirrorGuidesPinned) return;
+    if (target && !this._activityHitsAnyMirrorRegion(target)) return;
+    this._setMirrorGuidesVisible(true);
+    if (this._mirrorGuideIdleTimer) clearTimeout(this._mirrorGuideIdleTimer);
+    if (this.mirrorGuidesPinned) return;
+    this._mirrorGuideIdleTimer = setTimeout(() => {
+      this._mirrorGuideIdleTimer = null;
+      if (this.mirrorGuidesPinned) return;
+      this._setMirrorGuidesVisible(false);
+    }, this.mirrorGuideIdleMs);
+  }
+
+  /**
+   * Keeps the mirror guides up regardless of idle time (region editor open).
+   * @param {boolean} pinned
+   */
+  setMirrorGuidesPinned(pinned) {
+    this.mirrorGuidesPinned = !!pinned;
+    this.noteMirrorActivity();
+  }
+
+  _activityHitsAnyMirrorRegion(target) {
+    const bounds = this._getMirrorTargetBounds(target);
+    if (!bounds) return true;
+    return this.getActiveMirrorRegions().some(region => this._rectIntersects(bounds, region));
+  }
+
+  _setMirrorGuidesVisible(visible) {
+    if (this._mirrorGuidesVisible === visible) return;
+    this._mirrorGuidesVisible = visible;
+    // Centre lines only — the region borders on mirrorRegionsLayer stay put.
+    if (this.mirrorGuidesLayer) this.mirrorGuidesLayer.style.opacity = visible ? '1' : '0';
+    // 0.6 is the mirror line's resting opacity in CSS; the inline value wins, so
+    // restore that exact number rather than jumping the line to full strength.
+    if (this.mirrorLine) this.mirrorLine.style.opacity = visible ? '0.6' : '0';
   }
 
   /**
@@ -1104,6 +1186,8 @@ export class Board {
         .filter(Boolean)
       : [];
     this.renderMirrorRegions();
+    // A region appearing/moving/vanishing is worth seeing, so restart the fade.
+    this.noteMirrorActivity();
     if (typeof this.onMirrorRegionsChange === 'function') {
       this.onMirrorRegionsChange(this.mirrorRegions);
     }
@@ -1153,7 +1237,26 @@ export class Board {
    * @returns {Array<Object>}
    */
   getActiveMirrorRegions() {
-    if (this.mirror) {
+    return this.getActiveMirrorRegionsFor(this.mirror);
+  }
+
+  /**
+   * Same as `getActiveMirrorRegions`, but for an explicitly supplied full-board
+   * mirror state instead of the board's live one.
+   *
+   * Receivers of a mirrored operation need this: the full-board mirror is a
+   * room setting toggled by T.MIR, which is neither a commit nor part of the
+   * stroke log, so a joiner replaying a tail has not necessarily applied the
+   * toggle that was in force when the operation was drawn. Those messages carry
+   * the flag instead (see `broadcastSelectionDelete`), and it must win over
+   * `this.mirror` here. Named mirror *regions* need no such flag — they travel
+   * in SETTINGS and every mirror-aware tool already resolves them live.
+   *
+   * @param {boolean} mirrored - Full-board mirror state to resolve against.
+   * @returns {Array<Object>}
+   */
+  getActiveMirrorRegionsFor(mirrored) {
+    if (mirrored) {
       return this._expandMirrorRegionTransforms({
         id: '__global_mirror__',
         x: 0,
@@ -1173,7 +1276,12 @@ export class Board {
    * @returns {boolean}
    */
   hasMirrors() {
-    return this.getActiveMirrorRegions().length > 0;
+    // Deliberately cheap — no region expansion. This is called from the tools'
+    // per-tick getPreviewDirtyRect, and expanding a 16-slice radial region every
+    // frame just to ask "is anything mirrored" is pure waste. The answer is the
+    // same: _expandMirrorRegionTransforms never returns an empty list for a
+    // valid region, so a non-empty mirrorRegions always means active mirrors.
+    return this.mirror || this.mirrorRegions.length > 0;
   }
 
   /**
@@ -1253,35 +1361,100 @@ export class Board {
   }
 
   /**
-   * The extra shapes a selection erase must also clear because the global
-   * mirror is on — the reflected counterpart of the selected area.
+   * The extra places a selection-shaped operation must also paint because a
+   * mirror is active — one entry per active mirror region the selection reaches.
    *
-   * Shared by the local erase (SelectTool.deleteSelection) and the remote one
-   * (RemoteSelectionHandler.handleSelectionDelete) so the two cannot drift.
-   * They did: only the local side mirrored, so the reflected half of a cleared
-   * area stayed on every other client's board forever.
+   * Callers paint the mirrored copy by running their normal, *untransformed*
+   * drawing code inside `withMirroredRegionTransform(ctx, region, …)`; the
+   * matrix and the region clip do the geometry. That is what lets this cover
+   * every mode (quad, rotational, radial, fibonacci) instead of only the
+   * vertical flip a rect-and-lasso pair can express — a rotated rectangle is
+   * not a rectangle, so an earlier shape-returning version of this helper had
+   * to skip regions entirely.
    *
-   * Only the global vertical mirror is handled. Mirror *regions* can rotate or
-   * radially repeat, which turns a rectangle into a shape a rect-and-lasso
-   * erase cannot express; those are not mirrored on either side, so both sides
-   * still agree.
+   * `bounds` is the axis-aligned board area the mirrored paint can actually
+   * cover (the transformed rect, clipped to the region). Callers need it for
+   * dirty rects and tile bookkeeping — and crucially for `active.dirtyRect`,
+   * since `commitUserStroke` CROPS the committed stroke to that rect and would
+   * otherwise throw the mirrored pixels away.
    *
-   * @param {{x:number,y:number,width:number,height:number}} s - Selection rect.
-   * @param {Array<{x:number,y:number}>|null} lassoPath - Lasso path, if any.
-   * @param {boolean} [mirrored] - Whether the mirror was on for THIS operation.
-   *   Receivers must pass the flag carried by the message rather than rely on
-   *   their own `board.mirror`: a joiner replaying a tail has not necessarily
-   *   applied the room's mirror toggle yet (MIR is not a commit and is not in
-   *   the stroke log), so it would skip the mirrored erase entirely.
-   * @returns {Array<{s:Object, lassoPath:Array|null}>}
+   * Shared by the local ops (SelectTool) and the remote ones
+   * (RemoteSelectionHandler) so the two cannot drift. They did: only the local
+   * side mirrored a selection fill, so the reflected half of every mirrored
+   * fill existed on the drawer's screen alone.
+   *
+   * @param {{x:number,y:number,width:number,height:number}} rect - Area the
+   *   operation paints, in board coordinates.
+   * @param {boolean} [mirrored] - Full-board mirror state for THIS operation;
+   *   see `getActiveMirrorRegionsFor` for why receivers must pass the flag off
+   *   the wire rather than read `this.mirror`.
+   * @returns {Array<{region: Object, bounds: {x:number,y:number,width:number,height:number}}>}
    */
-  getMirroredSelectionShapes(s, lassoPath = null, mirrored = this.mirror) {
-    if (!mirrored || !s) return [];
-    const bw = this.getWidth();
-    return [{
-      s: { x: bw - s.x - s.width, y: s.y, width: s.width, height: s.height },
-      lassoPath: lassoPath ? lassoPath.map(p => ({ x: bw - p.x, y: p.y })) : null
-    }];
+  getSelectionMirrorTargets(rect, mirrored = this.mirror) {
+    if (!rect || !(rect.width > 0) || !(rect.height > 0)) return [];
+    const targets = [];
+    for (const region of this.getActiveMirrorRegionsFor(mirrored)) {
+      if (!this._rectIntersects(rect, region)) continue;
+      const bounds = this.mirrorRectBounds(rect, region);
+      if (bounds) targets.push({ region, bounds });
+    }
+    return targets;
+  }
+
+  /**
+   * Axis-aligned board bounds that `rect` covers once reflected into `region`,
+   * clipped to the region itself (mirrored drawing never escapes its region).
+   * @param {{x:number,y:number,width:number,height:number}} rect
+   * @param {Object} region
+   * @returns {{x:number,y:number,width:number,height:number}|null} null when the
+   *   reflection lands entirely outside the region.
+   */
+  mirrorRectBounds(rect, region) {
+    if (!rect || !region) return null;
+    const corners = [
+      { x: rect.x, y: rect.y },
+      { x: rect.x + rect.width, y: rect.y },
+      { x: rect.x + rect.width, y: rect.y + rect.height },
+      { x: rect.x, y: rect.y + rect.height }
+    ];
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const corner of corners) {
+      const p = this.mirrorPointToRegion(corner, region);
+      if (p.x < minX) minX = p.x;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.y > maxY) maxY = p.y;
+    }
+
+    const x = Math.max(Math.floor(minX), Math.floor(region.x));
+    const y = Math.max(Math.floor(minY), Math.floor(region.y));
+    const right = Math.min(Math.ceil(maxX), Math.ceil(region.x + region.width));
+    const bottom = Math.min(Math.ceil(maxY), Math.ceil(region.y + region.height));
+    if (right <= x || bottom <= y) return null;
+    return { x, y, width: right - x, height: bottom - y };
+  }
+
+  /**
+   * Union of a rect with every mirrored counterpart it produces. Callers use it
+   * to size a dirty rect that survives `commitUserStroke`'s crop.
+   * @param {{x:number,y:number,width:number,height:number}} rect
+   * @param {Array<{bounds: Object}>} targets - From `getSelectionMirrorTargets`.
+   * @returns {{x:number,y:number,width:number,height:number}}
+   */
+  unionWithMirrorTargets(rect, targets) {
+    let minX = rect.x;
+    let minY = rect.y;
+    let maxX = rect.x + rect.width;
+    let maxY = rect.y + rect.height;
+    for (const { bounds } of targets || []) {
+      if (!bounds) continue;
+      minX = Math.min(minX, bounds.x);
+      minY = Math.min(minY, bounds.y);
+      maxX = Math.max(maxX, bounds.x + bounds.width);
+      maxY = Math.max(maxY, bounds.y + bounds.height);
+    }
+    return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
   }
 
   /**
@@ -1305,6 +1478,7 @@ export class Board {
     } else {
       this.selectionMasksByUser.delete(userId);
     }
+    this._updateMaskStopButton();
   }
 
   clearSelectionMask(userId = this.app?.self?.id ?? 0, clearLocalOverlay = true) {
@@ -1335,6 +1509,7 @@ export class Board {
     if (clearLocalOverlay) {
       this.clearTop();
     }
+    this._updateMaskStopButton();
   }
 
   /**
@@ -1360,18 +1535,138 @@ export class Board {
     return this.selectionMasksByUser.get(userId) || null;
   }
 
-  _applyMaskClipToCtx(ctx, userId = this.app?.self?.id ?? 0) {
+  /**
+   * Shows or hides the "Stop masking" button for the local mask.
+   *
+   * It lives here rather than in the Select tool's context menu because that
+   * menu is gone by the time it is needed: turning the mask on and then picking
+   * the brush deactivates Select and hides its menu, leaving the mask on with no
+   * visible way to turn it off.
+   *
+   * Anchored just OUTSIDE the mask (above it, or below when the mask is near the
+   * top edge) so it never covers the area being painted, and parented to
+   * `boardsWrapper` in board coordinates so it tracks pan, zoom and rotation for
+   * free — the same trick the mirror region controls use.
+   * @private
+   */
+  _updateMaskStopButton() {
+    const mask = this.selectionMask;
+
+    if (!mask || !this._maskManagedBySelectTool) {
+      if (this._maskStopButton) this._maskStopButton.style.display = 'none';
+      return;
+    }
+    if (!this.boardsWrapper) return;
+
+    if (!this._maskStopButton) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.id = 'stopMaskingBtn';
+      btn.dataset.tut = 'stop-masking';
+      btn.textContent = 'Stop masking';
+      btn.style.cssText = [
+        'position:absolute', 'z-index:6', 'pointer-events:auto',
+        'height:24px', 'padding:0 10px', 'white-space:nowrap',
+        'border:1px solid rgba(255,255,255,0.18)', 'border-radius:999px',
+        'background:rgba(17,24,39,0.92)', 'color:#f8fafc',
+        'font-size:11px', 'cursor:pointer',
+        'box-shadow:0 4px 12px rgba(0,0,0,0.25)',
+      ].join(';');
+      btn.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); });
+      btn.addEventListener('pointerup', (e) => {
+        if (e.pointerType === 'mouse' && e.button !== 0) return;
+        e.preventDefault();
+        e.stopPropagation();
+        this.onStopMasking?.();
+      });
+      this.boardsWrapper.appendChild(btn);
+      this._maskStopButton = btn;
+    }
+
+    const btn = this._maskStopButton;
+    btn.style.display = 'block';
+
+    // Prefer above the mask; drop below when there is no room, so it stays on
+    // the board and clear of the masked area either way.
+    const GAP = 8;
+    const H = 24;
+    const above = mask.y - GAP - H;
+    btn.style.top = `${above >= 0 ? above : mask.y + mask.height + GAP}px`;
+    btn.style.left = `${Math.max(0, Math.round(mask.x))}px`;
+  }
+
+  /**
+   * The mask's outline as a closed polygon in board coordinates.
+   * @param {Object} mask
+   * @returns {Array<{x:number,y:number}>}
+   */
+  static maskOutlinePoints(mask) {
+    if (mask.lassoPath?.length > 0) return mask.lassoPath;
+    return [
+      { x: mask.x, y: mask.y },
+      { x: mask.x + mask.width, y: mask.y },
+      { x: mask.x + mask.width, y: mask.y + mask.height },
+      { x: mask.x, y: mask.y + mask.height }
+    ];
+  }
+
+  /**
+   * Clips `ctx` to the user's selection mask — and to every mirror image of that
+   * mask.
+   *
+   * The mirror images are the whole point. Mask mode clips the stroke context
+   * ONCE at MD time, and the mirror-aware tools then draw their reflected copies
+   * into that same already-clipped context. With only the mask itself in the
+   * clip, every reflected copy landed outside it and was thrown away: drawing
+   * inside a mask simply stopped mirroring. Reflecting the mask along with the
+   * ink is what keeps "the mask is a region of the board" true on both sides of
+   * a mirror.
+   *
+   * Region containment is NOT applied here. The tools already wrap each
+   * reflected copy in `withMirrorRegionClip`, and clips intersect, so the
+   * effective area stays `(mask ∪ mirrored masks) ∩ region`.
+   *
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {number} [userId]
+   * @param {Object} [board] - Mirror source; defaults to `this`. ReplayEngine
+   *   passes its own board so replays clip exactly as the live client does.
+   */
+  _applyMaskClipToCtx(ctx, userId = this.app?.self?.id ?? 0, board = this) {
     const mask = this._getSelectionMaskForUser(userId);
     if (!mask || !ctx) return;
+    Board.clipToMaskAndMirrors(ctx, mask, board);
+  }
+
+  /**
+   * Shared implementation of the mask clip, so the live board and the replay
+   * board cannot drift on what a mask means.
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {Object} mask
+   * @param {Board} board - Supplies the active mirror regions.
+   */
+  static clipToMaskAndMirrors(ctx, mask, board) {
+    const base = Board.maskOutlinePoints(mask);
+    const shapes = [base];
+
+    for (const region of (board?.getActiveMirrorRegions?.() || [])) {
+      const m = board._mirrorRegionMatrix(region);
+      if (!m) continue;
+      const mirrored = board.mirrorPointsToRegion(base, region);
+      // clip() uses the nonzero fill rule, under which two overlapping subpaths
+      // of OPPOSITE winding cancel to a HOLE rather than uniting. A reflection
+      // (negative determinant) reverses orientation, so re-reverse those points
+      // — otherwise a mask straddling a mirror axis punched a hole in itself
+      // exactly where it overlapped its own reflection.
+      const flipsOrientation = (m[0] * m[3] - m[1] * m[2]) < 0;
+      shapes.push(flipsOrientation ? mirrored.reverse() : mirrored);
+    }
+
     ctx.beginPath();
-    if (mask.lassoPath?.length > 0) {
-      ctx.moveTo(mask.lassoPath[0].x, mask.lassoPath[0].y);
-      for (let i = 1; i < mask.lassoPath.length; i++) {
-        ctx.lineTo(mask.lassoPath[i].x, mask.lassoPath[i].y);
-      }
+    for (const points of shapes) {
+      if (points.length < 3) continue;
+      ctx.moveTo(points[0].x, points[0].y);
+      for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
       ctx.closePath();
-    } else {
-      ctx.rect(mask.x, mask.y, mask.width, mask.height);
     }
     ctx.clip();
   }
@@ -1558,11 +1853,16 @@ export class Board {
   forEachMirrorRegion(target, callback) {
     if (typeof callback !== 'function') return;
     const bounds = this._getMirrorTargetBounds(target);
+    let hit = false;
     for (const region of this.getActiveMirrorRegions()) {
       if (!bounds || this._rectIntersects(bounds, region)) {
+        hit = true;
         callback(region);
       }
     }
+    // Every mirror-aware tool funnels its painting through here, so this is the
+    // one place that sees all drawing activity inside a region.
+    if (hit) this.noteMirrorActivity();
   }
 
   /**
@@ -1571,20 +1871,29 @@ export class Board {
   renderMirrorRegions() {
     if (!this.mirrorRegionsCtx || !this.mirrorRegionsLayer) return;
     this.mirrorRegionsCtx.clearRect(0, 0, this.mirrorRegionsLayer.width, this.mirrorRegionsLayer.height);
+    if (this.mirrorGuidesCtx && this.mirrorGuidesLayer) {
+      this.mirrorGuidesCtx.clearRect(0, 0, this.mirrorGuidesLayer.width, this.mirrorGuidesLayer.height);
+    }
 
     for (const region of this.mirrorRegions) {
+      // Border: always visible, so a region stays findable while you work.
+      // Deliberately hairline — it sits on top of the artwork and should read as
+      // a guide, not as ink.
       this.mirrorRegionsCtx.save();
-      this.mirrorRegionsCtx.strokeStyle = 'rgba(0, 212, 170, 0.9)';
-      this.mirrorRegionsCtx.lineWidth = 1;
+      this.mirrorRegionsCtx.strokeStyle = 'rgba(0, 212, 170, 0.75)';
+      this.mirrorRegionsCtx.lineWidth = 0.5;
       this.mirrorRegionsCtx.strokeRect(region.x, region.y, region.width, region.height);
-
-      if (region.showLine) {
-        this.mirrorRegionsCtx.setLineDash([4, 4]);
-        this.mirrorRegionsCtx.lineWidth = 0.75;
-        this.mirrorRegionsCtx.strokeStyle = 'rgba(0, 212, 170, 0.85)';
-        Board.drawMirrorGuide(this.mirrorRegionsCtx, region);
-      }
       this.mirrorRegionsCtx.restore();
+
+      // Centre line: separate layer, fades on idle (see noteMirrorActivity).
+      if (region.showLine && this.mirrorGuidesCtx) {
+        this.mirrorGuidesCtx.save();
+        this.mirrorGuidesCtx.setLineDash([4, 4]);
+        this.mirrorGuidesCtx.lineWidth = 0.5;
+        this.mirrorGuidesCtx.strokeStyle = 'rgba(0, 212, 170, 0.7)';
+        Board.drawMirrorGuide(this.mirrorGuidesCtx, region);
+        this.mirrorGuidesCtx.restore();
+      }
     }
   }
 
