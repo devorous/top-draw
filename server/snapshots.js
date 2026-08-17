@@ -174,7 +174,11 @@ async function persistRestoredCheckpoint(room, snapshotData, seq) {
     );
 
     const r2Key = `snapshots/${room.id}/${snapshotData.id}.ddraw`;
-    const fileBytes = await encodeSnapshotFile(snapshotData.layers, null);
+    const fileBytes = await encodeSnapshotFile(snapshotData.layers, null, {
+      issuer: snapshotData.issuer,
+      roomId: room.id,
+      ts: snapshotData.ts,
+    });
     await uploadSnapshotFile(r2Key, fileBytes);
 
     await db.collection('room_snapshots').insertOne({
@@ -291,7 +295,11 @@ export async function handleSnapshotSave(ws, data, room) {
       const r2Key = `snapshots/${room.id}/${snapshotId}.ddraw`;
 
       // Upload snapshot file to R2
-      const fileBytes = await encodeSnapshotFile(layers, thumbBytes);
+      const fileBytes = await encodeSnapshotFile(layers, thumbBytes, {
+        issuer,
+        roomId: room.id,
+        ts: snapshotTs,
+      });
       await uploadSnapshotFile(r2Key, fileBytes);
 
       const mongoDoc = {

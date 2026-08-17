@@ -21,12 +21,17 @@ const THUMBNAIL_MIME = 'image/jpeg';
  * Build the `.ddraw` bytes for a server checkpoint.
  * @param {Array<Uint8Array>} layers - QOI-encoded, watermark-composited layers.
  * @param {Uint8Array|Buffer|null} thumbnail - JPEG thumbnail bytes, if any.
+ * @param {{ issuer?: string, roomId?: string, ts?: number }} [meta] - Origin info
+ *   embedded in the file itself, independent of the room_snapshots Mongo doc
+ *   (which can be lost/pruned separately from the R2 object).
  * @returns {Promise<Buffer>}
  */
-export async function encodeSnapshotFile(layers, thumbnail) {
+export async function encodeSnapshotFile(layers, thumbnail, meta = {}) {
   const recording = {
-    startedAt: Date.now(),
+    startedAt: meta.ts || Date.now(),
     duration: 0,
+    issuer: meta.issuer || null,
+    roomId: meta.roomId || null,
     openingSnapshot: {
       layerBaked: layers || [],
       history: [],
@@ -41,11 +46,12 @@ export async function encodeSnapshotFile(layers, thumbnail) {
 }
 
 /**
- * Decode a snapshot file's raw bytes back into `{ layers, thumbnail }`,
- * dispatching on the room_snapshots doc's `format` field.
+ * Decode a snapshot file's raw bytes back into `{ layers, thumbnail, issuer }`,
+ * dispatching on the room_snapshots doc's `format` field. Legacy `.bundle`
+ * files never carried an issuer, so `issuer`/`roomId` come back null for them.
  * @param {Buffer|Uint8Array} bytes
  * @param {'ddraw'|'bundle'|undefined} format - undefined/'bundle' = legacy protobuf.
- * @returns {Promise<{layers: Uint8Array[], thumbnail: Uint8Array|null}>}
+ * @returns {Promise<{layers: Uint8Array[], thumbnail: Uint8Array|null, issuer: string|null, roomId: string|null, ts: number|null}>}
  */
 export async function decodeSnapshotFile(bytes, format) {
   if (format === 'ddraw') {
@@ -55,7 +61,14 @@ export async function decodeSnapshotFile(bytes, format) {
     const thumbnail = checkpoint?.blob
       ? Buffer.from(await checkpoint.blob.arrayBuffer())
       : null;
-    return { layers, thumbnail };
+    return {
+      layers,
+      thumbnail,
+      issuer: recording?.issuer || null,
+      roomId: recording?.roomId || null,
+      ts: recording?.startedAt || null,
+    };
   }
-  return decodeLegacyBundle(bytes);
+  const legacy = await decodeLegacyBundle(bytes);
+  return { ...legacy, issuer: null, roomId: null, ts: null };
 }

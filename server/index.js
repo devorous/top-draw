@@ -1293,7 +1293,11 @@ const server = createServer(async (req, res) => {
         const plainLayers = (layers || []).map(
           (l) => (l && l.length ? new Uint8Array(l.buffer ? l.buffer.slice(l.byteOffset, l.byteOffset + l.byteLength) : l) : null)
         );
-        out = await encodeSnapshotFile(plainLayers, thumbnail || null);
+        out = await encodeSnapshotFile(plainLayers, thumbnail || null, {
+          issuer: doc.issuer || null,
+          roomId: doc.roomId || null,
+          ts: doc.timestamp || null,
+        });
       }
 
       res.writeHead(200, {
