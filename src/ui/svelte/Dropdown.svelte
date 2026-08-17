@@ -19,7 +19,7 @@
    */
 
   let {
-    /** @type {Array<{value: string, label: string, hint?: string, disabled?: boolean, style?: string}>} */
+    /** @type {Array<{value: string, label: string, hint?: string, disabled?: boolean, style?: string, rowStyle?: string}>} */
     options = [],
     value = null,
     onchange = null,
@@ -101,10 +101,19 @@
     open ? closeMenu({ refocus: true }) : openMenu();
   }
 
-  function commit(index) {
+  /**
+   * @param {number} index
+   * @param {Object} [opts]
+   * @param {boolean} [opts.refocus] - Return focus to the trigger. Kept for
+   *   keyboard selection (so keyboard users can keep navigating), but skipped
+   *   for a pointer click — otherwise the trigger stays focused after a mouse
+   *   selection and swallows the next Space press (e.g. canvas pan-hold)
+   *   instead of it reaching the page.
+   */
+  function commit(index, { refocus = true } = {}) {
     const option = options[index];
     if (!option || option.disabled) return;
-    closeMenu({ refocus: true });
+    closeMenu({ refocus });
     if (option.value !== value) onchange?.(option.value);
   }
 
@@ -243,12 +252,13 @@
           tabindex="-1"
           class="dd-option"
           class:selected={option.value === value}
+          style={option.rowStyle || undefined}
           data-active={i === activeIndex}
           role="option"
           aria-selected={option.value === value}
           disabled={option.disabled}
           onpointerenter={() => { if (!option.disabled) activeIndex = i; }}
-          onclick={() => commit(i)}
+          onclick={() => commit(i, { refocus: false })}
         >
           <span class="dd-option-label" style={option.style || undefined}>{option.label}</span>
           {#if option.hint}<span class="dd-option-hint">{option.hint}</span>{/if}

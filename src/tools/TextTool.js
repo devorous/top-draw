@@ -3,6 +3,7 @@
  */
 
 import { getAppliedTextLayout, getUserTextLineHeight, paintTextRecord } from '../utils/textLayout.js';
+import { getTextFontLetterSpacing } from '../config/textFonts.js';
 import { Tool } from './BaseTool.js';
 
 const TEXT_DIRTY_RECT_PADDING = 12;
@@ -108,6 +109,7 @@ export class TextTool extends Tool {
     ctx.globalAlpha = opacity;
     ctx.fillStyle = user.getColorString();
     ctx.font = `${fontSize}px ${user.font}`;
+    if ('letterSpacing' in ctx) ctx.letterSpacing = getTextFontLetterSpacing(user.font);
     ctx.textBaseline = 'alphabetic';
 
     const lines = user.text.split('\n');

@@ -56,6 +56,11 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  // Lets a caller preview a specific typeface/size on the trigger itself
+  // (e.g. the font picker) without fighting .dd-trigger's own font-size rule —
+  // unset by default, so every other dropdown is unaffected.
+  font-family: var(--dd-preview-family, inherit);
+  font-size: var(--dd-preview-size, inherit);
 }
 
 .dd-chevron {

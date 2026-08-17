@@ -21,6 +21,15 @@ const PROPERTY_DEFAULTS = {
 };
 
 /**
+ * Per-tool overrides of the default (locked, lockedValue) for a lockable
+ * property, applied on top of PROPERTY_DEFAULTS in getDefaultToolLocks().
+ */
+const TOOL_PROPERTY_OVERRIDES = {
+  ink: { smoothing: { locked: true, lockedValue: 10 } },
+  flowPen: { smoothing: { locked: true, lockedValue: 25 } }
+};
+
+/**
  * Manages tool properties (size, smoothing, opacity, etc.) and allows locking
  * values for specific tools or sharing unlocked values globally.
  */
@@ -187,8 +196,9 @@ export class ToolLockManager {
           };
         } else {
           const defaultValue = PROPERTY_DEFAULTS[prop] ?? 0;
+          const override = TOOL_PROPERTY_OVERRIDES[tool]?.[prop];
 
-          locks[tool][prop] = {
+          locks[tool][prop] = override ? { ...override } : {
             locked: prop === 'blendMode' && ['select', 'blur', 'circleBlur', 'glitchBlur', 'text'].includes(tool),
             lockedValue: defaultValue
           };

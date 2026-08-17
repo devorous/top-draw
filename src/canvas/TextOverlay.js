@@ -10,6 +10,7 @@
  */
 
 import { paintTextRecord, getTextRecordGeometry } from '../utils/textLayout.js';
+import { getTextFontLetterSpacing } from '../config/textFonts.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 export const TEXT_OVERLAY_DEFAULT_LIFETIME_MS = 30 * 1000;   // total lifetime
@@ -159,6 +160,7 @@ export class TextOverlay {
     text.setAttribute('text-anchor', 'start');
     text.setAttribute('text-rendering', 'geometricPrecision');
     text.style.whiteSpace = 'pre';
+    text.style.letterSpacing = getTextFontLetterSpacing(record.font);
 
     geometry.lines.forEach((line, i) => {
       const tspan = document.createElementNS(SVG_NS, 'tspan');

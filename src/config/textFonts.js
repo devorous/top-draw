@@ -3,7 +3,7 @@ export const TEXT_FONT_OPTIONS = [
     label: 'Newsreader',
     family: 'Newsreader, serif',
     googleFamily: 'Newsreader:opsz@6..72',
-    pickerFontSize: 12,
+    pickerFontSize: 15,
     appliedSizeMultiplier: 0,
     appliedOffset: -1
   },
@@ -11,7 +11,7 @@ export const TEXT_FONT_OPTIONS = [
     label: 'Nunito',
     family: 'Nunito, sans-serif',
     googleFamily: 'Nunito:ital,wght@0,200..1000;1,200..1000',
-    pickerFontSize: 12,
+    pickerFontSize: 15,
     appliedSizeMultiplier: 0.25,
     appliedOffset: 0
   },
@@ -19,7 +19,7 @@ export const TEXT_FONT_OPTIONS = [
     label: 'Silkscreen',
     family: 'Silkscreen, cursive',
     googleFamily: 'Silkscreen:wght@400;700',
-    pickerFontSize: 12,
+    pickerFontSize: 14,
     appliedSizeMultiplier: 0.25,
     appliedOffset: 0
   },
@@ -27,8 +27,66 @@ export const TEXT_FONT_OPTIONS = [
     label: 'Tangerine',
     family: 'Tangerine, cursive',
     googleFamily: 'Tangerine:wght@400;700',
-    pickerFontSize: 25,
+    pickerFontSize: 20,
     appliedSizeMultiplier: 0,
+    appliedOffset: 0
+  },
+  {
+    label: 'Permanent Marker',
+    family: '"Permanent Marker", cursive',
+    googleFamily: 'Permanent Marker',
+    pickerFontSize: 15,
+    appliedSizeMultiplier: 0.35,
+    appliedOffset: 0,
+    letterSpacing: '0.04em'
+  },
+  {
+    label: 'Righteous',
+    family: 'Righteous, sans-serif',
+    googleFamily: 'Righteous',
+    pickerFontSize: 15,
+    appliedSizeMultiplier: 0.25,
+    appliedOffset: 0
+  },
+  {
+    label: 'Fredoka',
+    family: 'Fredoka, sans-serif',
+    googleFamily: 'Fredoka:wght@300..700',
+    pickerFontSize: 15,
+    appliedSizeMultiplier: 0.25,
+    appliedOffset: 0
+  },
+  {
+    label: 'Lobster',
+    family: 'Lobster, cursive',
+    googleFamily: 'Lobster',
+    pickerFontSize: 17,
+    appliedSizeMultiplier: 0.2,
+    appliedOffset: 0,
+    letterSpacing: '0.025em'
+  },
+  {
+    label: 'Space Mono',
+    family: '"Space Mono", monospace',
+    googleFamily: 'Space Mono:wght@400;700',
+    pickerFontSize: 14,
+    appliedSizeMultiplier: 0.35,
+    appliedOffset: 0
+  },
+  {
+    label: 'Great Vibes',
+    family: '"Great Vibes", cursive',
+    googleFamily: 'Great Vibes',
+    pickerFontSize: 21,
+    appliedSizeMultiplier: 0.15,
+    appliedOffset: 0
+  },
+  {
+    label: 'Baloo 2',
+    family: '"Baloo 2", sans-serif',
+    googleFamily: 'Baloo 2:wght@400..800',
+    pickerFontSize: 15,
+    appliedSizeMultiplier: 0.35,
     appliedOffset: 0
   }
 ];
@@ -43,6 +101,10 @@ const TEXT_FONT_DEFAULTS = new Map(TEXT_FONT_OPTIONS.map(font => [
     textPositionOffset: font.appliedOffset ?? 0
   }
 ]));
+const TEXT_FONT_LETTER_SPACING = new Map(TEXT_FONT_OPTIONS.map(font => [
+  font.family,
+  font.letterSpacing || 'normal'
+]));
 
 export function normalizeTextFont(font) {
   return TEXT_FONT_FAMILIES.has(font) ? font : DEFAULT_TEXT_FONT;
@@ -53,6 +115,16 @@ export function getTextFontDefaults(font) {
     textPositionMultiplier: 0,
     textPositionOffset: 0
   };
+}
+
+/**
+ * Per-font letter-spacing (CSS length string, e.g. '0.04em') applied wherever
+ * text is measured or painted, so glyphs on fonts with tight/overlapping
+ * default kerning (marker/script faces) get consistent breathing room across
+ * the canvas render, the SVG overlay, and the live DOM typing preview.
+ */
+export function getTextFontLetterSpacing(font) {
+  return TEXT_FONT_LETTER_SPACING.get(normalizeTextFont(font)) || 'normal';
 }
 
 export function ensureTextFontsLoaded(doc = document) {

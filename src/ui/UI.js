@@ -17,6 +17,7 @@ import {
   DEFAULT_TEXT_FONT,
   ensureTextFontsLoaded,
   normalizeTextFont,
+  getTextFontLetterSpacing,
   TEXT_FONT_OPTIONS
 } from '../config/textFonts.js';
 import {
@@ -135,7 +136,8 @@ export class UI {
         weightedStopValue: Number(options.weightedStopValue ?? 10),
         weightedStopPercent: Number(options.weightedStopPercent ?? (1 / 3)),
         snapStep: options.snapStep || null,
-        component: null
+        component: null,
+        isDragging: false
       };
 
       if (mountPoint !== source) {
@@ -167,6 +169,13 @@ export class UI {
               state.value = newValue;
               mountPoint.dispatchEvent(new Event('input', { bubbles: true }));
             },
+            onDragStart: () => { state.isDragging = true; },
+            onDragEnd: () => {
+              state.isDragging = false;
+              // Re-sync in case the app rounded/clamped the value during the
+              // drag while remounts were suppressed (see setter above).
+              render();
+            },
             ...extraProps
           }
         });
@@ -184,6 +193,13 @@ export class UI {
             } else {
               state[key] = Number(val);
             }
+            // While the user is actively dragging the thumb, the app's own
+            // 'input' handlers write the (possibly rounded) value straight
+            // back onto this element. Remounting the component here would
+            // tear down its pointer capture mid-drag and abort the drag
+            // after a single move. The component already reflects the live
+            // value internally; skip the remount until the drag ends.
+            if (state.isDragging && key === 'value') return;
             render();
           }
         });
@@ -636,8 +652,7 @@ menuBtn: document.getElementById('menuBtn'),
       textPositionMultiplierContainer: document.getElementById('text-position-multiplier-container'),
       textPositionOffsetContainer: document.getElementById('text-position-offset-container'),
       textRenderModeContainer: document.getElementById('text-render-mode-container'),
-      textRenderModeVectorBtn: document.getElementById('textRenderModeVectorBtn'),
-      textRenderModePixelBtn: document.getElementById('textRenderModePixelBtn'),
+      textTemporaryToggle: document.getElementById('textTemporaryToggle'),
 
       selectionModeOptions: document.getElementById('selectionModeOptions'),
       eraserModeOptions: document.getElementById('eraserModeOptions'),
@@ -1948,9 +1963,11 @@ menuBtn: document.getElementById('menuBtn'),
     const [r, g, b, a] = color;
     this.elements.selfText.style.color = `rgba(${r}, ${g}, ${b}, ${a * a})`;
     this.elements.selfText.style.fontFamily = normalizedFont;
+    this.elements.selfText.style.letterSpacing = getTextFontLetterSpacing(normalizedFont);
     if (this.elements.selfTextInput) {
       this.elements.selfTextInput.style.fontFamily = normalizedFont;
       this.elements.selfTextInput.style.lineHeight = `${lineHeight}px`;
+      this.elements.selfTextInput.style.letterSpacing = getTextFontLetterSpacing(normalizedFont);
     }
     this.elements.selfText.style.left = `${layout.domLeft}px`;
     this.elements.selfText.style.top = `${layout.domTop}px`;
@@ -2167,11 +2184,8 @@ menuBtn: document.getElementById('menuBtn'),
       this._applyFontSelectStyle(e.target.value);
       app.handleFontChange(e.target.value);
     });
-    this.elements.textRenderModeVectorBtn?.addEventListener('click', () => {
-      app.setTextRenderMode?.('vector');
-    });
-    this.elements.textRenderModePixelBtn?.addEventListener('click', () => {
-      app.setTextRenderMode?.('pixel');
+    this.elements.textTemporaryToggle?.addEventListener('change', (e) => {
+      app.setTextRenderMode?.(e.target.checked ? 'vector' : 'pixel');
     });
   }
 
@@ -2216,9 +2230,9 @@ menuBtn: document.getElementById('menuBtn'),
 
   updateTextRenderMode(mode) {
     const isPixel = mode === 'pixel';
-    const { textRenderModeVectorBtn, textRenderModePixelBtn } = this.elements;
-    if (textRenderModeVectorBtn) textRenderModeVectorBtn.classList.toggle('active', !isPixel);
-    if (textRenderModePixelBtn) textRenderModePixelBtn.classList.toggle('active', isPixel);
+    if (this.elements.textTemporaryToggle) {
+      this.elements.textTemporaryToggle.checked = !isPixel;
+    }
   }
 
   _initializeFontSelect() {
@@ -2227,11 +2241,15 @@ menuBtn: document.getElementById('menuBtn'),
 
     ensureTextFontsLoaded(document);
 
-    // Each row previews its own typeface, as the native <select> did.
+    // Each row previews its own typeface, as the native <select> did. Rows get a
+    // fixed, slightly taller height (rather than the dropdown default) so the
+    // bigger script faces (Tangerine, Great Vibes) don't get vertically clipped
+    // by their neighbors — the shared .dd-option height is too short for them.
     select.setOptions?.(TEXT_FONT_OPTIONS.map(font => ({
       value: font.family,
       label: font.label,
-      style: `font-family:${font.family};font-size:${font.pickerFontSize ?? 12}px`
+      style: `font-family:${font.family};font-size:${font.pickerFontSize ?? 12}px`,
+      rowStyle: 'height:38px;padding:0 6px;'
     })));
 
     select.value = DEFAULT_TEXT_FONT;
@@ -2244,8 +2262,11 @@ menuBtn: document.getElementById('menuBtn'),
 
     const normalizedFont = normalizeTextFont(font);
     const fontOption = TEXT_FONT_OPTIONS.find(option => option.family === normalizedFont);
-    select.style.fontFamily = normalizedFont;
-    select.style.fontSize = `${fontOption?.pickerFontSize ?? 12}px`;
+    // .dd-trigger.s-sm hardcodes its own font-size, so setting it directly on
+    // this wrapper div (plain inheritance) has no effect on the visible label —
+    // go through the --dd-preview-* custom properties .dd-label reads instead.
+    select.style.setProperty('--dd-preview-family', normalizedFont);
+    select.style.setProperty('--dd-preview-size', `${fontOption?.pickerFontSize ?? 12}px`);
   }
 
   hideRemoteCursor(userId) {

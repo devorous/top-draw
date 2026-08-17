@@ -6,6 +6,8 @@
     step = 1,
     ariaLabel = 'Slider',
     onChange = null,
+    onDragStart = null,
+    onDragEnd = null,
     scaling = 'linear',
     weightedStopValue = 10,
     weightedStopPercent = 1 / 3,
@@ -79,6 +81,7 @@
 
   function handlePointerDown(event) {
     isDragging = true;
+    onDragStart?.();
     containerElement?.setPointerCapture(event.pointerId);
     updateValueFromPointer(event);
   }
@@ -91,11 +94,13 @@
   function handlePointerUp(event) {
     isDragging = false;
     containerElement?.releasePointerCapture(event.pointerId);
+    onDragEnd?.();
   }
 
   function handlePointerCancel(event) {
     isDragging = false;
     containerElement?.releasePointerCapture(event.pointerId);
+    onDragEnd?.();
   }
 
   function handleClick(event) {
@@ -142,6 +147,7 @@
     if (isDragging) {
       isDragging = false;
       containerElement?.releasePointerCapture(event.pointerId);
+      onDragEnd?.();
     }
   }
 

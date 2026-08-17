@@ -920,41 +920,73 @@ html[data-mobile='true'] {
 }
 
 /* ========================================
-   Text Render Mode Toggle (Vector / Pixel)
+   Temporary Text Toggle
    ======================================== */
 
-.textRenderModeToggle {
+.text-temp-toggle {
   display: flex;
-  gap: 4px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 6px;
-  padding: 2px;
-  background: var(--bg-secondary, transparent);
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
 }
 
-.textRenderModeBtn {
-  flex: 1;
-  appearance: none;
-  border: 0;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  padding: 4px 6px;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
+.text-temp-toggle-track {
+  position: relative;
+  flex: none;
+  width: 34px;
+  height: 20px;
+  border-radius: 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  transition: background var(--transition-fast), border-color var(--transition-fast);
 
-  &:hover {
-    color: var(--text-primary);
-  }
-
-  &.active {
+  &:has(input:checked) {
     background: var(--accent-primary);
-    color: var(--text-on-accent, #fff);
+    border-color: var(--accent-primary);
   }
+
+  &:has(input:focus-visible) {
+    box-shadow: 0 0 0 2px var(--accent-glow);
+  }
+}
+
+.text-temp-toggle-track input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.text-temp-toggle-thumb {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  transition: transform var(--transition-fast), background var(--transition-fast);
+
+  .text-temp-toggle-track:has(input:checked) & {
+    transform: translateX(14px);
+    background: var(--text-on-accent, #fff);
+  }
+}
+
+.text-temp-toggle-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.text-temp-toggle-hint {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-muted, var(--text-secondary));
 }
 
 /* Pattern Gallery - matching Brush Gallery */

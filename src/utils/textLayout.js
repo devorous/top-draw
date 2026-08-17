@@ -1,4 +1,4 @@
-import { normalizeTextFont } from '../config/textFonts.js';
+import { normalizeTextFont, getTextFontLetterSpacing } from '../config/textFonts.js';
 
 export const DEFAULT_TEXT_X_OFFSET = 5;
 export const DEFAULT_TEXT_BASELINE_MULTIPLIER = 0.66;
@@ -132,6 +132,7 @@ export function getTextRecordGeometry(record) {
   if (typeof document !== 'undefined') {
     const probe = document.createElement('canvas').getContext('2d');
     probe.font = `${layout.fontSize}px ${record.font}`;
+    if ('letterSpacing' in probe) probe.letterSpacing = getTextFontLetterSpacing(record.font);
     for (const line of lines) {
       const w = probe.measureText(line).width;
       if (w > maxWidth) maxWidth = w;
@@ -165,6 +166,7 @@ export function paintTextRecord(ctx, record) {
   ctx.globalAlpha = opacity;
   ctx.fillStyle = colorToCssString(record.color);
   ctx.font = `${geometry.fontSize}px ${record.font}`;
+  if ('letterSpacing' in ctx) ctx.letterSpacing = getTextFontLetterSpacing(record.font);
   ctx.textBaseline = 'alphabetic';
   geometry.lines.forEach((line, i) => {
     ctx.fillText(line, geometry.drawX, geometry.baselineY + (i * geometry.lineHeight));

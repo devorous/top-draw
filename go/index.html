@@ -1042,11 +1042,14 @@
                     <input autocomplete="off" type="range" min="-20" max="20" value="0" step="0.25" class="slider textPositionOffset" aria-label="Applied text position offset">
                   </div>
                   <div class="sliderContainer" id="text-render-mode-container" style="display: none;">
-                    <div class="sliderLabel">Mode</div>
-                    <div class="textRenderModeToggle" role="group" aria-label="Text render mode">
-                      <button type="button" id="textRenderModeVectorBtn" class="textRenderModeBtn active" data-mode="vector" title="Vector text fades over time but stays crisp at any zoom">Vector</button>
-                      <button type="button" id="textRenderModePixelBtn" class="textRenderModeBtn" data-mode="pixel" title="Pixel text is permanent and bakes into the canvas like a stroke">Pixel</button>
-                    </div>
+                    <label class="text-temp-toggle">
+                      <span class="text-temp-toggle-label">Temporary Text</span>
+                      <span class="text-temp-toggle-track">
+                        <input type="checkbox" id="textTemporaryToggle" checked aria-label="Temporary text">
+                        <span class="text-temp-toggle-thumb"></span>
+                      </span>
+                    </label>
+                    <p class="text-temp-toggle-hint">Text is not permanent and will slowly disappear once placed on the canvas.</p>
                   </div>
                   <div class="sliderContainer" id="size-container">
                     <div class="sliderLabel">Size

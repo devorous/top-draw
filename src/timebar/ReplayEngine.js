@@ -12,7 +12,7 @@ import { LayerManager } from '../canvas/LayerManager.js';
 import { Board } from '../canvas/Board.js';
 import { ToolManager } from '../tools/Tools.js';
 import { getPreviewTextLayout, getUserTextLineHeight, paintTextRecord } from '../utils/textLayout.js';
-import { getTextFontDefaults } from '../config/textFonts.js';
+import { getTextFontDefaults, getTextFontLetterSpacing } from '../config/textFonts.js';
 import { drawReplayCursor } from '../replay/cursorOverlay.js';
 import * as wasm from '../wasm/ddraw_wasm.js';
 import { readQoiDimensions } from '../../shared/qoi.js';
@@ -3782,6 +3782,7 @@ export class ReplayEngine {
     ctx.globalAlpha = opacity;
     ctx.fillStyle = user.getColorString();
     ctx.font = `${fontSize}px ${user.font}`;
+    if ('letterSpacing' in ctx) ctx.letterSpacing = getTextFontLetterSpacing(user.font);
     ctx.textBaseline = 'alphabetic';
     user.text.split('\n').forEach((line, i) => {
       ctx.fillText(line, drawX, baselineY + (i * lineHeight));
