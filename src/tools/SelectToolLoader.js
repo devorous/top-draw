@@ -17,7 +17,8 @@ export class SelectToolLoader extends Tool {
     this.realTool = null;
     this.loadingPromise = null;
     this._patternMode = false; // Store pattern mode even before real tool loads
-    this._copyAllLayers = false; // Same, for the layer mode toggle
+    this._copyAllLayers = true; // Same, for the layer mode toggle
+    this._mode = 'lasso'; // Same, for the lasso/rectangle toggle
   }
 
   /**
@@ -37,6 +38,14 @@ export class SelectToolLoader extends Tool {
     if (this.realTool) {
       this.realTool.copyAllLayers = !!value;
     }
+  }
+
+  /**
+   * Gets the selection mode ('lasso' or 'rectangle').
+   * @returns {string}
+   */
+  get mode() {
+    return this.realTool ? this.realTool.mode : this._mode;
   }
 
   /**
@@ -78,8 +87,9 @@ export class SelectToolLoader extends Tool {
         if (this._patternMode !== undefined) {
           this.realTool.patternMode = this._patternMode;
         }
-        // Layer mode may have been toggled before the tool finished loading.
+        // Layer/selection mode may have been toggled before the tool finished loading.
         this.realTool.copyAllLayers = this._copyAllLayers;
+        this.realTool.setMode(this._mode);
         this.loadingPromise = null;
         return this.realTool;
       })
@@ -160,6 +170,7 @@ export class SelectToolLoader extends Tool {
    * @param {string} mode - The selection mode.
    */
   setMode(mode) {
+    this._mode = mode;
     if (this.realTool) {
       this.realTool.setMode(mode);
     }
@@ -347,7 +358,7 @@ export class SelectToolLoader extends Tool {
    * @returns {string}
    */
   getMode() {
-    return this.realTool ? this.realTool.mode : 'lasso';
+    return this.mode;
   }
 
   /**

@@ -2140,15 +2140,15 @@ export class DrawingApp {
         if (radio.checked) this.self.confettiColorMode = radio.value;
       });
     }
-    if (elements.confettiRotationModeRadios) {
-      elements.confettiRotationModeRadios.forEach(radio => {
-        radio.addEventListener('change', (e) => {
-          if (!e.target.checked) return;
-          this.self.confettiRotationMode = e.target.value;
-          updateConfettiPreview();
-        });
-        if (radio.checked) this.self.confettiRotationMode = radio.value;
+    if (elements.confettiRandomRotation) {
+      const applyRotationMode = (checked) => {
+        this.self.confettiRotationMode = checked ? 'random' : 'fixed';
+      };
+      elements.confettiRandomRotation.addEventListener('change', (e) => {
+        applyRotationMode(e.target.checked);
+        updateConfettiPreview();
       });
+      applyRotationMode(elements.confettiRandomRotation.checked);
     }
     bindConfettiOption(elements.confettiParticlesSlider, 'confettiParticles', (value) => Number(value), (value) => {
       if (elements.confettiParticlesValue) elements.confettiParticlesValue.textContent = String(value);
@@ -6411,6 +6411,9 @@ export class DrawingApp {
       case 'cancel':
         this.cancelCurrentStroke();
         return true;
+      case 'selectionMode':
+        this.toggleSelectionMode();
+        return true;
       case 'layerMode':
         this.toggleActiveToolLayerMode();
         return true;
@@ -6420,6 +6423,23 @@ export class DrawingApp {
       default:
         return false;
     }
+  }
+
+  /**
+   * Flips the Select tool between lasso and rectangle, keeping the radio
+   * buttons in the tool options in sync. Any floating selection is committed
+   * by `setMode()` first, the same as clicking the radio would.
+   */
+  toggleSelectionMode() {
+    if (this.self?.tool !== 'select') return;
+
+    const selectTool = this.toolManager.getTool('select');
+    if (!selectTool) return;
+
+    const next = selectTool.mode === 'lasso' ? 'rectangle' : 'lasso';
+    selectTool.setMode(next);
+    this._syncToolOptionRadios('selectionMode', next);
+    this.ui.showToast(next === 'lasso' ? 'Selection: Lasso' : 'Selection: Rectangle', 1500);
   }
 
   /**
@@ -6435,7 +6455,7 @@ export class DrawingApp {
 
       const next = !selectTool.copyAllLayers;
       selectTool.toggleCopyAllLayers(next);
-      this._syncLayerModeRadios('selectionLayerMode', next ? 'all' : 'active');
+      this._syncToolOptionRadios('selectionLayerMode', next ? 'all' : 'active');
       this.ui.showToast(next ? 'Selection: All Layers' : 'Selection: Active Layer', 1500);
       return;
     }
@@ -6445,7 +6465,7 @@ export class DrawingApp {
       this.inputBufferManager.queueBroadcast(
         () => this.wsClient.broadcastEraserModeChange(this.eraseAllLayers, this.self.tool)
       );
-      this._syncLayerModeRadios('eraserMode', this.eraseAllLayers ? 'all' : 'layer');
+      this._syncToolOptionRadios('eraserMode', this.eraseAllLayers ? 'all' : 'layer');
       this.ui.showToast(this.eraseAllLayers ? 'Erase: All Layers' : 'Erase: Active Layer', 1500);
     }
   }
@@ -6455,7 +6475,7 @@ export class DrawingApp {
    * @param {string} groupName - The radio group's `name` attribute.
    * @param {string} value - The value to select.
    */
-  _syncLayerModeRadios(groupName, value) {
+  _syncToolOptionRadios(groupName, value) {
     document.querySelectorAll(`input[name="${groupName}"]`).forEach(radio => {
       radio.checked = radio.value === value;
     });

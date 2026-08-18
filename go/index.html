@@ -1044,14 +1044,14 @@
                     <input autocomplete="off" type="range" min="-20" max="20" value="0" step="0.25" class="slider textPositionOffset" aria-label="Applied text position offset">
                   </div>
                   <div class="sliderContainer" id="text-render-mode-container" style="display: none;">
-                    <label class="text-temp-toggle">
-                      <span class="text-temp-toggle-label">Temporary Text</span>
-                      <span class="text-temp-toggle-track">
+                    <label class="tool-toggle">
+                      <span class="tool-toggle-label">Temporary Text</span>
+                      <span class="tool-toggle-track">
                         <input type="checkbox" id="textTemporaryToggle" checked aria-label="Temporary text">
-                        <span class="text-temp-toggle-thumb"></span>
+                        <span class="tool-toggle-thumb"></span>
                       </span>
                     </label>
-                    <p class="text-temp-toggle-hint">Text is not permanent and will slowly disappear once placed on the canvas.</p>
+                    <p class="tool-toggle-hint">Text is not permanent and will slowly disappear once placed on the canvas.</p>
                   </div>
                   <div class="sliderContainer" id="size-container">
                     <div class="sliderLabel">Size
@@ -1244,24 +1244,17 @@
                       <input type="radio" name="confettiColorMode" value="active">
                       <span>User</span>
                     </label>
-                    <label class="radio-option">
-                      <input type="radio" name="confettiColorMode" value="random">
-                      <span>Random</span>
-                    </label>
                   </div>
                 </div>
-                <div class="selection-mode-container pattern-colour-mode">
-                  <label class="modeLabel">Rotation</label>
-                  <div class="radio-group pattern-colour-mode-group">
-                    <label class="radio-option">
-                      <input type="radio" name="confettiRotationMode" value="random" checked>
-                      <span>Random</span>
-                    </label>
-                    <label class="radio-option">
-                      <input type="radio" name="confettiRotationMode" value="fixed">
-                      <span>None</span>
-                    </label>
-                  </div>
+                <div class="tool-toggle-container">
+                  <label class="tool-toggle">
+                    <span class="tool-toggle-label">Random Rotation</span>
+                    <span class="tool-toggle-track">
+                      <input type="checkbox" id="confettiRandomRotation" checked aria-label="Random rotation">
+                      <span class="tool-toggle-thumb"></span>
+                    </span>
+                  </label>
+                  <p class="tool-toggle-hint">Spin each particle to a random angle instead of stamping it upright.</p>
                 </div>
               </div>
 
@@ -1289,11 +1282,11 @@
                   <label class="modeLabel">Layer Mode</label>
                   <div class="radio-group">
                     <label class="radio-option">
-                      <input type="radio" name="selectionLayerMode" value="active" checked>
+                      <input type="radio" name="selectionLayerMode" value="active">
                       <span>Active</span>
                     </label>
                     <label class="radio-option">
-                      <input type="radio" name="selectionLayerMode" value="all">
+                      <input type="radio" name="selectionLayerMode" value="all" checked>
                       <span>All</span>
                     </label>
                   </div>
@@ -1307,23 +1300,25 @@
                     </label>
                   </div>
                 </div>
-                <div class="selection-mode-container">
-                  <label class="modeLabel">Unbounded Warp</label>
-                  <div class="radio-group">
-                    <label class="radio-option">
-                      <input type="checkbox" id="selectionExtendedWarp">
-                      <span>Unbounded Warp</span>
-                    </label>
-                  </div>
+                <div class="tool-toggle-container">
+                  <label class="tool-toggle">
+                    <span class="tool-toggle-label">Unbounded Warp</span>
+                    <span class="tool-toggle-track">
+                      <input type="checkbox" id="selectionExtendedWarp" aria-label="Unbounded warp">
+                      <span class="tool-toggle-thumb"></span>
+                    </span>
+                  </label>
+                  <p class="tool-toggle-hint">Lets folded or crossed corners warp outside the selection's original bounds.</p>
                 </div>
-                <div class="selection-mode-container">
-                  <label class="modeLabel">Fill Mode</label>
-                  <div class="radio-group">
-                    <label class="radio-option">
-                      <input type="checkbox" id="selectionPatternCheck">
-                      <span>Pattern</span>
-                    </label>
-                  </div>
+                <div class="tool-toggle-container">
+                  <label class="tool-toggle">
+                    <span class="tool-toggle-label">Pattern Fill</span>
+                    <span class="tool-toggle-track">
+                      <input type="checkbox" id="selectionPatternCheck" aria-label="Pattern fill">
+                      <span class="tool-toggle-thumb"></span>
+                    </span>
+                  </label>
+                  <p class="tool-toggle-hint">Fill the selection with a repeating pattern instead of a solid colour.</p>
                 </div>
 
                 <!-- Selection Pattern Settings (shown when Pattern is checked) -->
@@ -1402,14 +1397,15 @@
 
               <!-- Inkdropper Options -->
               <div id="inkdropperModeOptions" style="display: none;">
-                <div class="selection-mode-container">
-                  <label class="modeLabel">Inkdropper Options</label>
-                  <div class="radio-group">
-                    <label class="radio-option">
-                      <input type="checkbox" id="inkdropperAutoSwitch" checked>
-                      <span>Auto-Switch After Use</span>
-                    </label>
-                  </div>
+                <div class="tool-toggle-container">
+                  <label class="tool-toggle">
+                    <span class="tool-toggle-label">Auto-switch</span>
+                    <span class="tool-toggle-track">
+                      <input type="checkbox" id="inkdropperAutoSwitch" checked aria-label="Auto-switch after sampling">
+                      <span class="tool-toggle-thumb"></span>
+                    </span>
+                  </label>
+                  <p class="tool-toggle-hint">Automatically switch to previous tool after sampling.</p>
                 </div>
               </div>
 

@@ -1,5 +1,5 @@
 <script>
-  import { onDestroy, onMount, tick } from 'svelte';
+  import { onDestroy, onMount, tick, untrack } from 'svelte';
   import { appState } from '../../state.svelte.js';
   import { isTauriDesktop } from '../../platform/desktop.js';
   import { isMobile } from '../../platform/mobile.js';
@@ -921,6 +921,34 @@
     return document.visibilityState !== 'visible' || !document.hasFocus();
   }
 
+  /* ── Should this message make a noise? ───────────────────────────────
+     Toasts key off documentNeedsNotification(), but sound asks a narrower
+     question: did you just watch the message land? A chat pinned open on
+     this tab shows it the instant it arrives whether or not the window
+     holds focus — pinging for that is pure noise. So the sound gate drops
+     focus and asks only (a) is the tab actually on screen, and (b) is the
+     open chat showing THIS channel. A staff line or a DM arriving while
+     you sit in public still pings, because you can't see it land.
+     The collapsed peek plate counts as on screen: it renders the newest
+     lines of the active channel straight onto the canvas. */
+  function tabIsHidden() {
+    if (typeof document === 'undefined') return false;
+    return document.visibilityState !== 'visible';
+  }
+
+  function isChannelOnScreen(view, dmUserId = null) {
+    if (!visible || tabIsHidden()) return false;
+    if (view === 'dm') {
+      return activeView === 'dm' && Number(recipient?.id) === Number(dmUserId);
+    }
+    return activeView === view;
+  }
+
+  /** The popout window owns notifications while it's up — the in-app copy stays mute. */
+  function soundIsOurs() {
+    return isPopout || !isChatPopoutOpen();
+  }
+
   function dismissToast(id) {
     toasts = toasts.filter((toast) => toast.id !== id);
   }
@@ -1193,16 +1221,18 @@
       forceOpenHud();
     }
 
+    const isIncoming = Number(message.userId) !== Number(appState.sessionIndex);
+
     if ((!visible || documentNeedsNotification()) && !isChatPopoutOpen()) {
       appState.chatUnreadCount++;
       const preview = message.type === 'image' ? `${message.text ? `${message.text} ` : ''}[image]` : message.text;
       showToast(message.username, preview || '[image]', message.color);
-      const isIncoming = Number(message.userId) !== Number(appState.sessionIndex);
-      if (isIncoming && messageMentionsSelf(message.text)) {
-        playMentionPing();
-      } else {
-        playSfx('chat');
-      }
+    }
+
+    // Your own line never rings — you just typed it.
+    if (isIncoming && soundIsOurs() && !isChannelOnScreen('all')) {
+      if (messageMentionsSelf(message.text)) playMentionPing();
+      else playSfx('chat');
     }
   }
 
@@ -1213,17 +1243,17 @@
       forceOpenHud();
     }
     const popoutOpen = isChatPopoutOpen();
+    const isIncoming = Number(message.userId) !== Number(appState.sessionIndex);
     const shouldCountUnread = !popoutOpen && (!visible || activeView !== 'staff' || documentNeedsNotification());
     if (shouldCountUnread) {
       appState.chatUnreadCount++;
       const preview = message.type === 'image' ? `${message.text ? `${message.text} ` : ''}[image]` : message.text;
       showToast(message.username, `[Staff] ${preview || '[image]'}`, message.color);
-      const isIncoming = Number(message.userId) !== Number(appState.sessionIndex);
-      if (isIncoming && messageMentionsSelf(message.text)) {
-        playMentionPing();
-      } else {
-        playSfx('staff');
-      }
+    }
+
+    if (isIncoming && soundIsOurs() && !isChannelOnScreen('staff')) {
+      if (messageMentionsSelf(message.text)) playMentionPing();
+      else playSfx('staff');
     }
   }
 
@@ -1249,6 +1279,11 @@
         user?.color || '#8ba3c7',
         { recipientId: userId }
       );
+    }
+
+    // A DM always rings unless you are sitting in that very thread — an open
+    // public chat is no reason to miss one.
+    if (!message.fromSelf && soundIsOurs() && !isChannelOnScreen('dm', userId)) {
       playSfx('staff');
     }
   }
@@ -2096,6 +2131,21 @@
     });
   });
 
+  /* Peek -> expanded: the collapsed plate is `overflow: hidden` and shrink-wraps
+     its last rows, so the stream sits at scrollTop 0 for as long as it stays
+     folded. Handing that back to the scrolling panel untouched drops the reader
+     on the OLDEST message — but the plate they just hovered was showing the
+     newest, so re-anchor to the tail every time the window rebuilds itself.
+     Untracked inside: this must fire on the fold/unfold, not on every scroll. */
+  $effect(() => {
+    if (!visible || isPeekCollapsed) return;
+    untrack(() => {
+      const view = activeView === 'staff' ? 'staff' : activeView === 'dm' ? 'dm' : 'all';
+      scrollToBottom(view === 'dm' ? dmMessagesEl : publicMessagesEl);
+      chatPinnedToBottom = { ...chatPinnedToBottom, [view]: true };
+    });
+  });
+
   $effect(() => {
     if (visible) appState.chatUnreadCount = 0;
   });
@@ -2792,7 +2842,10 @@
     position: fixed;
     right: 18px;
     bottom: 22px;
-    z-index: 1200;
+    /* Above the floating palettes (#floatingPaletteMount, 1480) and the mini
+       colour picker (#dockablePanelOverlayMount, 1490) — an open chat window
+       owns that corner of the board and must not be covered by them. */
+    z-index: 1500;
     display: flex;
     flex-direction: column;
     width: min(420px, calc(100vw - 24px));
@@ -5430,7 +5483,8 @@
     position: absolute;
     right: 22px;
     bottom: 22px;
-    z-index: 1300;
+    /* Kept above the chat window (1500) and the palette/picker mounts. */
+    z-index: 1510;
     display: flex;
     flex-direction: column;
     gap: 0.6rem;
@@ -5486,7 +5540,8 @@
   .chat-image-viewer {
     position: fixed;
     inset: 0;
-    z-index: 1400;
+    /* Full-screen viewer: above the chat window and everything it stacks over. */
+    z-index: 1520;
     display: grid;
     place-items: center;
     padding: 24px;

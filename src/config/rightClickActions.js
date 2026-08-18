@@ -4,12 +4,13 @@
  * Right-click used to be hardcoded: the `contextmenu` handler cancelled the
  * in-progress stroke while right-drag zoomed around the click point. Both
  * behaviours are now selectable per tool, so a tool can trade the zoom drag
- * for something it actually cares about (Select toggles its layer mode).
+ * for something it actually cares about (Select flips lasso/rectangle).
  */
 
 /** Action ids in the order they should appear in the dropdown. */
 export const RIGHT_CLICK_ACTIONS = Object.freeze([
   { id: 'cancel', label: 'Cancel Stroke' },
+  { id: 'selectionMode', label: 'Toggle Selection Mode' },
   { id: 'layerMode', label: 'Toggle Layer Mode' },
   { id: 'eyedropper', label: 'Pick Colour' },
   { id: 'zoom', label: 'Zoom Drag' },
@@ -23,8 +24,8 @@ const STROKE_TOOL_ACTIONS = ['cancel', 'eyedropper', 'zoom', 'none'];
 
 /** Tools whose right-click options differ from the painting-tool default. */
 const TOOL_CONFIG = Object.freeze({
-  // Select: layer mode is the one toggle worth a click mid-selection.
-  select: { default: 'layerMode', actions: ['layerMode', 'cancel', 'eyedropper', 'zoom', 'none'] },
+  // Select: lasso/rect is the toggle reached for most, with layer mode next.
+  select: { default: 'selectionMode', actions: ['selectionMode', 'layerMode', 'cancel', 'eyedropper', 'zoom', 'none'] },
   // Eraser has a layer mode too, but cancelling a bad erase matters more.
   erase: { default: 'cancel', actions: ['cancel', 'layerMode', 'eyedropper', 'zoom', 'none'] },
 

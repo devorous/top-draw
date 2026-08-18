@@ -33,7 +33,7 @@ export class SelectTool extends Tool {
   constructor(board) {
     super('select', board);
     this.mode = 'lasso'; // 'rectangle' or 'lasso'
-    this.copyAllLayers = false; // Toggle: copy/cut all visible layers vs active layer only
+    this.copyAllLayers = true; // Toggle: copy/cut all visible layers vs active layer only
     this._restoreData = null; // Snapshot of erased area
     this.floatingLayers = null; // Per-layer canvases when copyAllLayers is active
     this._sourceCropForRemote = null;

@@ -40,7 +40,7 @@
     brush: 'Brush Gallery',
     pattern: 'Pattern Image',
     fill: 'Fill Pattern',
-    selection: 'Selection Pattern',
+    selection: 'Pattern Image',
   };
   let title = $derived(TITLES[activeKind] ?? 'Image');
 
