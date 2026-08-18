@@ -878,14 +878,16 @@
           <canvas id="topBoard" class="userBoard self"></canvas>
           <canvas id="board"></canvas>
           <canvas id="debugOverlay"></canvas>
-          <div id="syncOverlay" class="sync-overlay">
-            <div class="sync-content">
-              <span class="sync-text">Syncing...</span>
-              <div class="sync-progress-bar">
-                <div class="sync-progress-fill"></div>
-              </div>
-              <div class="sync-hint">Sync stuck? Try manually syncing to another user. Click the little arrow on the right side of their username in the list.</div>
+        </div>
+
+        <!-- Sits outside #boards so pan/zoom transforms never scale this overlay -->
+        <div id="syncOverlay" class="sync-overlay">
+          <div class="sync-content">
+            <span class="sync-text">Syncing...</span>
+            <div class="sync-progress-bar">
+              <div class="sync-progress-fill"></div>
             </div>
+            <div class="sync-hint">Sync stuck? Try refreshing the page.</div>
           </div>
         </div>
 

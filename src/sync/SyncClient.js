@@ -83,8 +83,6 @@ export class SyncClient {
     this.overlayContentEl = null;
     /** @type {HTMLDivElement|null} */
     this.inactiveControlsEl = null;
-    /** @type {HTMLSelectElement|null} */
-    this.inactiveTargetSelectEl = null;
     /** @type {HTMLButtonElement|null} */
     this.inactiveSyncButtonEl = null;
     /** @type {boolean} */
@@ -140,7 +138,9 @@ export class SyncClient {
   }
 
   /**
-   * Creates the AFK controls inside the existing canvas overlay.
+   * Creates the AFK controls inside the existing canvas overlay. Sync is
+   * server-served (checkpoint + tail) rather than peer-elected, so there is
+   * no user to pick — just a single button to resume.
    * @private
    * @returns {void}
    */
@@ -157,19 +157,6 @@ export class SyncClient {
       background: 'rgba(16, 19, 24, 0.84)',
       border: '1px solid rgba(255, 255, 255, 0.12)',
       boxShadow: '0 18px 48px rgba(0, 0, 0, 0.28)'
-    });
-
-    const select = document.createElement('select');
-    select.setAttribute('aria-label', 'Sync source user');
-    Object.assign(select.style, {
-      width: '100%',
-      height: '40px',
-      marginBottom: '12px',
-      padding: '0 12px',
-      borderRadius: '10px',
-      border: '1px solid rgba(255, 255, 255, 0.16)',
-      background: 'rgba(255, 255, 255, 0.10)',
-      color: '#ffffff'
     });
 
     const button = document.createElement('button');
@@ -189,55 +176,14 @@ export class SyncClient {
     });
 
     button.addEventListener('click', () => {
-      const value = select.value;
-      this.requestSync(value ? Number(value) : null);
+      this.requestSync(null, { force: true });
     });
 
-    controls.appendChild(select);
     controls.appendChild(button);
     this.overlayContentEl.appendChild(controls);
 
     this.inactiveControlsEl = controls;
-    this.inactiveTargetSelectEl = select;
     this.inactiveSyncButtonEl = button;
-  }
-
-  /**
-   * Populates the AFK sync target list.
-   * @private
-   * @returns {void}
-   */
-  _populateInactiveTargets() {
-    if (!this.inactiveTargetSelectEl) return;
-
-    const previousValue = this.inactiveTargetSelectEl.value;
-    this.inactiveTargetSelectEl.innerHTML = '';
-
-    const autoOption = document.createElement('option');
-    autoOption.value = '';
-    autoOption.textContent = 'Auto-select best user';
-    autoOption.style.color = '#101317';
-    this.inactiveTargetSelectEl.appendChild(autoOption);
-
-    const users = [...appState.users.values()]
-      .filter((user) => user && user.id !== appState.sessionIndex)
-      .sort((a, b) => {
-        if (!!a.afk !== !!b.afk) return Number(!!a.afk) - Number(!!b.afk);
-        return ((a.username || a.name || '')).localeCompare(b.username || b.name || '');
-      });
-
-    for (const user of users) {
-      const option = document.createElement('option');
-      option.value = String(user.id);
-      const label = user.username || user.name || `User ${user.id}`;
-      option.textContent = user.afk ? `${label} (inactive)` : label;
-      option.style.color = '#101317';
-      this.inactiveTargetSelectEl.appendChild(option);
-    }
-
-    if ([...this.inactiveTargetSelectEl.options].some((option) => option.value === previousValue)) {
-      this.inactiveTargetSelectEl.value = previousValue;
-    }
   }
 
   /**
@@ -246,7 +192,6 @@ export class SyncClient {
    */
   showInactiveUi() {
     this._ensureInactiveControls();
-    this._populateInactiveTargets();
     if (this.overlayEl) {
       this.overlayEl.classList.add('active');
       this.overlayEl.style.pointerEvents = 'auto';

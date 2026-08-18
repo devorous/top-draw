@@ -225,10 +225,16 @@
   let toastIdCounter = 0;
 
   function loadChatMode() {
+    // The desktop app's webview has its own storage, isolated from the
+    // browser's — it never inherits a "full" preference set there, so it
+    // needs its own default rather than falling back to the browser/embed
+    // default of "compact" (which stacks the composer tool buttons).
+    const defaultMode = isTauriDesktop() ? 'full' : 'compact';
     try {
-      return localStorage.getItem(CHAT_MODE_STORAGE_KEY) === 'full' ? 'full' : 'compact';
+      const stored = localStorage.getItem(CHAT_MODE_STORAGE_KEY);
+      return stored === 'full' || stored === 'compact' ? stored : defaultMode;
     } catch {
-      return 'compact';
+      return defaultMode;
     }
   }
 
@@ -3780,6 +3786,13 @@
   .chat-shell.hud {
     interpolate-size: allow-keywords;
     transition: height 0.34s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  /* A manual drag-resize sets height directly every pointermove — the peek
+     collapse transition above must not fight that or the box lags behind
+     the cursor like it's on a spring. */
+  .chat-shell.hud.resizing {
+    transition: none;
   }
 
   .chat-shell.hud.peek {
