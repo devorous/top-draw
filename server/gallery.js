@@ -26,11 +26,58 @@ const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 10 MB
 const MAX_GALLERY_IMAGE_WIDTH = 8192;
 const MAX_GALLERY_IMAGE_HEIGHT = 8192;
 const MAX_GALLERY_IMAGE_PIXELS = 33_554_432;
+const THUMB_MAX_DIM = 400;
 const JSON_BODY_LIMIT = MAX_IMAGE_BYTES + 65536;
 const GALLERY_UPLOAD_LIMIT = { max: 12, windowMs: 60 * 60 * 1000, blockMs: 15 * 60 * 1000 };
 const GALLERY_COMMENT_LIMIT = { max: 20, windowMs: 5 * 60 * 1000, blockMs: 10 * 60 * 1000 };
 const GALLERY_LIKE_LIMIT = { max: 240, windowMs: 60 * 1000, blockMs: 60 * 1000 };
 const GALLERY_FAVORITE_LIMIT = { max: 60, windowMs: 60 * 1000, blockMs: 5 * 60 * 1000 };
+
+/**
+ * Build a gallery thumbnail, or null when one isn't worth storing.
+ *
+ * Two ways a "thumbnail" ends up costing more than it saves:
+ *  - The image is already thumbnail-sized, so the resize is a pure re-encode.
+ *  - The downscale is marginal (e.g. 447px -> 400px) and resampling flat-colour
+ *    art invents interpolated colours that lossless PNG can no longer compress,
+ *    outweighing the handful of pixels removed.
+ * Both are guarded here, and anything that still lands >= the original is dropped.
+ */
+async function buildThumbnail(sharpLib, source, mimeType) {
+  let meta;
+  try {
+    meta = await sharpLib(source).metadata();
+  } catch {
+    return null;
+  }
+  if (!meta.width || !meta.height) return null;
+  if (meta.width <= THUMB_MAX_DIM && meta.height <= THUMB_MAX_DIM) return null;
+
+  const resized = () => sharpLib(source)
+    .resize(THUMB_MAX_DIM, THUMB_MAX_DIM, { fit: 'inside', withoutEnlargement: true });
+
+  let thumb;
+  try {
+    if (mimeType === 'image/jpeg') {
+      thumb = await resized().jpeg({ quality: 82, mozjpeg: true }).toBuffer();
+    } else if (mimeType === 'image/webp') {
+      thumb = await resized().webp({ quality: 82, alphaQuality: 90 }).toBuffer();
+    } else {
+      // Drawings shrink dramatically as palette PNGs; photographic uploads
+      // compress better in full colour. Encode both and keep the smaller.
+      const [fullColour, palette] = await Promise.all([
+        resized().png({ compressionLevel: 9 }).toBuffer(),
+        resized().png({ compressionLevel: 9, palette: true, quality: 90 }).toBuffer(),
+      ]);
+      thumb = palette.length < fullColour.length ? palette : fullColour;
+    }
+  } catch (err) {
+    console.warn('[Gallery] Thumbnail generation failed:', err.message);
+    return null;
+  }
+
+  return thumb.length < source.length ? thumb : null;
+}
 
 /** Verify that the buffer's magic bytes match the declared MIME type. */
 function verifyMagicBytes(buffer, mimeType) {
@@ -74,6 +121,69 @@ const r2 = process.env.R2_ENDPOINT
 
 const BUCKET = process.env.R2_BUCKET_NAME || 'gallery';
 const PUBLIC_URL = (process.env.R2_PUBLIC_URL || 'https://gallery.ddraw.ca').replace(/\/$/, '');
+
+// Time-lapse clips live in their own bucket so video storage and lifecycle can
+// be tuned separately from the stills. Follows the R2_SNAPSHOTS_* convention:
+// the endpoint is shared, and bucket/credentials/public host fall back to the
+// gallery values so an unconfigured deployment keeps writing clips alongside
+// the images exactly as before.
+const TIMELAPSE_PUBLIC_URL = (process.env.R2_TIMELAPSE_PUBLIC_URL || PUBLIC_URL).replace(/\/$/, '');
+
+// A clip's public URL is stored absolutely on the gallery doc, and an R2 custom
+// domain maps 1:1 to a bucket. Writing to a different bucket while still
+// handing out the gallery host would 404 every clip, so that combination is
+// refused: keep using the gallery bucket until the new one has its own host.
+const TIMELAPSE_BUCKET = (() => {
+  const configured = process.env.R2_TIMELAPSE_BUCKET;
+  if (!configured || configured === BUCKET) return BUCKET;
+  if (TIMELAPSE_PUBLIC_URL === PUBLIC_URL) {
+    console.warn(
+      `[Gallery] R2_TIMELAPSE_BUCKET=${configured} is set but R2_TIMELAPSE_PUBLIC_URL is not — `
+      + `clips written there would not be reachable at ${PUBLIC_URL}. Falling back to ${BUCKET}.`
+    );
+    return BUCKET;
+  }
+  return configured;
+})();
+const TIMELAPSE_ACCESS_KEY_ID =
+  process.env.R2_TIMELAPSE_ACCESS_KEY_ID ||
+  process.env.R2_ACCESS_KEY_ID ||
+  '';
+const TIMELAPSE_SECRET_ACCESS_KEY =
+  process.env.R2_TIMELAPSE_SECRET_ACCESS_KEY ||
+  process.env.R2_TIMELAPSE_SECRET_KEY ||
+  process.env.R2_SECRET_ACCESS_KEY ||
+  '';
+
+// R2 API tokens are usually scoped to one bucket, so a distinct key means a
+// distinct client; an identical one just reuses the gallery connection pool.
+const r2Timelapse = !process.env.R2_ENDPOINT
+  ? null
+  : TIMELAPSE_ACCESS_KEY_ID === (process.env.R2_ACCESS_KEY_ID || '')
+      ? r2
+      : new S3Client({
+          region: 'auto',
+          endpoint: process.env.R2_ENDPOINT,
+          forcePathStyle: process.env.R2_FORCE_PATH_STYLE === 'true',
+          credentials: {
+            accessKeyId: TIMELAPSE_ACCESS_KEY_ID,
+            secretAccessKey: TIMELAPSE_SECRET_ACCESS_KEY,
+          },
+        });
+
+/**
+ * Route a stored clip URL back to the client and bucket that actually holds it.
+ * Clips written before the time-lapse bucket existed still live in the gallery
+ * bucket, so deletes have to follow the URL rather than current config.
+ * @param {string} animatedUrl
+ * @returns {{client: S3Client|null, bucket: string}}
+ */
+function animationStoreFor(animatedUrl) {
+  if (TIMELAPSE_PUBLIC_URL !== PUBLIC_URL && animatedUrl.startsWith(`${TIMELAPSE_PUBLIC_URL}/`)) {
+    return { client: r2Timelapse, bucket: TIMELAPSE_BUCKET };
+  }
+  return { client: r2, bucket: BUCKET };
+}
 
 const CORS_HEADERS = corsHeaders('GET, POST, PATCH, DELETE, OPTIONS');
 
@@ -415,13 +525,7 @@ export async function handleGalleryUpload(req, res) {
       console.warn('[Gallery] EXIF strip failed, using original:', err.message);
     }
 
-    try {
-      thumbBuffer = await sharpUpload(sanitizedBuffer)
-        .resize(400, 400, { fit: 'inside', withoutEnlargement: true })
-        .toBuffer();
-    } catch (err) {
-      console.warn('[Gallery] Thumbnail generation failed:', err.message);
-    }
+    thumbBuffer = await buildThumbnail(sharpUpload, sanitizedBuffer, mimeType);
   }
 
   try {
@@ -509,10 +613,12 @@ function timelapseKey(id) {
 
 /** Best-effort removal of an item's stored clip. Never fatal to the caller. */
 async function deleteStoredAnimation(item) {
-  if (!r2 || !item?.animatedUrl) return;
+  if (!item?.animatedUrl) return;
+  const { client, bucket } = animationStoreFor(item.animatedUrl);
+  if (!client) return;
   try {
     const key = item.animatedUrl.split('/').pop();
-    if (key) await r2.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }));
+    if (key) await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
   } catch (err) {
     console.warn('[Gallery] Animation R2 delete failed (continuing):', err.message);
   }
@@ -544,7 +650,7 @@ export async function handleGalleryAnimationUpload(req, res, id) {
 
   const db = getDB();
   if (!db) return json(res, 503, { error: 'Database not available' });
-  if (!r2) return json(res, 503, { error: 'Storage not configured' });
+  if (!r2Timelapse) return json(res, 503, { error: 'Storage not configured' });
 
   let item;
   try {
@@ -587,8 +693,8 @@ export async function handleGalleryAnimationUpload(req, res, id) {
 
   const key = timelapseKey(id);
   try {
-    await r2.send(new PutObjectCommand({
-      Bucket: BUCKET,
+    await r2Timelapse.send(new PutObjectCommand({
+      Bucket: TIMELAPSE_BUCKET,
       Key: key,
       Body: buffer,
       ContentType: 'video/webm',
@@ -599,7 +705,7 @@ export async function handleGalleryAnimationUpload(req, res, id) {
     return json(res, 500, { error: 'Failed to upload animation' });
   }
 
-  const animatedUrl = `${PUBLIC_URL}/${key}`;
+  const animatedUrl = `${TIMELAPSE_PUBLIC_URL}/${key}`;
   const update = { animatedUrl, animatedAt: new Date() };
   // Only stamp the board region when the caller supplies one. An editor
   // re-upload sends no region — it re-crops in video space — and must not

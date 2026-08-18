@@ -98,12 +98,15 @@ export function parseGbr(arrayBuffer) {
   }
 
   if (colorDepth === 1) {
+    // Pixel value is ink density, not a photo: render as dark ink whose
+    // alpha IS that density, so the mask shows its real shape on
+    // transparency instead of an opaque inverted-gray box.
     for (let i = 0; i < imageData.length; i++) {
       const v = imageData[i];
-      gData[i * 4] = 255 - v;
-      gData[i * 4 + 1] = 255 - v;
-      gData[i * 4 + 2] = 255 - v;
-      gData[i * 4 + 3] = 255;
+      gData[i * 4] = 20;
+      gData[i * 4 + 1] = 20;
+      gData[i * 4 + 2] = 20;
+      gData[i * 4 + 3] = v;
     }
   }
 

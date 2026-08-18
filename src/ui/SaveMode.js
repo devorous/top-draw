@@ -1388,7 +1388,6 @@ export class SaveMode {
     this._showTimelapseSpinner();
     this._tl.encodePromise = (async () => {
       const { TimeLapseExporter, compressedTapeDurationMs } = await import('../replay/TimeLapseExporter.js');
-      const { TIMELAPSE_OUTPUT_SCALE } = await import('../timebar/timelapseEncoder.js');
       const durMs = compressedTapeDurationMs(recording);
       if (durMs < 400) {
         // Tape holds no meaningful activity.
@@ -1404,9 +1403,6 @@ export class SaveMode {
         fps: 30,
         output: 'video',
         region: this._tl.region,
-        // Gallery clips play in a card/lightbox — half linear resolution keeps
-        // 30fps affordable. Matches the stills path.
-        scale: TIMELAPSE_OUTPUT_SCALE,
         onProgress: (p) => { if (gen === this._tl.gen) this._showTimelapseSpinner(p); },
       });
       if (gen !== this._tl.gen) return null;
@@ -1463,7 +1459,6 @@ export class SaveMode {
       const rangeStartTs = recording.startedAt + this._tl.trimStart * 1000;
       const rangeEndTs = recording.startedAt + this._tl.trimEnd * 1000;
       const { TimeLapseExporter, compressedTapeDurationMs } = await import('../replay/TimeLapseExporter.js');
-      const { TIMELAPSE_OUTPUT_SCALE } = await import('../timebar/timelapseEncoder.js');
       const durMs = compressedTapeDurationMs(recording, rangeStartTs, rangeEndTs);
       if (durMs < 400) return this._tl.blob;
       const speed = Math.max(1, durMs / 6000);
@@ -1474,7 +1469,6 @@ export class SaveMode {
         fps: 30,
         output: 'video',
         region: this._tl.region,
-        scale: TIMELAPSE_OUTPUT_SCALE,
         rangeStartTs,
         rangeEndTs,
       });

@@ -25,7 +25,30 @@ export class SyncClient {
     // last occurrence would strip it out of the earlier strokes' preambles and
     // replay them unclipped — the exact bug moving it into tool state fixes.
     'sel_mask',
+    // The image-tool payloads (custom brush / pattern tile / confetti sprite)
+    // and the pattern-mode flag are tool state for the same reason: an
+    // imageBrush stroke is drawn with whatever bitmap its drawer last
+    // broadcast, so the join tail interleaves brush frames with the strokes
+    // that used them (StrokeTape.buildImageStateSet). Deduping to the last
+    // occurrence would apply every brush switch at the END of the rebuild and
+    // repaint the whole history with one brush — which is exactly the bug
+    // putting them in the tape fixes.
+    'gmp', 'gpt', 'image_tool', 'cpm',
   ]);
+
+  /**
+   * Per-user fields the image-tool handlers (gmp/gpt/image_tool/cpm) write.
+   * Saved and restored around a rebuild for the LOCAL user only — see
+   * _replayBufferInner.
+   */
+  static _IMAGE_TOOL_STATE_KEYS = [
+    'imageBrush', 'imageBrushColorMode',
+    'patternBrush', 'patternScale', 'patternRotation', 'patternSpacing',
+    'patternOffsetX', 'patternOffsetY', 'patternColorMode', 'patternMode',
+    'confettiBrush', 'confettiParticles', 'confettiParticleSize',
+    'confettiSizeVariation', 'confettiOpacityRandomness', 'confettiSpacing',
+    'confettiShape', 'confettiColorMode', 'confettiRotationMode',
+  ];
 
   constructor() {
     /** @type {number} */
@@ -1035,6 +1058,23 @@ export class SyncClient {
       if (data?.sessionIndex === this.app?.sessionIndex) bufferedOwn++;
     }
 
+    // Our OWN image-tool state, saved across the replay. A rebuild dispatches
+    // the tail's frames whoever wrote them (see wrapHandler's `rebuilding`
+    // gate), so our own brush switches re-apply to `self` while our strokes are
+    // redrawn — which is the point: they have to, or our history rebuilds with
+    // one brush. But the frames carry the stripped WIRE payload, so what `self`
+    // is left holding is a parsed copy of our current brush rather than the
+    // gallery object the local tools use (a .gih loses its frame cycling, an
+    // uploaded brush its decoded bitmaps). Same content, poorer object — so put
+    // ours back once the replay has finished with them.
+    const selfUser = this.app?.self;
+    const selfImageToolState = selfUser
+      ? SyncClient._IMAGE_TOOL_STATE_KEYS.reduce((acc, key) => {
+        acc[key] = selfUser[key];
+        return acc;
+      }, {})
+      : null;
+
     const TOOL_STATE_EVENTS = SyncClient._TOOL_STATE_EVENTS;
     const lastIndexByKey = new Map();
     for (let i = 0; i < this.eventBuffer.length; i++) {
@@ -1057,6 +1097,7 @@ export class SyncClient {
       }
     }
     this.eventBuffer = [];
+    if (selfImageToolState) Object.assign(selfUser, selfImageToolState);
 
     // `own=0` here while the board is blank is the signature of a self-echo gate
     // eating the tail; `buffered=0` means the tail never reached replayBuffer at

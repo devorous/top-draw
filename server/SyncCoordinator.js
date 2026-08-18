@@ -2,6 +2,7 @@
 
 import { WebSocket } from 'ws';
 import { T } from '../shared/MessageTypes.js';
+import { TapeFrameFilter } from './StrokeTape.js';
 import { getBoardDimensionsForSize } from '../shared/boardSizes.js';
 
 const ROOM_OVERLAY_SESSION_INDEX = 0xffffffff;
@@ -158,22 +159,39 @@ export class SyncCoordinator {
     // another await) would reopen the duplicate window.
     ws.joinSyncPendingSince = null;
 
+    // The whole serve is planned before the first byte goes out, because the
+    // preamble frames a stroke actually needs depend on what the joiner has
+    // already been sent (TapeFrameFilter, below) — and SYNC_METADATA's
+    // syncTotal has to be the count that really follows, or the progress bar
+    // never reaches the end.
+    //
+    // Image-tool payloads (brush/pattern/confetti bitmaps) ride in EVERY
+    // stroke's preamble so each stroke replays with the brush it was drawn
+    // with. The filter drops the ones the joiner is already holding, so a run
+    // of strokes sharing a brush costs one copy, not one per stroke.
+    const frameFilter = new TapeFrameFilter(tape);
     const latestSeqForMetadata = log?.getSummary?.().latestSeq || 0;
     const entriesForMetadata = latestSeqForMetadata > baseSeq && log
       ? log.getRange(baseSeq + 1, latestSeqForMetadata)
       : [];
     const checkpointMessageCount = snapshot && Array.isArray(snapshot.layers) && snapshot.layers.length > 0 ? 1 : 0;
-    const tailMessageCount = entriesForMetadata.reduce((total, entry) => {
-      const bundle = tape?.getBundle(entry.seq);
-      return total + (bundle?.length || 0) + (log.getBytes(entry.seq) ? 1 : 0);
-    }, 0);
+    const tailPlan = entriesForMetadata.map((entry) => ({
+      seq: entry.seq,
+      frames: frameFilter.filter(entry.userId, tape?.getBundle(entry.seq)),
+      bytes: log?.getBytes(entry.seq) || null,
+    }));
+    const tailMessageCount = tailPlan.reduce(
+      (total, step) => total + step.frames.length + (step.bytes ? 1 : 0), 0);
+    const tailImageFramesSkipped = frameFilter.skipped;
     // In-flight (uncommitted) strokes have no commit seq yet, so they're absent
     // from both the checkpoint and the strokeLog tail. Replay their preambles so
     // the joiner re-begins each active stroke with the right tool state.
-    const pendingBundles = tape?.getPendingBundles?.() || [];
+    const pendingBundles = (tape?.getPendingBundles?.() || [])
+      .map(({ userId, frames }) => ({ userId, frames: frameFilter.filter(userId, frames) }));
     const pendingMessageCount = pendingBundles.reduce((total, b) => total + b.frames.length, 0);
     // Latest tool state per user, re-sent at the end of the serve (see 2c).
-    const toolStateBundles = tape?.getToolStateBundles?.() || [];
+    const toolStateBundles = (tape?.getToolStateBundles?.() || [])
+      .map(({ userId, frames }) => ({ userId, frames: frameFilter.filter(userId, frames) }));
     const toolStateMessageCount = toolStateBundles.reduce((total, b) => total + b.frames.length, 0);
     const [boardHeight, boardWidth] = getBoardDimensionsForSize(this.room?.settings?.boardSize);
     this.sendTo(ws, {
@@ -204,21 +222,17 @@ export class SyncCoordinator {
     //    carry a geometry preamble (brush/pen strokes); self-contained commits
     //    (fill/selection/text) replay their bytes alone.
     if (log) {
-      const latestSeq = log.getSummary().latestSeq;
+      const latestSeq = latestSeqForMetadata;
       if (latestSeq > baseSeq) {
-        const entries = log.getRange(baseSeq + 1, latestSeq);
         let served = 0, missing = 0;
-        for (const entry of entries) {
+        for (const step of tailPlan) {
           if (ws.readyState !== WebSocket.OPEN) return;
-          const bundle = tape?.getBundle(entry.seq);
-          if (bundle) {
-            for (const frame of bundle) this.sendTo(ws, frame);
-          }
-          const bytes = log.getBytes(entry.seq);
-          if (bytes) { this.sendTo(ws, bytes); served++; }
+          for (const frame of step.frames) this.sendTo(ws, frame);
+          if (step.bytes) { this.sendTo(ws, step.bytes); served++; }
           else missing++;
         }
-        console.log(`[Sync] Replayed tail (${baseSeq}, ${latestSeq}] to ${requesterSessionIndex}: ${served} commits${missing ? `, ${missing} evicted` : ''}`);
+        const deduped = tailImageFramesSkipped ? `, ${tailImageFramesSkipped} repeated image frame(s) skipped` : '';
+        console.log(`[Sync] Replayed tail (${baseSeq}, ${latestSeq}] to ${requesterSessionIndex}: ${served} commits${missing ? `, ${missing} evicted` : ''}${deduped}`);
       } else {
         // The other half of "blank board after resync": if the tail is empty the
         // requester's content had to come from the checkpoint image, and if that

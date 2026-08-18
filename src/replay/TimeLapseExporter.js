@@ -130,7 +130,7 @@ export function compressedTapeDurationMs(recording, rangeStartTs = null, rangeEn
  * @property {{x: number, y: number, width: number, height: number}|null} region - null = full board
  * @property {number|null} [rangeStartTs] - Absolute tape ts to start rendering from (the timeline's trim start); null = tape start. Deltas before it are pre-rolled into the first frame.
  * @property {number|null} [rangeEndTs] - Absolute tape ts to stop rendering at (trim end); null = tape end.
- * @property {number} [scale=1] - linear downscale of the encoded video relative to the region (WebCodecs video path only). Gallery time-lapses pass 0.5; the user-facing export leaves it native.
+ * @property {number} [scale=1] - linear downscale of the encoded video relative to the region (WebCodecs video path only). Every caller currently leaves it native.
  * @property {[number, number, number, number]} [backgroundColor] - rgba 0-255, alpha 0-1 (defaults to white)
  * @property {boolean} [transparentBackground=false] - skip the background fill so frames keep an alpha channel (image-sequence output only — WebM/VP8 video cannot store alpha)
  * @property {boolean} [renderCursors=false]    - paint bot cursor markers on each frame

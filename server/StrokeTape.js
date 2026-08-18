@@ -24,7 +24,12 @@
  *
  * Bounding: checkpoint truncation (`truncateBefore`, mirrors the fingerprint
  * log) is the primary bound; a count cap is a backstop. Stored byte arrays must
- * be copies — the encoder reuses its output buffer between messages.
+ * be copies — the encoder reuses its output buffer between messages. Image-tool
+ * payloads (brush/pattern/confetti bitmaps) are the one exception to "bundles
+ * own their bytes": they are held once in a byte-budgeted store and referenced
+ * by handle, so switching brushes in a loop cannot grow the tape without limit,
+ * and one brush used by a thousand strokes is stored once. TapeFrameFilter (end
+ * of this file) collapses the repeats again on the wire.
  */
 
 /**
@@ -62,7 +67,34 @@ function buildToolStateSet(T) {
     // only the newest mask per user is retained — which is the right
     // semantics, mk=false included.
     T.SEL_MASK,
+    // Pattern MODE is a per-user boolean that decides whether fills/selection
+    // fills use the pattern tile or the flat colour. Cheap, and meaningless
+    // without the pattern payload below.
+    T.CPM,
   ]);
+}
+
+/**
+ * Tool-state types whose payload is an IMAGE (a GIMP brush, a pattern tile, a
+ * confetti sprite sheet — base64 data URLs, up to MAX_BRUSH_DATA_LENGTH each).
+ *
+ * These are tool state in exactly the sense buildToolStateSet means: every
+ * imageBrush/pattern/confetti stamp is drawn with whatever payload the drawer
+ * last broadcast, so a stroke cannot be reconstructed without it. They were NOT
+ * in the tape, so a joiner rebuilt EVERY historical image-brush stroke with the
+ * drawer's *current* brush — the server only ever kept the latest one
+ * (`user.imageBrush`, sent once by sendImageToolStateToClient at connect), and
+ * the tail carried no brush frames at all. Someone who painted with five
+ * different brushes got five brushes live and five copies of the last one after
+ * a resync.
+ *
+ * They are held apart from the plain tool-state set only because of their SIZE:
+ * frames are retained in a byte-budgeted store (see _retainImageFrame) and
+ * bundles reference them indirectly, so a room cannot be made to hold an
+ * unbounded pile of 12MB brush payloads by switching brushes in a loop.
+ */
+function buildImageStateSet(T) {
+  return new Set([T.GMP, T.GPT, T.IMAGE_TOOL].filter(t => t !== undefined));
 }
 
 function buildSelectionStateSet(T) {
@@ -113,26 +145,140 @@ function buildNonStrokeCommitSet(T) {
 
 const DEFAULT_CAP = 12_000; // backstop; ≥ the fingerprint log's 10k cap
 
+/**
+ * Total bytes of image-tool payloads (brush/pattern/confetti) a single room's
+ * tape may retain. Reached only by switching between many DISTINCT images —
+ * repeats of one image are a single retained frame referenced by every stroke
+ * that used it. Over budget, the oldest frames are dropped (never the frame a
+ * user is currently holding), and strokes referencing a dropped frame fall back
+ * to the old behaviour: they replay with the drawer's current image.
+ */
+const DEFAULT_IMAGE_BUDGET_BYTES = 48 * 1024 * 1024;
+
 export class StrokeTape {
   /**
    * @param {Object} T - The message-type enum (shared/MessageTypes.js).
    * @param {Object} [opts]
    * @param {number} [opts.cap] - Max bundles retained (oldest evicted).
+   * @param {number} [opts.imageBudgetBytes] - Byte budget for retained image payloads.
    */
   constructor(T, opts = {}) {
     this.T = T;
     this.toolStateTypes = buildToolStateSet(T);
+    this.imageStateTypes = buildImageStateSet(T);
     this.selectionStateTypes = buildSelectionStateSet(T);
     this.nonStrokeCommitTypes = buildNonStrokeCommitSet(T);
     this.cap = opts.cap ?? DEFAULT_CAP;
-    /** Latest tool-state frame bytes per user: userId -> Map<t, Uint8Array> */
+    this.imageBudget = opts.imageBudgetBytes ?? DEFAULT_IMAGE_BUDGET_BYTES;
+    /**
+     * Latest tool-state entry per user: userId -> Map<stateKey, entry>, where an
+     * entry is either raw frame bytes or an {__imageRef} handle into
+     * `_imageFrames`. Keyed by state key rather than by `t` because IMAGE_TOOL
+     * carries three independent slots (imageBrush/pattern/confetti) under one
+     * type — keying those by `t` would let the confetti sprite evict the brush.
+     */
     this._toolState = new Map();
-    /** In-flight stroke preamble per user: userId -> Uint8Array[] */
+    /** In-flight stroke preamble per user: userId -> Array<Uint8Array|ref> */
     this._pending = new Map();
     /** In-flight selection setup per user: userId -> Uint8Array[] */
     this._pendingSelection = new Map();
-    /** Completed bundles: commitSeq -> Uint8Array[] (preamble frames, ordered) */
+    /** Completed bundles: commitSeq -> Array<Uint8Array|ref> (preamble frames, ordered) */
     this._bundles = new Map();
+    /** Byte-budgeted store of image-tool payload frames: id -> Uint8Array (oldest first). */
+    this._imageFrames = new Map();
+    this._imageBytes = 0;
+    this._nextImageId = 1;
+    /** Identity set of frames the join serve may collapse across bundles. */
+    this._dedupableFrames = new WeakSet();
+  }
+
+  /**
+   * State slot a tool-state frame occupies for its user. IMAGE_TOOL multiplexes
+   * three slots on one type, so it needs the payload to tell them apart.
+   * @private
+   */
+  _stateKey(t, payload) {
+    if (t === this.T.IMAGE_TOOL) {
+      const type = payload?.imageToolType || payload?.image_tool_type || payload?.k || '';
+      return `it:${type}`;
+    }
+    return t;
+  }
+
+  /**
+   * Retain an image payload frame under the byte budget and return a handle to
+   * it. Bundles hold the handle, never the bytes, so eviction actually frees
+   * memory instead of leaving the payload alive through a bundle reference.
+   * @private
+   * @returns {{__imageRef: number}}
+   */
+  _retainImageFrame(bytes) {
+    // An explicit copy, not `.slice()`: in Node the encoder hands back a Buffer,
+    // whose slice() is a VIEW onto the allocation it came from. These frames are
+    // held for the life of the room's tape, so they must own their memory.
+    const copy = new Uint8Array(bytes);
+    const id = this._nextImageId++;
+    this._imageFrames.set(id, copy);
+    this._imageBytes += copy.byteLength;
+    this._dedupableFrames.add(copy);
+    this._evictImageFrames();
+    return { __imageRef: id };
+  }
+
+  /** @private Drop oldest image frames until under budget, never a current one. */
+  _evictImageFrames() {
+    if (this._imageBytes <= this.imageBudget) return;
+    const live = new Set();
+    for (const st of this._toolState.values()) {
+      for (const entry of st.values()) {
+        if (entry && entry.__imageRef !== undefined) live.add(entry.__imageRef);
+      }
+    }
+    for (const [id, bytes] of this._imageFrames) {
+      if (this._imageBytes <= this.imageBudget) break;
+      if (live.has(id)) continue;
+      this._imageFrames.delete(id);
+      this._imageBytes -= bytes.byteLength;
+    }
+  }
+
+  /**
+   * Resolve a stored preamble into sendable wire frames. Image handles whose
+   * frame has been evicted are dropped — the stroke still replays, just with
+   * whatever image the receiver last applied for that user.
+   * @private
+   * @returns {Uint8Array[]}
+   */
+  _resolveFrames(frames) {
+    if (!frames || frames.length === 0) return [];
+    let needsResolve = false;
+    for (const f of frames) {
+      if (f && f.__imageRef !== undefined) { needsResolve = true; break; }
+    }
+    if (!needsResolve) return frames;
+
+    const out = [];
+    for (const f of frames) {
+      if (f && f.__imageRef !== undefined) {
+        const bytes = this._imageFrames.get(f.__imageRef);
+        if (bytes) out.push(bytes);
+      } else {
+        out.push(f);
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Whether a resolved frame is one the join serve may skip when the receiver
+   * already holds it (see TapeFrameFilter). True only for image payloads: they
+   * ride in EVERY stroke's preamble and are the only frames big enough for the
+   * repetition to matter.
+   * @param {Uint8Array} frame
+   * @returns {boolean}
+   */
+  isDedupableFrame(frame) {
+    return this._dedupableFrames.has(frame);
   }
 
   /**
@@ -144,17 +290,20 @@ export class StrokeTape {
    * @param {Uint8Array} bytes - Encoded wire bytes (will be copied if retained).
    * @param {number} seq - Server-assigned seq for this message.
    * @param {boolean} isCommit - Whether `t` is a commit type (isCommitType).
+   * @param {Object} [payload] - The decoded payload, for types whose state slot
+   *   cannot be derived from `t` alone (IMAGE_TOOL).
    */
-  observe(t, userId, bytes, seq, isCommit) {
+  observe(t, userId, bytes, seq, isCommit, payload = null) {
     const T = this.T;
     const uid = userId | 0;
 
     // Track the most recent tool-state frame per user (a single copy each).
-    if (this.toolStateTypes.has(t)) {
+    const isImageState = this.imageStateTypes.has(t);
+    if (isImageState || this.toolStateTypes.has(t)) {
       let st = this._toolState.get(uid);
       if (!st) { st = new Map(); this._toolState.set(uid, st); }
-      const copy = bytes.slice();
-      st.set(t, copy);
+      const copy = isImageState ? this._retainImageFrame(bytes) : bytes.slice();
+      st.set(this._stateKey(t, payload), copy);
       // If a stroke is already in flight, this change also belongs *inside* the
       // stroke's preamble so a joiner replays mid-stroke tool-state changes in
       // order (e.g. scrolling brush size while dragging a circle/rectangle).
@@ -318,7 +467,8 @@ export class StrokeTape {
    * @returns {Uint8Array[]|null}
    */
   getBundle(seq) {
-    return this._bundles.get(seq) ?? null;
+    const frames = this._bundles.get(seq);
+    return frames ? this._resolveFrames(frames) : null;
   }
 
   /**
@@ -334,7 +484,7 @@ export class StrokeTape {
   getPendingBundles() {
     const out = [];
     for (const [userId, frames] of this._pending) {
-      if (frames && frames.length > 0) out.push({ userId, frames });
+      if (frames && frames.length > 0) out.push({ userId, frames: this._resolveFrames(frames) });
     }
     return out;
   }
@@ -352,7 +502,7 @@ export class StrokeTape {
   getToolStateBundles() {
     const out = [];
     for (const [userId, st] of this._toolState) {
-      if (st.size > 0) out.push({ userId, frames: Array.from(st.values()) });
+      if (st.size > 0) out.push({ userId, frames: this._resolveFrames(Array.from(st.values())) });
     }
     return out;
   }
@@ -376,6 +526,9 @@ export class StrokeTape {
     this._pending.delete(uid);
     this._toolState.delete(uid);
     this._pendingSelection.delete(uid);
+    // Their image payloads are no longer pinned as "current", so they become
+    // evictable — bundles that still reference them keep replaying until then.
+    this._evictImageFrames();
   }
 
   /** Wipe everything (room reset). */
@@ -384,15 +537,75 @@ export class StrokeTape {
     this._pending.clear();
     this._pendingSelection.clear();
     this._bundles.clear();
+    this._imageFrames.clear();
+    this._imageBytes = 0;
   }
 
-  /** @returns {{bundles: number, pending: number, pendingSelection: number, trackedUsers: number}} */
+  /** @returns {{bundles: number, pending: number, pendingSelection: number, trackedUsers: number, imageFrames: number, imageBytes: number}} */
   getSummary() {
     return {
       bundles: this._bundles.size,
       pending: this._pending.size,
       pendingSelection: this._pendingSelection.size,
       trackedUsers: this._toolState.size,
+      imageFrames: this._imageFrames.size,
+      imageBytes: this._imageBytes,
     };
+  }
+}
+
+/**
+ * Collapses repeated image-tool payloads across one serve (a join tail, an
+ * in-flight bundle set, a parity resync batch).
+ *
+ * Every stroke's preamble carries a snapshot of its drawer's tool state, image
+ * payloads included — that is the whole point, it is what makes a stroke
+ * replayable with the brush it was actually drawn with. But the payloads are
+ * base64 images: sending one per stroke would turn a 200-stroke tail into
+ * hundreds of megabytes. They are also idempotent state setters, so a frame the
+ * receiver is already holding can simply be skipped.
+ *
+ * Per user, the frames from the last preamble emitted are the receiver's
+ * current image state (a preamble is always a COMPLETE snapshot of that user's
+ * tool state). Skip anything still in that set; anything else is a real change
+ * and goes out. Runs of one brush collapse to a single frame, and a switch back
+ * to an earlier brush is a fresh broadcast with its own bytes, so it is sent
+ * again rather than being wrongly deduped.
+ */
+export class TapeFrameFilter {
+  /** @param {StrokeTape|null} tape */
+  constructor(tape) {
+    this.tape = tape;
+    /** userId -> Set<Uint8Array> currently applied on the receiver */
+    this._applied = new Map();
+    this.skipped = 0;
+  }
+
+  /**
+   * @param {number} userId - Author of the preamble.
+   * @param {Uint8Array[]|null} frames - Resolved preamble frames.
+   * @returns {Uint8Array[]} The frames that still need to be sent, in order.
+   */
+  filter(userId, frames) {
+    if (!frames || frames.length === 0) return [];
+    if (!this.tape?.isDedupableFrame) return frames;
+
+    const uid = userId | 0;
+    const applied = this._applied.get(uid);
+    let next = null;
+    const out = [];
+    for (const frame of frames) {
+      if (this.tape.isDedupableFrame(frame)) {
+        if (!next) next = new Set();
+        next.add(frame);
+        if (applied?.has(frame)) { this.skipped++; continue; }
+      }
+      out.push(frame);
+    }
+    // Only a preamble that actually carried image state redefines what the
+    // receiver holds; one without any (a user who has never used an image tool)
+    // must not wipe the record and cause a re-send on the next stroke.
+    if (next) this._applied.set(uid, next);
+    return out;
   }
 }

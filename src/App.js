@@ -29,7 +29,6 @@ import { MobileLayoutController } from './ui/MobileLayoutController.js';
 import { isMobile, MOBILE_HIDDEN_TOOLS } from './platform/mobile.js';
 import { SaveController } from './ui/SaveController.js';
 import { PatternOptionsController } from './ui/PatternOptionsController.js';
-import { RecordingController } from './ui/RecordingController.js';
 import { UpdateNoticeController } from './ui/UpdateNoticeController.js';
 import { supporterDialog } from './ui/SupporterDialog.js';
 import { ChatController } from './ui/ChatController.js';
@@ -40,13 +39,9 @@ import { BrushModeManager } from './tools/BrushModeManager.js';
 import { BlendModeManager } from './canvas/BlendModeManager.js';
 // import { StrokeHistoryPanel } from './ui/StrokeHistoryPanel.js'; // Hidden - stroke history panel disabled
 import { PerformanceDebugPanel } from './ui/PerformanceDebugPanel.js';
-import { TimeMachine } from './timebar/TimeMachine.svelte.js';
-import { recorder } from './replay/Recorder.js';
-import { rollingTapeRecorder } from './replay/RollingTapeRecorder.js';
-import { TimelapseCapturer } from './timebar/TimelapseCapturer.js';
 import { decodeDdraw, isDdrawFile } from '../shared/ddrawCodec.js';
-// PerformanceSettings is lazy-loaded by Moderation._showPerformanceSettings()
 import { highlight } from './ui/Highlight.js';
+import { deferredReplay, preloadRoomModules, preloadAdminModules } from './platform/deferredModules.js';
 import { SaveMode } from './ui/SaveMode.js';
 import { MirrorRegionController } from './ui/MirrorRegionController.js';
 import { BoardViewer } from './ui/BoardViewer.js';
@@ -238,7 +233,6 @@ export class DrawingApp {
     this.colorController = new ColorController(this);
     this.saveController = new SaveController(this);
     this.patternOptions = new PatternOptionsController(this);
-    this.recording = new RecordingController(this);
     this.updateNotices = new UpdateNoticeController(this);
     this.chatController = new ChatController(this);
     this.mobileLayout = new MobileLayoutController(this);
@@ -333,8 +327,6 @@ export class DrawingApp {
 
     // Performance debug panel
     this.performanceDebugPanel = new PerformanceDebugPanel(this.inputBufferManager, this);
-
-    // PerformanceSettings lazy-loaded via Moderation when mod role confirmed
 
     // Save mode (initialized in init() after board is ready)
     this.saveMode = null;
@@ -609,17 +601,14 @@ export class DrawingApp {
     this.ui.setHideOwnLabelZoom(this.appPreferences?.general?.hideOwnLabelAbove150);
     appState.board = this.board;
     appState.appPreferences = this.appPreferences;
-    TimeMachine.init(this.board, this.wsClient);
-    this.TimeMachine = TimeMachine; // Expose for WebSocketClient recording
-    this.recorder = recorder;       // Local replay tape. TimeMachine.recordAction → here.
-    this.rollingTapeRecorder = rollingTapeRecorder; // Automatic 2-min DVR tape (History → Recent).
-
-    // Periodic full-board stills (~60s) used to build a gallery time-lapse webm
-    // when the user uploads their drawing. Reset on room change (new board).
-    this.timelapseCapturer = new TimelapseCapturer(this.board, {
-      shouldCapture: () => this.canUseGalleryTimelapse(),
-    });
-    this.timelapseCapturer.start();
+    // The replay stack (TimeMachine, tape recorders, timelapse capturer) is the
+    // largest thing App depends on and nothing needs it to paint or draw, so it
+    // loads in its own chunk. Kicked off here and awaited by every room-entry
+    // path via `whenReplayReady()` — see _initReplayStack.
+    this._replayReady = this._initReplayStack();
+    // Warm the rest of the room set (homography) now too, so it downloads during
+    // landing-page idle time instead of being paid for on the join click.
+    void this.whenRoomModulesReady();
 
     // Keeps the tick loop at full rate when the tab is backgrounded so remote
     // strokes rasterize at a consistent cadence across users (see module doc).
@@ -675,7 +664,6 @@ export class DrawingApp {
     this.updateUndoRedoHud();
 
     this.performanceDebugPanel.init();
-    // PerformanceSettings.init() called lazily by Moderation._showPerformanceSettings()
 
     this.ui.setupLayerPreviewListeners(this.board.layerManager);
     this.ui.attachFontChangeListener(this); // Attach font change listener
@@ -695,7 +683,7 @@ export class DrawingApp {
       // Start (first sync) or re-anchor (resync) the automatic rolling DVR tape.
       // Skip offline mode — there's no shared room history to record.
       if (this.currentRoomId && !this.isOfflineMode) {
-        this.rollingTapeRecorder.onSyncComplete(this);
+        this.rollingTapeRecorder?.onSyncComplete(this);
       }
     };
 
@@ -2249,7 +2237,7 @@ export class DrawingApp {
     // that keeps the tick loop running at full rate while the tab is hidden.
     this.backgroundKeepAlive?.start();
     // Drop the rolling tape from the room we're leaving; it re-arms on sync.
-    this.rollingTapeRecorder.stop('room-change');
+    this.rollingTapeRecorder?.stop('room-change');
     // New board => new time-lapse; discard the previous room's frames.
     this.timelapseCapturer?.reset();
 
@@ -2308,6 +2296,11 @@ export class DrawingApp {
    * @returns {Promise<void>}
    */
   async startLandingJoin(roomId = null, password = null) {
+    // Warm the deferred chunks before the socket opens, so the tape recorders
+    // and remote-selection warp maths exist by the time the first frame of
+    // room traffic arrives.
+    await this.whenRoomModulesReady();
+
     let resolvedRoomId = roomId || this.landingPage?.els.roomIdInput?.value.trim() || this.landingPage?.selectedRoom || 'lobby';
 
     if (resolvedRoomId !== 'lobby') {
@@ -2431,11 +2424,11 @@ export class DrawingApp {
     // recording (its opening snapshot is the online board, so continuing across
     // the wipe yields a corrupt tape). The rolling tape is re-armed fresh at the
     // end of this method against the new offline board.
-    TimeMachine.stop();
+    this.TimeMachine?.stop();
     if (this.recorder?.isRecording?.()) {
       this.stopTapeRecording();
     }
-    this.rollingTapeRecorder.stop('enter-offline');
+    this.rollingTapeRecorder?.stop('enter-offline');
 
     // Preserve the current artwork: switching to offline (e.g. after a dropped
     // connection or an update prompt) exists so the user can keep drawing on
@@ -2489,8 +2482,10 @@ export class DrawingApp {
     // client-side, so run them in offline mode too. Online they start on
     // sync-complete (which never fires here); start() respects the user's
     // enable/disable preference and captures the opening checkpoint now.
-    this.rollingTapeRecorder.start(this);
-    this.updateRecordingButtonState();
+    void this.whenRoomModulesReady().then(() => {
+      this.rollingTapeRecorder?.start(this);
+      this.updateRecordingButtonState();
+    });
 
     // Update URL to /go/offline (or /embed when running as an embed)
     const offlinePath = (typeof document !== 'undefined' && document.documentElement?.dataset?.embed === 'true')
@@ -2512,8 +2507,8 @@ export class DrawingApp {
     this.connected = false;
     appState.connected = false;
     this.ui.setRemoteUsersConnected(false);
-    TimeMachine.stop();
-    this.rollingTapeRecorder.stop('leave-room');
+    this.TimeMachine?.stop();
+    this.rollingTapeRecorder?.stop('leave-room');
     this.timelapseCapturer?.reset();
     this.updateRecordingButtonState();
 
@@ -2529,6 +2524,67 @@ export class DrawingApp {
         this.landingPage.updateConnectionStatus('disconnected');
       }
     }
+  }
+
+  /**
+   * Loads the replay chunk and wires everything that depends on it.
+   *
+   * Runs once, off the critical path. Until it resolves `this.TimeMachine`,
+   * `this.recorder`, `this.rollingTapeRecorder`, `this.timelapseCapturer` and
+   * `this.recording` are undefined — every consumer optional-chains them, and
+   * every room-entry path awaits `whenReplayReady()` first, so the undefined
+   * window is only ever open while the user is still on the landing page.
+   * @returns {Promise<void>}
+   */
+  async _initReplayStack() {
+    let mod;
+    try {
+      mod = await deferredReplay.load();
+    } catch {
+      // Recording/replay stays unavailable; drawing is unaffected.
+      return;
+    }
+
+    const { TimeMachine, TimelapseCapturer, recorder, rollingTapeRecorder, RecordingController } = mod;
+
+    TimeMachine.init(this.board, this.wsClient);
+    this.TimeMachine = TimeMachine; // Expose for WebSocketClient recording
+    this.recorder = recorder;       // Local replay tape. TimeMachine.recordAction → here.
+    this.rollingTapeRecorder = rollingTapeRecorder; // Automatic 2-min DVR tape (History → Recent).
+    this.recording = new RecordingController(this);
+
+    // Periodic full-board stills (~60s) used to build a gallery time-lapse webm
+    // when the user uploads their drawing. Reset on room change (new board).
+    this.timelapseCapturer = new TimelapseCapturer(this.board, {
+      shouldCapture: () => this.canUseGalleryTimelapse(),
+    });
+    this.timelapseCapturer.start();
+
+    // Preferences were applied before the chunk landed, so re-apply them onto
+    // the now-real recorders, then refresh the button that reflects tape state.
+    this._applyReplayPreferences();
+    this.updateRecordingButtonState();
+  }
+
+  /**
+   * Resolves once the replay stack is usable. Cheap after the first call.
+   * @returns {Promise<void>}
+   */
+  whenReplayReady() {
+    return this._replayReady ?? Promise.resolve();
+  }
+
+  /**
+   * Resolves once every deferred chunk a live room needs has landed. Awaited by
+   * the join paths so no room-entry code has to cope with a half-loaded app.
+   * Never rejects — a failed chunk degrades that one feature, not the join.
+   * @returns {Promise<void>}
+   */
+  async whenRoomModulesReady() {
+    // Memoised so the join path awaits the same in-flight preload that init
+    // kicked off, rather than starting a second one.
+    this._roomModulesReady ??= preloadRoomModules();
+    await Promise.allSettled([this.whenReplayReady(), this._roomModulesReady]);
   }
 
   _bindLayerManagerDependencies() {
@@ -2987,7 +3043,7 @@ export class DrawingApp {
     // when alone (the solo-join path never fires sync-complete). onSyncComplete
     // re-anchors it to the synced board once sync finishes.
     if (this.currentRoomId && !this.isOfflineMode) {
-      this.rollingTapeRecorder.start(this);
+      this.rollingTapeRecorder?.start(this);
     }
     this.ui.hideOverlay();
     this.ui.showCursor();
@@ -3130,7 +3186,7 @@ export class DrawingApp {
     // queued (see syncClient + RoomManager.replayQueue) so parity will be
     // perpetually behind. Silence the toast — it'll re-emit naturally if
     // there's still drift after catchUp drains the queue.
-    if (TimeMachine.isReviewing) return;
+    if (this.TimeMachine?.isReviewing) return;
 
     // Don't surface a toast to the user — just log what's diverging so it can
     // be inspected from the console. Full diff also lives on app._lastParityMismatch.
@@ -3216,10 +3272,10 @@ export class DrawingApp {
 
     this.stopPreviewInterval();
     this.stopCheckpointInterval();
-    TimeMachine.stop();
+    this.TimeMachine?.stop();
     // Socket dropped — the rolling tape may now have gaps. Mark it stale (keep
     // capturing) so the Recent view can warn; a successful resync re-anchors it.
-    this.rollingTapeRecorder.markStale('disconnect');
+    this.rollingTapeRecorder?.markStale('disconnect');
     this.updateRecordingButtonState();
 
     // Hide remote cursors so they don't sit frozen on the canvas, piled up
@@ -3516,11 +3572,13 @@ export class DrawingApp {
   /**
    * Handles the join request from the login dialog.
    */
-  handleJoin() {
+  async handleJoin() {
     if (this.landingPage && this.landingPage.isVisible) {
       void this.startLandingJoin();
       return;
     }
+
+    await this.whenRoomModulesReady();
 
     let name = this.auth?.getJoinUsername();
     if (!name) {
@@ -3786,7 +3844,7 @@ export class DrawingApp {
       this.rollingTapeRecorder &&
       !this.rollingTapeRecorder.isEnabled?.()
     ) {
-      this.rollingTapeRecorder.start(this);
+      this.rollingTapeRecorder?.start(this);
     }
   }
 
@@ -3961,6 +4019,10 @@ export class DrawingApp {
       adminTopBtn.style.display = role >= 9 ? '' : 'none';
     }
 
+    // Warm the admin chunk as soon as the server confirms a Deity role, so the
+    // panel opens instantly. No other account ever fetches it.
+    void preloadAdminModules(role);
+
     if (inboxBtn) {
       inboxBtn.style.display = isAuthenticated ? '' : 'none';
     }
@@ -3977,11 +4039,11 @@ export class DrawingApp {
   }
 
   // --- Recording/timeline delegates (implementation in ui/RecordingController.js) ---
-  updateRecordingButtonState() { this.recording.updateRecordingButtonState(); }
-  startTapeRecording() { return this.recording.startTapeRecording(); }
-  stopTapeRecording() { return this.recording.stopTapeRecording(); }
-  handleToggleTapeRecording() { return this.recording.handleToggleTapeRecording(); }
-  handleStartRecording() { this.recording.handleStartRecording(); }
+  updateRecordingButtonState() { this.recording?.updateRecordingButtonState(); }
+  startTapeRecording() { return this.recording?.startTapeRecording(); }
+  stopTapeRecording() { return this.recording?.stopTapeRecording(); }
+  handleToggleTapeRecording() { return this.recording?.handleToggleTapeRecording(); }
+  handleStartRecording() { this.recording?.handleStartRecording(); }
 
   canUseImageFeatures(showToast = false) {
     const allowed = this.selfRole >= 1;
@@ -6089,7 +6151,7 @@ export class DrawingApp {
     // tool switch / Space hold required. Mirrors snapshot-history feel. Only
     // act on targets that represent the canvas region — replay canvas, the
     // #boards wrapper, or the bare container background.
-    if (TimeMachine?.isReviewing && e.button === 0) {
+    if (this.TimeMachine?.isReviewing && e.button === 0) {
       const t = e.target;
       const isCanvasRegion = t === this.ui.elements.boardContainer
         || t?.id === 'boards'
@@ -6238,7 +6300,7 @@ export class DrawingApp {
   handleBoardContainerWheel(e) {
     // In replay mode the visible canvas is the replay overlay; treat wheel
     // events anywhere over the board area as zoom requests.
-    if (e.target !== this.ui.elements.boardContainer && !TimeMachine?.isReviewing) return;
+    if (e.target !== this.ui.elements.boardContainer && !this.TimeMachine?.isReviewing) return;
     this.handleWheel(e);
   }
 
@@ -6252,7 +6314,7 @@ export class DrawingApp {
     const inPanMode = this.self.panning || this.self.tool === 'pan' || this.self.tool === 'zoom' || this.self.tool === 'rotate';
     // Force zoom-on-scroll while reviewing — brush-size scroll has no meaning
     // on a frozen historical board.
-    const inReplayReview = !!TimeMachine?.isReviewing;
+    const inReplayReview = !!this.TimeMachine?.isReviewing;
 
     if (inPanMode || scrollToZoom || inReplayReview) {
       const cursorPos = this.board.getBoardRelativePos(e.clientX, e.clientY);
@@ -6712,7 +6774,8 @@ export class DrawingApp {
         this.ui?.showToast?.('Replay file is malformed', 3000, 'error');
         return;
       }
-      await TimeMachine.loadFromRecording(recording);
+      await this.whenReplayReady();
+      await this.TimeMachine?.loadFromRecording(recording);
     } catch (err) {
       console.error('[App] .ddraw load failed:', err);
       this.ui?.showToast?.('Could not load replay file', 3000, 'error');

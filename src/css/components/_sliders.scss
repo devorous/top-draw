@@ -194,7 +194,17 @@ html[data-mobile='true'] {
 .brushItem {
   position: relative;
   aspect-ratio: 1;
-  background: var(--bg-elevated);
+  // Raster (.gbr/.gih) previews are dark ink on transparency; against a flat
+  // dark tile a low-opacity mask nearly disappears. A light checkerboard
+  // shows the real alpha shape regardless of brush color or app theme.
+  background-color: #f3f1ec;
+  background-image:
+    linear-gradient(45deg, #ddd9d0 25%, transparent 25%),
+    linear-gradient(-45deg, #ddd9d0 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #ddd9d0 75%),
+    linear-gradient(-45deg, transparent 75%, #ddd9d0 75%);
+  background-size: 10px 10px;
+  background-position: 0 0, 0 5px, 5px -5px, -5px 0px;
   border: 2px solid transparent;
   border-radius: var(--radius-sm);
   cursor: pointer;
@@ -264,6 +274,7 @@ html[data-mobile='true'] {
 }
 
 .brushItemUpload {
+  background: var(--bg-elevated);
   border: 2px dashed var(--border-subtle);
   flex-direction: column;
   gap: 4px;

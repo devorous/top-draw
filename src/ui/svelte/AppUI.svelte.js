@@ -3,21 +3,18 @@
  */
 
 import { mount, unmount } from 'svelte';
+import { deferredReplay, deferredAdminPanel } from '../../platform/deferredModules.js';
 import { debug } from '../../utils/debug.js';
 import BoardMenu from './BoardMenu.svelte';
 import ProfileDialog from './ProfileDialog.svelte';
 import GalleryItemDialog from './GalleryItemDialog.svelte';
 import RoomSettings from './RoomSettings.svelte';
 import AppSettings from './AppSettings.svelte';
-import AdminPanel from './AdminPanel.svelte';
 import ColorPalette from './ColorPalette.svelte';
 import DockablePanel from './DockablePanel.svelte';
 import Chat from './Chat.svelte';
 import Messenger from '../../messenger/Messenger.svelte';
-import Timebar from '../../timebar/Timebar.svelte';
-import RecorderPanel from '../../timebar/RecorderPanel.svelte';
 import FeedbackWidget from './FeedbackWidget.svelte';
-import SnapshotMenu from './SnapshotMenu.svelte';
 import FloatingArtManager from './FloatingArtManager.svelte';
 import FloatingPalette from './FloatingPalette.svelte';
 import TutorialOverlay from './TutorialOverlay.svelte';
@@ -104,24 +101,24 @@ const MessengerWrapper = (function() {
   };
 })();
 
-// Internal wrapper for SnapshotMenu
+// Internal wrapper for SnapshotMenu. The component itself is passed in rather
+// than imported: it ships in the deferred replay chunk (see deferredModules.js).
 const SnapshotMenuWrapper = (function() {
   return class {
     constructor({ target, props }) {
       this.target = target;
       this.app = props.app;
-      
+      this.component = props.component;
+
       this.effect = $effect.root(() => {
         $effect(() => {
           const visible = appState.snapshotMenuVisible;
           if (visible) {
             if (!this.instance) {
-              this.instance = mount(SnapshotMenu, {
+              this.instance = mount(this.component, {
                 target: this.target,
                 props: { app: this.app }
               });
-              // Sync the local isVisible state if needed, 
-              // but SnapshotMenu.svelte uses appState.snapshotMenuVisible (Wait, let's check)
             }
           } else {
             if (this.instance) {
@@ -367,16 +364,37 @@ export function initSvelteUI(app) {
   }
   components.ranksDialog = mount(RanksDialog, { target: ranksDialogTarget });
 
+  // Admin panel ships in its own chunk and is only ever fetched by accounts that
+  // can open it: App.updateAuthenticatedActionVisibility preloads it when the
+  // server confirms a Deity role, and this mounts it on first open.
   let adminPanelTarget = document.getElementById('adminPanelMount');
   if (!adminPanelTarget) {
     adminPanelTarget = document.createElement('div');
     adminPanelTarget.id = 'adminPanelMount';
     document.body.appendChild(adminPanelTarget);
   }
-  components.adminPanel = mount(AdminPanel, {
-    target: adminPanelTarget,
-    props: {}
+  let adminPanelInstance = null;
+  const adminPanelEffect = $effect.root(() => {
+    $effect(() => {
+      // The role check lives on the button that sets this flag (and the server
+      // re-checks every admin action), so don't second-guess it here — an
+      // effective-vs-global role mismatch would leave the panel unmountable.
+      if (!appState.adminPanelVisible || adminPanelInstance) return;
+      let cancelled = false;
+      void deferredAdminPanel.load().then((mod) => {
+        if (cancelled || adminPanelInstance) return;
+        adminPanelInstance = mount(mod.default, { target: adminPanelTarget, props: {} });
+      });
+      return () => { cancelled = true; };
+    });
   });
+  components.adminPanel = {
+    destroy() {
+      if (adminPanelInstance) unmount(adminPanelInstance);
+      adminPanelInstance = null;
+      adminPanelEffect();
+    }
+  };
 
   let tutorialTarget = document.getElementById('tutorialOverlayMount');
   if (!tutorialTarget) {
@@ -590,36 +608,44 @@ export function initSvelteUI(app) {
     });
   }
 
-  // Mount Timebar
+  // Timebar, RecorderPanel and SnapshotMenu all drive TimeMachine, so they ship
+  // in the deferred replay chunk and mount once it lands. App kicks that load
+  // off during init and every join path awaits it, so in practice these are up
+  // well before a room is entered — but nothing here blocks the first paint.
   const timebarTarget = document.getElementById('timebarMount');
-  if (timebarTarget) {
-    components.timebar = mount(Timebar, {
-      target: timebarTarget,
-      props: {
-        wsClient: app.wsClient
-      }
-    });
-  }
-
-  // Mount RecorderPanel (mini session-recorder viewer; gated internally by
-  // appState.recorderPanelVisible). Reuses the timebar mount node.
-  if (timebarTarget) {
-    components.recorderPanel = mount(RecorderPanel, {
-      target: timebarTarget
-    });
-  }
-
-  // Mount SnapshotMenu
   let snapshotMenuTarget = document.getElementById('snapshotMenuMount');
   if (!snapshotMenuTarget) {
     snapshotMenuTarget = document.createElement('div');
     snapshotMenuTarget.id = 'snapshotMenuMount';
     document.body.appendChild(snapshotMenuTarget);
   }
-  components.snapshotMenu = new SnapshotMenuWrapper({
-    target: snapshotMenuTarget,
-    props: { app }
+
+  let replayUiTornDown = false;
+  const replayUiPromise = deferredReplay.load().then((replay) => {
+    if (replayUiTornDown) return;
+
+    if (timebarTarget) {
+      components.timebar = mount(replay.Timebar, {
+        target: timebarTarget,
+        props: { wsClient: app.wsClient }
+      });
+      // Mini session-recorder viewer; gated internally by
+      // appState.recorderPanelVisible. Reuses the timebar mount node.
+      components.recorderPanel = mount(replay.RecorderPanel, {
+        target: timebarTarget
+      });
+    }
+
+    components.snapshotMenu = new SnapshotMenuWrapper({
+      target: snapshotMenuTarget,
+      props: { app, component: replay.SnapshotMenu }
+    });
+  }).catch(() => {
+    // Replay UI stays absent; the rest of the app is unaffected.
   });
+
+  cleanupFns.push(() => { replayUiTornDown = true; });
+  void replayUiPromise;
 
   // Mount FloatingArtManager
   const floatingArtTarget = document.getElementById('floatingArtMount');

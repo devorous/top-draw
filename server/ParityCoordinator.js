@@ -19,6 +19,7 @@
 import { WebSocket } from 'ws';
 import { T } from '../shared/MessageTypes.js';
 import { parityPersistence } from './ParityPersistence.js';
+import { TapeFrameFilter } from './StrokeTape.js';
 
 const MAX_CHUNKS_PER_RESPONSE = 256; // sanity cap — 256 * 64 = 16k entries
 const MAX_RESYNC_SEQS_PER_REQUEST = 500; // upper bound on a single resync batch
@@ -235,6 +236,13 @@ export class ParityCoordinator {
     const requested = Array.isArray(data.parityResyncSeqs) ? data.parityResyncSeqs : [];
     if (requested.length === 0) return result;
 
+    // Preambles carry the drawer's image-tool payload (see StrokeTape); a batch
+    // of strokes sharing one brush would otherwise re-send that bitmap per
+    // stroke. Scoped to this request — the client's state between requests is
+    // not ours to assume.
+    const frameFilter = new TapeFrameFilter(this.room?.strokeTape || null);
+    const authorBySeq = new Map();
+    for (const entry of log.entries) authorBySeq.set(entry.seq, entry.userId);
     const cap = Math.min(requested.length, MAX_RESYNC_SEQS_PER_REQUEST);
     for (let i = 0; i < cap; i++) {
       // Proto uint64 arrives as a Long object via protobufjs (when
@@ -245,7 +253,8 @@ export class ParityCoordinator {
       const bytes = log.getBytes(seq);
       if (!bytes) { result.missed++; continue; }
       try {
-        const bundle = this.room?.strokeTape?.getBundle?.(seq);
+        const raw = this.room?.strokeTape?.getBundle?.(seq);
+        const bundle = raw ? frameFilter.filter(authorBySeq.get(seq) ?? -1, raw) : null;
         if (bundle) {
           for (const frame of bundle) {
             if (this.sendTo(ws, frame) === false) {

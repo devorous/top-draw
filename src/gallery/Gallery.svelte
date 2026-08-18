@@ -35,10 +35,13 @@
   const prefersReducedMotion = typeof window !== 'undefined'
     && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
+  /** Item has a clip the current viewer is allowed to see (censoring aside). */
+  function hasViewableTimelapse(item) {
+    return !!item?.animatedUrl && !(isNsfw(item) && !isNsfwRevealed(item));
+  }
+  /** ...and may be played unattended, i.e. the card hover-loops. */
   function canPlayTimelapse(item) {
-    return !!item?.animatedUrl
-      && !prefersReducedMotion
-      && !(isNsfw(item) && !isNsfwRevealed(item));
+    return hasViewableTimelapse(item) && !prefersReducedMotion;
   }
   let loading = $state(true);
   let error = $state(null);
@@ -758,9 +761,101 @@
   function applyTimelapseChange(animatedUrl) {
     if (!lightbox) return;
     const id = lightbox.id;
+    resetLapsePlayer();
     lightbox = { ...lightbox, animatedUrl };
     items = items.map((entry) => entry.id === id ? { ...entry, animatedUrl } : entry);
     timelapseEditorOpen = false;
+  }
+
+  // --- Lightbox time-lapse player -------------------------------------------
+  // Opening an item that has a clip plays the clip; the still is one click away.
+  let lapseVideo = $state(null);
+  let lapseMode = $state(true);      // showing the clip rather than the finished still
+  let lapsePlaying = $state(false);
+  let lapseTime = $state(0);
+  let lapseDuration = $state(0);
+  let lapseFailed = $state(false);   // clip 404'd / codec unsupported — fall back to the still
+  let lapseScrubbing = $state(false);
+  let lapseProbingDuration = false;
+
+  /** Whether the open item has a playable clip, whichever view is on screen. */
+  function lapsePlayerAvailable() {
+    return !!lightbox && !lapseFailed && hasViewableTimelapse(lightbox);
+  }
+
+  // Only the state — `lapseVideo` belongs to bind:this, and the element survives
+  // navigation between two items that both have a clip (only its src changes).
+  function resetLapsePlayer() {
+    lapseMode = true;
+    lapsePlaying = false;
+    lapseTime = 0;
+    lapseDuration = 0;
+    lapseFailed = false;
+    lapseScrubbing = false;
+    lapseProbingDuration = false;
+  }
+
+  function toggleLapsePlay() {
+    const v = lapseVideo;
+    if (!v) return;
+    // Hitting play while looking at the finished still means "show me the clip".
+    if (!lapseMode) lapseMode = true;
+    if (v.paused) v.play().catch(() => {});
+    else v.pause();
+  }
+
+  /**
+   * Swap between the clip and the finished still. The <video> stays mounted so
+   * the scrub position survives the round trip — only playback is suspended.
+   */
+  function toggleLapseMode() {
+    lapseMode = !lapseMode;
+    const v = lapseVideo;
+    if (!v) return;
+    if (lapseMode) {
+      if (!prefersReducedMotion) v.play().catch(() => {});
+    } else {
+      v.pause();
+    }
+  }
+
+  function seekLapse(e) {
+    const t = Number(e.currentTarget.value);
+    if (!Number.isFinite(t)) return;
+    if (!lapseMode) lapseMode = true;   // scrubbing implies you want to watch it
+    lapseTime = t;
+    if (lapseVideo) lapseVideo.currentTime = t;
+  }
+
+  function onLapseMeta() {
+    const v = lapseVideo;
+    if (!v) return;
+    if (Number.isFinite(v.duration) && v.duration > 0) {
+      lapseDuration = v.duration;
+      // Land back at the start if this resolved via the probe seek below.
+      if (lapseProbingDuration) {
+        lapseProbingDuration = false;
+        v.currentTime = 0;
+      }
+      return;
+    }
+    // Some muxed WebMs report an Infinite duration until the browser has
+    // scanned to the end. Seeking past the end forces it to resolve, and the
+    // resulting durationchange brings us back through here.
+    if (lapseProbingDuration) return;
+    lapseProbingDuration = true;
+    try { v.currentTime = 1e101; } catch { lapseProbingDuration = false; }
+  }
+
+  function onLapseTime() {
+    // Ignore the element's own updates mid-drag or the thumb fights the pointer.
+    if (lapseScrubbing || lapseProbingDuration) return;
+    lapseTime = lapseVideo?.currentTime || 0;
+  }
+
+  function formatClock(sec) {
+    const t = Number.isFinite(sec) && sec > 0 ? sec : 0;
+    return `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
   }
 
   /** One-click removal, same permission bar as canEditTimelapse but skips the crop editor. */
@@ -829,6 +924,7 @@
 
   async function setActiveLightboxItem(item) {
     timelapseEditorOpen = false;
+    resetLapsePlayer();
     lightbox = item;
     syncTagDraft(item);
     comments = [];
@@ -1206,6 +1302,7 @@
 
   function closeLightbox() {
     timelapseEditorOpen = false;
+    resetLapsePlayer();
     const returnToProfile = openedFromProfile;
     openedFromProfile = null;
     lightboxInstant = false;
@@ -1231,6 +1328,7 @@
 
   function closeLightboxFromHistory() {
     timelapseEditorOpen = false;
+    resetLapsePlayer();
     openedFromProfile = null;
     lightboxInstant = false;
     lightbox = null;
@@ -1265,8 +1363,20 @@
       else if (timelapseEditorOpen) timelapseEditorOpen = false;
       else closeLightbox();
     }
+    // Let fields keep their own keys: arrows must not swap the item out from
+    // under a comment being typed or the time-lapse scrubber being nudged.
+    const t = e.target;
+    if (t instanceof HTMLElement
+      && (t.isContentEditable || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) {
+      return;
+    }
     // Arrows swap the lightbox item out from under the editor otherwise.
     if (timelapseEditorOpen) return;
+    if (e.key === ' ' && lapsePlayerAvailable()) {
+      e.preventDefault();
+      toggleLapsePlay();
+      return;
+    }
     if (e.key === 'ArrowRight' && lightbox) {
       navigateLightbox(1);
     }
@@ -1783,11 +1893,63 @@
         <button class="lb-close" onclick={closeLightbox}>&times;</button>
         <div class="lb-img-wrap" bind:this={lightboxImageWrap}>
           <img src={lightbox.url} alt={lightbox.title || 'artwork'} class:censored={isNsfw(lightbox) && !isNsfwRevealed(lightbox)}>
+          {#if hasViewableTimelapse(lightbox) && !lapseFailed}
+            <!-- svelte-ignore a11y_media_has_caption -->
+            <video
+              class="lb-timelapse"
+              class:hidden={!lapseMode}
+              bind:this={lapseVideo}
+              src={lightbox.animatedUrl}
+              muted
+              loop
+              playsinline
+              preload="auto"
+              autoplay={!prefersReducedMotion}
+              onloadedmetadata={onLapseMeta}
+              ondurationchange={onLapseMeta}
+              ontimeupdate={onLapseTime}
+              onplay={() => lapsePlaying = true}
+              onpause={() => lapsePlaying = false}
+              onerror={() => lapseFailed = true}
+              onclick={toggleLapsePlay}
+            ></video>
+          {/if}
           {#if isNsfw(lightbox) && !isNsfwRevealed(lightbox)}
             <button class="censor-overlay lightbox-censor" onclick={() => revealNsfw(lightbox)} aria-label="Reveal censored image">
               <span>NSFW content hidden</span>
               <strong>Reveal image</strong>
             </button>
+          {/if}
+          {#if hasViewableTimelapse(lightbox) && !lapseFailed}
+            <div class="lb-lapse-bar" role="group" aria-label="Time-lapse playback">
+              <button
+                class="lb-lapse-btn"
+                onclick={toggleLapsePlay}
+                disabled={!lapsePlayerAvailable()}
+                title={lapsePlaying ? 'Pause' : 'Play'}
+                aria-label={lapsePlaying ? 'Pause time-lapse' : 'Play time-lapse'}
+              >{lapsePlaying ? '❚❚' : '▶'}</button>
+              <input
+                class="lb-lapse-scrub"
+                type="range"
+                min="0"
+                max={lapseDuration || 0}
+                step="0.01"
+                value={lapseTime}
+                disabled={!lapsePlayerAvailable() || !lapseDuration}
+                oninput={seekLapse}
+                onpointerdown={() => lapseScrubbing = true}
+                onpointerup={() => lapseScrubbing = false}
+                onpointercancel={() => lapseScrubbing = false}
+                aria-label="Scrub time-lapse"
+              />
+              <span class="lb-lapse-time">{formatClock(lapseTime)} / {formatClock(lapseDuration)}</span>
+              <button
+                class="lb-lapse-btn lb-lapse-mode"
+                onclick={toggleLapseMode}
+                title={lapseMode ? 'Show the finished image' : 'Show the time-lapse'}
+              >{lapseMode ? 'Final' : 'Lapse'}</button>
+            </div>
           {/if}
         </div>
         <div class="lb-info">
@@ -2959,6 +3121,9 @@
 
   .lb-img-wrap {
     position: relative;
+    /* Contain the time-lapse layer's z-index so it can't paint over the
+       close/fullscreen buttons, which are siblings of this wrap. */
+    isolation: isolate;
     overflow: hidden;
     background: #2a2a2a;
     display: flex;
@@ -2972,6 +3137,102 @@
     object-fit: contain;
     display: block;
   }
+
+  /* Time-lapse sits over the still, letterboxed against the same backdrop so a
+     clip cropped tighter than the upload doesn't reveal a misaligned image. */
+  .lb-timelapse.hidden { display: none; }
+  .lb-timelapse {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+    background: #2a2a2a;
+    cursor: pointer;
+    z-index: 1;
+  }
+
+  .lb-lapse-bar {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.9rem 0.75rem 0.55rem;
+    background: linear-gradient(to top, rgba(0,0,0,0.8), rgba(0,0,0,0));
+  }
+
+  .lb-lapse-btn {
+    flex: none;
+    min-width: 30px;
+    height: 26px;
+    padding: 0 0.5rem;
+    border: 1px solid rgba(255,255,255,0.25);
+    border-radius: 6px;
+    background: rgba(0,0,0,0.55);
+    color: #fff;
+    font-family: inherit;
+    font-size: 0.72rem;
+    line-height: 1;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .lb-lapse-btn:hover:not(:disabled) {
+    border-color: var(--accent);
+    background: rgba(0,0,0,0.75);
+  }
+  .lb-lapse-btn:disabled { opacity: 0.45; cursor: default; }
+
+  .lb-lapse-time {
+    flex: none;
+    font-size: 0.7rem;
+    font-variant-numeric: tabular-nums;
+    color: rgba(255,255,255,0.8);
+  }
+
+  .lb-lapse-scrub {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 20px;
+    margin: 0;
+    background: none;
+    cursor: pointer;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+  .lb-lapse-scrub:disabled { opacity: 0.45; cursor: default; }
+  .lb-lapse-scrub::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 2px;
+    background: rgba(255,255,255,0.3);
+  }
+  .lb-lapse-scrub::-moz-range-track {
+    height: 4px;
+    border-radius: 2px;
+    background: rgba(255,255,255,0.3);
+  }
+  .lb-lapse-scrub::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 12px;
+    height: 12px;
+    margin-top: -4px;
+    border: none;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+  .lb-lapse-scrub::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    border: none;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+  .lb-lapse-scrub:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
   .lightbox-censor {
     font-size: 0.9rem;
@@ -3720,7 +3981,8 @@
   }
 
   .lightbox-stage:fullscreen .lb-img-wrap,
-  .lightbox-stage:fullscreen .lb-img-wrap img {
+  .lightbox-stage:fullscreen .lb-img-wrap img,
+  .lightbox-stage:fullscreen .lb-timelapse {
     max-height: 100%;
   }
 </style>

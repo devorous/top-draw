@@ -8,9 +8,8 @@
  * finished artwork. Forces `prefer-software` to avoid the GPU WebM encoder that
  * traps (STATUS_BREAKPOINT) on large boards.
  *
- * Output is encoded at half linear resolution (¼ the pixels) by default: these
- * clips only ever play inside a gallery card or the lightbox, so the bitrate
- * saved there is spent on a denser frame sequence instead.
+ * Output is encoded at the source frames' native resolution: the lightbox plays
+ * these clips at full size, so a downscaled encode read as mush there.
  */
 
 import { Muxer, ArrayBufferTarget } from 'webm-muxer';
@@ -21,21 +20,19 @@ function estimateBitrate(width, height, fps) {
   return Math.min(16_000_000, Math.max(800_000, bps));
 }
 
-/** Default linear downscale applied to gallery time-lapse output. */
-export const TIMELAPSE_OUTPUT_SCALE = 0.5;
-/** Below this the halving stops — a tight crop shouldn't shrink into mush. */
+/** A downscaled clip may not take its longest edge below this. */
 const MIN_OUTPUT_EDGE = 320;
 
 /**
- * Encoded dimensions for a source frame size: half of each edge, floored to
- * even (VP8/VP9 require it), but never taking the longest edge below
- * MIN_OUTPUT_EDGE and never upscaling past the source.
+ * Encoded dimensions for a source frame size: native by default, floored to
+ * even (VP8/VP9 require it). A caller asking for `scale` < 1 gets that linear
+ * downscale, but never below MIN_OUTPUT_EDGE and never upscaled past source.
  * @param {number} width
  * @param {number} height
  * @param {number} [scale]
  * @returns {{width: number, height: number}}
  */
-export function timelapseOutputDims(width, height, scale = TIMELAPSE_OUTPUT_SCALE) {
+export function timelapseOutputDims(width, height, scale = 1) {
   const longest = Math.max(width, height);
   let s = Math.max(0, Math.min(1, scale));
   if (longest > 0 && longest * s < MIN_OUTPUT_EDGE) s = Math.min(1, MIN_OUTPUT_EDGE / longest);
@@ -53,8 +50,7 @@ const TARGET_CLIP_MS = 9_000;
  * Per-still hold time that lands the clip near TARGET_CLIP_MS regardless of
  * how many stills the session produced, clamped so sparse clips don't crawl
  * (≤400ms/still) and frame-dense ones don't strobe (≥100ms/still). The dense
- * end reads as motion rather than a slideshow, which is what the smaller
- * frames buy us.
+ * end reads as motion rather than a slideshow.
  * @param {number} frameCount
  * @param {number} [targetMs]
  * @returns {number}
@@ -70,7 +66,7 @@ export function normalizedPerFrameMs(frameCount, targetMs = TARGET_CLIP_MS) {
  * @param {number} [opts.fps=30]
  * @param {number} [opts.perFrameMs=300]   - on-screen time per still
  * @param {number} [opts.finalHoldMs=1400] - extra hold on the last still
- * @param {number} [opts.scale=0.5] - linear downscale of the source frames; 1 = native
+ * @param {number} [opts.scale=1] - linear downscale of the source frames; 1 = native
  * @param {(p: number) => void} [opts.onProgress] - 0..1
  * @returns {Promise<Blob|null>} WebM blob, or null if WebCodecs is unavailable.
  */
@@ -83,7 +79,7 @@ export async function encodeFramesToWebm(frames, opts = {}) {
   const onProgress = typeof opts.onProgress === 'function' ? opts.onProgress : null;
 
   const { width, height } = timelapseOutputDims(
-    frames[0].width, frames[0].height, opts.scale ?? TIMELAPSE_OUTPUT_SCALE
+    frames[0].width, frames[0].height, opts.scale ?? 1
   );
 
   // Stills are resampled through one scratch canvas; VideoFrame copies the

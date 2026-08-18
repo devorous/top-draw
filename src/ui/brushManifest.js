@@ -19,6 +19,32 @@ export const BRUSH_MANIFEST = [
   svgEntry('square.svg', { pinned: true }),
   { file: 'pepper.gbr', path: brushUrl('pepper.gbr'), type: 'gbr' },
   { file: 'rainbowCircles.gih', path: brushUrl('rainbowCircles.gih'), type: 'gih' },
+  // Coffee stain brush set, extracted from a Photoshop .abr and converted to .gbr
+  ...Array.from({ length: 5 }, (_, i) => {
+    const file = `coffee-stain-${String(i + 1).padStart(2, '0')}.gbr`;
+    return { file, path: brushUrl(file), type: 'gbr' };
+  }),
+  // CC0 brush pack (opengameart.org/content/60-free-gimp-krita-brushes)
+  ...[
+    'Fuzzy.gbr', 'Plasmaball.gbr', 'Weird.gih', 'bark.gih', 'blocky.gih', 'bubbles.gih',
+    'bubbles2.gih', 'circles.gih', 'cracks.gih', 'cracks2.gih', 'crosses.gih', 'crystallix.gih',
+    'crystals.gih', 'dirt.gih', 'dots.gih', 'explode-particles.gih', 'explode.gih',
+    'exploding-sparks-small.gih', 'exploding-sparks.gih', 'fine-grain.gih', 'flocks.gih',
+    'fractale1.gbr', 'fractale2.gbr', 'fractale3.gbr', 'glowing-fragments.gih',
+    'hand-drawn-star.gbr', 'lava.gih', 'microbes.gih', 'multi-star.gbr', 'nature1.gih',
+    'painted-style.gih', 'patches.gih', 'pixel-star.gbr', 'polarized.gbr', 'radioactive.gbr',
+    'rippled-glass.gih', 'rocky1.gih', 'saw.gbr', 'scratches.gih', 'scratches2.gih',
+    'spikeball.gbr', 'spiky.gih', 'splat-sun.gbr', 'splatters.gih', 'splatters2.gih',
+    'structure-glass.gih', 'structure.gih', 'structure2.gih', 'structure3.gih',
+    'symmetric-flower.gbr', 'turbine.gbr', 'vegetal.gih', 'wall-struct.gih', 'waterfall.gih',
+    'weird-mirror.gbr', 'weird-smoke.gih', 'weird2.gbr', 'weird3.gih', 'wood1.gih', 'wood1b.gih',
+  ].map((file) => ({ file, path: brushUrl(file), type: file.endsWith('.gih') ? 'gih' : 'gbr' })),
+  // Foliage brushes, converted from CC0 PNG textures (opengameart.org: "50 Dry Leaf
+  // Textures", "Cool Leaves Textures")
+  ...[
+    'tree-foliage-01.gbr',
+    'leaf-01.gbr', 'leaf-04.gbr', 'leaf-18.gbr', 'leaf-26.gbr', 'leaf-39.gbr', 'leaf-45.gbr',
+  ].map((file) => ({ file, path: brushUrl(file), type: 'gbr' })),
   svgEntry('alien.svg'),
   svgEntry('bee.svg'),
   svgEntry('bug.svg'),

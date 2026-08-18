@@ -1998,6 +1998,11 @@ const JOIN_SYNC_SUPPRESSED_TYPES = new Set([
   T.MD, T.MM, T.CANCEL,
   T.CT, T.CC, T.CS, T.CP, T.CSP, T.CSM, T.CHD, T.CBR,
   T.CL, T.CBM, T.CF, T.CTHN, T.CSIM,
+  // Image-tool payloads are tool state too (StrokeTape.buildImageStateSet), and
+  // by far the largest frames on the wire: the tail replays the ones the
+  // joiner's strokes need and the serve ends with everyone's latest, so letting
+  // the live copy through as well only ships the same bitmap twice.
+  T.GMP, T.GPT, T.IMAGE_TOOL, T.CPM,
   T.SEL_LIFT, T.SEL_MOVE, T.SEL_PENDING, T.SEL_MASK, T.SEL_CANCEL,
   ...Object.keys(COMMIT_KIND).map(Number),
 ]);
@@ -2948,7 +2953,7 @@ function broadcastToRoom(room, payload, excludeIndex = null) {
   // a fresh joiner can redraw post-checkpoint strokes from the original commands.
   // Commit bytes themselves live in strokeLog; this fills the non-committed gap.
   if (room?.strokeTape) {
-    room.strokeTape.observe(payload.t, payload.u | 0, buffer, POOLED_MSG.seq, isCommitType(payload.t));
+    room.strokeTape.observe(payload.t, payload.u | 0, buffer, POOLED_MSG.seq, isCommitType(payload.t), payload);
   }
 
   // Commit-class messages echo back to the sender so their strokeLog stays

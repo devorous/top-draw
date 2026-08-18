@@ -23,6 +23,8 @@
     "test:k6obs": "node testing/devtools/k6_lowstress_observers.mjs",
     "test:bakedefer": "node testing/devtools/bake_defer_ab.mjs",
     "test:wslatency": "node testing/devtools/ws_latency_probe.mjs",
+    "test:brushjoin": "node testing/devtools/image_brush_joiner_render_probe.mjs",
+    "test:brushwire": "node testing/devtools/image_brush_join_probe.mjs",
     "test:moderation": "node testing/puppeteer/moderation_suite.js",
     "server:stress": "cross-env HOST=127.0.0.1 PORT=8030 DISABLE_RATE_LIMITS=true node server/index.js",
     "snapshots:cleanup-legacy": "node server/scripts/delete-legacy-snapshots.js",
@@ -55,6 +57,7 @@
     "test:afkactivity": "node testing/devtools/afk_activity_probe.mjs",
     "test:joinerbisect": "node testing/devtools/joiner_content_bisect.mjs",
     "dev:reset": "node scripts/dev-backend-reset.mjs",
+    "migrate:timelapses": "node scripts/migrate-timelapses.mjs",
     "server:local": "cross-env MONGODB_URI=mongodb://127.0.0.1:27017 MONGODB_DB_NAME=Draw R2_ENDPOINT=http://127.0.0.1:9000 R2_ACCESS_KEY_ID=minioadmin R2_SECRET_ACCESS_KEY=minioadmin R2_BUCKET_NAME=gallery R2_PUBLIC_URL=http://127.0.0.1:9000/gallery R2_FORCE_PATH_STYLE=true R2_SNAPSHOTS_BUCKET=snapshots R2_SNAPSHOTS_ACCESS_KEY_ID=minioadmin R2_SNAPSHOTS_SECRET_ACCESS_KEY=minioadmin R2_SNAPSHOTS_SECRET_KEY=minioadmin ALLOW_DEV_SNAPSHOTS=true DISABLE_RATE_LIMITS=true HOST=127.0.0.1 PORT=8030 node server/index.js",
     "dev:local": "concurrently \"npm run server:local\" \"vite --open /go/\"",
     "test:k6audit": "node testing/devtools/k6_wire_audit.mjs"

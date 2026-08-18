@@ -1,5 +1,4 @@
-import { Homography } from '../utils/homography.js';
-import { performHomographyTransform, calculateCornerBounds, imageDataToCanvas, computeWarpOutputBounds } from '../utils/homographyUtils.js';
+import { getHomography } from '../utils/homographyAccess.js';
 import { paintHardenedEraseMask, needsHardenedEraseMask } from '../utils/eraseMask.js';
 
 /**
@@ -604,9 +603,10 @@ export class RemoteSelectionHandler {
     };
     user.originalSelectionPos = { x: s.x, y: s.y };
 
-    // Create reusable homography instances for this user's selection
-    user.homography = new Homography('projective');
-    user.previewHomography = new Homography('projective');
+    // Homography instances are created on first warp (see the transform sites
+    // below) — an unwarped selection never needs the perspective chunk at all.
+    user.homography = null;
+    user.previewHomography = null;
 
     const finalizeLiftPreview = (alreadyMasked) => {
       if (!alreadyMasked && lassoPath && lassoPath.length >= 3) {
@@ -1014,11 +1014,13 @@ export class RemoteSelectionHandler {
 
     if (hasTransform && user.originalCorners) {
       try {
+        const warp = getHomography();
+        if (!warp) throw new Error('homography chunk unavailable');
         if (!user.homography) {
-          user.homography = new Homography('projective');
+          user.homography = new warp.Homography('projective');
         }
 
-        const result = performHomographyTransform({
+        const result = warp.performHomographyTransform({
           sourceCanvas,
           sourceCorners: user.originalCorners,
           destCorners: corners,
@@ -1028,7 +1030,7 @@ export class RemoteSelectionHandler {
         });
 
         if (result) {
-          const tempCanvas = imageDataToCanvas(result.imageData);
+          const tempCanvas = warp.imageDataToCanvas(result.imageData);
           const drawX = Math.round(result.bounds.minX);
           const drawY = Math.round(result.bounds.minY);
           paint = (ctx) => ctx.drawImage(tempCanvas, drawX, drawY);
@@ -1827,9 +1829,10 @@ export class RemoteSelectionHandler {
     };
     user.originalSelectionPos = { x: -1, y: -1 }; // Pasted content is "moved"
 
-    // Create reusable homography instances for this user's selection
-    user.homography = new Homography('projective');
-    user.previewHomography = new Homography('projective');
+    // Homography instances are created on first warp (see the transform sites
+    // below) — an unwarped selection never needs the perspective chunk at all.
+    user.homography = null;
+    user.previewHomography = null;
 
     // Activate split-composite mode for the pasted floating selection
     this.board.activeSelectionLayer = user.activeLayer ?? 0;
@@ -1934,7 +1937,9 @@ export class RemoteSelectionHandler {
   // the drawer had extendedWarp off (folded quads just clip at the corner bbox).
   _getWarpOutputBounds(user, destCorners) {
     if (!user.extendedWarp) return null;
-    return computeWarpOutputBounds(user.originalCorners, destCorners, {
+    const warp = getHomography();
+    if (!warp) return null;
+    return warp.computeWarpOutputBounds(user.originalCorners, destCorners, {
       minX: 0,
       minY: 0,
       maxX: this.board.getWidth(),
@@ -1990,11 +1995,13 @@ export class RemoteSelectionHandler {
     }
 
     try {
+      const warp = getHomography();
+      if (!warp) throw new Error('homography chunk unavailable');
       // Calculate preview scale for downsampling input image (max 256px on longest side of source)
       // REMOTE USER: Stay at lower resolution to avoid hitching the observer's frame rate.
       const srcMaxDim = Math.max(user.floatingCanvas.width, user.floatingCanvas.height);
       let previewScale = srcMaxDim > this.previewMaxSize ? this.previewMaxSize / srcMaxDim : 1;
-      const fullBounds = calculateCornerBounds(user.selectionCorners);
+      const fullBounds = warp.calculateCornerBounds(user.selectionCorners);
       const outputBounds = this._getWarpOutputBounds(user, user.selectionCorners);
       // The output raster is sized by the *destination* window, not the source,
       // so it can dwarf the source even after previewMaxSize. Cap its pixel count
@@ -2008,9 +2015,9 @@ export class RemoteSelectionHandler {
       }
 
       if (!user.previewHomography) {
-        user.previewHomography = new Homography('projective');
+        user.previewHomography = new warp.Homography('projective');
       }
-      const result = performHomographyTransform({
+      const result = warp.performHomographyTransform({
         sourceCanvas: user.floatingCanvas,
         sourceCorners: user.originalCorners,
         destCorners: user.selectionCorners,

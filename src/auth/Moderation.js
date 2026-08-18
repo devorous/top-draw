@@ -27,10 +27,6 @@ export class Moderation {
     this.targetUser = null;
     this.targetIpHash = null;
 
-    // Lazy-loaded PerformanceSettings instance
-    this._perfSettings = null;
-    this._perfSettingsLoading = false;
-
     // Callbacks wired by App.js
     this.onProfile = null;
     this.onSync = null;
@@ -339,30 +335,6 @@ export class Moderation {
     }
 
     this._modUIInjected = !!document.getElementById('bansBtn') && !!document.getElementById('modPanel');
-  }
-
-  /**
-   * Lazy-load and show the PerformanceSettings modal.
-   */
-  async _showPerformanceSettings() {
-    if (this._perfSettings) {
-      this._perfSettings.show();
-      return;
-    }
-    if (this._perfSettingsLoading) return;
-    this._perfSettingsLoading = true;
-
-    try {
-      const { PerformanceSettings } = await import('../ui/PerformanceSettings.js');
-      this._perfSettings = new PerformanceSettings();
-      // board is available on window.app
-      this._perfSettings.init(window.app.board);
-      this._perfSettings.show();
-    } catch (err) {
-      console.error('[Mod] Failed to load PerformanceSettings:', err);
-    } finally {
-      this._perfSettingsLoading = false;
-    }
   }
 
   /**

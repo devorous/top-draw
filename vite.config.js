@@ -3,7 +3,7 @@
 import { defineConfig } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { VitePWA } from 'vite-plugin-pwa';
-import { resolve } from 'path';
+import { resolve, relative, sep } from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
 
@@ -38,7 +38,63 @@ function versionInjectionPlugin() {
   };
 }
 
-export default defineConfig({
+/**
+ * Re-points each HTML entry's PWA manifest link at the real root-level file.
+ *
+ * vite-plugin-pwa injects `<link rel="manifest" href="./manifest.webmanifest">`
+ * into every entry, but `base: './'` makes that relative to the entry's own
+ * directory — so on a nested entry (/go/, /gallery/, /chat/, ...) it resolves to
+ * a file that does not exist. Worse than a 404: Vercel checks rewrites after the
+ * filesystem, so `/go/(.*)` answers the miss with the page's own HTML and the
+ * browser parses markup as JSON.
+ *
+ * Fixed with `../` hops rather than a leading `/` so the link stays relative —
+ * the itch and Tauri builds both serve from a non-root path and rely on that.
+ *
+ * Runs in `closeBundle` rather than `transformIndexHtml`: vite-plugin-pwa
+ * injects the link when it writes the HTML at bundle close, which is after every
+ * transformIndexHtml hook has already run.
+ */
+function manifestHrefPlugin() {
+  let outDir = 'dist';
+  return {
+    name: 'nested-manifest-href',
+    apply: 'build',
+    configResolved(config) {
+      outDir = resolve(config.root, config.build.outDir);
+    },
+    // Must sort after vite-plugin-pwa's own closeBundle, hence the array order.
+    closeBundle: {
+      sequential: true,
+      order: 'post',
+      handler() {
+        const patch = (file) => {
+          // `sep` rather than a regex: on Windows `relative()` returns
+          // backslash-separated paths, and splitting on '/' alone reads every
+          // nested entry as depth 0.
+          const depth = relative(outDir, file).split(sep).length - 1;
+          if (depth === 0) return;
+          const html = fs.readFileSync(file, 'utf8');
+          const fixed = html.replace(
+            /(<link rel="manifest" href=")\.\/(manifest\.webmanifest")/,
+            `$1${'../'.repeat(depth)}$2`
+          );
+          if (fixed !== html) fs.writeFileSync(file, fixed);
+        };
+        const walk = (dir) => {
+          for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+            const full = resolve(dir, entry.name);
+            if (entry.isDirectory()) walk(full);
+            else if (entry.name === 'index.html') patch(full);
+          }
+        };
+        if (fs.existsSync(outDir)) walk(outDir);
+      }
+    }
+  };
+}
+
+export default defineConfig(({ command }) => ({
   root: '.',
   base: './',
   publicDir: 'public',
@@ -105,18 +161,11 @@ export default defineConfig({
               expiration: { maxEntries: 30, maxAgeSeconds: 60 * 60 * 24 * 365 },
             },
           },
-          {
-            urlPattern: /^https:\/\/unpkg\.com\/vanilla-picker/,
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'vendor-cdn',
-              expiration: { maxEntries: 5, maxAgeSeconds: 60 * 60 * 24 * 90 },
-            },
-          },
         ],
       },
       devOptions: { enabled: false },
     }),
+    manifestHrefPlugin(),
     {
       name: 'go-spa-fallback',
       configureServer(server) {
@@ -161,8 +210,11 @@ export default defineConfig({
         galleryGrid: resolve(__dirname, 'gallery/grid/index.html'),
         board: resolve(__dirname, 'board/index.html'),
         messenger: resolve(__dirname, 'messenger/index.html'),
-        dropdownPreview: resolve(__dirname, 'dropdown-preview/index.html'),
-        // dev-only variant gallery, served at /dropdown-preview/ by `npm run dev`.
+        // Dev-only variant gallery, served at /dropdown-preview/ by `npm run dev`.
+        // Excluded from builds so it never deploys.
+        ...(command === 'serve'
+          ? { dropdownPreview: resolve(__dirname, 'dropdown-preview/index.html') }
+          : {}),
       },
       output: {
         manualChunks(id) {
@@ -198,4 +250,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));

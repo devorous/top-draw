@@ -1433,9 +1433,15 @@ export class RemoteUserHandler {
       const tool = this.toolManager.getTool('imageBrush');
       if (!tool) return;
       
-      // Temporary swap to ensure we use the brush we JUST loaded during replay
+      // Temporary swap to ensure we use the brush we JUST loaded during replay.
+      // The colour mode rides along: it is part of THIS payload, and a join
+      // tail now replays several brushes back to back (StrokeTape's image tool
+      // state), so the mode in force when these stamps were drawn is not
+      // necessarily the one the newest payload set.
       const currentBrush = user.imageBrush;
+      const currentColorMode = user.imageBrushColorMode;
       user.imageBrush = brushData;
+      user.imageBrushColorMode = brushData.colorMode ?? 'original';
 
       for (const entry of pending) {
         if (entry.type === 'down') {
@@ -1460,6 +1466,7 @@ export class RemoteUserHandler {
       
       // Restore the current brush (it might have changed since this load started)
       user.imageBrush = currentBrush;
+      user.imageBrushColorMode = currentColorMode;
       this.board.requestUpdate?.();
     };
 
@@ -1538,12 +1545,15 @@ export class RemoteUserHandler {
     if (!brushData) return;
 
     // Apply settings immediately so they're ready when stamps arrive
-    user.patternScale = patternData.scale ?? 100;
-    user.patternRotation = patternData.rotation ?? 0;
-    user.patternSpacing = patternData.spacing ?? 0;
-    user.patternOffsetX = patternData.offsetX ?? 0;
-    user.patternOffsetY = patternData.offsetY ?? 0;
-    user.patternColorMode = patternData.colorMode ?? 'original';
+    const settings = {
+      patternScale: patternData.scale ?? 100,
+      patternRotation: patternData.rotation ?? 0,
+      patternSpacing: patternData.spacing ?? 0,
+      patternOffsetX: patternData.offsetX ?? 0,
+      patternOffsetY: patternData.offsetY ?? 0,
+      patternColorMode: patternData.colorMode ?? 'original',
+    };
+    Object.assign(user, settings);
 
     // Clear tile cache so it rebuilds with new brush/settings
     const patternTool = this.toolManager.getTool('pattern');
@@ -1560,24 +1570,68 @@ export class RemoteUserHandler {
     // unset until the image is genuinely usable — anything else that asks whether
     // this user has a pattern (notably pattern-mode FILL) keeps reading the same
     // readiness signal it reads today.
-    user._patternPendingStrokes = [];
+    //
+    // It is nonetheless owned by THIS load: a join tail replays a user's whole
+    // pattern history back to back (StrokeTape's image tool state), so a second
+    // payload routinely lands while the first is still decoding. Reading
+    // `user._patternPendingStrokes` back at completion time would have let the
+    // first load drain the SECOND payload's strokes — with the wrong tile — and
+    // then delete a buffer the second load was still filling.
+    const pending = [];
+    user._patternPendingStrokes = pending;
+    // Which load is the newest. Decodes finish out of order, so an older one
+    // completing later must not publish its tile as the user's current pattern.
+    const loadToken = (user._patternLoadToken || 0) + 1;
+    user._patternLoadToken = loadToken;
 
-    const replayPending = () => {
-      const pending = user._patternPendingStrokes;
-      delete user._patternPendingStrokes;
-      if (!pending || pending.length === 0) return;
+    /**
+     * @param {boolean} usable - Whether the tile actually decoded.
+     */
+    const replayPending = (usable) => {
+      // Only retire the readiness flag if a newer load has not already claimed it.
+      if (user._patternPendingStrokes === pending) delete user._patternPendingStrokes;
+      const isLatest = user._patternLoadToken === loadToken;
       const tool = this.toolManager.getTool('pattern');
-      if (!tool) return;
-      for (const entry of pending) {
-        if (entry.type === 'down') {
-          user.mousedown = true;
-          tool.remoteBeginStroke(user, entry.pos);
-        } else if (entry.type === 'stamps') {
-          tool.remoteStampMask(user, entry.pts);
-        } else if (entry.type === 'up') {
-          user.mousedown = true;
-          this.handleMouseUp(user, entry.seq);
+
+      // These stamps were drawn with this payload's tile and settings, which a
+      // later payload may already have replaced. Swap them in for the replay and
+      // put the newer ones back afterwards.
+      const restore = {
+        patternScale: user.patternScale,
+        patternRotation: user.patternRotation,
+        patternSpacing: user.patternSpacing,
+        patternOffsetX: user.patternOffsetX,
+        patternOffsetY: user.patternOffsetY,
+        patternColorMode: user.patternColorMode,
+      };
+      const currentBrush = user.patternBrush;
+      if (usable) {
+        Object.assign(user, settings);
+        user.patternBrush = brushData;
+        tool?._tileCache?.clear();
+      }
+
+      if (tool) {
+        for (const entry of pending) {
+          if (entry.type === 'down') {
+            user.mousedown = true;
+            tool.remoteBeginStroke(user, entry.pos);
+          } else if (entry.type === 'stamps') {
+            tool.remoteStampMask(user, entry.pts);
+          } else if (entry.type === 'up') {
+            user.mousedown = true;
+            this.handleMouseUp(user, entry.seq);
+          }
         }
+      }
+      pending.length = 0;
+
+      // A newer payload has already taken over the user's live pattern state, or
+      // this one never decoded: either way it only ever existed for the replay.
+      if (!usable || !isLatest) {
+        Object.assign(user, restore);
+        user.patternBrush = currentBrush;
+        tool?._tileCache?.clear();
       }
     };
 
@@ -1586,12 +1640,10 @@ export class RemoteUserHandler {
     // leaving an active stroke open forever because its MU was swallowed.
     if (brushData.type === 'gbr' || brushData.type === 'image' || brushData.type === 'svg') {
       this._loadBrushImage(brushData, () => {
-        user.patternBrush = brushData;
-        patternTool?._tileCache.clear();
-        replayPending();
+        replayPending(true);
       }, () => {
         console.error(`[PatternBrush] Failed to load brush image for remote user ${user.id}`);
-        replayPending();
+        replayPending(false);
       });
     } else if (brushData.type === 'gih' && brushData.gBrushes && brushData.gBrushes.length > 0) {
       let loadedCount = 0;
@@ -1602,14 +1654,12 @@ export class RemoteUserHandler {
           loadedCount++;
           if (loadedCount === totalImages) {
             brushData.images = images;
-            user.patternBrush = brushData;
-            patternTool?._tileCache.clear();
-            replayPending();
+            replayPending(true);
           }
         };
         img.onerror = () => {
           console.error(`[PatternBrush] Failed to load GIH image ${idx} for remote user ${user.id}`);
-          replayPending();
+          replayPending(false);
         };
         img.src = brush.gimpUrl;
         return img;
