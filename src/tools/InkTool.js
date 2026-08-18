@@ -39,6 +39,11 @@ function getSvgPathFromStroke(stroke) {
  * Note: Position smoothing is handled by InputBufferManager before points
  * reach this tool, ensuring parity between local preview and remote rendering.
  */
+// Input points needed before perfect-freehand's leading cap stops changing
+// shape. Measured empirically: the head is still moving at 10 points and is
+// pixel-identical from 20 onward; 32 leaves headroom.
+const HEAD_STABLE_POINTS = 32;
+
 export class InkTool extends Tool {
   /**
    * @param {Object} board - The drawing board instance.
@@ -117,6 +122,14 @@ export class InkTool extends Tool {
     this.pointBuffer = [];
 
     this.dirtyBounds = { minX: startX, minY: startY, maxX: startX, maxY: startY };
+    // Repainting the preview only needs to cover what MOVED since the last
+    // render, not the whole stroke so far. dirtyBounds grows monotonically for
+    // the commit path, so reusing it here made every tick re-blit an
+    // ever-growing slab of the board (41% of a 1440p board by the end of a
+    // single stroke). _previewBounds is the same shape but frame-scoped —
+    // getPreviewDirtyRect() consumes and reseeds it on every render.
+    this._previewBounds = { minX: startX, minY: startY, maxX: startX, maxY: startY };
+    this._previewDirty = false;
 
     // Don't render yet - wait for real pressure data from first move
   }
@@ -179,6 +192,7 @@ export class InkTool extends Tool {
       this.dirtyBounds.maxX = Math.max(this.dirtyBounds.maxX, pos.x);
       this.dirtyBounds.maxY = Math.max(this.dirtyBounds.maxY, pos.y);
     }
+    this._expandPreviewBounds(pos.x, pos.y);
   }
 
   /**
@@ -212,6 +226,7 @@ export class InkTool extends Tool {
         this.dirtyBounds.maxX = Math.max(this.dirtyBounds.maxX, pos.x);
         this.dirtyBounds.maxY = Math.max(this.dirtyBounds.maxY, pos.y);
       }
+      this._expandPreviewBounds(pos.x, pos.y);
     }
 
     this.renderStroke(true, user);
@@ -527,8 +542,44 @@ export class InkTool extends Tool {
     }
   }
 
+  /**
+   * Grow the frame-scoped preview region to include a point. Mirrors the
+   * dirtyBounds expansion, but this one is consumed and reseeded on every
+   * preview render — see getPreviewDirtyRect().
+   * @param {number} x
+   * @param {number} y
+   * @private
+   */
+  _expandPreviewBounds(x, y) {
+    const b = this._previewBounds;
+    if (!b) return;
+    // Only reached once a point has cleared onPointerMoveNoRender's 1px
+    // accept guard, so this doubles as "new geometry exists to draw".
+    this._previewDirty = true;
+    b.minX = Math.min(b.minX, x);
+    b.minY = Math.min(b.minY, y);
+    b.maxX = Math.max(b.maxX, x);
+    b.maxY = Math.max(b.maxY, y);
+  }
+
+  /**
+   * Returns the region the live preview must be repainted in, then reseeds it
+   * to the newest point so the next tick only pays for the next segment.
+   *
+   * Reseeding to a POINT rather than emptying it is deliberate: perfect-freehand
+   * recomputes the whole outline each render, and adding a point visibly changes
+   * the taper over the last segment or two. Anchoring the next frame's region at
+   * the most recent point (plus the existing margin, which already covers brush
+   * size and the hardness blur) keeps that re-taper inside the repainted area.
+   */
   getPreviewDirtyRect(user = this._activeUser) {
-    const bounds = this.dirtyBounds;
+    const bounds = this._previewBounds;
+    // Smoothing catch-up steps the EMA toward the target on every tick, but a
+    // sub-pixel step adds no point (onPointerMoveNoRender's 1px guard), so the
+    // stroke is byte-identical to the last render. Reporting "no work" here
+    // skips renderStroke/clearTop/drawPreview for those ticks instead of
+    // repainting an unchanged stroke.
+    if (!this._previewDirty) return false;
     // Zero-width/height bounds are still valid for horizontal/vertical motion.
     // Returning false here causes the batched ink preview path to skip redraws,
     // which is most noticeable while smoothing catch-up is still converging.
@@ -538,17 +589,45 @@ export class InkTool extends Tool {
     // missed the full-board mirror entirely, so with it on the live preview was
     // clipped to a bbox around the unmirrored stroke and the reflected half only
     // appeared at mouse-up (the commit path does not use this rect). null = redraw all.
-    if (this.board.hasMirrors?.()) return null;
+    if (this.board.hasMirrors?.()) {
+      this._reseedPreviewBounds();
+      return null;
+    }
 
     const size = user?.size ?? this._strokeSize;
     const blurAmount = (1 - this.userHardness / 100) * (20 + size * 0.2);
     const margin = size + (blurAmount * 2.5) + size * 0.5 + 15;
-    return {
+    const rect = {
       x: Math.floor(bounds.minX - margin),
       y: Math.floor(bounds.minY - margin),
       width: Math.ceil(bounds.maxX - bounds.minX + margin * 2),
       height: Math.ceil(bounds.maxY - bounds.minY + margin * 2)
     };
+    this._reseedPreviewBounds();
+    return rect;
+  }
+
+  /**
+   * Collapse the preview region onto the newest input point, ready to grow
+   * again over the next tick.
+   * @private
+   */
+  _reseedPreviewBounds() {
+    const last = this.inputPoints[this.inputPoints.length - 1];
+    if (!last) return;
+    this._previewBounds = { minX: last[0], minY: last[1], maxX: last[0], maxY: last[1] };
+    this._previewDirty = false;
+
+    // perfect-freehand derives the leading cap's width from the first few
+    // points' velocity, so the stroke HEAD keeps changing shape until enough
+    // points exist to stabilise it — measured at ~20 points, identical from
+    // there on. Until then the head has to stay in the repaint region or it
+    // freezes at whatever it looked like on the first render. The stroke is
+    // still short over that window, so the union bbox stays small.
+    if (this.inputPoints.length < HEAD_STABLE_POINTS) {
+      const first = this.inputPoints[0];
+      if (first) this._expandPreviewBounds(first[0], first[1]);
+    }
   }
 
   /**

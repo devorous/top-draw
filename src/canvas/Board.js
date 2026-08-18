@@ -464,20 +464,13 @@ export class Board {
       this.upperLayersCanvas.width = width;
     }
     this.compositeTileGrid?.resize(width, height);
-    if (this.selectionOverlay) {
-      const pad = this.selectionOverlayPadding;
-      this.selectionOverlay.width = width + pad * 2;
-      this.selectionOverlay.height = height + pad * 2;
-      this.selectionOverlay.style.left = `${-pad}px`;
-      this.selectionOverlay.style.top = `${-pad}px`;
-    }
-    if (this.interactionBlockOverlay) {
-      const pad = this.interactionBlockOverlayPadding;
-      this.interactionBlockOverlay.width = width + pad * 2;
-      this.interactionBlockOverlay.height = height + pad * 2;
-      this.interactionBlockOverlay.style.left = `${-pad}px`;
-      this.interactionBlockOverlay.style.top = `${-pad}px`;
-    }
+    // Both overlays are sized on demand — see _sizeOverlayCanvas. A resize
+    // invalidates whatever they held, so start them collapsed and let the next
+    // draw inflate them at the new dimensions.
+    this._selectionOverlayUsed = false;
+    this._sizeOverlayCanvas(this.selectionOverlay, this.selectionOverlayPadding, false);
+    this._sizeOverlayCanvas(this.interactionBlockOverlay, this.interactionBlockOverlayPadding,
+      this.interactionBlocks?.length > 0);
     if (this.obscureLayer) {
       this.obscureLayer.style.width = `${width}px`;
       this.obscureLayer.style.height = `${height}px`;
@@ -1989,9 +1982,13 @@ export class Board {
 
     const pad = this.interactionBlockOverlayPadding;
     const [height, width] = this.dimensions;
-    this.interactionBlockCtx.clearRect(0, 0, width + pad * 2, height + pad * 2);
 
-    if (this.interactionBlocks.length === 0) return;
+    if (this.interactionBlocks.length === 0) {
+      this._sizeOverlayCanvas(this.interactionBlockOverlay, pad, false);
+      return;
+    }
+    this._sizeOverlayCanvas(this.interactionBlockOverlay, pad, true);
+    this.interactionBlockCtx.clearRect(0, 0, width + pad * 2, height + pad * 2);
 
     this.interactionBlockCtx.save();
     this.interactionBlockCtx.translate(pad, pad);
@@ -3453,7 +3450,15 @@ export class Board {
   clearSelectionOverlay() {
     if (this.selectionCtx) {
       const pad = this.selectionOverlayPadding;
-      this.selectionCtx.clearRect(0, 0, this.dimensions[1] + pad * 2, this.dimensions[0] + pad * 2);
+      // One frame of hysteresis: collapse only if nothing asked for the overlay
+      // since the previous clear, so an active selection that clears and
+      // redraws every frame never reallocates.
+      if (!this._selectionOverlayUsed && this.selectionOverlay?.width > 1) {
+        this._sizeOverlayCanvas(this.selectionOverlay, pad, false);
+      } else {
+        this.selectionCtx.clearRect(0, 0, this.dimensions[1] + pad * 2, this.dimensions[0] + pad * 2);
+      }
+      this._selectionOverlayUsed = false;
     }
     this.clearHandleOverlay();
   }
@@ -3519,12 +3524,67 @@ export class Board {
   }
 
   /**
+   * Size an overlay canvas to the board plus its padding, or collapse it to 1x1
+   * when it has nothing to show.
+   *
+   * These overlays are board-sized PLUS a 500px pad on every side, which more
+   * than doubles their area — at 1440p that is 33MB each, and both sit in the
+   * live compositing tree as `display:block` whether or not anything is drawn
+   * on them. They are empty in the overwhelmingly common case (no selection,
+   * no interaction blocks), so they are inflated on first use and collapsed
+   * again once they go idle. Assigning width/height also clears the canvas and
+   * resets context state, which is fine: every consumer clears and redraws in
+   * full on each render.
+   *
+   * @param {HTMLCanvasElement} canvas
+   * @param {number} pad - Padding applied on every side, in board pixels.
+   * @param {boolean} needed - Whether the overlay currently has content.
+   * @returns {boolean} True if the canvas is now at full size.
+   * @private
+   */
+  _sizeOverlayCanvas(canvas, pad, needed) {
+    if (!canvas) return false;
+    const [height, width] = this.dimensions;
+    const targetW = needed ? width + pad * 2 : 1;
+    const targetH = needed ? height + pad * 2 : 1;
+    if (canvas.width !== targetW || canvas.height !== targetH) {
+      canvas.width = targetW;
+      canvas.height = targetH;
+      // Assigning width/height resets the 2D context to spec defaults, which
+      // drops the pixelated/smoothing mode updateHighZoomRenderingMode() set.
+      // Re-apply it so an overlay inflated while zoomed in stays crisp.
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        const crisp = this._lastHighZoomCrisp === true;
+        ctx.imageSmoothingEnabled = !crisp;
+        if ('imageSmoothingQuality' in ctx) {
+          ctx.imageSmoothingQuality = crisp ? 'low' : 'high';
+        }
+      }
+    }
+    // The pad is applied as a negative CSS offset so board (0,0) stays put; a
+    // collapsed canvas must not keep that offset or the stray 1px would sit
+    // outside the board.
+    const offset = needed ? -pad : 0;
+    canvas.style.left = `${offset}px`;
+    canvas.style.top = `${offset}px`;
+    return needed;
+  }
+
+  /** Inflate the selection overlay to full size, if it is collapsed. @private */
+  _ensureSelectionOverlaySized() {
+    this._selectionOverlayUsed = true;
+    this._sizeOverlayCanvas(this.selectionOverlay, this.selectionOverlayPadding, true);
+  }
+
+  /**
    * Get the selection overlay context with padding offset applied.
    * Call save() before and restore() after drawing.
    * @returns {CanvasRenderingContext2D|null}
    */
   getSelectionCtx() {
     if (!this.selectionCtx) return null;
+    this._ensureSelectionOverlaySized();
     this.selectionCtx.save();
     this.selectionCtx.translate(this.selectionOverlayPadding, this.selectionOverlayPadding);
     return this.selectionCtx;

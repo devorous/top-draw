@@ -724,14 +724,22 @@ export class InputBufferManager {
     const { app } = this;
     if (!tool || !user) return;
 
-    if (tool.renderStroke) {
-      tool.renderStroke(false, user);
-    }
-
     const usesTopPreview = toolName === 'brush' || toolName === 'erase' || toolName === 'flowPen' || toolName === 'pixel' || toolName === 'glitchBlur' || toolName === 'ink';
 
+    // Query the preview region BEFORE rendering: every tool derives it from
+    // state that onPointerMoveNoRender populates, never from renderStroke's
+    // output, so `false` ("no new geometry") lets us skip the stroke re-render
+    // too — not just the blit. Smoothing catch-up ticks the EMA on every frame
+    // and most of those steps are sub-pixel, which previously re-rendered the
+    // entire stroke to produce an identical image. The commit path calls
+    // renderStroke(true) itself at pointer-up, so skipping intermediate
+    // renders cannot affect what actually lands on the layer.
     const previewRect = tool.getPreviewDirtyRect?.(user) ?? null;
     const hasNoPreviewWork = previewRect === false;
+
+    if (tool.renderStroke && !hasNoPreviewWork) {
+      tool.renderStroke(false, user);
+    }
 
     if (app.board && usesTopPreview && !hasNoPreviewWork) {
       app.board.clearTop(previewRect);
