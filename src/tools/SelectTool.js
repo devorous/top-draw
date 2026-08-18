@@ -8,6 +8,7 @@ import { debug } from '../utils/debug.js';
 import { performHomographyTransform, imageDataToCanvas, calculateCornerBounds, computeWarpOutputBounds } from '../utils/homographyUtils.js';
 import { pointInHull, distanceBasedCulling } from '../utils/drawing.js';
 import { getPatternTile } from '../utils/patternTile.js';
+import { paintHardenedEraseMask, needsHardenedEraseMask } from '../utils/eraseMask.js';
 import { Tool } from './BaseTool.js';
 import { assetLibrary } from '../ui/AssetLibrary.js';
 
@@ -508,7 +509,7 @@ export class SelectTool extends Tool {
     this.board.forEachMirrorRegion({ points }, (region) => {
       if (!opened) {
         ctx.save();
-        ctx.globalAlpha = 0.4;
+        ctx.globalAlpha = 0.32;
         opened = true;
       }
       const mirrored = this.board.mirrorPointsToRegion(points, region);
@@ -1824,8 +1825,14 @@ export class SelectTool extends Tool {
       c2.setLineDash([]);
     };
     strokeBbox(ctx);
+    const strokeBboxGhost = (c2) => {
+      c2.save();
+      c2.globalAlpha = 0.4;
+      strokeBbox(c2);
+      c2.restore();
+    };
     this._paintMirroredPreview(
-      ctx, { x: minX, y: minY, width: maxX - minX, height: maxY - minY }, strokeBbox
+      ctx, { x: minX, y: minY, width: maxX - minX, height: maxY - minY }, strokeBboxGhost
     );
 
     if (!hctx) return;
@@ -1934,17 +1941,10 @@ export class SelectTool extends Tool {
 
     drawHandleSet((p) => p, 1);
 
-    // Ghost copies in each mirror, so the handles read as belonging to the
-    // mirrored preview rather than stopping at the unmirrored one. Faded because
-    // they are NOT grabbable — getHandleAtPoint only ever hit-tests the real set,
-    // and dragging a reflected handle would have to invert the mirror transform
-    // to mean anything.
-    if (this.board.hasMirrors?.()) {
-      const bboxRect = { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
-      for (const { region } of this.board.getSelectionMirrorTargets(bboxRect)) {
-        drawHandleSet((p) => this.board.mirrorPointToRegion(p, region), 0.35);
-      }
-    }
+    // Mirrored handle glyphs are intentionally not drawn: on high-order modes
+    // (radial with many slices, fib) the repeated glyph set gets overwhelming.
+    // The faded bbox outline (drawn above via _paintMirroredPreview) is enough
+    // to show where each mirrored copy lands.
   }
 
   applyTransform() {
@@ -2441,11 +2441,8 @@ export class SelectTool extends Tool {
 
     drawSet((p) => p, 1);
 
-    if (this.board.hasMirrors?.() && this.selection) {
-      for (const { region } of this.board.getSelectionMirrorTargets(this.selection)) {
-        drawSet((p) => this.board.mirrorPointToRegion(p, region), 0.35);
-      }
-    }
+    // Mirrored handle glyphs are intentionally not drawn: on high-order modes
+    // (radial with many slices, fib) the repeated glyph set gets overwhelming.
   }
 
   /**
@@ -2725,12 +2722,26 @@ export class SelectTool extends Tool {
       active.dirtyRect.maxY = dirty.y + dirty.height;
     }
 
-    active.ctx.fillStyle = 'white';
-    this._fillSelectionShape(active.ctx, s, lassoPath);
-    for (const { region } of mirrorTargets) {
-      this.board.withMirroredRegionTransform(active.ctx, region, () => {
-        this._fillSelectionShape(active.ctx, s, lassoPath);
-      });
+    const paintErase = (ctx) => {
+      ctx.fillStyle = 'white';
+      this._fillSelectionShape(ctx, s, lassoPath);
+      for (const { region } of mirrorTargets) {
+        this.board.withMirroredRegionTransform(ctx, region, () => {
+          this._fillSelectionShape(ctx, s, lassoPath);
+        });
+      }
+    };
+
+    // Antialiased edges only subtract a·(1−a) of themselves, so a lasso (or any
+    // mirrored) erase leaves up to a quarter of every edge pixel behind — the
+    // faint outline left by filling a selection and clearing it. Harden the
+    // mask so the erase takes the whole edge. An unmirrored rectangle is
+    // pixel-aligned and antialiases nothing, so it skips the extra work.
+    // RemoteSelectionHandler._eraseSelectionFromLayer must make the same call.
+    if (needsHardenedEraseMask(lassoPath, mirrorTargets, s)) {
+      paintHardenedEraseMask(active.ctx, dirty, paintErase);
+    } else {
+      paintErase(active.ctx);
     }
 
     const user = this.board.app?.self;
@@ -3838,6 +3849,11 @@ export class SelectTool extends Tool {
 
     const opacity = app.self.opacity !== undefined ? app.self.opacity : 1;
 
+    // Board-space rect the fill actually painted into the layer, for the
+    // selection re-expansion at the end. Null while floating: the paint goes
+    // into the float, not the board.
+    let paintedArea = null;
+
     if (this.floatingCanvas) {
       // Fill directly into the floating canvas (local coords: offsetX/Y = selection origin)
       this._executeFill(this.floatingCtx, s, app.self, opacity, s.x, s.y);
@@ -3863,6 +3879,7 @@ export class SelectTool extends Tool {
         width: Math.round(s.width),
         height: Math.round(s.height),
       };
+      paintedArea = area;
 
       const temp = document.createElement('canvas');
       temp.width = area.width;
@@ -3924,7 +3941,15 @@ export class SelectTool extends Tool {
         () => this.board.app.wsClient.broadcastSelectionFill(app.self.color, app.self.activeLayer, filled, filledLasso, wasMirrored));
     }
 
-    // After filling, expand selection to encompass the entire filled lasso region
+    // After filling, the selection has to cover every pixel the fill painted, or
+    // the next Clear/Cut/Move only takes part of it back and leaves a rim of
+    // fill behind — the operations are all pinned to `this.selection`. The
+    // painted area outruns the displayed selection two ways:
+    //   - lasso: the shape is the path, while `cropNewSelectionToContent` shrank
+    //     the box drawn around it;
+    //   - rect: the fill deliberately paints `originalSelection` (the full
+    //     dragged rect) and the displayed selection is the cropped one.
+    let expandedSelection = null;
     if (this.mode === 'lasso' && this.lassoPath) {
       const lassoBounds = this.getBoundsFromPoints(this.lassoPath);
 
@@ -3956,12 +3981,43 @@ export class SelectTool extends Tool {
       }
 
       this.originalSelection = null;
+      expandedSelection = this.selection;
 
       // Redraw the selection UI to show the expanded bounds
       this.initializeCorners();
       this.updateHandles();
       this.board.clearTop();
       this.drawSelectionUI();
+    } else if (paintedArea && this.originalSelection) {
+      // Rect fill of a content-cropped selection: grow back to the rect that was
+      // actually painted. Same shape fit-to-content would pick now that the
+      // whole dragged box is content.
+      this.selection = { ...paintedArea };
+      this.originalSelection = null;
+      expandedSelection = this.selection;
+
+      this.initializeCorners();
+      this.updateHandles();
+      this.board.clearTop();
+      this.drawSelectionUI();
+    }
+
+    if (expandedSelection && !this.floatingCanvas) {
+      // Growing the box is not a move; leaving the old origin behind makes
+      // hasMoved() true and hides Fill from the menu for the rest of the
+      // selection's life.
+      this.originalSelectionPos = { x: this.selection.x, y: this.selection.y };
+
+      // Observers erase their own `pendingSelection` (RemoteSelectionHandler
+      // .handleSelectionDelete / SEL_LIFT), so the growth has to reach them:
+      // otherwise the drawer's clear comes out clean and every observer keeps
+      // the rim. Queued after the SEL_FILL above, which carries its own rect.
+      if (this.board.app?.wsClient) {
+        const rect = cloneSelectionRect(this.selection);
+        const path = clonePathPoints(this.lassoPath);
+        this.board.app.inputBufferManager.queueBroadcast(
+          () => this.board.app.wsClient.broadcastSelectionPending(rect, path), { snapshot: false });
+      }
     }
 
     // Keep selection active, update menu buttons only (don't reposition)

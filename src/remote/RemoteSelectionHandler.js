@@ -1,5 +1,6 @@
 import { Homography } from '../utils/homography.js';
 import { performHomographyTransform, calculateCornerBounds, imageDataToCanvas, computeWarpOutputBounds } from '../utils/homographyUtils.js';
+import { paintHardenedEraseMask, needsHardenedEraseMask } from '../utils/eraseMask.js';
 
 /**
  * RemoteSelectionHandler - Handles selection tool rendering and operations for remote users
@@ -2211,37 +2212,51 @@ export class RemoteSelectionHandler {
     }
 
     const paintShape = (lassoPath && lassoPath.length >= 3)
-      ? () => {
-        ctx.fillStyle = 'white';
-        ctx.beginPath();
-        ctx.moveTo(lassoPath[0].x, lassoPath[0].y);
+      ? (c) => {
+        c.fillStyle = 'white';
+        c.beginPath();
+        c.moveTo(lassoPath[0].x, lassoPath[0].y);
         for (let i = 1; i < lassoPath.length; i++) {
-          ctx.lineTo(lassoPath[i].x, lassoPath[i].y);
+          c.lineTo(lassoPath[i].x, lassoPath[i].y);
         }
-        ctx.closePath();
-        ctx.fill();
+        c.closePath();
+        c.fill();
       }
-      : () => {
-        ctx.fillStyle = 'white';
-        ctx.fillRect(ix, iy, iw, ih);
+      : (c) => {
+        c.fillStyle = 'white';
+        c.fillRect(ix, iy, iw, ih);
       };
-
-    paintShape();
 
     // Mirrored counterparts ride in THIS stroke, not their own: they then share
     // the erase's timestamp and seq, so a single reconcile orders the whole
     // erase. Committed separately they would sit at seq 0, which
     // _sortStrokeStack floats to the top of the stack as a permanent hole.
     const mirrorTargets = this.board.getSelectionMirrorTargets(s, mirrored);
-    for (const { region } of mirrorTargets) {
-      this.board.withMirroredRegionTransform(ctx, region, paintShape);
-    }
 
     // Track the dirty region so the erase stroke is properly saved. Must span the
     // mirrored copies too — commitUserStroke crops the stroke to this rect.
     const eraseDirty = this.board.unionWithMirrorTargets(
       { x: ix, y: iy, width: iw, height: ih }, mirrorTargets
     );
+
+    const paintErase = (c) => {
+      paintShape(c);
+      for (const { region } of mirrorTargets) {
+        this.board.withMirroredRegionTransform(c, region, () => paintShape(c));
+      }
+    };
+
+    // Same hardening the drawer applies in SelectTool._eraseRegionStroke, and
+    // for the same reason: an antialiased destination-out edge only subtracts
+    // a·(1−a) of itself, leaving a rim of whatever was there (most visibly, of
+    // a fill that traced the same shape). The two paths must not drift — an
+    // erase that removes different pixels here than on the drawer is a desync.
+    if (needsHardenedEraseMask(lassoPath, mirrorTargets)) {
+      paintHardenedEraseMask(ctx, eraseDirty, paintErase);
+    } else {
+      paintErase(ctx);
+    }
+
     const user = this.getUsersMap().get(userId);
     // Pass the layer being erased. Without it expandDirtyRect falls back to
     // user.activeLayer, so erasing any OTHER layer (merge-all erases every

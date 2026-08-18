@@ -92,6 +92,13 @@ const CONTENT = {
 const SEL_FULL  = { x0: 200, y0: 150, x1: 600, y1: 450 };  // covers all three strokes
 const SEL_LEFT  = { x0: 200, y0: 150, x1: 400, y1: 450 };  // covers their left half
 const MOVE_TO   = { dx: 300, dy: 120 };
+// Clear of the content strokes (x 220–580, y 200/300/400) so anything with alpha
+// inside it came from the scenario itself. The fill-then-clear scenarios need
+// that: their residue is measured as "any alpha at all", not as a colour.
+const SEL_BLANK = { x0: 660, y0: 440, x1: 840, y1: 580 };
+// Far from every content colour at countInk's tolerance, so a surviving rim of
+// it cannot be mistaken for the artwork underneath.
+const FILL_PROBE = { color: [255, 0, 255, 1] };
 
 // Probe strokes for the MASK scenarios. Both run along y-bands that sit between
 // the content strokes (y=200/300/400, size 18 → ±9px) so the probe's ink is the
@@ -656,6 +663,97 @@ async function countInk(page, rect, color, tol = 48) {
   }, rect, color, tol);
 }
 
+/** Counts pixels with any meaningful alpha inside a board-space rect. */
+async function countAnyInk(page, rect, minAlpha = 8) {
+  return page.evaluate((rect, minAlpha) => {
+    const b = window.app.board;
+    const d = b.mainCtx.getImageData(rect.x, rect.y, rect.width, rect.height).data;
+    let n = 0;
+    for (let i = 3; i < d.length; i += 4) if (d[i] >= minAlpha) n++;
+    return n;
+  }, rect, minAlpha);
+}
+
+/** Client-space scenario rect → board space, optionally grown by `pad` board px. */
+async function boardRect(page, r, pad = 0) {
+  return page.evaluate((r, pad) => {
+    const b = window.app.board;
+    const tl = b.getBoardRelativePos(r.x0, r.y0);
+    const br = b.getBoardRelativePos(r.x1, r.y1);
+    const x = Math.max(0, Math.round(tl.x) - pad);
+    const y = Math.max(0, Math.round(tl.y) - pad);
+    return {
+      x, y,
+      width: Math.min(b.getWidth() - x, Math.round(br.x - tl.x) + pad * 2),
+      height: Math.min(b.getHeight() - y, Math.round(br.y - tl.y) + pad * 2),
+    };
+  }, r, pad);
+}
+
+/**
+ * Records how much of the fill actually landed, before the clear/move wipes the
+ * evidence. Only the actor runs `run()`, so only the actor gets the stash — the
+ * observers' asserts skip the guard and check the residue alone.
+ */
+async function stashFillProbe(page, clientRect, color) {
+  const n = await countInk(page, await boardRect(page, clientRect), color);
+  await page.evaluate((v) => { window.__fillProbe = v; }, n);
+}
+
+/**
+ * Asserts a Fill followed by a Clear left none of the fill behind.
+ *
+ * Clear/Cut/Move are pinned to `SelectTool.selection`, and a fill can paint
+ * OUTSIDE it two ways: fit-to-content crops the displayed box while Fill
+ * deliberately paints the full dragged rect, and a lasso fill paints the path
+ * rather than the box. Either leaves a rim of fill colour the clear never
+ * reaches.
+ *
+ * `window.__fillProbe` (stashed by the scenario on the actor, right after the
+ * fill) guards the guard: without it a fill that silently did nothing would
+ * make "no fill survived" trivially true.
+ */
+async function assertFillFullyCleared(page, label, clientRect, color) {
+  const fails = [];
+  const filled = await page.evaluate(() => window.__fillProbe ?? null);
+  if (filled !== null && filled < 2000) {
+    fails.push(`[${label}] fill probe: only ${filled}px of the fill landed before the clear — `
+      + `the fill never happened, so "nothing survived" proves nothing`);
+  }
+  const left = await countInk(page, await boardRect(page, clientRect, 16), color);
+  if (left > 0) {
+    fails.push(`[${label}] FILL SURVIVED THE CLEAR: ${left}px of the fill colour `
+      + `${color.slice(0, 3)} are still on the board inside the selection`);
+  }
+  return fails;
+}
+
+/**
+ * Asserts a fill-then-clear over EMPTY board left the board empty again.
+ *
+ * The strict form of the check above, for the antialiased rim specifically: a
+ * `destination-out` erase of an antialiased shape only subtracts a·(1−a) of
+ * each edge pixel, so up to a quarter of the fill's own edge survives. That
+ * residue is far too faint for a colour probe (it reads as a light tint of
+ * whatever is under it) and too thin for the pixel-diff's neighbour slack — but
+ * over blank board it is the ONLY thing with alpha, so counting alpha finds it
+ * exactly. See utils/eraseMask.js.
+ */
+async function assertBoardBlankAgain(page, label, clientRect) {
+  const fails = [];
+  const filled = await page.evaluate(() => window.__fillProbe ?? null);
+  if (filled !== null && filled < 2000) {
+    fails.push(`[${label}] fill probe: only ${filled}px of the fill landed before the clear — `
+      + `the fill never happened, so "nothing survived" proves nothing`);
+  }
+  const left = await countAnyInk(page, await boardRect(page, clientRect, 16));
+  if (left > 0) {
+    fails.push(`[${label}] ERASE LEFT A RIM: ${left}px still have alpha where the board was `
+      + `blank before the fill — the antialiased edge of the fill outlived the clear`);
+  }
+  return fails;
+}
+
 /**
  * Asserts the reflected copy of a fill actually exists on THIS tab.
  *
@@ -861,6 +959,61 @@ const SCENARIOS = [
       await selectLasso(page, SEL_LEFT);
       await setColor(page, [200, 120, 0, 1]);
       await menu(page, 'fillSelection');
+    },
+  },
+  {
+    name: 'fill_then_clear',
+    desc: 'rect-select over content, Fill, then Clear — no fill may outlive the clear',
+    async run(page) {
+      await armSelect(page, 'rect');
+      await selectRect(page, SEL_LEFT);
+      await setColor(page, FILL_PROBE.color);
+      await menu(page, 'fillSelection');
+      await sleep(300);
+      await stashFillProbe(page, SEL_LEFT, FILL_PROBE.color);
+      await menu(page, 'deleteSelection');
+    },
+    async assert(page, label) {
+      return assertFillFullyCleared(page, label, SEL_LEFT, FILL_PROBE.color);
+    },
+  },
+  {
+    name: 'fill_lasso_then_clear',
+    desc: 'lasso-select blank board, Fill, then Clear — the antialiased rim must go too',
+    // Fill then clear over empty board is a round trip: the board owes us the
+    // blank it started with, rim included.
+    expectRestore: true,
+    async run(page) {
+      await armSelect(page, 'lasso');
+      await selectLasso(page, SEL_BLANK);
+      await setColor(page, FILL_PROBE.color);
+      await menu(page, 'fillSelection');
+      await sleep(300);
+      await stashFillProbe(page, SEL_BLANK, FILL_PROBE.color);
+      await menu(page, 'deleteSelection');
+    },
+    async assert(page, label) {
+      return assertBoardBlankAgain(page, label, SEL_BLANK);
+    },
+  },
+  {
+    name: 'fill_then_move',
+    desc: 'rect-select over content, Fill, drag away, Apply — the fill must move whole',
+    async run(page) {
+      await armSelect(page, 'rect');
+      await selectRect(page, SEL_LEFT);
+      await setColor(page, FILL_PROBE.color);
+      await menu(page, 'fillSelection');
+      await sleep(300);
+      await stashFillProbe(page, SEL_LEFT, FILL_PROBE.color);
+      await moveSelection(page, [300, 300], MOVE_TO.dx, MOVE_TO.dy);
+      await menu(page, 'deselect');
+    },
+    // The lift erases the source, so the same rim the clear leaves behind is
+    // left standing where the fill used to be — with the moved copy now
+    // somewhere else, it reads as a ghost outline.
+    async assert(page, label) {
+      return assertFillFullyCleared(page, label, SEL_LEFT, FILL_PROBE.color);
     },
   },
   {
