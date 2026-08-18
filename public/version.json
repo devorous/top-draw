@@ -1,7 +1,7 @@
 {
-  "latest": "1.12.2-beta",
-  "minRequired": "1.12.2-beta",
-  "releaseDate": "2026-08-14T02:16:53.577Z",
-  "notes": "I've polished the new replay system and fixed some issues with the app not connecting properly for both user profiles and gallery. Sync has been moved to the server-side for consistency and speed.",
+  "latest": "1.12.3-beta",
+  "minRequired": "1.12.3-beta",
+  "releaseDate": "2026-08-18T04:12:33.707Z",
+  "notes": "Improvements have been made to the chat UI, selection tool can now be mirrored properly and other UI fixes.",
   "downloadUrl": "https://www.ddraw.ca/download"
 }

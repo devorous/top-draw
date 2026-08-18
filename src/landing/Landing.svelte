@@ -28,11 +28,11 @@
     { file: 'art-1.png', id: '69def5f3f8a0b70b603f16b2', author: 'maim', tilt: -3 },
     { file: 'art-2.png', id: '69e94aaadee71eca2830b59e', author: 'Towa', tilt: 2 },
     { file: 'art-3.png', id: '69dac8946a423563454fb374', author: 'sassysince1969', tilt: -1.5 },
-    { file: 'art-4.png', id: '69ed7628262018b8d40ec4d4', author: 'pemi', tilt: 2.5 },
+    { file: 'art-4.png', id: '69ed7628262018b8d40ec4d4', author: 'Jes', tilt: 2.5 },
     { file: 'art-5.png', id: '69ed76b4262018b8d40ec4d5', author: 'Towa', tilt: -2 },
     { file: 'art-6.png', id: '69ed35a4262018b8d40ec488', author: 'maim', tilt: 1.5 },
     { file: 'art-7.png', id: '69e9678dbba6d2220801c3cf', author: 'Thoth', tilt: -2.5 },
-    { file: 'art-8.png', id: '69e58e914caf3734139e5ec4', author: 'pemi', tilt: 2 },
+    { file: 'art-8.png', id: '69e58e914caf3734139e5ec4', author: 'Fall', tilt: 2 },
   ];
 
   const features = [
@@ -116,12 +116,8 @@
                   <img src="/images/magnifying-glass-plus.svg" alt="" />
                 </button>
               </div>
-              <div class="topbar-cluster right ddraw-letters" aria-hidden="true">
-                <span class="ltr l-d1">D</span>
-                <span class="ltr l-d2">D</span>
-                <span class="ltr l-r">R</span>
-                <span class="ltr l-a">A</span>
-                <span class="ltr l-w">W</span>
+              <div class="topbar-cluster right" aria-hidden="true">
+                <span class="wordmark mini-wordmark">DDraw!</span>
               </div>
             </div>
             <div class="app-body">
@@ -235,7 +231,7 @@
     <div class="messenger-card">
       <div>
         <h2>DDraw Messenger</h2>
-        <p>End-to-end encrypted chat for the friends you draw with. Sign in once, then message privately — no servers reading your mail, no ads.</p>
+        <p>End-to-end encrypted chat for the friends you draw with. Stay in contact even off the board using the messenger page.</p>
       </div>
       <a href="/messenger/" class="messenger-btn">Open Messenger →</a>
     </div>
@@ -472,27 +468,11 @@
     padding: 0 4px;
     font-weight: 500;
   }
-  .ddraw-letters {
-    display: flex;
-    align-items: baseline;
-    gap: 2px;
-    font-family: 'Fredoka', sans-serif;
-    font-weight: 700;
+  .mini-wordmark {
     font-size: 15px;
-    letter-spacing: -0.02em;
-    user-select: none;
     padding-right: 2px;
+    user-select: none;
   }
-  .ltr {
-    display: inline-block;
-    line-height: 1;
-    transform-origin: center;
-  }
-  .ltr.l-d1 { color: #00d4aa; transform: rotate(-6deg) translateY(-1px); }
-  .ltr.l-d2 { color: #ffdd00; transform: rotate(4deg); }
-  .ltr.l-r  { color: #ff7ad6; transform: rotate(-3deg) translateY(1px); }
-  .ltr.l-a  { color: #00d4aa; transform: rotate(5deg); }
-  .ltr.l-w  { color: #c800c8; transform: rotate(-4deg) translateY(-1px); }
 
   /* ── App body: canvas + tools rail ── */
   .app-body {
@@ -522,7 +502,8 @@
     position: relative;
     width: 100%;
     height: 100%;
-    object-fit: cover;
+    object-fit: contain;
+    object-position: center;
     z-index: 1;
     display: block;
   }
