@@ -1,11 +1,11 @@
 {
-  "version": "1.12.2-beta",
-  "notes": "I've polished the new replay system and fixed some issues with the app not connecting properly for both user profiles and gallery. Sync has been moved to the server-side for consistency and speed.",
-  "pub_date": "2026-08-14T02:16:53.577Z",
+  "version": "1.12.3-beta",
+  "notes": "Improvements have been made to the chat UI, selection tool can now be mirrored properly and a number of small UI fixes. Some new fonts have been added to the text tool and some new brush images to the custom brush tool.",
+  "pub_date": "2026-08-18T04:12:33.707Z",
   "platforms": {
     "windows-x86_64": {
-      "url": "https://www.ddraw.ca/desktop-updates/windows-x86_64/Ddraw_1.12.2-beta_x64-setup.exe",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQ01XR1piUDlNem1JSmdKSGhVa25EV3ZZU3VMTnBtSUhXdGVKbjhLNFMzTVZnc2ZRNFBkQXNKYVJTWVAybnJHK3ExRzh3TDZoMlQ0b21TNVRHU0crVXdNVHlJZXZFNVFnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg2NjczOTI4CWZpbGU6RGRyYXdfMS4xMi4yLWJldGFfeDY0LXNldHVwLmV4ZQpqYW8xM0hIREZVVytUK0hUY2hYY2UzdllYb3dUYXFvZ0ZLUm5kNDg0NCtXWWYxK1hTUFJqdWFJeUthOS9BdE5NN3ZXVGZMd2pQUGM0WksyMXJsbCtEdz09Cg=="
+      "url": "https://www.ddraw.ca/desktop-updates/windows-x86_64/Ddraw_1.12.3-beta_x64-setup.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQ01XR1piUDlNem9Dck9sMHhiSS9uMnA2aTZOT1hHWnEyOEllS3BKNDdEMk5kbHlmL1Z2MC93OGp5TUlSWWdHSDlRcTlZTTJyY3ZRQzRocmU4Q1YrSGNhQmpVZUFnelFNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3MTA0ODczCWZpbGU6RGRyYXdfMS4xMi4zLWJldGFfeDY0LXNldHVwLmV4ZQpFVXdVK1JpNVltZTV1OTlVYUYvK3BTb3NyL25UNHY1dW5LdVhxNDZYRkVzZDZGcFRKamNOVDdqL2gwTC94Uit0QXZFcjNpSnBQWjRwTGxPRnZrdUNBUT09Cg=="
     }
   }
 }
