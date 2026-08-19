@@ -1,36 +1,28 @@
-# Stage 1: Build WASM
-# wasm-bindgen-cli 0.2.114 requires Rust 1.82+.
-FROM rust:1.82-slim as wasm-builder
-
-# Install wasm-pack
-RUN apt-get update && apt-get install -y curl pkg-config libssl-dev && \
-    curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-
-WORKDIR /app
-COPY wasm_src/ wasm_src/
-COPY package.json .
-
-# Build WASM (we need a dummy src/wasm for the output)
-RUN mkdir -p src/wasm && \
-    wasm-pack build wasm_src --target web --out-dir ../src/wasm/
-
-# Stage 2: Build Frontend & Install Node Dependencies
+# Stage 1: Build Frontend & Install Node Dependencies
 FROM node:20-slim as builder
 
 WORKDIR /app
 COPY package*.json ./
 RUN npm install
 
-# Copy WASM from previous stage
-COPY --from=wasm-builder /app/src/wasm/ ./src/wasm/
-
-# Copy the rest of the app
+# Copy the rest of the app — including the prebuilt WASM in src/wasm/, which is
+# committed to the repo (see `npm run wasm` to regenerate it).
+#
+# There used to be a rust:1.82-slim `wasm-builder` stage here that installed
+# wasm-pack and compiled wasm_src/. Its output was copied to ./src/wasm/ and was
+# then immediately overwritten by this `COPY . .`, so the image has always
+# shipped the committed artifacts and the stage was pure waste — a full Rust
+# toolchain pull and compile on every build, plus the apt-get that was failing
+# the build. To make the image compile WASM for real, that stage has to be
+# restored *and* copied in after this line — a real behaviour change, since
+# production would start running freshly built wasm instead of the committed
+# files.
 COPY . .
 
 # Build the frontend
 RUN npm run build
 
-# Stage 3: Final Production Image
+# Stage 2: Final Production Image
 FROM node:20-slim
 
 WORKDIR /app

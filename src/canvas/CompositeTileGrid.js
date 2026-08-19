@@ -53,7 +53,24 @@ export class CompositeTileGrid {
     }
   }
 
-  consumeDirtyRects(maxCoverage = 0.4, maxRects = 24) {
+  /**
+   * @param {number} [maxCoverage=0.4] - Above this fraction of dirty tiles, give
+   *   up on rects entirely and signal a full redraw (null).
+   * @param {number} [maxRects=8] - Above this many disjoint rects, collapse to
+   *   their bounding box.
+   *
+   *   Compositing cost is dominated by rect *count*, not area: _applyDirtyClip
+   *   builds an N-rect clip path and _drawCanvasRegion issues a drawImage per
+   *   rect, per live stroke, per layer. Measured on a Big board with 60 live
+   *   strokes, 24 rects covering 1.65% of the board cost 30.3ms while the
+   *   collapsed bounding box — 65.8% of the board — cost 5.8ms. The old limit of
+   *   24 sat at the top of that expensive band; 8 keeps the cheap cases and
+   *   collapses out of the band before it gets costly.
+   *
+   *   See docs/board_size_performance_session_2026-08-18.md, "Open lead 1".
+   * @returns {Array<{x:number,y:number,width:number,height:number}>|null}
+   */
+  consumeDirtyRects(maxCoverage = 0.4, maxRects = 8) {
     if (this.forceFull) {
       this.clear();
       return null;

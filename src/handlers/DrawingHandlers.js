@@ -1,6 +1,7 @@
 /** @fileoverview Handles drawing-related events including tool changes, mouse interactions, and canvas operations. */
 
 import { blurImageData } from '../utils/blurUtils.js';
+import { setUserLayerContent } from '../remote/userLayerPresence.js';
 
 /**
  * Sets up WebSocket event handlers for drawing and canvas operations.
@@ -107,12 +108,14 @@ export function setupDrawingHandlers(wrapHandler, app) {
         } else {
           user.pendingSelection = null;
           user.context.clearRect(0, 0, board.getWidth(), board.getHeight());
+          setUserLayerContent(user, false);
         }
       }
 
       if (previousTool === 'text' && data.tool !== 'text') {
         if (user.context) {
           user.context.clearRect(0, 0, board.getWidth(), board.getHeight());
+          setUserLayerContent(user, false);
         }
         ui.setRemoteTextDomVisible(data.sessionIndex, true);
         ui.updateRemoteText(data.sessionIndex, '');

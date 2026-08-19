@@ -10,6 +10,7 @@ import { getPreviewTextLayout, getUserTextLineHeight } from '../utils/textLayout
 import { RemotePenHandler } from './RemotePenHandler.js';
 import { RemoteInkHandler } from './RemoteInkHandler.js';
 import { RemoteSelectionHandler } from './RemoteSelectionHandler.js';
+import { setUserLayerContent, syncUserLayerDisplay } from './userLayerPresence.js';
 
 /**
  * RemoteUserHandler coordinates the rendering of remote users' drawing events.
@@ -85,6 +86,7 @@ export class RemoteUserHandler {
     this.board.layerManager.setUserPreviewStroke(layerIndex, user.id, user.context.canvas, blendMode, dirtyRect);
     user._layeredPreviewActive = true;
     if (user.board) user.board.style.opacity = '0';
+    this._syncUserLayerDisplay(user);
 
     if (dirtyRect && Number.isFinite(dirtyRect.x) && Number.isFinite(dirtyRect.y) && dirtyRect.width > 0 && dirtyRect.height > 0) {
       this.board.compositeTileGrid?.markRect(dirtyRect.x, dirtyRect.y, dirtyRect.width, dirtyRect.height);
@@ -101,6 +103,28 @@ export class RemoteUserHandler {
       user.board.style.opacity = '';
     }
     user._layeredPreviewActive = false;
+    this._syncUserLayerDisplay(user);
+  }
+
+  /**
+   * @see setUserLayerContent in ./userLayerPresence.js
+   * @param {User} user
+   * @param {boolean} hasContent
+   * @returns {void}
+   * @private
+   */
+  _setUserLayerContent(user, hasContent) {
+    setUserLayerContent(user, hasContent);
+  }
+
+  /**
+   * @see syncUserLayerDisplay in ./userLayerPresence.js
+   * @param {User} user
+   * @returns {void}
+   * @private
+   */
+  _syncUserLayerDisplay(user) {
+    syncUserLayerDisplay(user);
   }
 
   updateRemotePreviewPresentation(user) {
@@ -375,6 +399,7 @@ export class RemoteUserHandler {
         // canvas; it's cleared on mouseUp when the real result lands.
         const glitchTool = this.toolManager.getTool('glitchBlur');
         if (glitchTool && user.context) {
+          this._setUserLayerContent(user, true);
           glitchTool.drawPlaceholderAlong(user, user.context, lastPos, pos);
           // Track mirror regions in realtime like the sender's live stroke
           // does (_compositeStampWithMirrors) — otherwise the mirrored halves
@@ -445,6 +470,7 @@ export class RemoteUserHandler {
    * @returns {void}
    */
   renderRemotePreview(user, pos) {
+    this._setUserLayerContent(user, true);
     const needsClear = ['brush', 'line', 'rectangle', 'circle', 'erase', 'text'].includes(user.tool);
     if (needsClear && !(user.tool === 'select' && user.floatingCanvas)) {
       user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
@@ -539,6 +565,11 @@ export class RemoteUserHandler {
     if (this.app.isSelfEcho(user.id)) return;
 
     this.ui.markRemoteCursorActivity(user.id);
+    // Universal stroke start. Ink, pen and selection render into user.context
+    // from their own handlers rather than through renderRemotePreview, so this
+    // is the one place guaranteed to run before any of them draw — pairing with
+    // the clears in handleMouseUp/commitLine/_cleanupTransientUserState below.
+    this._setUserLayerContent(user, true);
     user.mousedown = true;
     user._mainCtxDrawCount = 0;
     if (data.layerIndex !== undefined) user.setActiveLayer(data.layerIndex);
@@ -636,6 +667,7 @@ export class RemoteUserHandler {
         // canvas so the in-progress stroke is visible (live remote + replay).
         const glitchTool = this.toolManager.getTool('glitchBlur');
         if (glitchTool && user.context) {
+          this._setUserLayerContent(user, true);
           user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
           // Keep the preview canvas neutral + visible: the placeholder is plain
           // grey and the baked result travels source-over, so no blend here.
@@ -997,6 +1029,7 @@ export class RemoteUserHandler {
 
     if (!(user.tool === 'select' && user.floatingCanvas) && user.context) {
       user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+      this._setUserLayerContent(user, false);
       if (user.context.canvas) {
         user.context.canvas.style.opacity = '';
       }
@@ -1366,6 +1399,7 @@ export class RemoteUserHandler {
     user.text = '';
     if (user.context) {
       user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+      this._setUserLayerContent(user, false);
     }
     this.ui.setRemoteTextDomVisible(user.id, true);
     this.ui.updateRemoteText(user.id, '');
@@ -1385,7 +1419,11 @@ export class RemoteUserHandler {
     const ctx = user.context;
     if (!ctx) return;
     ctx.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
-    if (!user.text) return;
+    if (!user.text) {
+      this._setUserLayerContent(user, false);
+      return;
+    }
+    this._setUserLayerContent(user, true);
     const { fontSize, drawX, baselineY } = getPreviewTextLayout(user);
     const lineHeight = getUserTextLineHeight(user);
     const opacity = user.opacity !== undefined ? user.opacity : 1;
@@ -1698,6 +1736,7 @@ export class RemoteUserHandler {
     user._fillPreviewToken = (user._fillPreviewToken || 0) + 1;
     if (clearCanvas && user.context) {
       user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+      this._setUserLayerContent(user, false);
     }
   }
 
@@ -1955,6 +1994,7 @@ export class RemoteUserHandler {
 
     if (user.context) {
       user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+      this._setUserLayerContent(user, false);
     }
   }
 
@@ -2044,6 +2084,7 @@ export class RemoteUserHandler {
       }
     }
 
+    this._setUserLayerContent(user, true);
     user.context.clearRect(0, 0, width, height);
     this.board.withSelectionMaskClip(user.context, user.id, () => {
       if (!this._fillPreviewCanvas ||
@@ -2140,6 +2181,7 @@ export class RemoteUserHandler {
    */
   commitLine(user, newPressure, newSize) {
     user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+    this._setUserLayerContent(user, false);
     this._clearLayeredRemotePreview(user);
 
     const lastDrawnPos = user.currentLine.length > 0

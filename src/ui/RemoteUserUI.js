@@ -446,7 +446,19 @@ export class RemoteUserUI {
     const board = document.querySelector(`.userBoard.u${userId}`);
 
     if (board) {
-      board.style.display = hiddenLayer ? 'none' : '';
+      // The board is also shown/hidden by content (userLayerPresence). Claim
+      // ownership while the layer is hidden so an incoming preview can't reveal
+      // strokes drawn on a layer this client has turned off.
+      if (hiddenLayer) {
+        board.dataset.forceHidden = '1';
+        board.style.display = 'none';
+      } else {
+        delete board.dataset.forceHidden;
+        const user = window.app?.users?.get(Number(userId));
+        board.style.display = (user && user._userLayerHasContent && !user._layeredPreviewActive)
+          ? ''
+          : 'none';
+      }
     }
 
     if (cursorElements) {
@@ -584,6 +596,11 @@ export class RemoteUserUI {
     board.setAttribute('height', this.elements.board.height);
     board.setAttribute('width', this.elements.board.width);
     board.className = `userBoard ${id}`;
+    // Starts out of the compositing tree: a fresh board is empty, and previews
+    // are transient, so RemoteUserHandler._setUserLayerContent adds it only
+    // while there is something on it. Otherwise every user in the room costs a
+    // full board-sized layer per composited frame for their whole session.
+    board.style.display = 'none';
     this.elements.userBoards.appendChild(board);
 
     const context = board.getContext('2d');

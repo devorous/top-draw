@@ -9,6 +9,10 @@ import { readQoiDimensions, snapshotLayerDimensions } from '../../shared/qoi.js'
  * @fileoverview Board class managing canvas elements and viewport
  */
 
+// Must outlast the 260ms opacity transition set on mirrorGuidesLayer, so the
+// fade finishes before the layer leaves the compositing tree.
+const MIRROR_GUIDE_FADE_MS = 300;
+
 /**
  * Manages the drawing boards, viewport transformations, and compositing logic.
  */
@@ -73,6 +77,10 @@ export class Board {
     this.mirrorGuidesPinned = false;
     this._mirrorGuidesVisible = true;
     this._mirrorGuideIdleTimer = null;
+    // Set by renderMirrorRegions; with _mirrorGuidesVisible it decides whether
+    // the guides layer sits in the compositing tree at all.
+    this._mirrorGuidesHasContent = false;
+    this._mirrorGuidesHideTimer = null;
 
     this.layerManager = null;
     this.app = null;
@@ -281,7 +289,15 @@ export class Board {
     this.mirrorLine = document.querySelector('.mirrorLine');
     this._syncBoardWrapperBackground();
 
-    this.mainCtx = this._createBoard2DContext(this.mainCanvas, 'main', { willReadFrequently: true });
+    // No willReadFrequently: it pins the largest and most frequently redrawn
+    // canvas to software rasterization, so every composite runs on the CPU and
+    // the result is re-uploaded to a GPU texture to be displayed — a per-frame
+    // bandwidth cost proportional to board area (14.7MB at 1440p, 4x that of
+    // 720p) that is paid whether or not anything was drawn. The reads it was
+    // protecting are all one-shot and user-initiated (flood fill on
+    // pointerdown, the eyedropper's 1x1 sample), so they pay a readback stall
+    // on a click instead of taxing every frame.
+    this.mainCtx = this._createBoard2DContext(this.mainCanvas, 'main');
     this.topCtx = this._createBoard2DContext(this.topCanvas, 'top');
 
     // Create selection overlay canvas with padding to allow handles to extend beyond board
@@ -462,6 +478,8 @@ export class Board {
     if (this.upperLayersCanvas) {
       this.upperLayersCanvas.height = height;
       this.upperLayersCanvas.width = width;
+      // Resizing cleared it; the next composite re-adds it if it has content.
+      this._setLayerPresent(this.upperLayersCanvas, false);
     }
     this.compositeTileGrid?.resize(width, height);
     // Both overlays are sized on demand — see _sizeOverlayCanvas. A resize
@@ -1162,10 +1180,62 @@ export class Board {
     if (this._mirrorGuidesVisible === visible) return;
     this._mirrorGuidesVisible = visible;
     // Centre lines only — the region borders on mirrorRegionsLayer stay put.
-    if (this.mirrorGuidesLayer) this.mirrorGuidesLayer.style.opacity = visible ? '1' : '0';
+    // Display is applied separately: opacity alone leaves a full board-sized
+    // layer in the compositor's blend tree, still costing its area per frame.
+    if (this.mirrorGuidesLayer) {
+      this._applyMirrorGuidesDisplay();
+      this.mirrorGuidesLayer.style.opacity = visible ? '1' : '0';
+    }
     // 0.6 is the mirror line's resting opacity in CSS; the inline value wins, so
     // restore that exact number rather than jumping the line to full strength.
     if (this.mirrorLine) this.mirrorLine.style.opacity = visible ? '0.6' : '0';
+  }
+
+  /**
+   * Single owner of mirrorGuidesLayer's `display`, driven by two inputs:
+   * whether renderMirrorRegions drew anything (_mirrorGuidesHasContent) and
+   * whether the idle fade currently wants them shown (_mirrorGuidesVisible).
+   *
+   * Showing re-enters the tree and flushes layout before the caller sets
+   * opacity, so the fade-in still animates from a display:none start. Hiding on
+   * a fade waits out the transition; hiding because the content is gone is
+   * immediate, since there is nothing left to fade.
+   *
+   * @returns {void}
+   * @private
+   */
+  _applyMirrorGuidesDisplay() {
+    const el = this.mirrorGuidesLayer;
+    if (!el) return;
+
+    if (this._mirrorGuidesHideTimer) {
+      clearTimeout(this._mirrorGuidesHideTimer);
+      this._mirrorGuidesHideTimer = null;
+    }
+
+    if (this._mirrorGuidesHasContent && this._mirrorGuidesVisible) {
+      if (el.style.display === 'none') {
+        el.style.display = '';
+        // Force a style flush so the pending opacity write transitions rather
+        // than landing in the same frame as the display change (which would
+        // apply instantly).
+        void el.offsetWidth;
+      }
+      return;
+    }
+
+    if (el.style.display === 'none') return;
+
+    if (!this._mirrorGuidesHasContent) {
+      el.style.display = 'none';
+      return;
+    }
+
+    this._mirrorGuidesHideTimer = setTimeout(() => {
+      this._mirrorGuidesHideTimer = null;
+      if (this._mirrorGuidesHasContent && this._mirrorGuidesVisible) return;
+      el.style.display = 'none';
+    }, MIRROR_GUIDE_FADE_MS);
   }
 
   /**
@@ -1868,6 +1938,12 @@ export class Board {
       this.mirrorGuidesCtx.clearRect(0, 0, this.mirrorGuidesLayer.width, this.mirrorGuidesLayer.height);
     }
 
+    // Both layers are board-sized canvases sitting in the compositor's blend tree
+    // whether or not they hold anything, and most rooms never place a mirror
+    // region at all. An empty layer still costs its full area every composited
+    // frame, so keep them out of the tree until something is actually drawn.
+    let guidesDrawn = 0;
+
     for (const region of this.mirrorRegions) {
       // Border: always visible, so a region stays findable while you work.
       // Deliberately hairline — it sits on top of the artwork and should read as
@@ -1886,8 +1962,13 @@ export class Board {
         this.mirrorGuidesCtx.strokeStyle = 'rgba(0, 212, 170, 0.7)';
         Board.drawMirrorGuide(this.mirrorGuidesCtx, region);
         this.mirrorGuidesCtx.restore();
+        guidesDrawn++;
       }
     }
+
+    this._setLayerPresent(this.mirrorRegionsLayer, this.mirrorRegions.length > 0);
+    this._mirrorGuidesHasContent = guidesDrawn > 0;
+    this._applyMirrorGuidesDisplay();
   }
 
   /**
@@ -2483,6 +2564,7 @@ export class Board {
       this.upperLayersCtx.clearRect(0, 0, this.getWidth(), this.getHeight());
     }
     this._upperLayersCompositeStart = null;
+    this._setLayerPresent(this.upperLayersCanvas, false);
     this._mainCompositeEnd = null;
     this.markCompositeFull();
     this.tileTracker?.clear?.();
@@ -2850,6 +2932,10 @@ export class Board {
       null
     );
     this._upperLayersCompositeStart = startIdx;
+    // Drawing on the topmost layer gives an empty range, so this board-sized
+    // canvas composites to nothing — the common case. compositeLayerRange has
+    // already cleared it; keep it out of the blend tree until it holds content.
+    this._setLayerPresent(this.upperLayersCanvas, endIdx > startIdx);
   }
 
   _clearUpperLayers(dirtyRects) {
@@ -2860,6 +2946,7 @@ export class Board {
       this._clearCompositeContext(this.upperLayersCtx, dirtyRects);
     }
     this._upperLayersCompositeStart = null;
+    this._setLayerPresent(this.upperLayersCanvas, false);
   }
 
   _getSplitMainDirtyRects(endIdx, dirtyRects) {
@@ -3521,6 +3608,33 @@ export class Board {
       x: rx * cos - ry * sin + this.panX,
       y: rx * sin + ry * cos + this.panY
     };
+  }
+
+  /**
+   * Add or remove a board-sized layer from the compositing tree.
+   *
+   * Sibling to _sizeOverlayCanvas, for layers whose dimensions must stay board-
+   * sized (something else draws into them at board coordinates) but which are
+   * empty most of the time. `display: none` takes the layer out of the blend
+   * tree entirely; `visibility: hidden` and `opacity: 0` do not — the compositor
+   * keeps the layer alive and can still pay its area per frame.
+   *
+   * Writes are guarded so this stays cheap enough to call from render paths.
+   *
+   * @param {HTMLElement} el
+   * @param {boolean} present - Whether the layer currently has content to show.
+   * @returns {void}
+   * @private
+   */
+  _setLayerPresent(el, present) {
+    if (!el) return;
+    // `data-force-hidden` marks a layer that something else owns the hiding of
+    // (the time machine swapping the live board out for the replay canvas).
+    // Content-driven presence must never override that and reveal a live layer
+    // over the top of it.
+    const next = (present && el.dataset?.forceHidden !== '1') ? '' : 'none';
+    if (el.style.display === next) return;
+    el.style.display = next;
   }
 
   /**

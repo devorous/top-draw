@@ -2098,7 +2098,17 @@ class TimeMachineState {
       const display = show ? 'none' : 'block';
       if (this._board.mainCanvas) this._board.mainCanvas.style.display = display;
       if (this._board.topCanvas) this._board.topCanvas.style.display = display;
-      if (this._board.upperLayersCanvas) this._board.upperLayersCanvas.style.display = display;
+      if (this._board.upperLayersCanvas) {
+        // upperLayersCanvas is also hidden/shown by content (Board._setLayerPresent);
+        // claim ownership while the replay canvas is up so a live composite can't
+        // reveal it over the top, and hand it back on the way out.
+        if (show) {
+          this._board.upperLayersCanvas.dataset.forceHidden = '1';
+        } else {
+          delete this._board.upperLayersCanvas.dataset.forceHidden;
+        }
+        this._board.upperLayersCanvas.style.display = display;
+      }
 
       const userBoards = document.getElementById('userBoards');
       if (userBoards) userBoards.style.display = display;

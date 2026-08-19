@@ -185,6 +185,10 @@ export default defineConfig(({ command }) => ({
   server: {
     port: 3000,
     open: '/go',
+    // Vite >=5.4.12 rejects requests whose Host header is neither localhost nor a
+    // bare IP. Raw tailnet IPs (100.x.y.z) pass on their own; the MagicDNS name
+    // does not, so `tailscale serve` needs the suffix allowlisted here.
+    allowedHosts: ['.ts.net'],
     proxy: {
       '/ws': {
         target: devBackendTarget,

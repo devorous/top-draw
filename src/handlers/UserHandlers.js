@@ -5,6 +5,7 @@ import { debug } from '../utils/debug.js';
 import { appState } from '../state.svelte.js';
 import { BOARD_SIZE_PRESETS, applyRoomBoardSize } from '../config/BoardSizes.js';
 import { countryCodeToFlagEmoji } from '../utils/countryFlag.js';
+import { setUserLayerContent } from '../remote/userLayerPresence.js';
 
 const ROLE_NAMES = ['Guest', 'User', 'Trusted', 'Helper', 'Mod', 'Admin', 'Owner', 'Noble', 'Holy', 'Deity'];
 const ROOM_ROLE_NAMES = ['Guest', 'User', 'Trusted', 'Helper', 'Moderator', 'Admin', 'Owner'];
@@ -70,6 +71,7 @@ function clearRemoteTextDraft(app, user) {
   if (!user) return;
   if (user.context) {
     user.context.clearRect(0, 0, app.board.getWidth(), app.board.getHeight());
+    setUserLayerContent(user, false);
   }
   app.ui.setRemoteTextDomVisible(user.id, true);
   app.ui.updateRemoteText(user.id, '');

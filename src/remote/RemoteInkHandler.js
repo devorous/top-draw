@@ -1,6 +1,7 @@
 /** @fileoverview Handles the rendering of ink tool strokes for remote users using perfect-freehand. */
 
 import { getStroke } from 'perfect-freehand';
+import { setUserLayerContent } from './userLayerPresence.js';
 
 /**
  * Converts perfect-freehand outline points to an SVG path string for Path2D.
@@ -288,6 +289,7 @@ export class RemoteInkHandler {
    */
   updateInkPreview(user) {
     if (!user._inkOffscreen) return;
+    setUserLayerContent(user, true);
 
     const previewRect = this.board.hasMirrors?.() ? null : this.getPreviewDirtyRect(user);
     const clearRect = previewRect ? this._clampRectToCanvas(previewRect, user.context.canvas) : null;

@@ -1,4 +1,5 @@
 /** @fileoverview Handles selection-related events including lifting, moving, committing, and manipulating selections. */
+import { setUserLayerContent } from '../remote/userLayerPresence.js';
 
 /**
  * Sets up WebSocket event handlers for selection and image paste operations.
@@ -176,6 +177,7 @@ export function setupSelectionHandlers(wrapHandler, app) {
         user.maskLassoPath = null;
         user._pendingSelectionUpdatedAt = null;
         user.context?.clearRect(0, 0, board.getWidth(), board.getHeight());
+        setUserLayerContent(user, false);
       }
     }
   });

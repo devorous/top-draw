@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently \"npm run server\" \"vite --open /go/\"",
+    "dev:lan": "concurrently \"npm run server\" \"vite --host\"",
     "build": "vite build",
     "build:itch": "vite build && node scripts/itch-patch.js",
     "build:preview": "npm run build && npm run preview",

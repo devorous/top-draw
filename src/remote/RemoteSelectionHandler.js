@@ -1,5 +1,6 @@
 import { getHomography } from '../utils/homographyAccess.js';
 import { paintHardenedEraseMask, needsHardenedEraseMask } from '../utils/eraseMask.js';
+import { setUserLayerContent } from './userLayerPresence.js';
 
 /**
  * RemoteSelectionHandler - Handles selection tool rendering and operations for remote users
@@ -25,6 +26,7 @@ export class RemoteSelectionHandler {
   _clearUserOverlay(user) {
     if (!user?.context) return;
     user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+    setUserLayerContent(user, false);
   }
 
   _isReplayMode() {
@@ -79,6 +81,7 @@ export class RemoteSelectionHandler {
 
   drawStaticMaskOutline(user, mask, clear = true) {
     if (!user?.context || !mask) return;
+    setUserLayerContent(user, true);
     const ctx = user.context;
     if (clear) {
       ctx.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
@@ -118,6 +121,7 @@ export class RemoteSelectionHandler {
   _drawPendingSelectionLikeLocal(user) {
     if (!user?.pendingSelection) return;
 
+    setUserLayerContent(user, true);
     const ctx = user.context;
     const s = user.pendingSelection;
     const isLivePreview = !!(user.mousedown && user.startPos && !user.floatingCanvas);
@@ -143,6 +147,7 @@ export class RemoteSelectionHandler {
   _drawFloatingOutlineLikeLocal(user) {
     if (!user?.selectionCorners || !user?.selection) return;
 
+    setUserLayerContent(user, true);
     const ctx = user.context;
     const s = user.selection;
     const c = user.selectionCorners;
@@ -1898,6 +1903,7 @@ export class RemoteSelectionHandler {
 
     if (user.context) {
       user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+      setUserLayerContent(user, false);
     }
     if (user._selectionRestoreData?.snapshots) {
       for (const snap of user._selectionRestoreData.snapshots) {
@@ -2059,6 +2065,7 @@ export class RemoteSelectionHandler {
     if (!user.floatingCanvas || !user.selection) return;
     if (user.pendingImageLoad) return;
 
+    setUserLayerContent(user, true);
     const ctx = user.context;
     const s = user.selection;
     const c = user.selectionCorners;

@@ -538,15 +538,22 @@ export class FloodFillTool {
         return;
       }
 
-      const mirrorResults = await this._computeMirrorFillResults(
-        this.board.mainCtx.getImageData(0, 0, width, height).data,
-        width,
-        height,
-        x,
-        y,
-        0,
-        params.userId
-      );
+      // _computeMirrorFillResults is a no-op without synthetic mirror regions,
+      // but the argument was evaluated eagerly — a full-board readback thrown
+      // away on every fill in a room with no mirrors. mainCtx is GPU-resident
+      // (no willReadFrequently), so that read is a pipeline stall, not free.
+      const hasMirrorTargets = this.board.getActiveMirrorRegions().some(r => r?.synthetic);
+      const mirrorResults = hasMirrorTargets
+        ? await this._computeMirrorFillResults(
+          this.board.mainCtx.getImageData(0, 0, width, height).data,
+          width,
+          height,
+          x,
+          y,
+          0,
+          params.userId
+        )
+        : [];
 
       this._commitFillResult(user, result, params, width, height, mirrorResults, 0, 0);
       this._broadcastFill(user, x, y, params.activeLayer, 0, 0);

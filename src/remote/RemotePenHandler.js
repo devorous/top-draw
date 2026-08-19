@@ -1,4 +1,5 @@
 /** @fileoverview Handles pen and flowPen tool rendering for remote users using offscreen canvasing. */
+import { setUserLayerContent } from './userLayerPresence.js';
 
 /**
  * Handles pen/flowPen tool rendering for remote users.
@@ -287,6 +288,7 @@ export class RemotePenHandler {
    */
   updatePenPreview(user, dirtyBounds = null) {
     if (!user._penOffscreen) return;
+    setUserLayerContent(user, true);
 
     const ctx = user.context;
     const hardness = user._penHardness ?? 1;
