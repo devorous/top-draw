@@ -52,6 +52,9 @@ const MAX_STAMP_METADATA_VALUE = 0xFFFFFF;
 const MAX_DIMENSION = 10000;
 const MAX_DURATION_MINUTES = 60 * 24 * 365;
 const MAX_ROOM_USERS = 60;
+const MOD_IP_SCOPES = new Set(['exact', 'subnet', 'wide']);
+const MIN_TEXT_OVERLAY_LIFETIME_MS = 5000;
+const MAX_TEXT_OVERLAY_LIFETIME_MS = 30 * 60 * 1000;
 
 const VALID_MESSAGE_TYPES = new Set(Object.values(T));
 const VALID_BLEND_MODES = new Set([
@@ -367,6 +370,10 @@ export async function sanitizeMessage(data) {
       sanitized.p = clampInt(data.p, 0, MAX_PRESSURE, 100);
       sanitized.ly = clampInt(data.ly, 0, MAX_LAYER_INDEX, 0);
       sanitized.bm = sanitizeBlendMode(data.bm);
+      // Blend BAKE mode travels with the text for the same reason it travels with
+      // MD/CBM: the receiver reads data.bbm directly. Without it every remote text
+      // stamp bakes as 'existing' no matter what the author picked.
+      sanitized.bbm = sanitizeBlendBakeMode(data.bbm);
       sanitized.fo = sanitizeString(data.fo, 120, { trim: true });
       sanitized.tm = Math.min(Math.max(Number(data.tm), -1), 1);
       sanitized.to = Math.min(Math.max(Number(data.to), -20), 20);
@@ -633,6 +640,25 @@ export async function sanitizeMessage(data) {
       }
       if (data.roomObscureRequiresRegistered !== undefined) sanitized.roomObscureRequiresRegistered = sanitizeBoolean(data.roomObscureRequiresRegistered);
       if (data.roomPrivate !== undefined) sanitized.roomPrivate = sanitizeBoolean(data.roomPrivate);
+      // Tri-state (0 unset / 1 on / 2 off), not a bool: this setting defaults ON,
+      // and proto3 omits a false bool, so "off" would be indistinguishable from
+      // "client didn't touch it". Omitting it from this whitelist dropped the
+      // field before ROOM_UPDATE ever saw it, so the checkbox never persisted.
+      if (data.roomSnapshotOnFirstJoin !== undefined) {
+        sanitized.roomSnapshotOnFirstJoin = clampInt(data.roomSnapshotOnFirstJoin, 0, 2, 0);
+      }
+      // 0/absent means "unchanged" here too: a decoded proto message exposes
+      // prototype defaults, so an unset uint32 arrives as 0 rather than
+      // undefined, and clamping that up to the minimum would silently rewrite
+      // the room's fade time on any ROOM_UPDATE that omits the field.
+      if (Number(data.roomTextOverlayLifetimeMs) > 0) {
+        sanitized.roomTextOverlayLifetimeMs = clampInt(
+          data.roomTextOverlayLifetimeMs,
+          MIN_TEXT_OVERLAY_LIFETIME_MS,
+          MAX_TEXT_OVERLAY_LIFETIME_MS,
+          30 * 1000
+        );
+      }
       if (data.roomDedicatedReplayUser !== undefined) {
         // null or empty string clears, otherwise sanitize as username
         sanitized.roomDedicatedReplayUser = data.roomDedicatedReplayUser
@@ -664,12 +690,33 @@ export async function sanitizeMessage(data) {
       sanitized.mirrorRegionsJson = sanitizeString(data.mirrorRegionsJson, MAX_MIRROR_REGION_PAYLOAD, { trim: false });
       return sanitized.mirrorRegionsJson ? sanitized : null;
 
+    case T.SET_BADGE:
+      // handleBroadcast validates the id against SELECTABLE_BADGES / entitlements;
+      // we only bound it. With no case here the field was stripped and every badge
+      // change resolved to '' — i.e. it CLEARED the sender's badge for everyone.
+      sanitized.profileBadge = sanitizeString(data.profileBadge, 32);
+      return sanitized;
+
+    case T.MOD_LIST:
+      // Without these the mod panel's search box and Active/History toggle sent
+      // their values into the void: getModEntries always ran unfiltered + active-only.
+      sanitized.modShowHistory = sanitizeBoolean(data.modShowHistory);
+      sanitized.modSearch = sanitizeString(data.modSearch, MAX_NAME_LENGTH);
+      return sanitized;
+
     case T.MOD_ACTION:
       sanitized.modActionType = clampInt(data.modActionType, 0, 5, 0);
       sanitized.modTarget = clampInt(data.modTarget, 0, 65535, 0);
       sanitized.modReason = sanitizeString(data.modReason, MAX_MOD_REASON_LENGTH);
       sanitized.modDuration = clampInt(data.modDuration, 0, MAX_DURATION_MINUTES, 0);
       sanitized.modTargetName = sanitizeString(data.modTargetName, MAX_NAME_LENGTH);
+      // IP match scope from the ban dialog's dropdown. Dropping it here made the
+      // handler's `(rawIpScope === 'exact' || rawIpScope === 'wide')` test always
+      // fail, so every IP ban silently fell back to 'subnet'.
+      if (data.modIpScope !== undefined) {
+        const ipScope = sanitizeString(data.modIpScope, 16);
+        sanitized.modIpScope = MOD_IP_SCOPES.has(ipScope) ? ipScope : 'subnet';
+      }
       return sanitized;
 
     case T.MOD_WIPE:

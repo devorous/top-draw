@@ -20,6 +20,10 @@
     { value: 'registered', label: 'Registered Only' },
     { value: 'trusted', label: 'Trusted Only' }
   ];
+  const ROOM_VISIBILITY_OPTIONS = [
+    { value: 'public', label: 'Public' },
+    { value: 'private', label: 'Private (unlisted)' }
+  ];
   const BOARD_SIZE_OPTIONS = [
     { value: '720p',  label: '720p  (1280 × 720)' },
     { value: '1080p', label: '1080p (1920 × 1080)' },
@@ -694,7 +698,7 @@
 
           <div class="form-grid">
             <div class="form-group">
-              <label for="roomBgColor">Background Color</label>
+              <label for="roomBgColor">Background Colour</label>
               <div class="color-input-group">
                 <input type="color" id="roomBgColor" bind:value={backgroundColor} class="room-color-input" />
                 <input type="text" value={backgroundColor} oninput={(e) => backgroundColor = e.target.value} class="room-input color-text" />
@@ -702,8 +706,18 @@
             </div>
 
             <div class="form-group">
-              <label for="roomMaxUsers">Max Users (2-60)</label>
-              <input type="number" id="roomMaxUsers" bind:value={maxUsers} min="2" max="60" class="room-input" />
+              <label for="roomVisibility">Visibility</label>
+              <select
+                id="roomVisibility"
+                class="room-input"
+                value={roomPrivate ? 'private' : 'public'}
+                onchange={(e) => roomPrivate = e.currentTarget.value === 'private'}
+              >
+                {#each ROOM_VISIBILITY_OPTIONS as option}
+                  <option value={option.value}>{option.label}</option>
+                {/each}
+              </select>
+              <span class="form-hint">Private rooms don't appear in the room browser.</span>
             </div>
           </div>
 
@@ -718,14 +732,19 @@
             </div>
 
             <div class="form-group">
-              <label for="roomBoardSize">Board Size</label>
-              <select id="roomBoardSize" bind:value={boardSize} class="room-input">
-                {#each BOARD_SIZE_OPTIONS as option}
-                  <option value={option.value}>{option.label}</option>
-                {/each}
-              </select>
-              <span class="form-hint">Changing board size clears the canvas for all users.</span>
+              <label for="roomMaxUsers">Max Users (2-60)</label>
+              <input type="number" id="roomMaxUsers" bind:value={maxUsers} min="2" max="60" class="room-input" />
             </div>
+          </div>
+
+          <div class="form-group">
+            <label for="roomBoardSize">Board Size</label>
+            <select id="roomBoardSize" bind:value={boardSize} class="room-input">
+              {#each BOARD_SIZE_OPTIONS as option}
+                <option value={option.value}>{option.label}</option>
+              {/each}
+            </select>
+            <span class="form-hint">Changing board size clears the canvas for all users.</span>
           </div>
 
           <div class="form-group checkbox-group">
@@ -802,13 +821,6 @@
             <label>
               <input type="checkbox" bind:checked={obscureRequiresRegistered} />
               <span>Only registered users can reveal obscured regions</span>
-            </label>
-          </div>
-
-          <div class="form-group checkbox-group">
-            <label>
-              <input type="checkbox" bind:checked={roomPrivate} />
-              <span>Private room (unlisted — won't appear in the room browser)</span>
             </label>
           </div>
 
