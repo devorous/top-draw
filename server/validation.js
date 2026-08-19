@@ -705,7 +705,13 @@ export async function sanitizeMessage(data) {
       return sanitized;
 
     case T.MOD_ACTION:
-      sanitized.modActionType = clampInt(data.modActionType, 0, 5, 0);
+      // Upper bound must track MOD_ACTION_MAP in server/index.js, which is
+      // currently 8 entries (0 kick … 5 update, 6 shadowban, 7 unshadowban).
+      // It was left at 5 when shadowban/unshadowban were added, so every
+      // shadowban request was clamped into 5 = MOD_UPDATE — which ran, and
+      // still returned MOD_RESULT a=true. The feature was inert and the
+      // moderator was told it worked. Widen this whenever an action is added.
+      sanitized.modActionType = clampInt(data.modActionType, 0, 7, 0);
       sanitized.modTarget = clampInt(data.modTarget, 0, 65535, 0);
       sanitized.modReason = sanitizeString(data.modReason, MAX_MOD_REASON_LENGTH);
       sanitized.modDuration = clampInt(data.modDuration, 0, MAX_DURATION_MINUTES, 0);

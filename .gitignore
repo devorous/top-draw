@@ -28,6 +28,9 @@ testing/diffs/
 testing/sync_results/
 testing/puppeteer/sync_results/
 
+# Generated moderation-suite reports (per-run)
+testing/moderation_results/
+
 # One-off debug dumps & generated bench/export artifacts (not fixtures).
 # big.ddraw is kept tracked as a shared portability-smoke fixture.
 testing/_*.json

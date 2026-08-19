@@ -27,6 +27,8 @@
     "test:brushjoin": "node testing/devtools/image_brush_joiner_render_probe.mjs",
     "test:brushwire": "node testing/devtools/image_brush_join_probe.mjs",
     "test:moderation": "node testing/puppeteer/moderation_suite.js",
+    "test:ipidentity": "node testing/moderation/ip_identity.test.mjs",
+    "test:ipmod": "cross-env MONGODB_URI=mongodb://127.0.0.1:27017 MONGODB_DB_NAME=Draw node testing/moderation/ip_moderation_suite.mjs",
     "server:stress": "cross-env HOST=127.0.0.1 PORT=8030 DISABLE_RATE_LIMITS=true node server/index.js",
     "snapshots:cleanup-legacy": "node server/scripts/delete-legacy-snapshots.js",
     "dev:stress": "concurrently \"npm run server:stress\" \"vite --open /go/\"",

@@ -1,5 +1,7 @@
 /** @fileoverview Shared server-side security helpers: IP extraction and in-memory rate limiting. */
 
+import { normalizeIpString } from './ipIdentity.js';
+
 /**
  * Best-effort check for whether an address belongs to a trusted local/private proxy.
  * This lets us honor X-Forwarded-For only when the immediate peer is local/private
@@ -84,6 +86,25 @@ export function isLocalhostRequest(req, clientIp = '') {
  * X-Forwarded-For is only trusted when the direct peer looks like a private/local proxy,
  * or when TRUST_PROXY=true is set.
  *
+ * The forwarded value must parse as a real address before it is trusted. It is
+ * the leftmost X-Forwarded-For entry, which is client-supplied whenever the
+ * proxy appends rather than overwrites — so it is attacker-controlled input,
+ * and every IP-based control (ban, mute, shadowban, per-IP rate limits) is
+ * keyed on the result. Unvalidated, junk here bought a fresh identity per
+ * request in two different ways: `::ffff:999.1.1.1` minted a well-formed
+ * "IPv4" identity in its own synthetic /24, and an unparseable string produced
+ * no range fingerprints at all, so no stored ban could ever match it. Either
+ * one lets a banned client reconnect indefinitely.
+ *
+ * An unusable value therefore falls back to the socket peer — which for a real
+ * proxy deployment is the proxy itself. That is deliberately unhelpful to an
+ * evader (one shared identity, and a bannable one) rather than silently
+ * unbannable.
+ *
+ * The return value is canonicalized, so `ws.clientIp` carries one spelling of
+ * one address everywhere downstream. Ban semantics are unaffected: `buildIpIdentity`
+ * already canonicalized before hashing, so existing stored ranges still match.
+ *
  * @param {import('http').IncomingMessage} req
  * @returns {string}
  */
@@ -93,10 +114,11 @@ export function getClientIp(req) {
   const forwarded = req?.headers?.['x-forwarded-for'];
 
   if (trustProxy && typeof forwarded === 'string' && forwarded.trim()) {
-    return forwarded.split(',')[0].trim();
+    const canonical = normalizeIpString(forwarded.split(',')[0].trim());
+    if (canonical) return canonical;
   }
 
-  return remoteAddress;
+  return normalizeIpString(remoteAddress) || remoteAddress;
 }
 
 /**

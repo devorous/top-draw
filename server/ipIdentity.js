@@ -38,9 +38,14 @@ function normalizeIp(ip) {
   const zoneIndex = value.indexOf('%');
   if (zoneIndex !== -1) value = value.slice(0, zoneIndex);
 
-  // Check for IPv4-mapped IPv6 (::ffff:x.x.x.x)
+  // Check for IPv4-mapped IPv6 (::ffff:x.x.x.x). The octets must be validated:
+  // the pattern alone accepts `::ffff:999.1.1.1`, which used to yield a
+  // well-formed "IPv4" identity in its own synthetic 999.1.1.0/24 — an endless
+  // supply of distinct, unbanned ranges for anyone who can influence the
+  // address. Fall through on a bad capture so the isIPv4/isIPv6 checks below
+  // reject the value outright.
   const v4MappedMatch = value.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i);
-  if (v4MappedMatch) {
+  if (v4MappedMatch && isIPv4(v4MappedMatch[1])) {
     return { family: 'ipv4', canonical: v4MappedMatch[1] };
   }
 
@@ -215,6 +220,24 @@ function getDisplayIpForTier(identity, tier) {
   }
 
   return maskIpv6(identity.canonicalIp, tier === 'fine' ? 7 : 4);
+}
+
+/**
+ * Validates and canonicalizes an address string.
+ *
+ * Used at the trust boundary (`security.js#getClientIp`) to decide whether a
+ * client-influenced address is usable at all, so that every downstream consumer
+ * of `ws.clientIp` sees one representation of one real address — or the peer
+ * address, never an attacker-chosen string.
+ *
+ * Accepts the forms a proxy realistically emits: bare addresses, `1.2.3.4:5678`,
+ * `[2001:db8::1]:443`, zone-scoped, and IPv4-mapped IPv6.
+ *
+ * @param {string} ip
+ * @returns {string|null} Canonical address, or null if it is not a valid IP.
+ */
+export function normalizeIpString(ip) {
+  return normalizeIp(ip)?.canonical ?? null;
 }
 
 /**

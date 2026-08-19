@@ -2022,11 +2022,22 @@ function shouldSkipJoinSyncPending(client, messageType) {
   return true;
 }
 
+// Types a muted user may not emit. This is an ALLOWLIST BY OMISSION: anything
+// absent falls through handleBroadcast's default path to broadcastToRoom, so a
+// board-mutating type added elsewhere and forgotten here is silently relayed
+// from muted users. FILL, TEXT_REMOVE, UNDO and REDO were exactly that gap —
+// a muted user could flood-fill the canvas. Add every new board-mutating type
+// here, and see `mute_gating` in testing/moderation/ip_moderation_suite.mjs,
+// which probes each type against a live peer and fails if one leaks.
 const MUTED_BLOCKED = new Set([
-  T.MM, T.MD, T.MU, T.KP, T.TEXT_APPLY, T.CLR,
+  T.MM, T.MD, T.MU, T.KP, T.TEXT_APPLY, T.TEXT_REMOVE, T.CLR, T.FILL,
   T.SEL_LIFT, T.SEL_MOVE, T.SEL_COMMIT, T.SEL_DELETE, T.SEL_FILL, T.SEL_STAMP, T.SEL_FLIP, T.SEL_MERGE, T.SEL_CANCEL, T.SEL_TO_BRUSH, T.SEL_MASK, T.OBSCURE_REGION,
   T.IMG_PASTE, T.MSG, T.DM, T.CHAT_IMG, T.GLITCH_RESULT,
-  T.MIR, T.MIRROR_REGION
+  T.MIR, T.MIRROR_REGION,
+  // Undo/redo mutate the board like anything else. Scoped to the sender's own
+  // strokes, so blocking them also stops a muted user withdrawing their own
+  // work — the deliberate reading of "muted means cannot affect the board".
+  T.UNDO, T.REDO
 ]);
 
 const NON_USER_ACTIVITY_TYPES = new Set([
