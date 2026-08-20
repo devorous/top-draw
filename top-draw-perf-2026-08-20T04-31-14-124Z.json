@@ -1,0 +1,316 @@
+{
+  "timestamp": "2026-08-20T04:31:14.110Z",
+  "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+  "viewport": {
+    "width": 1920,
+    "height": 889,
+    "dpr": 1
+  },
+  "input": {
+    "tickRate": 60,
+    "lowPowerMode": false
+  },
+  "detection": {
+    "score": 4,
+    "isLowPower": true,
+    "cores": 2,
+    "memory": 4,
+    "renderer": "ANGLE (Intel, Mesa Intel(R) UHD Graphics (JSL), OpenGL 4.6)",
+    "maxTexture": 16384,
+    "maxVertexUnits": 32
+  },
+  "board": {
+    "width": 1920,
+    "height": 1080,
+    "layers": 3,
+    "grid": {
+      "cols": 60,
+      "rows": 34,
+      "tileSize": 32
+    }
+  },
+  "perfProbe": {
+    "elapsedMs": 65738.89999999851,
+    "entries": [
+      {
+        "name": "dirtyRects.resolve",
+        "count": 310,
+        "perSec": 4.715624995246452,
+        "avgMs": 0.12548387095091804,
+        "selfAvgMs": 0.12548387095091804,
+        "totalMs": 38.899999994784594,
+        "selfMs": 38.899999994784594,
+        "maxMs": 2.799999998882413,
+        "loadPercent": 0.05917348783564294,
+        "buckets": [
+          301,
+          3,
+          6,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "tallies": {
+          "forceFull": 11,
+          "clean": 52,
+          "coverageBail": 2,
+          "rectCollapse": 4,
+          "rectsEmitted": 368,
+          "tilesScanned": 499800,
+          "dirtyTiles": 2283
+        }
+      },
+      {
+        "name": "composite.all",
+        "count": 310,
+        "perSec": 4.715624995246452,
+        "avgMs": 2.7516129032498404,
+        "selfAvgMs": 2.6261290322989224,
+        "totalMs": 853.0000000074506,
+        "selfMs": 814.100000012666,
+        "maxMs": 17,
+        "loadPercent": 1.2383839705451178,
+        "buckets": [
+          117,
+          29,
+          86,
+          66,
+          11,
+          1,
+          0,
+          0,
+          0,
+          0
+        ],
+        "tallies": {
+          "fullRedraw": 13,
+          "partial": 297,
+          "skipped": 10,
+          "pathEraseAll": 0,
+          "pathSplit": 289,
+          "pathFull": 11,
+          "layersComposited": 900
+        }
+      },
+      {
+        "name": "imageBrush.stamp",
+        "count": 5176,
+        "perSec": 78.73572572708271,
+        "avgMs": 0.026545595054527662,
+        "selfAvgMs": 0.026545595054527662,
+        "totalMs": 137.40000000223517,
+        "selfMs": 137.40000000223517,
+        "maxMs": 9.399999998509884,
+        "loadPercent": 0.2090086691475493,
+        "buckets": [
+          5162,
+          9,
+          2,
+          2,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "tallies": {
+          "mirrorDraws": 0,
+          "gih": 0,
+          "svg": 0,
+          "tinted": 0
+        }
+      },
+      {
+        "name": "imageBrush.tint",
+        "count": 0,
+        "perSec": 0,
+        "avgMs": 0,
+        "selfAvgMs": 0,
+        "totalMs": 0,
+        "selfMs": 0,
+        "maxMs": 0,
+        "loadPercent": 0,
+        "buckets": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "tallies": {
+          "misses": 0
+        }
+      },
+      {
+        "name": "glitch.stamp",
+        "count": 1098,
+        "perSec": 16.702439499292275,
+        "avgMs": 5.8673041894495865,
+        "selfAvgMs": 0.027868852468855503,
+        "totalMs": 6442.300000015646,
+        "selfMs": 30.600000010803342,
+        "maxMs": 62.59999999962747,
+        "loadPercent": 0.046547782227576114,
+        "buckets": [
+          0,
+          0,
+          71,
+          993,
+          14,
+          14,
+          3,
+          3,
+          0,
+          0
+        ],
+        "tallies": {
+          "pixels": 1756800,
+          "wasmFailures": 0
+        }
+      },
+      {
+        "name": "glitch.crop",
+        "count": 1098,
+        "perSec": 16.702439499292275,
+        "avgMs": 5.224954462693309,
+        "selfAvgMs": 5.224954462693309,
+        "totalMs": 5737.000000037253,
+        "selfMs": 5737.000000037253,
+        "maxMs": 62.29999999888241,
+        "loadPercent": 8.726948579969216,
+        "buckets": [
+          0,
+          1,
+          145,
+          922,
+          12,
+          13,
+          2,
+          3,
+          0,
+          0
+        ],
+        "tallies": null
+      },
+      {
+        "name": "glitch.wasmBlur",
+        "count": 1098,
+        "perSec": 16.702439499292275,
+        "avgMs": 0.6144808742874226,
+        "selfAvgMs": 0.6144808742874226,
+        "totalMs": 674.69999996759,
+        "selfMs": 674.69999996759,
+        "maxMs": 17.399999998509884,
+        "loadPercent": 1.0263329626257898,
+        "buckets": [
+          1046,
+          48,
+          2,
+          0,
+          1,
+          1,
+          0,
+          0,
+          0,
+          0
+        ],
+        "tallies": null
+      },
+      {
+        "name": "homography.transform",
+        "count": 266,
+        "perSec": 4.046310479792117,
+        "avgMs": 19.484210526353603,
+        "selfAvgMs": 0.1969924811974056,
+        "totalMs": 5182.800000010058,
+        "selfMs": 52.399999998509884,
+        "maxMs": 54.600000001490116,
+        "loadPercent": 0.07970927411093137,
+        "buckets": [
+          0,
+          0,
+          0,
+          0,
+          123,
+          118,
+          23,
+          2,
+          0,
+          0
+        ],
+        "tallies": {
+          "srcPixels": 354631200,
+          "outPixels": 31406451,
+          "scaled": 266,
+          "failures": 0
+        }
+      },
+      {
+        "name": "homography.setSource",
+        "count": 266,
+        "perSec": 4.046310479792117,
+        "avgMs": 12.112406015045996,
+        "selfAvgMs": 12.112406015045996,
+        "totalMs": 3221.900000002235,
+        "selfMs": 3221.900000002235,
+        "maxMs": 39.09999999962747,
+        "loadPercent": 4.9010555394177695,
+        "buckets": [
+          0,
+          0,
+          0,
+          17,
+          208,
+          39,
+          2,
+          0,
+          0,
+          0
+        ],
+        "tallies": null
+      },
+      {
+        "name": "homography.warp",
+        "count": 266,
+        "perSec": 4.046310479792117,
+        "avgMs": 7.1748120301102,
+        "selfAvgMs": 7.1748120301102,
+        "totalMs": 1908.5000000093132,
+        "selfMs": 1908.5000000093132,
+        "maxMs": 28.40000000037253,
+        "loadPercent": 2.903151710797346,
+        "buckets": [
+          0,
+          0,
+          43,
+          157,
+          55,
+          11,
+          0,
+          0,
+          0,
+          0
+        ],
+        "tallies": null
+      }
+    ],
+    "longTaskCount": 103,
+    "longTaskTotalMs": 19085,
+    "longTaskMaxMs": 2173,
+    "longTaskLoadPercent": 29.03151710783179,
+    "longTaskRetained": 64,
+    "overflows": 0,
+    "underflows": 0
+  },
+  "overlays": {}
+}
