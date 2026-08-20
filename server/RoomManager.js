@@ -338,6 +338,7 @@ export class Room {
    * @returns {boolean}
    */
   canPersistSnapshots() {
+    if (process.env.DISABLE_PERSISTENCE === 'true') return false;
     return this.isRegistered() || this.id === 'lobby';
   }
 

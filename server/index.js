@@ -91,6 +91,7 @@ const __dirname = pathModule.dirname(__filename);
 const PORT = process.env.PORT || 8000;
 const HOST = process.env.HOST || '0.0.0.0';
 const DISABLE_RATE_LIMITS = process.env.DISABLE_RATE_LIMITS === 'true';
+const DISABLE_PERSISTENCE = process.env.DISABLE_PERSISTENCE === 'true';
 const MAX_WS_PAYLOAD_BYTES = 16 * 1024 * 1024;
 const MAX_WS_BUFFERED_BYTES = parsePositiveIntEnv('MAX_WS_BUFFERED_BYTES', 16 * 1024 * 1024);
 const MAX_OUTBOX_BYTES = parsePositiveIntEnv('MAX_OUTBOX_BYTES', 4 * 1024 * 1024);
@@ -1790,17 +1791,23 @@ async function init() {
     Object.keys(Msg.fields).filter(k => k.toLowerCase().includes('board')),
     'total fields:', Object.keys(Msg.fields).length);
 
-  try {
-    await connectDB();
-  } catch (err) {
-    console.warn('[Server] Starting without database — auth/moderation disabled');
-    debug(err);
+  if (DISABLE_PERSISTENCE) {
+    console.warn('[Server] DISABLE_PERSISTENCE=true — skipping DB + Discord bot init');
+  } else {
+    try {
+      await connectDB();
+    } catch (err) {
+      console.warn('[Server] Starting without database — auth/moderation disabled');
+      debug(err);
+    }
   }
 
   roomManager = new RoomManager(wss, sendTo);
   roomManager.setMsgEncoder(Msg, createRoomBroadcaster);
   setDiscordRoomManager(roomManager);
-  await initDiscordBot({ roomManager });
+  if (!DISABLE_PERSISTENCE) {
+    await initDiscordBot({ roomManager });
+  }
   setGalleryDiscordPoster(postGalleryItemToDiscord);
   postReleaseUpdateOnce().catch(err => {
     console.error('[Discord] Auto release update failed:', err);

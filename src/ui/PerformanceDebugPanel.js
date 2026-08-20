@@ -123,7 +123,8 @@ export class PerformanceDebugPanel {
       html += '<br>';
     }
 
-    html += '<br><span style="color:#555">(Shift+P to toggle)</span>';
+    html += '<br><span id="downloadLog" style="color:#0af; cursor:pointer; text-decoration:underline;">Download log</span>';
+    html += ' <span style="color:#555">· (Shift+P to toggle)</span>';
 
     this.panel.innerHTML = html;
 
@@ -134,6 +135,8 @@ export class PerformanceDebugPanel {
       perfProbe.reset();
       this.update();
     });
+
+    this.panel.querySelector('#downloadLog')?.addEventListener('click', () => this.downloadLog());
 
     // Overlay toggles
     if (debugOverlay) {
@@ -251,6 +254,48 @@ export class PerformanceDebugPanel {
   _overlayToggle(id, label, active) {
     const color = active ? '#0f0' : '#555';
     return `<span id="${id}" style="color:${color}; cursor:pointer; text-decoration:underline;">${label}</span>`;
+  }
+
+  downloadLog() {
+    const info = this.inputBufferManager.getPerformanceInfo();
+    const snap = perfProbe.snapshot();
+    const board = this.app?.board;
+    const grid = board?.compositeTileGrid;
+    const debugOverlay = this.app?.debugOverlay;
+
+    const log = {
+      timestamp: new Date().toISOString(),
+      userAgent: navigator.userAgent,
+      viewport: { width: window.innerWidth, height: window.innerHeight, dpr: window.devicePixelRatio },
+      input: {
+        tickRate: info.tickRate,
+        lowPowerMode: info.lowPowerMode
+      },
+      detection: info.detection ?? null,
+      board: board ? {
+        width: board.getWidth?.() ?? null,
+        height: board.getHeight?.() ?? null,
+        layers: board.layerManager?.getLayerCount?.() ?? null,
+        grid: grid ? { cols: grid.cols, rows: grid.rows, tileSize: grid.tileSize } : null
+      } : null,
+      perfProbe: snap,
+      overlays: debugOverlay ? {
+        showDirtyRects: debugOverlay.showDirtyRects,
+        showRegions: debugOverlay.showRegions,
+        showStrokePoints: debugOverlay.showStrokePoints
+      } : null
+    };
+
+    const blob = new Blob([JSON.stringify(log, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `top-draw-perf-${stamp}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 0);
   }
 
   toggleTPS() {

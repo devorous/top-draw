@@ -32,6 +32,8 @@
     "server:stress": "cross-env HOST=127.0.0.1 PORT=8030 DISABLE_RATE_LIMITS=true node server/index.js",
     "snapshots:cleanup-legacy": "node server/scripts/delete-legacy-snapshots.js",
     "dev:stress": "concurrently \"npm run server:stress\" \"vite --open /go/\"",
+    "server:noapi": "cross-env DISABLE_PERSISTENCE=true DISABLE_RATE_LIMITS=true HOST=127.0.0.1 PORT=8030 node server/index.js",
+    "dev:noapi": "concurrently \"npm run server:noapi\" \"vite --open /go/\"",
     "start": "node server/index.js",
     "docs": "jsdoc -r src server shared -d docs/jsdocs",
     "wasm": "wasm-pack build wasm_src --target web --out-dir ../src/wasm/",

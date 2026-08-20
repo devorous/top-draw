@@ -1,0 +1,107 @@
+{
+  "timestamp": "2026-08-20T04:02:02.244Z",
+  "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+  "viewport": {
+    "width": 1920,
+    "height": 889,
+    "dpr": 1
+  },
+  "input": {
+    "tickRate": 60,
+    "lowPowerMode": false
+  },
+  "detection": {
+    "score": 4,
+    "isLowPower": true,
+    "cores": 2,
+    "memory": 4,
+    "renderer": "ANGLE (Intel, Mesa Intel(R) UHD Graphics (JSL), OpenGL 4.6)",
+    "maxTexture": 16384,
+    "maxVertexUnits": 32
+  },
+  "board": {
+    "width": 1920,
+    "height": 1080,
+    "layers": 3,
+    "grid": {
+      "cols": 60,
+      "rows": 34,
+      "tileSize": 32
+    }
+  },
+  "perfProbe": {
+    "elapsedMs": 45187.09999999963,
+    "entries": [
+      {
+        "name": "dirtyRects.resolve",
+        "count": 370,
+        "perSec": 8.188177599359177,
+        "avgMs": 0.10081081081030739,
+        "selfAvgMs": 0.10081081081030739,
+        "totalMs": 37.299999999813735,
+        "selfMs": 37.299999999813735,
+        "maxMs": 2.599999999627471,
+        "loadPercent": 0.08254568228501949,
+        "buckets": [
+          363,
+          5,
+          2,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "tallies": {
+          "forceFull": 2,
+          "clean": 23,
+          "coverageBail": 3,
+          "rectCollapse": 3,
+          "rectsEmitted": 529,
+          "tilesScanned": 697680,
+          "dirtyTiles": 9538
+        }
+      },
+      {
+        "name": "composite.all",
+        "count": 370,
+        "perSec": 8.188177599359177,
+        "avgMs": 1.8713513513624265,
+        "selfAvgMs": 1.770540540552119,
+        "totalMs": 692.4000000040978,
+        "selfMs": 655.1000000042841,
+        "maxMs": 19.299999999813735,
+        "loadPercent": 1.449750039290615,
+        "buckets": [
+          163,
+          107,
+          73,
+          19,
+          7,
+          1,
+          0,
+          0,
+          0,
+          0
+        ],
+        "tallies": {
+          "fullRedraw": 5,
+          "partial": 365,
+          "skipped": 1,
+          "pathEraseAll": 0,
+          "pathSplit": 348,
+          "pathFull": 21,
+          "layersComposited": 1107
+        }
+      }
+    ],
+    "longTaskCount": 64,
+    "longTaskTotalMs": 15614,
+    "longTaskMaxMs": 640,
+    "overflows": 0,
+    "underflows": 0
+  },
+  "overlays": {}
+}
