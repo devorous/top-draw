@@ -39,6 +39,7 @@ import { BrushModeManager } from './tools/BrushModeManager.js';
 import { BlendModeManager } from './canvas/BlendModeManager.js';
 // import { StrokeHistoryPanel } from './ui/StrokeHistoryPanel.js'; // Hidden - stroke history panel disabled
 import { PerformanceDebugPanel } from './ui/PerformanceDebugPanel.js';
+import { perfProbe } from './utils/PerfProbe.js';
 import { decodeDdraw, isDdrawFile } from '../shared/ddrawCodec.js';
 import { highlight } from './ui/Highlight.js';
 import { deferredReplay, preloadRoomModules, preloadAdminModules } from './platform/deferredModules.js';
@@ -664,6 +665,9 @@ export class DrawingApp {
     this.updateUndoRedoHud();
 
     this.performanceDebugPanel.init();
+
+    // Console access for ad-hoc digging: window.app.perfProbe.snapshot().
+    this.perfProbe = perfProbe;
 
     this.ui.setupLayerPreviewListeners(this.board.layerManager);
     this.ui.attachFontChangeListener(this); // Attach font change listener

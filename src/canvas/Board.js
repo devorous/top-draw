@@ -4,6 +4,7 @@ import { TileTracker } from './TileTracker.js';
 import { TextOverlay } from './TextOverlay.js';
 import * as wasm from '../wasm/ddraw_wasm.js';
 import { readQoiDimensions, snapshotLayerDimensions } from '../../shared/qoi.js';
+import { perfProbe } from '../utils/PerfProbe.js';
 
 /**
  * @fileoverview Board class managing canvas elements and viewport
@@ -12,6 +13,20 @@ import { readQoiDimensions, snapshotLayerDimensions } from '../../shared/qoi.js'
 // Must outlast the 260ms opacity transition set on mirrorGuidesLayer, so the
 // fade finishes before the layer leaves the compositing tree.
 const MIRROR_GUIDE_FADE_MS = 300;
+
+const COMPOSITE_PROBE = 'composite.all';
+
+// Branch tallies, because the three paths through compositeAllLayers differ in
+// cost by a lot and an average across them is not interpretable.
+perfProbe.register(COMPOSITE_PROBE, [
+  'fullRedraw',       // dirty-rect resolve gave up — whole board recomposited
+  'partial',          // composited against a rect list
+  'skipped',          // nothing to do, early-out
+  'pathEraseAll',     // erase-all-layers path
+  'pathSplit',        // split around the active layer
+  'pathFull',         // full stack in one range
+  'layersComposited'  // running total of layers, for a per-composite average
+]);
 
 /**
  * Manages the drawing boards, viewport transformations, and compositing logic.
@@ -3309,6 +3324,21 @@ export class Board {
    * Composite all visible layers onto the main canvas.
    */
   compositeAllLayers() {
+    perfProbe.begin(COMPOSITE_PROBE);
+    try {
+      this._compositeAllLayers();
+    } finally {
+      perfProbe.end(COMPOSITE_PROBE);
+    }
+  }
+
+  /**
+   * @private
+   * Split out so `compositeAllLayers` can wrap every exit path in one probe.
+   * The `dirtyRects.resolve` probe fires inside here and nests as a child, so
+   * this probe's `selfMs` is compositing proper with grid-scan time removed.
+   */
+  _compositeAllLayers() {
     if (!this.layerManager) return;
 
     const activeLayerIdx = this.app?.self?.activeLayer ?? 0;
@@ -3338,18 +3368,26 @@ export class Board {
       this.onCompositeDirtyRects(dirtyRects, isFullRedraw);
     }
 
+    // A null rect list means every branch below composites the whole board.
+    // The ratio of this to `partial` is the headline number for board-size lag.
+    perfProbe.tally(COMPOSITE_PROBE, pendingDirtyRects === null ? 'fullRedraw' : 'partial');
+
     if (Array.isArray(pendingDirtyRects) &&
         pendingDirtyRects.length === 0 &&
         !this.layerManager.needsComposite &&
         !isDrawing &&
         !activeEraserPreview &&
         !hasActiveSelection) {
+      perfProbe.tally(COMPOSITE_PROBE, 'skipped');
       this.layerManager.needsComposite = false;
       this.layerManager._notifyStrokeHistoryPanel();
       return;
     }
 
+    perfProbe.tally(COMPOSITE_PROBE, 'layersComposited', totalLayers);
+
     if ((isDrawing && eraseAll) || activeEraserPreviewIsAllLayers) {
+      perfProbe.tally(COMPOSITE_PROBE, 'pathEraseAll');
       const mainDirtyRects = this._getFullMainDirtyRects(dirtyRects);
       this._fillBackgroundLayers(mainDirtyRects);
       this.layerManager.compositeLayerRange(this.mainCtx, 0, totalLayers, this.getCompositeBackgroundColor(), mainDirtyRects);
@@ -3367,6 +3405,7 @@ export class Board {
       (isDrawing || previewUsesFlattenedOverlay || hasActiveSelection || hasFillPreview) &&
       splitLayer + 1 < totalLayers
     ) {
+      perfProbe.tally(COMPOSITE_PROBE, 'pathSplit');
       if (previewUsesFlattenedOverlay) {
         const mainDirtyRects = this._getSplitMainDirtyRects(splitLayer + 1, dirtyRects);
         this._applyEraserPreviewToMain(
@@ -3393,6 +3432,7 @@ export class Board {
 
       this._compositeUpperLayers(splitLayer + 1, totalLayers, dirtyRects);
     } else {
+      perfProbe.tally(COMPOSITE_PROBE, 'pathFull');
       const mainDirtyRects = this._getFullMainDirtyRects(dirtyRects);
       if (previewUsesFlattenedOverlay) {
         this._applyEraserPreviewToMain(

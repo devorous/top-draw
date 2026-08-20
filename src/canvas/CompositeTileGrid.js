@@ -1,3 +1,20 @@
+import { perfProbe } from '../utils/PerfProbe.js';
+
+const PROBE = 'dirtyRects.resolve';
+
+// Tallies here are the point of the probe: the two escape hatches below
+// (coverage bail, rect collapse) each swap a cheap path for a much more
+// expensive one, and we have no production data on how often either fires.
+perfProbe.register(PROBE, [
+  'forceFull',    // markFull() had been called — full redraw, no scan
+  'clean',        // nothing dirty, early-out before the grid scan
+  'coverageBail', // dirty fraction > maxCoverage — degraded to full redraw
+  'rectCollapse', // more than maxRects runs — degraded to bounding box
+  'rectsEmitted', // total rects returned, for a per-call average
+  'tilesScanned', // cols*rows per scanning call — the board-area cost driver
+  'dirtyTiles'    // dirty tiles per scanning call, to compare against the above
+]);
+
 export class CompositeTileGrid {
   constructor(width, height, tileSize = 32) {
     this.tileSize = tileSize;
@@ -71,18 +88,38 @@ export class CompositeTileGrid {
    * @returns {Array<{x:number,y:number,width:number,height:number}>|null}
    */
   consumeDirtyRects(maxCoverage = 0.4, maxRects = 8) {
+    perfProbe.begin(PROBE);
+    try {
+      return this._consumeDirtyRects(maxCoverage, maxRects);
+    } finally {
+      perfProbe.end(PROBE);
+    }
+  }
+
+  /** @private */
+  _consumeDirtyRects(maxCoverage, maxRects) {
     if (this.forceFull) {
+      perfProbe.tally(PROBE, 'forceFull');
       this.clear();
       return null;
     }
 
-    if (this.dirtyCount === 0) return [];
+    if (this.dirtyCount === 0) {
+      perfProbe.tally(PROBE, 'clean');
+      return [];
+    }
 
     const tileCount = this.cols * this.rows;
     if (tileCount > 0 && (this.dirtyCount / tileCount) > maxCoverage) {
+      perfProbe.tally(PROBE, 'coverageBail');
       this.clear();
       return null;
     }
+
+    // Counted only on calls that actually run the scan below, so the ratio of
+    // tilesScanned to dirtyTiles reads as wasted work per scanning call.
+    perfProbe.tally(PROBE, 'tilesScanned', tileCount);
+    perfProbe.tally(PROBE, 'dirtyTiles', this.dirtyCount);
 
     const rectRuns = [];
     let activeRuns = new Map();
@@ -133,6 +170,8 @@ export class CompositeTileGrid {
 
     this.clear();
     if (rects.length > maxRects) {
+      perfProbe.tally(PROBE, 'rectCollapse');
+      perfProbe.tally(PROBE, 'rectsEmitted');
       let minX = Infinity, minY = Infinity, maxRX = -Infinity, maxRY = -Infinity;
       for (const r of rects) {
         if (r.x < minX) minX = r.x;
@@ -142,6 +181,7 @@ export class CompositeTileGrid {
       }
       return [{ x: minX, y: minY, width: maxRX - minX, height: maxRY - minY }];
     }
+    perfProbe.tally(PROBE, 'rectsEmitted', rects.length);
     return rects;
   }
 }
