@@ -4,6 +4,19 @@
  */
 
 import { Homography, calculateTransformMatrix, applyProjectiveTransformToPoint } from './homography.js';
+import { perfProbe } from './PerfProbe.js';
+
+// Split so a slow transform can be blamed on the right half. `setSource` covers
+// re-extracting the source raster — which happens on every call here, since
+// `_width`/`_height` are deliberately nulled below — and `warp` covers the
+// inverse mapping over the output window.
+const P_TRANSFORM = 'homography.transform';
+const P_SETSOURCE = 'homography.setSource';
+const P_WARP = 'homography.warp';
+
+perfProbe.register(P_TRANSFORM, ['srcPixels', 'outPixels', 'scaled', 'failures']);
+perfProbe.register(P_SETSOURCE);
+perfProbe.register(P_WARP);
 
 /**
  * Calculates a bounding box from four corner points.
@@ -183,7 +196,10 @@ export function performHomographyTransform({
     return null;
   }
 
+  perfProbe.begin(P_TRANSFORM);
   try {
+    perfProbe.tally(P_TRANSFORM, 'srcPixels', sourceCanvas.width * sourceCanvas.height);
+    if (scale !== 1) perfProbe.tally(P_TRANSFORM, 'scaled');
     // Create or reuse homography instance
     const homography = homographyInstance || new Homography('projective');
 
@@ -242,19 +258,32 @@ export function performHomographyTransform({
     );
 
     // Configure homography with source and destination points
-    if (srcWidth !== undefined && srcHeight !== undefined) {
-      homography.setSourcePoints(srcPoints, sourceCanvas, srcWidth, srcHeight);
-    } else {
-      homography.setSourcePoints(srcPoints, sourceCanvas);
+    perfProbe.begin(P_SETSOURCE);
+    try {
+      if (srcWidth !== undefined && srcHeight !== undefined) {
+        homography.setSourcePoints(srcPoints, sourceCanvas, srcWidth, srcHeight);
+      } else {
+        homography.setSourcePoints(srcPoints, sourceCanvas);
+      }
+    } finally {
+      perfProbe.end(P_SETSOURCE);
     }
     homography.setDestinyPoints(dstPoints);
 
     // Perform the warp
-    const imageData = homography.warp();
+    perfProbe.begin(P_WARP);
+    let imageData;
+    try {
+      imageData = homography.warp();
+    } finally {
+      perfProbe.end(P_WARP);
+    }
 
     if (!imageData) {
       return null;
     }
+
+    perfProbe.tally(P_TRANSFORM, 'outPixels', imageData.width * imageData.height);
 
     // Return both the image data and bounds for positioning
     return {
@@ -274,8 +303,11 @@ export function performHomographyTransform({
           }
     };
   } catch (e) {
+    perfProbe.tally(P_TRANSFORM, 'failures');
     console.warn('Homography transform failed:', e);
     return null;
+  } finally {
+    perfProbe.end(P_TRANSFORM);
   }
 }
 

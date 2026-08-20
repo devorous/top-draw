@@ -5,6 +5,18 @@
 
 import * as wasm from '../wasm/ddraw_wasm.js';
 import { Tool } from './BaseTool.js';
+import { perfProbe } from '../utils/PerfProbe.js';
+
+// Three nested probes so the per-stamp cost splits into its real parts: the
+// crop (canvas allocation + GPU->CPU readback), the WASM blur itself, and the
+// copy-back. `selfMs` on `glitch.stamp` is then everything outside the two.
+const P_STAMP = 'glitch.stamp';
+const P_CROP = 'glitch.crop';
+const P_BLUR = 'glitch.wasmBlur';
+
+perfProbe.register(P_STAMP, ['pixels', 'wasmFailures']);
+perfProbe.register(P_CROP);
+perfProbe.register(P_BLUR);
 
 export class GlitchBlurTool extends Tool {
   constructor(board) {
@@ -428,6 +440,16 @@ export class GlitchBlurTool extends Tool {
    * Shared by the synchronous WASM path and the fast-preview worker pipeline.
    */
   _cropSnapshotRegion(x, y, size, user, layerIdx) {
+    perfProbe.begin(P_CROP);
+    try {
+      return this._cropSnapshotRegionInner(x, y, size, user, layerIdx);
+    } finally {
+      perfProbe.end(P_CROP);
+    }
+  }
+
+  /** @private */
+  _cropSnapshotRegionInner(x, y, size, user, layerIdx) {
     const radius = size;
     const blurRadius = user.blurRadius || 10;
     const userId = user.id ?? this.board.app?.self?.id ?? 0;
@@ -459,22 +481,35 @@ export class GlitchBlurTool extends Tool {
   }
 
   _computeGlitchStamp(x, y, size, user, layerIdx = this._getTargetLayer(user)) {
-    const crop = this._cropSnapshotRegion(x, y, size, user, layerIdx);
-    if (!crop) return null;
-
+    perfProbe.begin(P_STAMP);
     try {
-      const blurred = wasm.stackblur_rgba_glitch(
-        new Uint8Array(crop.imageData.data.buffer.slice(0)),
-        crop.cropW,
-        crop.cropH,
-        crop.blurRadius
-      );
-      crop.ctx.putImageData(new ImageData(new Uint8ClampedArray(blurred), crop.cropW, crop.cropH), 0, 0);
-    } catch (err) {
-      console.warn('Glitch blur WASM failed:', err);
-    }
+      const crop = this._cropSnapshotRegion(x, y, size, user, layerIdx);
+      if (!crop) return null;
 
-    return { stampCanvas: crop.canvas, cropX: crop.cropX, cropY: crop.cropY };
+      // Stamp area, so cost per stamp can be normalised against how much the
+      // brush size and blur radius actually asked for.
+      perfProbe.tally(P_STAMP, 'pixels', crop.cropW * crop.cropH);
+
+      perfProbe.begin(P_BLUR);
+      try {
+        const blurred = wasm.stackblur_rgba_glitch(
+          new Uint8Array(crop.imageData.data.buffer.slice(0)),
+          crop.cropW,
+          crop.cropH,
+          crop.blurRadius
+        );
+        crop.ctx.putImageData(new ImageData(new Uint8ClampedArray(blurred), crop.cropW, crop.cropH), 0, 0);
+      } catch (err) {
+        perfProbe.tally(P_STAMP, 'wasmFailures');
+        console.warn('Glitch blur WASM failed:', err);
+      } finally {
+        perfProbe.end(P_BLUR);
+      }
+
+      return { stampCanvas: crop.canvas, cropX: crop.cropX, cropY: crop.cropY };
+    } finally {
+      perfProbe.end(P_STAMP);
+    }
   }
 
   _applyStampToCtx(ctx, stamp, x, y, radius, intensity) {

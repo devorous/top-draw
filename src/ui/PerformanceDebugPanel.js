@@ -7,8 +7,16 @@ import { perfProbe } from '../utils/PerfProbe.js';
 
 /** Rows shown in the loop-timing table, in display order. */
 const PROBE_ROWS = [
-  { name: 'composite.all', label: 'Composite' },
-  { name: 'dirtyRects.resolve', label: 'Dirty rects' }
+  { name: 'composite.all', label: 'Composite', always: true },
+  { name: 'dirtyRects.resolve', label: 'Dirty rects', always: true },
+  { name: 'imageBrush.stamp', label: 'Brush stamp' },
+  { name: 'imageBrush.tint', label: '  · tint' },
+  { name: 'glitch.stamp', label: 'Glitch stamp' },
+  { name: 'glitch.crop', label: '  · crop' },
+  { name: 'glitch.wasmBlur', label: '  · blur' },
+  { name: 'homography.transform', label: 'Homography' },
+  { name: 'homography.setSource', label: '  · setSource' },
+  { name: 'homography.warp', label: '  · warp' }
 ];
 
 function fmtMs(value) {
@@ -190,6 +198,9 @@ export class PerformanceDebugPanel {
     for (const row of PROBE_ROWS) {
       const entry = byName.get(row.name);
       if (!entry || entry.count === 0) {
+        // Tool probes only fire while that tool is in use, so an idle row is
+        // normal — hide it rather than filling the table with empty lines.
+        if (!row.always) continue;
         html += `<tr><td>${row.label}</td><td colspan="4" align="right" style="color:#555">no samples</td></tr>`;
         continue;
       }
@@ -236,12 +247,13 @@ export class PerformanceDebugPanel {
       html += `<span style="color:#888">Rects/scan:</span> ${avgRects.toFixed(1)}<br>`;
     }
 
-    const ltColor = snap.longTaskCount > 0 ? '#fa0' : '#555';
+    // Blocked time the probes above do not account for. When this is high and
+    // every probe's load is low, the cost is in code nothing here covers yet.
+    const ltLoad = snap.longTaskLoadPercent ?? 0;
     html += `<span style="color:#888">Long tasks:</span> `
-      + `<span style="color:${ltColor}">${fmtInt(snap.longTaskCount)}</span>`
-      + ` total ${fmtMs(snap.longTaskTotalMs)}ms max ${fmtMs(snap.longTaskMaxMs)}ms`;
-    if (snap.longTaskCount >= 64) html += ' <span style="color:#555">(capped)</span>';
-    html += '<br>';
+      + `<span style="color:${loadColor(ltLoad)}">${fmtInt(snap.longTaskCount)}</span>`
+      + ` total ${fmtMs(snap.longTaskTotalMs)}ms max ${fmtMs(snap.longTaskMaxMs)}ms `
+      + `<span style="color:${loadColor(ltLoad)}">${ltLoad.toFixed(1)}% blocked</span><br>`;
 
     if (snap.overflows || snap.underflows) {
       html += `<span style="color:#f44">probe imbalance: `

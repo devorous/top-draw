@@ -12,6 +12,16 @@ import {
   prepareStrokePreviewCanvas
 } from '../ui/StrokePreviewRenderer.js';
 import { Tool } from './BaseTool.js';
+import { perfProbe } from '../utils/PerfProbe.js';
+
+// One stamp is the unit of work here — `onPointerMove` interpolates and can fire
+// many per event, so `perSec` on this probe is the real stamp rate, not the
+// pointer rate. `tint` is separate because a cache miss allocates a canvas.
+const P_STAMP = 'imageBrush.stamp';
+const P_TINT = 'imageBrush.tint';
+
+perfProbe.register(P_STAMP, ['mirrorDraws', 'gih', 'svg', 'tinted']);
+perfProbe.register(P_TINT, ['misses']);
 
 function getPreviewStampSpacing(user, previewSize = 25) {
   const spacing = Math.max(0, Math.min(50, Number(user?.spacing ?? 0)));
@@ -341,12 +351,23 @@ export class ImageBrushTool extends Tool {
   }
 
   _getTintedImage(user, image, frameKey = '') {
+    perfProbe.begin(P_TINT);
+    try {
+      return this._getTintedImageInner(user, image, frameKey);
+    } finally {
+      perfProbe.end(P_TINT);
+    }
+  }
+
+  /** @private */
+  _getTintedImageInner(user, image, frameKey) {
     const colorKey = user.color.slice(0, 3).join(',');
     const brush = user.imageBrush;
     const brushKey = brush?.brushName || brush?.fileName || 'brush';
     const cacheKey = `${brushKey}_${frameKey}_${colorKey}`;
     if (this._tintCache.has(cacheKey)) return this._tintCache.get(cacheKey);
 
+    perfProbe.tally(P_TINT, 'misses');
     const w = image.naturalWidth || image.width || 1;
     const h = image.naturalHeight || image.height || 1;
     const canvas = document.createElement('canvas');
@@ -367,6 +388,16 @@ export class ImageBrushTool extends Tool {
    * @param {Object} pos - The position to draw the stamp.
    */
   drawStamp(user, pos) {
+    perfProbe.begin(P_STAMP);
+    try {
+      this._drawStamp(user, pos);
+    } finally {
+      perfProbe.end(P_STAMP);
+    }
+  }
+
+  /** @private */
+  _drawStamp(user, pos) {
     const brush = user.imageBrush;
     if (!brush) return;
     const size = user.size;
@@ -407,7 +438,11 @@ export class ImageBrushTool extends Tool {
 
     if (!width || !height || !isDrawableImageSource(image)) return;
 
+    if (brush.type === 'gih') perfProbe.tally(P_STAMP, 'gih');
+    if (brush.type === 'svg') perfProbe.tally(P_STAMP, 'svg');
+
     if (brush.type !== 'gih' && (user.imageBrushColorMode || 'original') === 'tinted' && image) {
+      perfProbe.tally(P_STAMP, 'tinted');
       image = this._getTintedImage(user, image);
     }
 
@@ -447,6 +482,7 @@ export class ImageBrushTool extends Tool {
     ctx.save(); 
     
     this.board.forEachMirrorRegion({ rect: { x: stampX, y: stampY, width: stampW, height: stampH } }, (region) => {
+      perfProbe.tally(P_STAMP, 'mirrorDraws');
       this.board.withMirroredRegionTransform(ctx, region, () => {
         drawStampImage(ctx); // Draw mirrored stamp
       });

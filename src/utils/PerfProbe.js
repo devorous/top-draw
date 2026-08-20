@@ -71,9 +71,15 @@ class PerfProbeRegistry {
 
     this.windowStartMs = now();
 
+    /** Recent long tasks, capped — for inspection, not for counting. */
     /** @type {Array<{startTime:number,duration:number}>} */
     this.longTasks = [];
     this.longTaskTotalMs = 0;
+    /** True count and max since reset. Kept outside the ring so trimming the
+     *  ring cannot silently cap them — an early version reported `longTasks
+     *  .length`, which pinned at 64 and understated both. */
+    this.longTaskCount = 0;
+    this.longTaskMaxMs = 0;
     this._longTaskObserver = null;
     this._maxLongTasks = 64;
   }
@@ -181,6 +187,8 @@ class PerfProbeRegistry {
       const observer = new PerformanceObserver((list) => {
         for (const entry of list.getEntries()) {
           this.longTaskTotalMs += entry.duration;
+          this.longTaskCount++;
+          if (entry.duration > this.longTaskMaxMs) this.longTaskMaxMs = entry.duration;
           this.longTasks.push({ startTime: entry.startTime, duration: entry.duration });
           if (this.longTasks.length > this._maxLongTasks) this.longTasks.shift();
         }
@@ -215,6 +223,8 @@ class PerfProbeRegistry {
     for (const probe of this.probes.values()) probe.reset();
     this.longTasks.length = 0;
     this.longTaskTotalMs = 0;
+    this.longTaskCount = 0;
+    this.longTaskMaxMs = 0;
     this.overflows = 0;
     this.underflows = 0;
     this.windowStartMs = now();
@@ -248,9 +258,13 @@ class PerfProbeRegistry {
     return {
       elapsedMs,
       entries,
-      longTaskCount: this.longTasks.length,
+      longTaskCount: this.longTaskCount,
       longTaskTotalMs: this.longTaskTotalMs,
-      longTaskMaxMs: this.longTasks.reduce((m, t) => (t.duration > m ? t.duration : m), 0),
+      longTaskMaxMs: this.longTaskMaxMs,
+      // Share of wall-clock time the main thread spent blocked >50ms. The
+      // headline number when probe load is low but the app still feels bad.
+      longTaskLoadPercent: elapsedMs > 0 ? (this.longTaskTotalMs / elapsedMs) * 100 : 0,
+      longTaskRetained: this.longTasks.length,
       overflows: this.overflows,
       underflows: this.underflows
     };
