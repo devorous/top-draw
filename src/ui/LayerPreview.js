@@ -128,18 +128,19 @@ export class LayerPreview {
     this.container.style.position = 'fixed';
     this.container.style.zIndex = '1000';
     this.container.style.pointerEvents = 'none';
-    this.container.style.border = '1px solid rgba(255, 255, 255, 0.2)';
+    this.container.style.border = '1px solid rgba(0, 0, 0, 0.35)';
     this.container.style.borderRadius = '12px';
     this.container.style.overflow = 'hidden';
     this.container.style.boxShadow = '0 10px 40px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.05)';
     
-    // CSS Checkerboard
-    this.container.style.backgroundColor = '#1e222a';
+    // CSS Checkerboard. Light tiles (same palette as .brushItem) so faint or
+    // dark strokes read against the transparency instead of sinking into it.
+    this.container.style.backgroundColor = '#f3f1ec';
     this.container.style.backgroundImage = `
-      linear-gradient(45deg, #2a2f3a 25%, transparent 25%), 
-      linear-gradient(-45deg, #2a2f3a 25%, transparent 25%), 
-      linear-gradient(45deg, transparent 75%, #2a2f3a 75%), 
-      linear-gradient(-45deg, transparent 75%, #2a2f3a 75%)
+      linear-gradient(45deg, #ddd9d0 25%, transparent 25%), 
+      linear-gradient(-45deg, #ddd9d0 25%, transparent 25%), 
+      linear-gradient(45deg, transparent 75%, #ddd9d0 75%), 
+      linear-gradient(-45deg, transparent 75%, #ddd9d0 75%)
     `;
     this.container.style.backgroundSize = `${this.checkerSize * 2}px ${this.checkerSize * 2}px`;
     this.container.style.backgroundPosition = `0 0, 0 ${this.checkerSize}px, ${this.checkerSize}px -${this.checkerSize}px, -${this.checkerSize}px 0px`;
