@@ -11,7 +11,11 @@
 :root {
   // Default width variables (overridden by JS)
   --sidebar-width: 200px;
-  --tools-width: 48px;
+  --tools-width: 36px;
+  // Tool buttons fill the rail edge to edge — no side margin — so the rail
+  // is as narrow as its buttons and the tools resizer actually resizes them.
+  // Capped so dragging the rail wide doesn't produce absurd targets.
+  --tool-btn-size: min(var(--tools-width), 40px);
 }
 
 #sideMenu {
@@ -33,17 +37,28 @@ html[data-sidebar-side='left'] #sideMenu {
 
 // Sidebar should ONLY collapse the options panel, keeping the tools bar visible
 #toolOptions {
+  // Secondary text in this panel is the custom theme colour verbatim rather
+  // than App.applyThemeColors' _blend(text, bg, 0.38) fade. Rebinding the
+  // token here rather than editing each rule means shared components — the
+  // dropdown especially — brighten inside the panel without changing how
+  // they look in the topbar or board menu. --text-muted deliberately stays
+  // dimmer; it's only used for hints, placeholders and unit suffixes.
+  --text-secondary: var(--text-primary);
+
   display: flex;
   flex-direction: column;
   width: var(--sidebar-width);
   min-width: 0;
-  background: var(--bg-tertiary);
+  // One step lighter than the tools rail (--bg-secondary) so the options
+  // panel reads as its own surface instead of blending into the rail.
+  background: var(--bg-elevated);
   border-left: 1px solid var(--border-subtle);
   transition: width var(--transition-normal), opacity var(--transition-normal), transform var(--transition-normal);
   overflow: visible;
   position: relative;
   z-index: 130;
-  
+  container-type: inline-size;
+
   &.collapsed {
     width: 0;
     opacity: 0;
@@ -112,11 +127,23 @@ html[data-mobile='true'] {
     overflow-x: visible;
   }
 
-  // Touch ergonomics: 44px minimum targets for tool buttons (rail + flyouts).
-  .tools .tool.btn:not(.sidebarUtilityBtn):not(.sidebarToggleBtn) {
-    width: 44px;
-    height: 44px;
-    margin-inline: 2px;
+  // Touch ergonomics: 44px minimum targets for tool buttons (rail + flyouts),
+  // and a chip row tall enough to tap. The rail is 44px wide on mobile
+  // (UI.applySidebarWidths), so buttons still sit flush edge to edge.
+  --tool-btn-size: min(var(--tools-width), 44px);
+
+  .railUtilities {
+    height: 40px;
+  }
+
+  .railChip {
+    width: 34px;
+    height: 34px;
+
+    svg {
+      width: 18px;
+      height: 18px;
+    }
   }
 
   // The overlay panel is full-height — no need for the short-screen
@@ -282,88 +309,92 @@ html[data-sidebar-side='left'] #toolOptions.collapsed {
   }
 }
 
-.tool.btn.sidebarUtilityBtn,
-.tool.btn.sidebarToggleBtn {
-  margin-bottom: 0;
-  border-radius: 0;
-  height: 44px;
-  width: 100%;
-  padding: 0;
+/* Rail utilities — fullscreen + tool-options toggle.
+   Formerly two full-width 44px bars (100px of rail before the first tool,
+   and a teal block louder than the selected tool). Now one 28px row of
+   ghost chips: the accent belongs to the selected tool alone. */
+.railUtilities {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 20px;
+  gap: 2px;
+  width: 100%;
+  height: 28px;
+  flex-shrink: 0;
+}
+
+.railUtilitiesRule {
+  width: calc(100% - 8px);
+  height: 1px;
+  margin: 2px 0 5px;
+  background: var(--border-subtle);
+  flex-shrink: 0;
+}
+
+.railChip {
+  width: 22px;
+  height: 22px;
+  padding: 0;
   border: 0;
-  box-shadow: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+
+  svg {
+    display: block;
+    width: 15px;
+    height: 15px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  &:hover {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+  }
 }
 
-.tool.btn.sidebarUtilityBtn {
-  margin-bottom: 2px;
-  background: color-mix(in srgb, var(--bg-elevated) 88%, var(--bg-secondary));
-  color: var(--text-primary);
-  border-top: 1px solid var(--border-subtle);
-  border-bottom: 1px solid var(--border-subtle);
+/* Solid panel = options are showing, hollow = hidden, so the two states
+   differ in shape and not only in colour. */
+.sidebarToggleBtn .panelIconFill {
+  fill: currentColor;
+  stroke: none;
 }
 
-.tool.btn.sidebarUtilityBtn:hover {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
+.sidebarToggleBtn.active {
+  color: var(--accent-primary);
 }
 
-.tool.btn.sidebarUtilityBtn img {
-  width: 18px;
-  height: 18px;
-  display: block;
-  filter: brightness(0) saturate(100%);
+.sidebarToggleBtn.active .panelIconFill {
+  display: none;
 }
 
-.tool.btn.sidebarToggleBtn {
-  margin-bottom: 10px;
-  background: var(--accent-primary);
-  color: var(--bg-primary);
-  border-top: 1px solid color-mix(in srgb, white 10%, transparent);
-  border-bottom: 1px solid color-mix(in srgb, black 16%, transparent);
+/* Mirror the glyph when the sidebar is docked left, so the filled edge
+   always points at the panel the chip controls. */
+html[data-sidebar-side='left'] .sidebarToggleBtn .panelIcon {
+  transform: scaleX(-1);
 }
 
-.tool.btn.sidebarToggleBtn:hover,
-.tool.btn.sidebarToggleBtn.active {
-  background: var(--accent-hover);
-  color: var(--bg-primary);
-}
-
-.sidebarIcon {
-  width: 18px;
-  height: 18px;
-  display: block;
-  background-position: center;
-  background-repeat: no-repeat;
-  background-size: contain;
-  color: transparent;
-  font-size: 0;
-  line-height: 0;
-}
-
-html[data-sidebar-side='right'] .sidebarToggleBtn .sidebarIcon {
-  background-image: url('/images/collapse-right.svg');
-}
-
-html[data-sidebar-side='right'] .sidebarToggleBtn.active .sidebarIcon {
-  background-image: url('/images/collapse-left.svg');
-}
-
-html[data-sidebar-side='left'] .sidebarToggleBtn .sidebarIcon {
-  background-image: url('/images/collapse-left.svg');
-}
-
-html[data-sidebar-side='left'] .sidebarToggleBtn.active .sidebarIcon {
-  background-image: url('/images/collapse-right.svg');
+.fullscreenBtn.is-fullscreen {
+  color: var(--accent-primary);
 }
 
 .tool.btn {
-  width: 40px;
-  height: 40px;
-  padding: 2px;
-  margin-inline: 4px;
+  width: var(--tool-btn-size);
+  height: var(--tool-btn-size);
+  // No side padding at all, and 1px top/bottom — the icon gets the full
+  // width of the rail. object-fit keeps it square, so the vertical inset
+  // is what actually sizes the glyph.
+  padding: 1px 0;
+  margin-inline: 0;
   border-radius: var(--radius-md);
   position: relative; // Ensure indicators are relative to the button
 }
@@ -375,7 +406,7 @@ html[data-sidebar-side='left'] .sidebarToggleBtn.active .sidebarIcon {
   align-items: center;
   gap: 4px;
   position: relative;
-  width: calc(100% - 8px);
+  width: 100%;
 }
 
 .toolSubgroup {
@@ -418,18 +449,27 @@ html[data-sidebar-side='left'] .sidebarToggleBtn.active .sidebarIcon {
     display: none;
   }
 
-  /* Visual indicator - larger and positioned higher in the corner */
+  /* "More in here" marker: a wedge in the corner the flyout opens from.
+     Inset rather than overhanging, so a flush edge-to-edge rail can't clip
+     it, and it reads the way every other paint app's group marker does. */
   & > .tool.btn::after {
-    content: "◸";
+    content: "";
     position: absolute;
-    top: 0;
-    left: 0;
-    font-size: 16px;
-    line-height: 1;
-    color: var(--accent-primary);
-    opacity: 0.8;
+    right: 2px;
+    bottom: 2px;
+    width: 0;
+    height: 0;
+    border-left: 5px solid transparent;
+    border-bottom: 5px solid var(--accent-primary);
+    opacity: 0.85;
     pointer-events: none;
-    transform: translate(-2px, -5px); // Nudge further into the corner
+  }
+
+  // On the selected tool the accent is the background, so flip the wedge
+  // to the foreground colour to keep it visible.
+  & > .tool.btn.selected::after {
+    border-bottom-color: var(--bg-primary);
+    opacity: 0.7;
   }
 }
 
@@ -690,6 +730,23 @@ html[data-mobile='true'] {
   width: 100%;
 }
 
+/* Below ~180px the sidebar can be dragged down to its 160px floor
+   (see UI.js setupResizer), and the remaining side-by-side radio groups
+   (Selection Mode, Layer Mode, Brush Mode, pattern colour-mode groups
+   already stack unconditionally above) start clipping their labels.
+   Stack everything generically at that width instead of hand-picking
+   more per-tool exceptions. */
+@container (max-width: 180px) {
+  .radio-group:not(.brush-mode-grid) {
+    flex-direction: column;
+  }
+
+  .radio-group:not(.brush-mode-grid) > .radio-option {
+    flex: 1 1 auto;
+    width: 100%;
+  }
+}
+
 /* Blend Mode Select */
 .blendModeSelect {
   width: 100%;
@@ -815,16 +872,24 @@ html[data-mobile='true'] {
 }
 
 /* When the text tool is active, reorder the visible option containers to:
-   size → opacity → font → mode. Use flex/order on the .sliders container so
-   the DOM layout for other tools stays untouched. */
+   size → opacity → font → right click → temporary text. Use flex/order on the
+   .sliders container so the DOM layout for other tools stays untouched. */
 #toolSliders .sliders.text-tool-order {
   display: flex;
   flex-direction: column;
 
+  // Unordered flex items default to order 0, which would sort them ABOVE the
+  // list below and float shared rows like Cursor to the top. Park everything
+  // else after them; the ID rules below out-specify this.
+  > * { order: 6; }
+
   #size-container       { order: 1; }
   #brush-opacity        { order: 2; }
   #font-container       { order: 3; }
-  #text-render-mode-container { order: 4; }
+  // Right Click sits with the dropdowns, directly under Font — the toggle and
+  // its hint paragraph are a taller block and push it too far down otherwise.
+  #right-click-action-container { order: 4; }
+  #text-render-mode-container   { order: 5; }
 }
 
 /* ========================================
@@ -990,11 +1055,63 @@ html[data-mobile='true'] {
   color: var(--text-primary);
 }
 
+/* Toggle hints. The description used to sit under every switch permanently in
+   --text-muted, which was both the clutter and the least readable text in the
+   panel. UI.initToggleHints() moves it behind a "?" beside the label; it opens
+   on hover/focus, or stays pinned after a click (which is all touch gets).
+   Revealed in flow rather than as a floating popover because #toolSliders and
+   #toolExtras are scroll containers and would clip one. */
+.tool-toggle-labelRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.hintBtn {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: help;
+  transition: color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.hintBtn:hover,
+.hintBtn:focus-visible,
+.hint-open .hintBtn {
+  color: var(--accent-primary);
+  border-color: var(--accent-primary);
+}
+
 .tool-toggle-hint {
   margin: 6px 0 0;
+  padding: 6px 8px;
+  border-left: 2px solid var(--accent-primary);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
   font-size: 11px;
   line-height: 1.4;
-  color: var(--text-muted, var(--text-secondary));
+  color: var(--text-primary);
+}
+
+.has-toggle-hint > .tool-toggle-hint {
+  display: none;
+}
+
+.has-toggle-hint:has(.hintBtn:hover) > .tool-toggle-hint,
+.has-toggle-hint:has(.hintBtn:focus-visible) > .tool-toggle-hint,
+.has-toggle-hint.hint-open > .tool-toggle-hint {
+  display: block;
 }
 
 /* Pattern Gallery - matching Brush Gallery */

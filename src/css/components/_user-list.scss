@@ -29,6 +29,8 @@
   gap: 4px;
   font-size: 10px;
   font-weight: 600;
+  // Resolves to the exact custom theme colour inside the tool options panel,
+  // which rebinds --text-secondary (see #toolOptions in layout/_sidebar.scss).
   color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -43,8 +45,7 @@
   white-space: nowrap;
 }
 
-.sliderContainer .sliderLabel > .sliderValue,
-.sliderContainer .sliderLabel > .valueAdjuster {
+.sliderContainer .sliderLabel > .sliderValue {
   flex: 0 0 auto;
 }
 

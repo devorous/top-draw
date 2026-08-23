@@ -75,6 +75,8 @@ export class UI {
    */
   async init() { // Made init async
     this.cacheElements();
+    this.initInTrackLabels();
+    this.initToggleHints();
     this.initPointerSliders();
     this.initDropdowns();
     await this._preloadSVGIcons(); // Await preloading of SVG icons
@@ -84,6 +86,9 @@ export class UI {
     this.setupScrollIndicator();
     this.initResizableSections();
     this.setupSidebarResizers();
+
+    this.elements.pressureDualSlider?.addEventListener('input', () => this.refreshPressureTrack());
+    this.refreshPressureTrack();
 
     // Initial application from preferences
     if (window.app?.appPreferences) {
@@ -248,18 +253,141 @@ export class UI {
       ['confettiOpacityRandomnessSlider', this.elements.confettiOpacityRandomnessSlider],
       ['confettiSpacingSlider', this.elements.confettiSpacingSlider],
       ['textPositionMultiplierSlider', this.elements.textPositionMultiplierSlider],
-      ['textPositionOffsetSlider', this.elements.textPositionOffsetSlider]
+      ['textPositionOffsetSlider', this.elements.textPositionOffsetSlider],
+      // Converted so it gets the same in-track bar as every other tool option
+      // instead of the bespoke gradient it used to carry in the markup.
+      ['thinningSlider', this.elements.thinningSlider],
+      ['fillExpansionSlider', document.getElementById('fillExpansionSlider')],
+      ['fillBlurSlider', document.getElementById('fillBlurSlider')]
     ];
 
     for (const [elementKey, slider] of sliderElements) {
       this.elements[elementKey] = createPointerSlider(slider);
     }
+  }
 
-    createPointerSlider(document.getElementById('fillExpansionSlider'));
-    createPointerSlider(document.getElementById('fillBlurSlider'));
+  /**
+   * Wraps each slider label's bare text node in a span so the in-track layout
+   * can ellipsise it. A text node becomes an anonymous flex item, which CSS
+   * cannot target — without this the name overruns the value at narrow sidebar
+   * widths instead of truncating.
+   */
+  initInTrackLabels() {
+    const labels = document.querySelectorAll('.sliderContainer .sliderLabel');
 
-    createPointerSlider(document.getElementById('fillExpansionSlider'));
-    createPointerSlider(document.getElementById('fillBlurSlider'));
+    for (const label of labels) {
+      if (label.querySelector(':scope > .sliderName')) continue;
+
+      for (const node of Array.from(label.childNodes)) {
+        if (node.nodeType !== Node.TEXT_NODE) continue;
+        if (!node.textContent.trim()) continue;
+
+        const span = document.createElement('span');
+        span.className = 'sliderName';
+        span.textContent = node.textContent.trim();
+        label.replaceChild(span, node);
+      }
+    }
+  }
+
+  /**
+   * Turns every toggle's description paragraph into a "?" next to its label.
+   * The panel was carrying five permanent paragraphs of muted body text, which
+   * read as clutter and were the hardest thing in the sidebar to read; now the
+   * text is on demand and shown in full contrast.
+   *
+   * Built here rather than in the markup so every existing hint is covered and
+   * any hint added later gets the affordance for free. Hover/focus reveal is
+   * pure CSS — see .has-toggle-hint in layout/_sidebar.scss; this only wires
+   * the click-to-pin behaviour that touch needs.
+   */
+  initToggleHints() {
+    const hints = document.querySelectorAll('.tool-toggle-hint');
+    let seq = 0;
+
+    for (const hint of hints) {
+      const host = hint.parentElement;
+      if (!host || host.querySelector(':scope .hintBtn')) continue;
+
+      const label = host.querySelector('.tool-toggle-label');
+      if (!label) continue;
+
+      host.classList.add('has-toggle-hint');
+
+      // The button has to sit beside the label text, but .tool-toggle is a
+      // column (label above the switch), so the pair needs its own row.
+      const row = document.createElement('span');
+      row.className = 'tool-toggle-labelRow';
+      label.replaceWith(row);
+      row.appendChild(label);
+
+      if (!hint.id) hint.id = `toggleHint-${++seq}`;
+
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'hintBtn';
+      btn.textContent = '?';
+      btn.setAttribute('aria-expanded', 'false');
+      btn.setAttribute('aria-describedby', hint.id);
+      btn.setAttribute('aria-label', `About ${label.textContent.trim()}`);
+      row.appendChild(btn);
+    }
+
+    const panel = this.elements.toolOptions;
+    if (!panel || panel.dataset.hintClickBound) return;
+    panel.dataset.hintClickBound = 'true';
+
+    const closeAll = () => {
+      for (const el of panel.querySelectorAll('.hint-open')) {
+        el.classList.remove('hint-open');
+        el.querySelector('.hintBtn')?.setAttribute('aria-expanded', 'false');
+      }
+    };
+
+    panel.addEventListener('click', (e) => {
+      const btn = e.target.closest('.hintBtn');
+      if (!btn) {
+        closeAll();
+        return;
+      }
+
+      // The button sits inside the <label>, so a plain click would also flip
+      // the switch it is describing.
+      e.preventDefault();
+      e.stopPropagation();
+
+      const host = btn.closest('.has-toggle-hint');
+      if (!host) return;
+
+      const open = !host.classList.contains('hint-open');
+      closeAll();
+      host.classList.toggle('hint-open', open);
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+
+    panel.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeAll();
+    });
+  }
+
+  /**
+   * Paints the band between the two pressure handles. The dual slider is a pair
+   * of overlapping native ranges rather than a PointerSlider, so its fill has
+   * to be driven from here.
+   */
+  refreshPressureTrack() {
+    const { pressureDualSlider, pressureMinSlider, pressureMaxSlider } = this.elements;
+    if (!pressureDualSlider || !pressureMinSlider || !pressureMaxSlider) return;
+
+    const span = Number(pressureMaxSlider.max) - Number(pressureMaxSlider.min);
+    if (!span) return;
+
+    const base = Number(pressureMaxSlider.min);
+    const lo = (Number(pressureMinSlider.value) - base) / span;
+    const hi = (Number(pressureMaxSlider.value) - base) / span;
+
+    pressureDualSlider.style.setProperty('--pressure-min', String(Math.min(lo, hi)));
+    pressureDualSlider.style.setProperty('--pressure-max', String(Math.max(lo, hi)));
   }
 
   /**
@@ -350,12 +478,12 @@ export class UI {
     // Mobile: fixed rail width and overlay panel — ignore persisted desktop widths.
     if (isMobile()) {
       document.documentElement.style.setProperty('--sidebar-width', '200px');
-      document.documentElement.style.setProperty('--tools-width', '48px');
+      document.documentElement.style.setProperty('--tools-width', '44px');
       return;
     }
 
     const sidebarWidth = preferences?.general?.sidebarWidth ?? 200;
-    const toolsWidth = preferences?.general?.toolsWidth ?? 48;
+    const toolsWidth = preferences?.general?.toolsWidth ?? 36;
 
     document.documentElement.style.setProperty('--sidebar-width', `${sidebarWidth}px`);
     document.documentElement.style.setProperty('--tools-width', `${toolsWidth}px`);
@@ -612,8 +740,6 @@ menuBtn: document.getElementById('menuBtn'),
       selectionPatternBrushList: document.getElementById('selectionPatternBrushList'),
 
       sizeValue: document.getElementById('sizeValue'),
-      sizeMinus: document.getElementById('sizeMinus'),
-      sizePlus: document.getElementById('sizePlus'),
       pressureValue: document.getElementById('pressureValue'),
       smoothingValue: document.getElementById('smoothingValue'),
       spacingValue: document.getElementById('spacingValue'),
@@ -2042,6 +2168,7 @@ menuBtn: document.getElementById('menuBtn'),
         this.elements.pressureValue.textContent = `${min}-${max}`;
       }
     }
+    this.refreshPressureTrack();
   }
 
   /**
@@ -2315,7 +2442,7 @@ menuBtn: document.getElementById('menuBtn'),
     if (toolOptions) {
       const isCollapsed = toolOptions.classList.toggle('collapsed');
       if (btn) btn.classList.toggle('active', isCollapsed);
-      if (btn) btn.title = isCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar';
+      if (btn) btn.title = isCollapsed ? 'Show tool options' : 'Hide tool options';
       return isCollapsed;
     }
     return false;
@@ -2331,7 +2458,7 @@ menuBtn: document.getElementById('menuBtn'),
     if (toolOptions) {
       toolOptions.classList.toggle('collapsed', collapsed);
       if (btn) btn.classList.toggle('active', collapsed);
-      if (btn) btn.title = collapsed ? 'Expand Sidebar' : 'Collapse Sidebar';
+      if (btn) btn.title = collapsed ? 'Show tool options' : 'Hide tool options';
     }
   }
 

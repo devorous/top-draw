@@ -354,27 +354,44 @@
                 </div>
                 <!-- Join / login form -->
                 <form id="loginForm" onsubmit="return false;">
-                  <!-- Not logged in state: guest join is the hero, account login is collapsed -->
+                  <!-- Not logged in state: three peer doors, one form on screen at a time -->
                   <div id="authNotLoggedIn">
-                    <input autocomplete="username" class="authInput" id="loginUsername" name="username" placeholder="Pick a username">
-                    <button type="button" class="btn primary large authGuestJoinBtn" id="guestJoinBtn">Join &amp; Draw!</button>
-                    <p class="authGuestHint">No account needed</p>
-                    <details class="authAccountSection">
-                      <summary>Already have an account? <span class="authSummaryAction">Log in</span></summary>
+                    <div class="authTabs" id="authTabs" role="tablist" aria-label="How to join">
+                      <span class="authTabsThumb" aria-hidden="true"></span>
+                      <button type="button" class="authTab" role="tab" id="authTabGuest" data-auth-tab="guest" aria-controls="authPaneGuest" aria-selected="true">Guest</button>
+                      <button type="button" class="authTab" role="tab" id="authTabSignin" data-auth-tab="signin" aria-controls="authPaneSignin" aria-selected="false" tabindex="-1">Sign in</button>
+                      <button type="button" class="authTab" role="tab" id="authTabRegister" data-auth-tab="register" aria-controls="authPaneRegister" aria-selected="false" tabindex="-1">Register</button>
+                    </div>
+
+                    <div class="authPane" id="authPaneGuest" data-auth-pane="guest" role="tabpanel" aria-labelledby="authTabGuest">
+                      <input autocomplete="username" class="authInput" id="loginUsername" name="username" placeholder="Pick a username">
+                      <button type="button" class="btn primary large authGuestJoinBtn" id="guestJoinBtn">Join &amp; Draw!</button>
+                      <p class="authGuestHint">No account needed</p>
+                    </div>
+
+                    <div class="authPane" id="authPaneSignin" data-auth-pane="signin" role="tabpanel" aria-labelledby="authTabSignin" hidden>
+                      <input autocomplete="username" class="authInput" id="loginAccountUsername" name="account-username" placeholder="Username">
                       <input autocomplete="current-password" type="password" class="authInput" id="loginPassword" name="password" placeholder="Password">
                       <label class="authCheckbox">
                         <input type="checkbox" id="rememberMe">
                         <span>Login Automatically (30 Days)</span>
                       </label>
-                      <button type="button" class="authLinkButton" id="forgotPasswordBtn">Forgot password?</button>
                       <div class="authButtons">
                         <button type="button" class="btn primary large" id="loginBtn">Login</button>
+                        <button type="button" class="btn large authDiscordBtn" id="discordLoginBtn" style="display: none;" title="Login with Discord" aria-label="Login with Discord">Login</button>
                       </div>
-                    </details>
-                    <!-- Always visible, even while the login section is collapsed -->
-                    <div class="authAltActions">
-                      <button type="button" class="btn secondary large" id="registerBtn">Register</button>
-                      <button type="button" class="btn large authDiscordBtn" id="discordLoginBtn" style="display: none;" title="Login with Discord" aria-label="Login with Discord">Login</button>
+                      <button type="button" class="authLinkButton" id="forgotPasswordBtn">Forgot password?</button>
+                    </div>
+
+                    <div class="authPane" id="authPaneRegister" data-auth-pane="register" role="tabpanel" aria-labelledby="authTabRegister" hidden>
+                      <input autocomplete="username" class="authInput" id="registerUsername" name="reg-username" placeholder="Username">
+                      <input autocomplete="new-password" type="password" class="authInput" id="registerPassword" name="reg-password" placeholder="Password">
+                      <input autocomplete="email" type="email" class="authInput" id="registerEmail" name="reg-email" placeholder="Email (optional)">
+                      <input type="text" class="authInput" id="registerSecretQuestion" name="reg-secret-question" placeholder="Secret question">
+                      <input type="text" class="authInput" id="registerSecretAnswer" name="reg-secret-answer" placeholder="Secret answer">
+                      <div class="authButtons">
+                        <button type="button" class="btn primary large" id="registerSubmitBtn">Create Account</button>
+                      </div>
                     </div>
                   </div>
 
@@ -397,21 +414,7 @@
                   </div>
                 </form>
 
-                <!-- Registration form (replaces login form when registering) -->
-                <form id="authRegisterPanel" onsubmit="return false;" style="display: none;">
-                  <div class="authEditHeader">
-                    <span>Create Account</span>
-                    <button type="button" class="authEditClose" id="registerClose">&times;</button>
-                  </div>
-                  <input autocomplete="username" class="authInput" id="registerUsername" name="reg-username" placeholder="Username">
-                  <input autocomplete="new-password" type="password" class="authInput" id="registerPassword" name="reg-password" placeholder="Password">
-                  <input autocomplete="email" type="email" class="authInput" id="registerEmail" name="reg-email" placeholder="Email (optional)">
-                  <input type="text" class="authInput" id="registerSecretQuestion" name="reg-secret-question" placeholder="Secret question">
-                  <input type="text" class="authInput" id="registerSecretAnswer" name="reg-secret-answer" placeholder="Secret answer">
-                  <div class="authButtons">
-                    <button type="button" class="btn primary large" id="registerSubmitBtn">Create Account</button>
-                  </div>
-                </form>
+                <!-- Registration now lives in the Register tab inside #authNotLoggedIn -->
 
                 <!-- Password reset form -->
                 <form id="authPasswordResetPanel" onsubmit="return false;" style="display: none;">
@@ -915,12 +918,24 @@
 
         <!-- Tool Buttons -->
         <div class="tools">
-          <button class="tool btn sidebarUtilityBtn fullscreenBtn" id="fullscreenBtn" title="Toggle Fullscreen">
-            <img src="/images/fullscreen-icon.svg" alt="Fullscreen">
-          </button>
-          <button class="tool btn sidebarToggleBtn" id="sidebarToggleBtn" title="Toggle Sidebar">
-            <span class="sidebarIcon">◫</span>
-          </button>
+          <!-- Rail utilities. These are meta controls, not tools, so they're
+               ghost chips on a single row rather than the two full-width bars
+               they used to be — the accent fill belongs to the selected tool.
+               Icons are inline so they inherit the button's colour; the old
+               <img> was forced to pure black by a filter and vanished. -->
+          <div class="railUtilities">
+            <button class="railChip sidebarUtilityBtn fullscreenBtn" id="fullscreenBtn" type="button" title="Fullscreen (F11)" aria-label="Fullscreen">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4H4v5M20 9V4h-5M15 20h5v-5M4 15v5h5"/></svg>
+            </button>
+            <button class="railChip sidebarToggleBtn" id="sidebarToggleBtn" type="button" title="Hide tool options" aria-label="Hide tool options">
+              <svg class="panelIcon" viewBox="0 0 24 24" aria-hidden="true">
+                <rect x="3" y="4.5" width="18" height="15" rx="2"/>
+                <path class="panelIconFill" d="M14.5 4.5H19a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2h-4.5z"/>
+                <path d="M14.5 4.5v15"/>
+              </svg>
+            </button>
+          </div>
+          <div class="railUtilitiesRule" aria-hidden="true"></div>
 
           <div class="tools-resizer" id="toolsResizer"></div>
 
@@ -1052,11 +1067,7 @@
                   </div>
                   <div class="sliderContainer" id="size-container">
                     <div class="sliderLabel">Size
-                      <div class="valueAdjuster">
-                        <button type="button" class="adjustBtn minus" id="sizeMinus" title="Decrease size (Shift for larger step, Ctrl for smaller step)" aria-label="Decrease size">-</button>
-                        <span class="sliderValue" id="sizeValue">10</span>
-                        <button type="button" class="adjustBtn plus" id="sizePlus" title="Increase size (Shift for larger step, Ctrl for smaller step)" aria-label="Increase size">+</button>
-                      </div>
+                      <span class="sliderValue" id="sizeValue">10</span>
                       <button class="lock-btn" id="sizeLock" title="Lock size for current tool"><img src="/images/lock-open.svg" alt="unlock"></button>
                     </div>
                     <div id="sizeSliderMount"></div>
@@ -1072,43 +1083,6 @@
                   <div id="thinningSlider">
                     <input autocomplete="off" type="range" min="0" max="100" value="50" class="slider thinning" aria-label="Thinning" style="--value: 50; --min: 0; --max: 100;">
                   </div>
-                  <style>
-                    .slider.thinning {
-                      width: 100%;
-                      height: 6px;
-                      -webkit-appearance: none;
-                      appearance: none;
-                      background: linear-gradient(to right, var(--accent-secondary, var(--accent-primary, #00d4aa)) 0%, var(--accent-secondary, var(--accent-primary, #00d4aa)) calc((var(--value) - var(--min)) / (var(--max) - var(--min)) * 100%), rgba(255, 255, 255, 0.1) calc((var(--value) - var(--min)) / (var(--max) - var(--min)) * 100%), rgba(255, 255, 255, 0.1) 100%);
-                      border-radius: 3px;
-                      outline: none;
-                      cursor: pointer;
-                      border: none;
-                      padding: 0;
-                      margin: 0;
-                    }
-                    .slider.thinning::-webkit-slider-thumb {
-                      -webkit-appearance: none;
-                      appearance: none;
-                      width: 16px;
-                      height: 16px;
-                      background: var(--accent-primary, #00d4aa);
-                      border-radius: 4px;
-                      cursor: pointer;
-                      border: none;
-                    }
-                    .slider.thinning::-moz-range-thumb {
-                      width: 16px;
-                      height: 16px;
-                      background: var(--accent-primary, #00d4aa);
-                      border-radius: 4px;
-                      cursor: pointer;
-                      border: none;
-                    }
-                    .slider.thinning::-moz-range-track {
-                      background: none;
-                      border: none;
-                    }
-                  </style>
                 </div>
 
                 <div class="sliderContainer" id="pressure-container">

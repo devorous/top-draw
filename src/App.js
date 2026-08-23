@@ -1151,6 +1151,14 @@ export class DrawingApp {
             console.warn('[App] Fullscreen toggle failed:', err);
           }
         });
+
+        // Reflect the actual state — fullscreen can also be entered or left
+        // with F11 or Esc, which never reaches the click handler.
+        document.addEventListener('fullscreenchange', () => {
+          const isFullscreen = !!document.fullscreenElement;
+          elements.fullscreenBtn.classList.toggle('is-fullscreen', isFullscreen);
+          elements.fullscreenBtn.title = isFullscreen ? 'Exit fullscreen (F11)' : 'Fullscreen (F11)';
+        });
       }
     }
 
@@ -1331,39 +1339,6 @@ export class DrawingApp {
     });
 
     elements.sizeSlider.addEventListener('input', (e) => this.handleSizeChange(e));
-
-    const adjustSize = (delta, isShift, isCtrl) => {
-      const currentSize = Number(this.self.size);
-      let newSize;
-
-      if (isShift) {
-        newSize = currentSize + delta * 10;
-      } else if (isCtrl) {
-        newSize = currentSize + delta * 0.25;
-      } else if (currentSize < 5 || (delta < 0 && currentSize <= 5)) {
-        const scaledSize = currentSize * 2;
-        newSize = delta > 0 && currentSize >= 5
-          ? currentSize + delta
-          : delta > 0
-            ? Math.min(5, Math.floor(scaledSize + 1) / 2)
-            : Math.ceil(scaledSize - 1) / 2;
-      } else {
-        newSize = delta > 0
-          ? Math.floor(currentSize + 1)
-          : Math.ceil(currentSize - 1);
-      }
-
-      newSize = Math.max(0.25, Math.min(100, newSize));
-      elements.sizeSlider.value = newSize;
-      elements.sizeSlider.dispatchEvent(new Event('input', { bubbles: true }));
-    };
-
-    elements.sizeMinus?.addEventListener('click', (e) => {
-      adjustSize(-1, e.shiftKey, e.ctrlKey);
-    });
-    elements.sizePlus?.addEventListener('click', (e) => {
-      adjustSize(1, e.shiftKey, e.ctrlKey);
-    });
 
     elements.spacingSlider.addEventListener('input', (e) => this.handleSpacingChange(e));
     elements.smoothingSlider.addEventListener('input', (e) => this.handleSmoothingChange(e));

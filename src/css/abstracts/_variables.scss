@@ -78,6 +78,17 @@ $touch-target-optimal: 48px;
   --text-secondary: #a0a8b8;
   --text-muted: #6b7280;
 
+  // In-track slider rows: the name and value sit inside the bar, so the fill
+  // has to stay quiet enough for text to read on top of it.
+  --intrack-height: 24px;
+  --intrack-height-mobile: 30px;
+  // Derived from the accent rather than hard-coded teal, so a custom accent
+  // carries through to the sliders instead of leaving them the default colour.
+  // Kept translucent — the fill composites over the track, and 26% lands it
+  // dark enough for the in-track label and value to stay readable on top.
+  --slider-track-fill: color-mix(in srgb, var(--accent-primary) 26%, transparent);
+  --slider-track-zero: rgba(255, 255, 255, 0.18);
+
   --border-subtle: rgba(255, 255, 255, 0.08);
   --border-active: rgba(0, 212, 170, 0.5);
 

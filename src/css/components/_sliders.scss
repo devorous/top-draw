@@ -19,48 +19,6 @@
   display: inline-block;
 }
 
-.valueAdjuster {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  background: var(--bg-surface);
-  border-radius: var(--radius-sm);
-  padding: 1px;
-  border: 1px solid var(--border-subtle);
-}
-
-.adjustBtn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 14px;
-  font-weight: bold;
-  cursor: pointer;
-  border-radius: 3px;
-  transition:
-    background var(--transition-fast),
-    color var(--transition-fast),
-    transform var(--transition-fast);
-  user-select: none;
-}
-
-.adjustBtn:hover {
-  background: var(--bg-elevated);
-  color: var(--accent-primary);
-}
-
-.adjustBtn:active {
-  background: var(--accent-primary);
-  color: white;
-  transform: scale(0.9);
-}
-
 .sliderValue:hover {
   background: var(--bg-elevated);
   box-shadow: 0 0 0 1px var(--accent-primary);
@@ -125,11 +83,6 @@ html[data-mobile='true'] {
   .dual-slider input[type='range']::-moz-range-thumb {
     width: 24px;
     height: 24px;
-  }
-
-  .adjustBtn {
-    width: 32px;
-    height: 32px;
   }
 }
 
@@ -510,5 +463,308 @@ html[data-mobile='true'] {
   cursor: pointer;
   margin: 0;
   accent-color: var(--accent-primary);
+  // At the 160px sidebar minimum the row (label + checkbox + value + lock) runs
+  // out of width. Without this the checkbox is the item that gets squeezed to
+  // nothing, since the value span beside it refuses to shrink.
+  flex: none;
 }
 
+// Give up label characters instead of the checkbox when the row is too narrow.
+.pressureToggle > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+
+/* ========================================
+   In-Track Slider Rows
+
+   The bar IS the control: the name and the value sit inside the track and the
+   whole row is draggable, so a slider costs one row instead of two. Ranges
+   that cross zero (pattern offsets, text offset, size multiplier, fill
+   expansion) fill outward from the origin rather than from the left edge —
+   PointerSlider decides that per slider, see slider-zero there.
+
+   Only containers that actually hold a track are converted; the ones holding a
+   dropdown (Font, Cursor, Right Click) keep a normal heading above the control.
+   ======================================== */
+
+html[data-mobile='true'] {
+  --intrack-height: var(--intrack-height-mobile);
+}
+
+.sliderContainer:has(> .slider, > #sizeSliderMount, > #thinningSlider, > .dual-slider) {
+  position: relative;
+  gap: 0;
+  margin-bottom: 6px;
+
+  // The label rides on top of the track. It ignores pointer events so the drag
+  // passes through to the bar; the pieces that are themselves interactive opt
+  // back in below.
+  // Tight horizontal budget: at the 160px sidebar minimum the row has ~140px to
+  // fit name + value + lock, and "SMOOTHING" alone wants ~62px of it. Padding
+  // and gaps are trimmed to the minimum that still reads as spaced, and the
+  // right side is tighter than the left so the value and lock sit hard right.
+  > .sliderLabel {
+    position: absolute;
+    z-index: 2;
+    inset: 0 0 auto 0;
+    height: var(--intrack-height);
+    margin: 0;
+    padding: 0 2px 0 3px;
+    gap: 4px;
+    pointer-events: none;
+  }
+
+  // Wrapped around the label's bare text node by UI.initInTrackLabels() so it
+  // can ellipsise — an anonymous flex item can't be styled.
+  > .sliderLabel > .sliderName {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  > .sliderLabel > .pressureToggle {
+    flex: 1 1 auto;
+    min-width: 0;
+    gap: 3px;
+    pointer-events: auto;
+  }
+
+  // Still drag-to-adjust and click-to-type, so it keeps its own pointer events.
+  // No chip background — it is sitting on the track now.
+  > .sliderLabel > .sliderValue {
+    pointer-events: auto;
+    background: transparent;
+    min-width: 0;
+    padding: 0 1px;
+  }
+
+  // Drag-to-adjust and click-to-type are still there, so the chip has to come
+  // back on hover and while editing — otherwise nothing says it is a field.
+  > .sliderLabel > .sliderValue:hover,
+  > .sliderLabel > .sliderValue:has(.sliderValueInput) {
+    background: var(--bg-elevated);
+  }
+
+  // The lock pops out into the panel's own left gutter instead of taking a slot
+  // in the row, so the whole width belongs to the name and value. #toolSliders
+  // is a scroll container and clips at its border edge, so its left padding is
+  // the entire overhang budget — see the widened gutter below.
+  // Hidden until the row is hovered; a lock that is ON stays visible, because
+  // that is state you have to be able to see without going looking for it.
+  > .sliderLabel > .lock-btn {
+    position: absolute;
+    left: -13px;
+    top: 50%;
+    transform: translateY(-50%);
+    margin: 0;
+    padding: 1px;
+    z-index: 3;
+    border-radius: 3px;
+    background: var(--bg-secondary);
+    box-shadow: 0 0 0 1px var(--border-subtle);
+    pointer-events: auto;
+    opacity: 0;
+    transition: opacity var(--transition-fast), transform var(--transition-fast);
+
+    img,
+    svg {
+      width: 12px;
+      height: 12px;
+    }
+  }
+
+  &:hover > .sliderLabel > .lock-btn,
+  &:focus-within > .sliderLabel > .lock-btn {
+    opacity: 0.75;
+  }
+
+  > .sliderLabel > .lock-btn:hover,
+  > .sliderLabel > .lock-btn:focus-visible,
+  > .sliderLabel > .lock-btn.locked {
+    opacity: 1;
+  }
+
+  // The shared .lock-btn hover/active rules use a bare scale(), which would
+  // drop the centring translate.
+  > .sliderLabel > .lock-btn:hover {
+    transform: translateY(-50%) scale(1.1);
+  }
+
+  > .sliderLabel > .lock-btn:active {
+    transform: translateY(-50%) scale(0.95);
+  }
+
+  // Track hosts. The PointerSlider mount keeps the .slider class, so the global
+  // 6px track style has to be unset here; the component paints the bar itself.
+  > .slider,
+  > #sizeSliderMount,
+  > #thinningSlider > .slider {
+    height: var(--intrack-height);
+    margin-top: 0;
+    background: transparent;
+    border-radius: var(--radius-sm);
+  }
+
+  > #thinningSlider {
+    margin-top: 0;
+  }
+}
+
+// Touch has no hover to reveal them with, so locks stay visible there.
+html[data-mobile='true']
+  .sliderContainer:has(> .slider, > #sizeSliderMount, > #thinningSlider, > .dual-slider)
+  > .sliderLabel
+  > .lock-btn {
+  opacity: 0.85;
+}
+
+/* ----------------------------------------
+   Lock gutter
+
+   The lock chips overhang into #toolSliders' left padding, and a scroll
+   container clips at its border edge — so that padding is the whole overhang
+   budget. Widening it and pulling .sliders back by the same amount buys the
+   chips more room without moving a single track.
+   ---------------------------------------- */
+
+#toolSliders {
+  padding-left: 13px;
+
+  > .sliders {
+    margin-left: -3px;
+  }
+}
+
+/* ----------------------------------------
+   Pressure: two handles on one in-track bar
+   ---------------------------------------- */
+
+.sliderContainer > .dual-slider {
+  // Handle width is a variable because the band geometry below has to agree
+  // with it; mobile widens both together.
+  --pressure-handle: 4px;
+
+  height: var(--intrack-height);
+  margin-top: 0;
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  overflow: hidden;
+  transition: background var(--transition-fast);
+
+  &:hover {
+    background: var(--bg-elevated);
+  }
+
+  // Band between the two handles. Percentages are inset by half a handle so the
+  // band lines up with where the native thumbs actually sit.
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: calc(var(--pressure-handle) / 2 + var(--pressure-min, 0) * (100% - var(--pressure-handle)));
+    width: calc((var(--pressure-max, 1) - var(--pressure-min, 0)) * (100% - var(--pressure-handle)));
+    background: var(--slider-track-fill);
+    pointer-events: none;
+  }
+
+  input[type='range'] {
+    height: var(--intrack-height);
+  }
+
+  input[type='range']::-webkit-slider-thumb {
+    width: var(--pressure-handle);
+    height: var(--intrack-height);
+    border-radius: 1px;
+    background: var(--accent-primary);
+  }
+
+  input[type='range']::-webkit-slider-thumb:hover {
+    transform: none;
+    box-shadow: 0 0 0 1px var(--accent-glow);
+  }
+
+  input[type='range']::-moz-range-thumb {
+    width: var(--pressure-handle);
+    height: var(--intrack-height);
+    border-radius: 1px;
+    background: var(--accent-primary);
+  }
+}
+
+// Wider grab handles for touch. Declared here rather than in the mobile block
+// above so it outranks the generic mobile thumb rule, which would otherwise
+// widen the handles without widening the band inset that tracks them.
+html[data-mobile='true'] .sliderContainer > .dual-slider {
+  --pressure-handle: 10px;
+
+  input[type='range']::-webkit-slider-thumb {
+    width: var(--pressure-handle);
+    height: var(--intrack-height);
+    border-radius: 3px;
+  }
+}
+
+/* ----------------------------------------
+   Pattern offset pairs (X / Y)
+   Two half-width in-track rows side by side. Extra specificity because the
+   three pattern panels each carry their own copy of these rules in _sidebar.
+   ---------------------------------------- */
+
+#patternModeOptions,
+#selectionPatternSettings,
+#fillPatternSettings {
+  .sliderContainer.dual-offset-container {
+    .sliderLabel {
+      position: static;
+      margin-bottom: 6px;
+      pointer-events: auto;
+    }
+
+    .offset-slider-group {
+      position: relative;
+      gap: 0;
+      align-items: stretch;
+    }
+
+    .offset-slider-group > .offset-label {
+      position: absolute;
+      z-index: 2;
+      left: 7px;
+      top: 0;
+      height: var(--intrack-height);
+      display: flex;
+      align-items: center;
+      pointer-events: none;
+    }
+
+    .offset-slider-group > .offset-value {
+      position: absolute;
+      z-index: 2;
+      right: 6px;
+      top: 0;
+      height: var(--intrack-height);
+      display: flex;
+      align-items: center;
+      padding: 0;
+      min-width: 0;
+      background: transparent;
+      pointer-events: auto;
+    }
+
+    .offset-slider-group > .slider {
+      width: 100%;
+      max-width: none;
+      height: var(--intrack-height);
+      margin-top: 0;
+      background: transparent;
+      border-radius: var(--radius-sm);
+    }
+  }
+}

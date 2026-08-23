@@ -56,35 +56,102 @@ body.desktop-window-chrome #overlay {
   color: var(--text-secondary);
 }
 
-/* Auth Tabs */
+/* Auth Tabs — segmented control: Guest / Sign in / Register.
+   Exactly one form is mounted at a time, so nothing below the form zone
+   gets pushed around the way the old <details> accordion did. */
 .authTabs {
-  display: flex;
-  gap: 4px;
-  margin-bottom: 16px;
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 3px;
+  margin-bottom: clamp(8px, 1.6vh, 16px);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+/* Sliding indicator. Position is driven purely by [data-active-tab] so the
+   JS never has to write inline styles. */
+.authTabsThumb {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 3px;
+  width: calc((100% - 6px) / 3);
+  background: var(--bg-elevated);
+  border-radius: calc(var(--radius-md) - 4px);
+  box-shadow: var(--shadow-sm);
+  pointer-events: none;
+  transition: transform var(--transition-normal);
+}
+
+.authTabs[data-active-tab='signin'] .authTabsThumb {
+  transform: translateX(100%);
+}
+
+.authTabs[data-active-tab='register'] .authTabsThumb {
+  transform: translateX(200%);
 }
 
 .authTab {
-  flex: 1;
-  padding: 10px 12px;
+  position: relative;
+  z-index: 1;
+  padding: clamp(5px, 1.1vh, 9px) 8px;
   font-size: 13px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  background: transparent;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
+  font-weight: 600;
+  color: var(--text-muted);
+  background: none;
+  border: 0;
+  border-radius: calc(var(--radius-md) - 4px);
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: color var(--transition-fast);
 }
 
 .authTab:hover {
-  color: var(--text-primary);
-  background: var(--bg-tertiary);
+  color: var(--text-secondary);
 }
 
-.authTab.active {
-  color: var(--accent-primary);
-  background: var(--bg-tertiary);
-  border-color: var(--accent-primary);
+.authTab[aria-selected='true'] {
+  color: var(--text-primary);
+}
+
+.authTab:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: -2px;
+}
+
+/* One tab's form. `display: flex` here would beat the UA [hidden] rule, so the
+   hidden case has to be restated explicitly. */
+.authPane {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  animation: authPaneIn var(--transition-normal) ease;
+}
+
+.authPane[hidden] {
+  display: none;
+}
+
+@keyframes authPaneIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .authPane {
+    animation: none;
+  }
+
+  .authTabsThumb {
+    transition: none;
+  }
 }
 
 /* Auth Inputs */
@@ -122,26 +189,6 @@ body.desktop-window-chrome #overlay {
   min-height: 32px;
   padding-inline: 12px;
   white-space: nowrap;
-}
-
-/* Register + Discord stay visible while the login section is collapsed */
-.authAltActions {
-  display: flex;
-  gap: 8px;
-  width: 100%;
-  margin-top: 8px;
-
-  .btn {
-    flex: 1 1 0;
-    width: auto;
-    min-width: 0;
-    max-width: none;
-    min-height: 32px;
-    margin-top: 0;
-    padding-inline: 12px;
-    font-size: 13px;
-    white-space: nowrap;
-  }
 }
 
 /* Join CTAs — a crisp ring plus a light sweep, instead of the soft blurred
@@ -228,44 +275,6 @@ body.desktop-window-chrome #overlay {
   font-size: 12px;
   color: var(--text-muted);
   text-align: center;
-}
-
-/* Collapsed account login under the guest hero button */
-.authAccountSection {
-  width: 100%;
-  margin-top: clamp(4px, 1.2vh, 10px);
-  border-top: 1px solid var(--border-subtle);
-  padding-top: clamp(4px, 1.2vh, 10px);
-
-  summary {
-    cursor: pointer;
-    list-style: none;
-    font-size: 13px;
-    color: var(--text-secondary);
-    text-align: center;
-    padding: 6px 0;
-    border-radius: 6px;
-    transition: color var(--transition-fast), background var(--transition-fast);
-
-    &::-webkit-details-marker {
-      display: none;
-    }
-
-    &:hover {
-      color: var(--text-primary);
-      background: rgba(255, 255, 255, 0.04);
-    }
-  }
-
-  .authSummaryAction {
-    color: var(--accent-primary);
-    font-weight: 600;
-    text-decoration: underline;
-  }
-
-  &[open] summary {
-    margin-bottom: clamp(4px, 1vh, 8px);
-  }
 }
 
 .authButtons .btn.disabled {
