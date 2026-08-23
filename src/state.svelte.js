@@ -1,6 +1,9 @@
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 const FLOATING_PALETTE_STORAGE_KEY = 'topdraw_floatingPalettes';
 export const FLOATING_PALETTE_SLOT_COUNT = 10;
+// Two rows of four in the sidebar grid — the palette is fixed height by design,
+// so this cap and the grid's column count have to stay in step.
+export const MAX_CUSTOM_COLORS = 8;
 
 class DrawingState {
   // Tool & Drawing
@@ -202,7 +205,12 @@ function loadCustomColors() {
   try {
     const saved = localStorage.getItem('topdraw_customColors');
     if (!saved) return [];
-    return JSON.parse(saved).map(normalizeCustomPreset).filter(Boolean);
+    // Trim on load: anyone who already saved more than the cap under the old
+    // limit would otherwise keep rendering extra rows forever.
+    return JSON.parse(saved)
+      .map(normalizeCustomPreset)
+      .filter(Boolean)
+      .slice(0, MAX_CUSTOM_COLORS);
   } catch (e) {
     console.warn('Failed to load custom colors:', e);
     return [];
@@ -261,7 +269,7 @@ export function addCustomColor(color, settings = {}) {
       JSON.stringify(preset.settings || null) === JSON.stringify(toolSettings || null);
   });
 
-  if (exists || appState.customColors.length >= 12) return;
+  if (exists || appState.customColors.length >= MAX_CUSTOM_COLORS) return;
   appState.customColors = [...appState.customColors, { color: normalizedColor, tool, size, settings: toolSettings }];
   saveCustomColors();
 }
