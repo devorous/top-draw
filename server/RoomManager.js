@@ -13,6 +13,7 @@ import { getSnapshotFile } from './r2.js';
 import { decodeSnapshotFile } from './snapshotCodec.js';
 import { generateFloatingGalleryVoronoi } from './floatingVoronoi.js';
 import { snapshotCoversRoomBoard } from '../shared/qoi.js';
+import { isValidBoardSize } from '../shared/boardSizes.js';
 
 function createFloatingGallerySeed() {
   return Math.floor(Math.random() * 0x7fffffff);
@@ -633,8 +634,7 @@ export class Room {
             { $set: { 'settings.floatingGalleryVoronoi': this.settings.floatingGalleryVoronoi } }
           );
         }
-        const validBoardSizes = new Set(['720p', '1080p', '1440p', 'big']);
-        this.settings.boardSize = validBoardSizes.has(doc.settings?.boardSize)
+        this.settings.boardSize = isValidBoardSize(doc.settings?.boardSize)
           ? doc.settings.boardSize
           : '1080p';
         console.log(`[Room] Loaded "${this.id}" from DB`);

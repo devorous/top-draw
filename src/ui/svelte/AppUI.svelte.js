@@ -655,7 +655,9 @@ export function initSvelteUI(app) {
     const floatingArtEffect = $effect.root(() => {
       $effect(() => {
         const preferences = appState.appPreferences || app.appPreferences || {};
-        const enabled = preferences.general?.showFloatingArt !== false && !preferences.general?.lowPowerMode;
+        // lowPowerMode is tri-state ('auto'|'on'|'off') — a truthiness test here
+        // would read 'off' as enabled. Resolve it through the app.
+        const enabled = preferences.general?.showFloatingArt !== false && !app.isLowPowerModeActive?.();
         const connected = !!appState.connected;
         const roomId = appState.currentRoomId || null;
         const roomData = appState.currentRoomData || null;

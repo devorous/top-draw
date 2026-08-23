@@ -24,11 +24,28 @@
     { value: 'public', label: 'Public' },
     { value: 'private', label: 'Private (unlisted)' }
   ];
+  // Stress sizes are hidden behind a flag rather than removed: server-side
+  // checkpoints, snapshots and timelapse frames are all taken at board
+  // resolution, so a 12k room is expensive in storage and encode time whether
+  // or not anyone draws in it. Enable with
+  // `localStorage.setItem('ddraw.stressBoardSizes', '1')`.
+  const stressBoardSizesEnabled = (() => {
+    try {
+      return localStorage.getItem('ddraw.stressBoardSizes') === '1';
+    } catch {
+      return false;
+    }
+  })();
   const BOARD_SIZE_OPTIONS = [
     { value: '720p',  label: '720p  (1280 × 720)' },
     { value: '1080p', label: '1080p (1920 × 1080)' },
     { value: '1440p', label: '1440p (2560 × 1440)' },
-    { value: 'big',   label: 'Big   (3200 × 1800)' }
+    { value: 'big',   label: 'Big   (3200 × 1800)' },
+    ...(stressBoardSizesEnabled ? [
+      { value: '4k',  label: '4k    (3840 × 2160) — stress' },
+      { value: '8k',  label: '8k    (7680 × 4320) — stress' },
+      { value: '12k', label: '12k   (11520 × 6480) — stress' }
+    ] : [])
   ];
   const ROLE_LABELS = {
     0: 'None',

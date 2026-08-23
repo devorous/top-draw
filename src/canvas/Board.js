@@ -467,12 +467,15 @@ export class Board {
     this.topCanvas.height = height;
     this.topCanvas.width = width;
     if (typeof document !== 'undefined') {
+      // Collapse rather than resize. These hold nothing but transient previews,
+      // and a resize invalidates those anyway — so re-allocating every board at
+      // the new size here would immediately hand back the memory that
+      // userLayerPresence exists to reclaim, and would do it for boards whose
+      // user may never draw again. The next `setUserLayerContent(user, true)`
+      // inflates the ones that are actually used, at the new dimensions.
       document.querySelectorAll('#userBoards .userBoard').forEach((canvas) => {
-        canvas.height = height;
-        canvas.width = width;
-        const context = canvas.getContext('2d');
-        context.lineCap = 'round';
-        context.lineJoin = 'round';
+        canvas.height = 1;
+        canvas.width = 1;
       });
     }
     if (this.upperLayersCanvas) {

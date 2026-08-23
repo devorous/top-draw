@@ -1,6 +1,7 @@
 <script>
   import { appState } from '../../state.svelte.js';
   import { isMobile } from '../../platform/mobile.js';
+  import Dropdown from './Dropdown.svelte';
   import {
     createDefaultAppPreferences,
     DEFAULT_REPLAY_PREFERENCES,
@@ -104,8 +105,22 @@
     return !!appPreferences?.general?.useDesynchronizedBoardContexts;
   }
 
-  function isLowPowerMode() {
-    return !!appPreferences?.general?.lowPowerMode;
+  // Tri-state: 'auto' resolves against device detection, 'on'/'off' override it.
+  // Do NOT truthiness-test this value — 'off' is a truthy string.
+  function getLowPowerMode() {
+    const pref = appPreferences?.general?.lowPowerMode;
+    if (pref === true) return 'on';
+    if (pref === false) return 'off';
+    return pref === 'on' || pref === 'off' ? pref : 'auto';
+  }
+
+  /** What 'auto' currently resolves to, so the choice isn't a mystery box. */
+  function detectedLowPowerLabel() {
+    const detection = window.__performanceDetection;
+    if (!detection) return '';
+    return detection.isLowPower
+      ? `detected: low power (score ${detection.score})`
+      : `detected: normal (score ${detection.score})`;
   }
 
   function isScrollToZoom() {
@@ -141,16 +156,21 @@
     );
   }
 
-  function updateLowPowerMode(enabled) {
+  function updateLowPowerMode(mode) {
     const nextPreferences = {
       ...appPreferences,
       general: {
         ...(appPreferences?.general ?? {}),
-        lowPowerMode: enabled
+        lowPowerMode: mode
       }
     };
 
-    updatePreferences(nextPreferences, enabled ? 'Low-power mode enabled (30 TPS / 30 FPS)' : 'Low-power mode disabled');
+    const messages = {
+      auto: 'Low-power mode set to automatic',
+      on: 'Low-power mode enabled (30 TPS / 30 FPS)',
+      off: 'Low-power mode disabled'
+    };
+    updatePreferences(nextPreferences, messages[mode] ?? messages.auto);
   }
 
   function isShowFloatingArt() {
@@ -726,14 +746,6 @@ function getChatOpacity() {
               <label class="settings-toggle-compact">
                 <input
                   type="checkbox"
-                  checked={isLowPowerMode()}
-                  onchange={(event) => updateLowPowerMode(event.currentTarget.checked)}
-                />
-                <span>Low-Power Mode (30 TPS / 30 FPS)</span>
-              </label>
-              <label class="settings-toggle-compact">
-                <input
-                  type="checkbox"
                   checked={isScrollToZoom()}
                   onchange={(event) => updateScrollToZoom(event.currentTarget.checked)}
                 />
@@ -770,6 +782,24 @@ function getChatOpacity() {
             </div>
 
             <div class="settings-slider-stack">
+              <div class="settings-slider-card">
+                <div class="settings-slider-label">
+                  <span class="settings-slider-title">Low-Power Mode</span>
+                  <span class="settings-slider-value">30 TPS / 30 FPS</span>
+                </div>
+                <Dropdown
+                  variant="inset"
+                  size="md"
+                  ariaLabel="Low-power mode"
+                  value={getLowPowerMode()}
+                  onchange={(mode) => updateLowPowerMode(mode)}
+                  options={[
+                    { value: 'auto', label: 'Automatic', hint: detectedLowPowerLabel() },
+                    { value: 'on', label: 'Always On' },
+                    { value: 'off', label: 'Always Off' }
+                  ]}
+                />
+              </div>
               <div class="settings-slider-card">
                 <label class="settings-slider-label" for="sfx-volume">
                   <span class="settings-slider-title">SFX Volume</span>

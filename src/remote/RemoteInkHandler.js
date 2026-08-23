@@ -2,6 +2,15 @@
 
 import { getStroke } from 'perfect-freehand';
 import { setUserLayerContent } from './userLayerPresence.js';
+import { touchRemoteScratch } from './remoteScratchReclaim.js';
+
+/**
+ * How often an in-progress remote ink preview is redrawn, in ms.
+ *
+ * 33 ms / 30 FPS, deliberately the same cadence RemoteUserHandler's catchup
+ * loop already settled on (`catchupInterval`, itself lowered from 16 ms).
+ */
+const INK_PREVIEW_INTERVAL_MS = 33;
 
 /**
  * Converts perfect-freehand outline points to an SVG path string for Path2D.
@@ -43,6 +52,9 @@ export class RemoteInkHandler {
    * @param {User} user - The remote user object.
    */
   ensureInkOffscreen(user) {
+    // Restart the idle-reclaim clock on every use, so a user who keeps drawing
+    // never has this canvas taken away and one who stops gets it reclaimed.
+    touchRemoteScratch(user);
     const width = this.board.getWidth();
     const height = this.board.getHeight();
     if (!user._inkOffscreen || user._inkOffscreen.width !== width || user._inkOffscreen.height !== height) {
@@ -81,6 +93,11 @@ export class RemoteInkHandler {
 
     this.renderInkStroke(user, false);
     this.updateInkPreview(user);
+    // Stamp the throttle clock. This render bypasses _requestPreviewRender by
+    // design — the first mark of a stroke should appear immediately — but
+    // leaving the clock unset made the next batch render again at once,
+    // doubling the cost at every stroke start.
+    user._inkPreviewRenderAt = performance.now();
   }
 
   /**
@@ -107,11 +124,77 @@ export class RemoteInkHandler {
       this.expandInkDirtyBounds(user, points[i], points[i + 1]);
     }
 
-    this.renderInkStroke(user, false);
-
     const lastIdx = points.length - 2;
     user.setPosition(points[lastIdx], points[lastIdx + 1]);
+    this._requestPreviewRender(user);
+  }
+
+  /**
+   * Render this user's in-progress ink preview, at most every
+   * INK_PREVIEW_INTERVAL_MS.
+   *
+   * Previously every arriving batch rendered immediately, so N remote users
+   * cost N x (sender tick rate) full preview passes per second — 6 users at
+   * 60 TPS is ~360 passes/s, each issuing a pile of draw calls. A trace at
+   * 1440p with 7 users put the GPU process main thread at 86 % busy, almost
+   * all of it GpuChannel::ExecuteDeferredRequest and CommandBufferStub::
+   * OnAsyncFlush: the bottleneck there is command submission volume, not
+   * memory and not renderer JS. This is the term that produces it.
+   *
+   * Safe because only the RENDER is deferred. Points are still accumulated
+   * from every batch above, and handleInkUp calls renderInkStroke(user, true)
+   * synchronously before committing, so the committed pixels — and therefore
+   * parity and every oracle built on it — are byte-for-byte unchanged. What
+   * changes is only how often an in-progress remote preview is redrawn, which
+   * is the one thing in this pipeline that does not need to be exact.
+   *
+   * The catchup loop already runs at this cadence and would have been the
+   * natural place to flush from, but it stops itself once no user is
+   * converging — a pending render would then sit undrawn until the next batch.
+   * Hence a self-managed trailing timer, which cannot be starved.
+   *
+   * @param {User} user - The remote user object.
+   * @returns {void}
+   * @private
+   */
+  _requestPreviewRender(user) {
+    const now = performance.now();
+    const elapsed = now - (user._inkPreviewRenderAt || 0);
+
+    if (elapsed >= INK_PREVIEW_INTERVAL_MS) {
+      user._inkPreviewRenderAt = now;
+      this._renderPreviewNow(user);
+      return;
+    }
+    // Trailing edge. Without this, the last batch of a stroke that ends inside
+    // the interval would never be previewed — the stroke would appear to stop
+    // short until the commit at mouse-up redrew it.
+    if (user._inkPreviewTimer) return;
+    user._inkPreviewTimer = setTimeout(() => {
+      user._inkPreviewTimer = null;
+      user._inkPreviewRenderAt = performance.now();
+      // The stroke may have ended (and been committed) while this was pending.
+      if (!user._inkStrokeActive) return;
+      this._renderPreviewNow(user);
+    }, INK_PREVIEW_INTERVAL_MS - elapsed);
+  }
+
+  /** @private */
+  _renderPreviewNow(user) {
+    this.renderInkStroke(user, false);
     this.updateInkPreview(user);
+  }
+
+  /**
+   * Cancel any pending deferred preview render for a user.
+   *
+   * @param {User} user - The remote user object.
+   * @returns {void}
+   */
+  cancelPendingPreview(user) {
+    if (!user?._inkPreviewTimer) return;
+    clearTimeout(user._inkPreviewTimer);
+    user._inkPreviewTimer = null;
   }
 
   /**
@@ -121,6 +204,10 @@ export class RemoteInkHandler {
   handleInkUp(user) {
     if (!user._inkStrokeActive || !user._inkOffscreen) return;
 
+    // Drop any deferred preview first: the synchronous render below supersedes
+    // it, and letting it fire afterwards would redraw a preview for a stroke
+    // that has already been committed and cleared.
+    this.cancelPendingPreview(user);
     this.renderInkStroke(user, true);
     const points = user._inkPoints.map(pt => ({ x: pt[0], y: pt[1] }));
 

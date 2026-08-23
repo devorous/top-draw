@@ -10,7 +10,8 @@ import { getPreviewTextLayout, getUserTextLineHeight } from '../utils/textLayout
 import { RemotePenHandler } from './RemotePenHandler.js';
 import { RemoteInkHandler } from './RemoteInkHandler.js';
 import { RemoteSelectionHandler } from './RemoteSelectionHandler.js';
-import { setUserLayerContent, syncUserLayerDisplay } from './userLayerPresence.js';
+import { setUserLayerContent, syncUserLayerDisplay, releaseUserLayer } from './userLayerPresence.js';
+import { releaseRemoteScratch } from './remoteScratchReclaim.js';
 
 /**
  * RemoteUserHandler coordinates the rendering of remote users' drawing events.
@@ -1937,6 +1938,17 @@ export class RemoteUserHandler {
     delete user.blurBounds;
     delete user.glitchStamps;
     user.lastBlurPos = null;
+
+    // The preview canvas would collapse on its own after the idle delay, but
+    // this path is departure and AFK — there is nothing to wait for, and on
+    // departure the timer would otherwise keep the user object alive past the
+    // point anything else references it.
+    this.inkHandler?.cancelPendingPreview?.(user);
+    this.penHandler?.cancelPendingPreview?.(user);
+    releaseUserLayer(user);
+    // Cancels the idle timer as well as freeing the canvases — a pending timer
+    // would otherwise keep this user object reachable for a further minute.
+    releaseRemoteScratch(user);
 
     const blurTool = this.toolManager.getTool('blur');
     if (blurTool) {

@@ -39,3 +39,9 @@ testing/mitata/*_results.txt
 testing/ddraw/A_kstress.ddraw
 testing/ddraw/edge_*.ddraw
 testing/ddraw/k6_feed_*.ddraw
+testing/ddraw/undo_after_snapshot_*.ddraw
+
+# board_perf_suite.mjs output. The JSON summaries are small but each run also
+# writes a raw Chrome trace, and those are ~85 MB apiece — 2 GB after a handful
+# of before/after comparisons. Quote the numbers in the plan doc instead.
+testing/devtools/perf-results/

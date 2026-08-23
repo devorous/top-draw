@@ -35,6 +35,28 @@ function isStrokeTool(tool) {
          tool !== Tool.FLOODFILL && tool !== Tool.INKDROPPER;
 }
 
+/**
+ * Optional tool restriction, e.g. `-e TOOLS=ink,pen`.
+ *
+ * The bots normally pick uniformly from all 18 tools, so any single tool is
+ * ~5.5 % of the traffic — far too little signal to judge a change to one tool's
+ * render path against this suite's run-to-run variance. Narrowing the pool
+ * amplifies the path under test instead of trying to average the noise away.
+ * Unknown names are reported rather than silently dropped: a typo would
+ * otherwise fall back to the full set and look like "the change did nothing".
+ */
+const TOOL_POOL = (() => {
+  const raw = (__ENV.TOOLS || '').trim();
+  if (!raw) return ALL_TOOLS;
+  const wanted = raw.split(',').map((t) => t.trim().toUpperCase()).filter(Boolean);
+  const picked = [];
+  for (const name of wanted) {
+    if (Tool[name] === undefined) throw new Error(`TOOLS: unknown tool "${name}"`);
+    picked.push(Tool[name]);
+  }
+  return picked;
+})();
+
 export default function () {
   sleep(Math.random() * 3);
 
@@ -102,7 +124,7 @@ export default function () {
           }
 
           strokesRemaining = randInt(STROKE_COUNT[0], STROKE_COUNT[1]);
-          currentTool = pick(ALL_TOOLS);
+          currentTool = pick(TOOL_POOL);
 
           configureTool(socket, sessionIndex, currentTool, {
             color: randColor(),

@@ -18,10 +18,17 @@ for (const [exportName, exportValue] of Object.entries(wasm)) {
 const TPS_NORMAL = 60;
 const TPS_LOW_POWER = 30;
 
+// Matched case-insensitively against the unmasked WebGL renderer string.
+// `intel uhd graphics 6` used to be here and was too specific to be useful — it
+// missed `ANGLE (Intel, Mesa Intel(R) UHD Graphics (JSL))`, a 2-core machine
+// that is squarely the target of this list. Integrated Intel parts are matched
+// on the family name instead.
+// A GPU match alone scores +3, which is the whole threshold, so entries must be
+// parts that are genuinely weak — Iris Xe is deliberately absent.
 const LOW_POWER_GPU_PATTERNS = [
   'mali', 'adreno', 'powervr', 'swiftshader', 'llvmpipe',
-  'intel hd graphics', 'intel uhd graphics 6',
-  'vivante', 'videocore', 'tegra',
+  'intel hd graphics', 'intel uhd graphics',
+  'vivante', 'videocore', 'tegra', 'exynos',
 ];
 
 const REDUCE_BEFORE_RENDER_TOOLS = new Set([
@@ -52,7 +59,25 @@ const SKIP_NETWORK_REDUCTION_TOOLS = new Set(['brush']);
  *
  * @returns {boolean} True if the device is considered low-power.
  */
-function detectLowPowerDevice() {
+/**
+ * Score the device and decide whether it should run in low power mode.
+ *
+ * Exported because the result is now the resolution of the 'auto' preference
+ * rather than a value the preference immediately overwrites. Memoized: it
+ * creates a WebGL context and deliberately loses it, so it must not be called
+ * repeatedly from a settings UI.
+ *
+ * @returns {boolean}
+ */
+export function detectLowPowerDevice() {
+  if (_detectionResult !== null) return _detectionResult;
+  _detectionResult = _runLowPowerDetection();
+  return _detectionResult;
+}
+
+let _detectionResult = null;
+
+function _runLowPowerDetection() {
   let score = 0;
 
   const cores = navigator.hardwareConcurrency || 0;

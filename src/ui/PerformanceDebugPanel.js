@@ -2,6 +2,8 @@
  * @fileoverview Debug panel showing device detection, TPS, and overlay toggles.
  */
 
+import { collectCanvasCensus, logCanvasCensus } from '../utils/canvasCensus.js';
+
 export class PerformanceDebugPanel {
   constructor(inputBufferManager, app) {
     this.inputBufferManager = inputBufferManager;
@@ -81,6 +83,24 @@ export class PerformanceDebugPanel {
       html += `Max Texture: ${detection.maxTexture || 'N/A'}<br>`;
     }
 
+    // Canvas backing store. The leading suspect for board-size lag and the one
+    // cost no profiler shows, so it belongs on the panel rather than behind a
+    // console call. Recomputed on the 500ms tick, which is cheap: the walk is
+    // over a few hundred object references and touches no pixels.
+    const census = this._safeCensus();
+    if (census) {
+      const budgetColor = census.totalMB > 400 ? '#f00' : census.totalMB > 200 ? '#fa0' : '#0f0';
+      html += '<br>';
+      html += `Canvas RAM: <span style="color:${budgetColor}">${census.totalMB.toFixed(0)} MB</span>`;
+      html += ` <span style="color:#888">(${census.canvasCount} canvases, ${census.fullBoardCount} full-board)</span><br>`;
+      html += `Board: ${census.boardWidth}x${census.boardHeight} = ${census.fullBoardMB.toFixed(1)} MB each<br>`;
+      const top = census.buckets.slice(0, 4)
+        .map((b) => `${b.label.replace(/^(layers|dom|tools)\./, '')} ${b.mb.toFixed(0)}`)
+        .join(' · ');
+      html += `<span style="color:#888; font-size:9px;">${top}</span><br>`;
+      html += `<span id="censusDump" style="color:#0f0; cursor:pointer; text-decoration:underline; font-size:9px;">full breakdown &rarr; console</span><br>`;
+    }
+
     // Debug overlay toggles
     if (debugOverlay) {
       html += '<br><strong>OVERLAYS:</strong><br>';
@@ -99,6 +119,14 @@ export class PerformanceDebugPanel {
     // TPS toggle
     this.panel.querySelector('#tpsValue')?.addEventListener('click', () => this.toggleTPS());
 
+    this.panel.querySelector('#censusDump')?.addEventListener('click', () => {
+      try {
+        logCanvasCensus(this.app);
+      } catch (err) {
+        console.warn('[PerformanceDebugPanel] canvas census failed', err);
+      }
+    });
+
     // Overlay toggles
     if (debugOverlay) {
       this.panel.querySelector('#dirtyRectsToggle')?.addEventListener('click', () => {
@@ -110,6 +138,23 @@ export class PerformanceDebugPanel {
       this.panel.querySelector('#pointsToggle')?.addEventListener('click', () => {
         debugOverlay.toggleStrokePoints(); this.update();
       });
+    }
+  }
+
+  /**
+   * The census reaches into LayerManager internals, which are mid-mutation
+   * during a stroke commit. A debug panel must never be able to take the app
+   * down, so a failure degrades to hiding the row.
+   *
+   * @returns {Object|null}
+   * @private
+   */
+  _safeCensus() {
+    try {
+      return collectCanvasCensus(this.app);
+    } catch (err) {
+      console.warn('[PerformanceDebugPanel] canvas census failed', err);
+      return null;
     }
   }
 

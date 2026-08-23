@@ -319,7 +319,15 @@ export function captureOpeningSnapshot(app) {
   // (and its full-board encode) when we captured layer state, which supersedes it.
   let canvasData = null;
   if (!layerState) {
-    canvasData = lm.getCompositedCanvas().toDataURL('image/png');
+    // Borrowed and returned in the same breath — toDataURL consumes it and the
+    // canvas is never referenced again. See getCompositedCanvas on why the
+    // allocation this avoids is worth avoiding.
+    const composited = lm.getCompositedCanvas({ pooled: true });
+    try {
+      canvasData = composited.toDataURL('image/png');
+    } finally {
+      lm.releaseCompositedCanvas(composited);
+    }
   }
 
   // Top canvas (active previews drawn by other users at snapshot time)

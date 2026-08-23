@@ -5,7 +5,6 @@
 import { PixelsWorkerClient } from '../workers/PixelsWorkerClient.js';
 import { blurImageData, getStackblurSync } from '../utils/blurUtils.js';
 
-
 /**
  * Manages multiple layer groups, each containing baked sequences, a stroke stack,
  * and active strokes for users. Handles compositing and baking of strokes.
@@ -76,6 +75,13 @@ export class LayerManager {
     this.redoStackByUser = new Map();
     this._groupBuffer = null;
     this._canvasPool = [];
+    // Deliberately a fixed count, not a byte budget. The pool starts empty and
+    // only grows on release, so it self-tunes to peak concurrent strokes — with
+    // 2-3 users it never holds more than a few, and lowering the cap reclaims
+    // nothing. It is a ceiling for pathological rooms; shrinking it just
+    // converts retained canvases into per-stroke allocation churn exactly where
+    // concurrency is highest. The real cost is that each in-flight stroke needs
+    // a full-board scratch at all — see docs/board_size_lag_plan_2026-08-23.md.
     this.CANVAS_POOL_MAX = 12;
     this.onNeedsUpdate = null; // Callback for Board to requestUpdate
     this.onGlitchBlurReady = null; // Callback fired when local user's glitch blur completes: ({userId, x, y, width, height, canvas})
@@ -175,10 +181,51 @@ export class LayerManager {
    *   in/out of the rendered clip).
    * @returns {HTMLCanvasElement}
    */
-  getCompositedCanvas({ ignoreVisibility = false } = {}) {
-    const { canvas, ctx } = this._createCanvas();
-    this.compositeLayers(ctx, null, { ignoreVisibility });
-    return canvas;
+  getCompositedCanvas({ ignoreVisibility = false, pooled = false } = {}) {
+    // `pooled` opts into borrowing from the stroke canvas pool instead of
+    // allocating. Allocating a full-board canvas is the most expensive canvas
+    // operation there is and it is invisible to JS timers — measured, a fresh
+    // 8k canvas per frame drops 180 fps to 92 while the allocating call reports
+    // 0.14 ms of self time, because the cost lands in the GPU process. The
+    // timelapse capturer runs this every 6 s and the snapshot path on every
+    // capture, so each was allocating and freeing 15 MB at 1440p (23 MB at
+    // "big") on a timer, forever.
+    //
+    // Opt-in rather than default because the caller now owns a borrowed
+    // resource: it MUST call releaseCompositedCanvas once it is done, and it
+    // must not retain the canvas past that point. Only callers that consume the
+    // canvas and drop it in the same expression should pass this.
+    if (!pooled) {
+      const { canvas, ctx } = this._createCanvas();
+      this.compositeLayers(ctx, null, { ignoreVisibility });
+      return canvas;
+    }
+
+    const pair = this._acquireCanvas();
+    this.compositeLayers(pair.ctx, null, { ignoreVisibility });
+    // Keyed weakly so a caller that forgets to release leaks nothing worse than
+    // it would have by allocating — the canvas is simply collected instead of
+    // returning to the pool.
+    this._borrowedComposites ??= new WeakMap();
+    this._borrowedComposites.set(pair.canvas, pair);
+    return pair.canvas;
+  }
+
+  /**
+   * Return a canvas borrowed via `getCompositedCanvas({ pooled: true })`.
+   *
+   * Safe to call with anything: a canvas that was not borrowed is ignored, so a
+   * caller that switches back to the unpooled form does not have to remember to
+   * remove the release.
+   *
+   * @param {HTMLCanvasElement|null|undefined} canvas
+   * @returns {void}
+   */
+  releaseCompositedCanvas(canvas) {
+    const pair = this._borrowedComposites?.get(canvas);
+    if (!pair) return;
+    this._borrowedComposites.delete(canvas);
+    this._releaseCanvas(pair);
   }
 
   _acquireCanvas() {
@@ -192,7 +239,8 @@ export class LayerManager {
       // even scrub, since clearRect obeys the clip). Feature-checked: reset()
       // is Chrome 101+/Safari 16.4+, and the explicit resets below remain the
       // fallback for anything older.
-      if (typeof c.ctx.reset === 'function') {
+      const didReset = typeof c.ctx.reset === 'function';
+      if (didReset) {
         c.ctx.reset();
         // reset() restores SPEC defaults, not ours — it undoes the lineCap /
         // lineJoin / imageSmoothingQuality that _createCanvas sets, which would
@@ -204,7 +252,10 @@ export class LayerManager {
         c.ctx.imageSmoothingQuality = 'high';
       }
       c.ctx.globalAlpha = 1;
-      c.ctx.clearRect(0, 0, this.width, this.height);
+      // reset() already clears the bitmap per spec, so the clearRect is only
+      // needed on the pre-Chrome-101 fallback path. A full-board clear is
+      // 3.7M pixel writes at 1440p and this runs on every stroke start.
+      if (!didReset) c.ctx.clearRect(0, 0, this.width, this.height);
       c.ctx.globalCompositeOperation = 'source-over';
       return c;
     }
@@ -219,7 +270,12 @@ export class LayerManager {
   _releaseCanvas(canvasObj) {
     if (!canvasObj) return;
     if (this._canvasPool.length < this.CANVAS_POOL_MAX) {
-      canvasObj.ctx.clearRect(0, 0, this.width, this.height);
+      // Not cleared here: _acquireCanvas guarantees a clean canvas before any
+      // caller can draw on it, and nothing reads a pooled canvas in between
+      // (both pool walks only dispose). Clearing on both ends meant two
+      // full-board clears per stroke — 7.4M pixel writes at 1440p — to achieve
+      // what one does. Correctness stays on the acquire side, which is the
+      // fail-safe direction: a stale canvas there would render ghost pixels.
       canvasObj.ctx.globalCompositeOperation = 'source-over';
       this._canvasPool.push(canvasObj);
     }

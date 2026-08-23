@@ -10,7 +10,6 @@ const HIDDEN_TAB_PENALTY = 300;
 // the persisted snapshot — a STALE canvas.
 const MISSING_PING_PENALTY = 20;
 const RECENT_ACTIVITY_BONUS = 160;
-const ACTIVELY_DRAWING_BONUS = 500; // Prefer users with active strokes
 const MISSING_UPLOAD_BPS_PENALTY = 60; // Haven't measured throughput yet — prefer anyone we have measured
 
 /**
@@ -40,10 +39,15 @@ export function scoreProvider(ws, user) {
     score += RECENT_ACTIVITY_BONUS;
   }
 
-  // Prefer users with active strokes—they have the most recent canvas state
-  if (user?.mousedown && recentlyActive && !user?.afk) {
-    score += ACTIVELY_DRAWING_BONUS;
-  }
+  // There used to be an ACTIVELY_DRAWING_BONUS of +500 here, on the rationale
+  // that a user mid-stroke holds the freshest canvas. That mattered for the
+  // legacy live-peer sync provider election, which no longer exists — joiners
+  // are served from server checkpoints (see SyncCoordinator.handleSyncRequest).
+  // Both remaining callers of this function pick a client to do *encoding
+  // work*: the periodic uploader election and the snapshot-save request. For
+  // those, +500 actively elected the worst client at the worst moment — the one
+  // mid-stroke — to spend ~200ms encoding a full board. Removed rather than
+  // parameterised because no caller wants it any more.
 
   if (ws.tabHidden) {
     score -= HIDDEN_TAB_PENALTY;

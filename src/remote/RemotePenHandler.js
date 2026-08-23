@@ -1,5 +1,14 @@
 /** @fileoverview Handles pen and flowPen tool rendering for remote users using offscreen canvasing. */
 import { setUserLayerContent } from './userLayerPresence.js';
+import { touchRemoteScratch } from './remoteScratchReclaim.js';
+
+/**
+ * How often an in-progress remote pen preview is redrawn, in ms.
+ *
+ * Matches RemoteInkHandler's INK_PREVIEW_INTERVAL_MS and the catchup loop's
+ * cadence — see _requestPreviewRender below for why this exists.
+ */
+const PEN_PREVIEW_INTERVAL_MS = 33;
 
 /**
  * Handles pen/flowPen tool rendering for remote users.
@@ -18,6 +27,8 @@ export class RemotePenHandler {
    * @param {User} user - The remote user object.
    */
   ensurePenOffscreen(user) {
+    // See ensureInkOffscreen — same idle-reclaim clock, shared per user.
+    touchRemoteScratch(user);
     const width = this.board.getWidth();
     const height = this.board.getHeight();
     if (!user._penOffscreen || user._penOffscreen.width !== width || user._penOffscreen.height !== height) {
@@ -56,6 +67,9 @@ export class RemotePenHandler {
 
     user._penLastStampPos = { x: pos.x, y: pos.y, radius };
     user._penStrokeActive = true;
+    // See RemoteInkHandler.handleInkDown — stamp the throttle clock so the
+    // immediate render below does not get repeated by the first batch.
+    user._penPreviewRenderAt = performance.now();
     user.penPoints = [{ x: pos.x, y: pos.y, radius }];
 
     this.updatePenPreview(user);
@@ -126,7 +140,7 @@ export class RemotePenHandler {
     user.setPosition(points[lastPtIdx], points[lastPtIdx + 1]);
 
     const batchRect = bMinX < bMaxX ? { minX: bMinX, minY: bMinY, maxX: bMaxX, maxY: bMaxY } : null;
-    this.updatePenPreview(user, batchRect);
+    this._requestPreviewRender(user, batchRect);
   }
 
   /**
@@ -171,7 +185,7 @@ export class RemotePenHandler {
         user.penPoints.push({ x: pos.x, y: pos.y, radius });
       }
 
-      this.updatePenPreview(user, moveRect);
+      this._requestPreviewRender(user, moveRect);
     }
   }
 
@@ -211,6 +225,11 @@ export class RemotePenHandler {
    */
   handlePenUp(user) {
     if (!user._penLastStampPos || !user._penOffscreen) return;
+
+    // Drop any deferred preview: the commit below supersedes it, and letting it
+    // fire afterwards would repaint a preview for a stroke already committed
+    // and cleared.
+    this.cancelPendingPreview(user);
 
     // Track dirty rect from pen stamp points to avoid expensive getImageData on commit
     if (user.penPoints && user.penPoints.length > 0) {
@@ -280,6 +299,90 @@ export class RemotePenHandler {
     user._penStrokeColor = null;
     user._penAlpha = null;
     user.penPoints = [];
+  }
+
+  /**
+   * Render this user's in-progress pen preview, at most every
+   * PEN_PREVIEW_INTERVAL_MS.
+   *
+   * Same argument as RemoteInkHandler._requestPreviewRender: previews were
+   * rendered once per arriving batch, unthrottled, so N remote users cost
+   * N x sender-tick-rate preview passes per second, and a trace at 1440p with
+   * 7 users put the GPU process main thread at 86 % busy on command
+   * submission. Coalescing ink alone cut stalls 34 % and raised fps 13 %.
+   *
+   * The one thing pen needs that ink does not is a UNION of the deferred dirty
+   * rects. updatePenPreview clears and recomposites only the region it is
+   * given, so rendering just the newest batch's rect would leave every skipped
+   * batch's region showing stale pixels — the stroke would appear to advance in
+   * disconnected chunks. A null rect means "full redraw" and must dominate the
+   * union rather than be treated as an empty contribution.
+   *
+   * Only the RENDER defers. Stamps still go into `_penOffscreen` synchronously
+   * in the batch loop above (they are incremental and chain through
+   * `_penLastStampPos`, so they could not be deferred), and handlePenUp
+   * commits from that offscreen — so committed pixels and parity are unchanged.
+   *
+   * @param {User} user - The remote user object.
+   * @param {{minX: number, minY: number, maxX: number, maxY: number}|null} rect
+   * @returns {void}
+   * @private
+   */
+  _requestPreviewRender(user, rect) {
+    if (!rect) {
+      user._penPendingRect = null;
+      user._penPendingFull = true;
+    } else if (!user._penPendingFull) {
+      const prev = user._penPendingRect;
+      user._penPendingRect = prev
+        ? {
+            minX: Math.min(prev.minX, rect.minX),
+            minY: Math.min(prev.minY, rect.minY),
+            maxX: Math.max(prev.maxX, rect.maxX),
+            maxY: Math.max(prev.maxY, rect.maxY)
+          }
+        : { ...rect };
+    }
+
+    const now = performance.now();
+    const elapsed = now - (user._penPreviewRenderAt || 0);
+    if (elapsed >= PEN_PREVIEW_INTERVAL_MS) {
+      user._penPreviewRenderAt = now;
+      this._flushPreview(user);
+      return;
+    }
+    // Trailing edge, so the last batch of a stroke is never left unrendered.
+    if (user._penPreviewTimer) return;
+    user._penPreviewTimer = setTimeout(() => {
+      user._penPreviewTimer = null;
+      user._penPreviewRenderAt = performance.now();
+      if (!user._penStrokeActive) return;
+      this._flushPreview(user);
+    }, PEN_PREVIEW_INTERVAL_MS - elapsed);
+  }
+
+  /** @private */
+  _flushPreview(user) {
+    const rect = user._penPendingFull ? null : user._penPendingRect;
+    user._penPendingRect = null;
+    user._penPendingFull = false;
+    this.updatePenPreview(user, rect);
+  }
+
+  /**
+   * Cancel any pending deferred preview render for a user.
+   *
+   * @param {User} user - The remote user object.
+   * @returns {void}
+   */
+  cancelPendingPreview(user) {
+    if (!user) return;
+    if (user._penPreviewTimer) {
+      clearTimeout(user._penPreviewTimer);
+      user._penPreviewTimer = null;
+    }
+    user._penPendingRect = null;
+    user._penPendingFull = false;
   }
 
   /**

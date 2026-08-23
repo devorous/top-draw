@@ -3,8 +3,9 @@ import { normalizeBinding } from '../input/keybinds/KeybindMatcher.js';
 import { sanitizeRightClickActions } from './rightClickActions.js';
 
 export const APP_PREFERENCES_STORAGE_KEY = 'topDrawAppPreferences';
-const APP_PREFERENCES_VERSION = 14;
+const APP_PREFERENCES_VERSION = 15;
 const SIDEBAR_SIDES = new Set(['left', 'right']);
+export const LOW_POWER_MODES = new Set(['auto', 'on', 'off']);
 // The 3 base colors from which all theme CSS variables are derived.
 // Empty string means "use the CSS default".
 export const THEME_BASE_COLORS = {
@@ -38,7 +39,7 @@ export function createDefaultAppPreferences() {
       hideOwnLabelAbove150: false,
       showRawPixelsAtHighZoom: true,
       useDesynchronizedBoardContexts: false,
-      lowPowerMode: false,
+      lowPowerMode: 'auto',
       scrollToZoom: false,
       showFloatingArt: true,
       galleryTimelapseEnabled: true,
@@ -107,6 +108,25 @@ function sanitizeOptionalHexColor(rawValue) {
   const value = rawValue.trim();
   if (!/^#[0-9a-f]{6}$/i.test(value)) return null;
   return value.toLowerCase();
+}
+
+/**
+ * Low power mode is tri-state: 'auto' resolves against detectLowPowerDevice()
+ * at apply time, 'on'/'off' are explicit overrides.
+ *
+ * It was a boolean defaulting to false, which made the device detection dead
+ * code — App._applyLowPowerPreference() read the preference and overwrote
+ * whatever detection had decided, so a machine that scored as low power still
+ * ran at 60 TPS and, worse, stayed eligible for uploader duty (scoreProvider
+ * returns -Infinity for lowPowerMode clients). Booleans are still accepted so
+ * older stored preferences and any external writer keep working.
+ */
+function sanitizeLowPowerMode(rawMode) {
+  if (rawMode === true) return 'on';
+  if (rawMode === false) return 'off';
+  if (typeof rawMode !== 'string') return 'auto';
+  const normalized = rawMode.trim().toLowerCase();
+  return LOW_POWER_MODES.has(normalized) ? normalized : 'auto';
 }
 
 function sanitizeSidebarSide(rawSidebarSide) {
@@ -212,9 +232,16 @@ function sanitizePreferences(rawPreferences) {
     ? true
     : !!parsed.general?.showRawPixelsAtHighZoom;
   const migratedUseDesynchronizedBoardContexts = false;
+  // v15: boolean -> tri-state. A stored `true` is a deliberate opt-in and is
+  // preserved as 'on'; a stored `false` is almost always the untouched old
+  // default rather than a decision, so it becomes 'auto' — which is the whole
+  // point of the change, since those are the users whose weak machines were
+  // never being detected.
   const migratedLowPowerMode = parsedVersion < 6
-    ? false
-    : !!parsed.general?.lowPowerMode;
+    ? 'auto'
+    : parsedVersion < 15
+      ? (parsed.general?.lowPowerMode === true ? 'on' : 'auto')
+      : sanitizeLowPowerMode(parsed.general?.lowPowerMode);
 
   const migratedShowFloatingArt = parsedVersion < 8
     ? true

@@ -592,9 +592,27 @@ export class RemoteUserUI {
    */
   createUserBoard(userId) {
     const id = `u${userId}`;
+
+    // Idempotent. Four separate paths provision a user (App.getOrCreateUser,
+    // two in UserHandlers, and addRemoteUser here), none of them aware of the
+    // others, and this used to append unconditionally — so a user reached by
+    // two of them got two canvases with the same class. removeRemoteUser then
+    // took only the first, because it uses querySelector, and the duplicate
+    // leaked for the rest of the session with no user object left to collapse
+    // it. Measured at 1440p: 13 boards for 7 users, 183 MB, the largest single
+    // holder in the app.
+    const existing = document.querySelector(`#userBoards .userBoard.${id}`);
+    if (existing) {
+      return { board: existing, context: existing.getContext('2d') };
+    }
+
     const board = document.createElement('canvas');
-    board.setAttribute('height', this.elements.board.height);
-    board.setAttribute('width', this.elements.board.width);
+    // Starts collapsed. The backing store is allocated by
+    // userLayerPresence.ensureUserLayerSized on the first draw and released
+    // again when the preview goes idle; provisioning at board size here would
+    // hand every user a full-board canvas before they have drawn anything.
+    board.setAttribute('height', 1);
+    board.setAttribute('width', 1);
     board.className = `userBoard ${id}`;
     // Starts out of the compositing tree: a fresh board is empty, and previews
     // are transient, so RemoteUserHandler._setUserLayerContent adds it only
@@ -1271,7 +1289,10 @@ export class RemoteUserUI {
     document.querySelector(`.square.${id}`)?.remove();
     document.querySelector(`.crosshair.${id}`)?.remove();
     document.querySelector(`.userEntry.${id}`)?.remove();
-    document.querySelector(`.userBoard.${id}`)?.remove();
+    // querySelectorAll, not querySelector: duplicates should no longer be
+    // created, but a single-element removal is what let the old ones survive a
+    // whole session, and sweeping costs nothing.
+    document.querySelectorAll(`.userBoard.${id}`).forEach((el) => el.remove());
     this.cursors.delete(userId);
     this._joinTimestamps.delete(String(userId));
     this._recentActivity.delete(String(userId));

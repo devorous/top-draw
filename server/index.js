@@ -34,7 +34,7 @@ import { ENABLE_SERVER_REPLAY_DB } from './replayConfig.js';
 import { T, Tool, ToolNames, ToolToEnum } from '../shared/MessageTypes.js';
 import { isCommitType, COMMIT_KIND } from '../shared/StrokeFingerprint.js';
 import { packColor, unpackColor } from '../shared/ColorUtils.js';
-import { BOARD_SIZE_PRESETS } from '../shared/boardSizes.js';
+import { BOARD_SIZE_PRESETS, isValidBoardSize } from '../shared/boardSizes.js';
 import { SessionManager, Role, RoleNames } from './SessionManager.js';
 import { SyncCoordinator } from './SyncCoordinator.js';
 import { RoomManager } from './RoomManager.js';
@@ -4437,8 +4437,7 @@ wss.on('connection', async (ws, req) => {
                 : [];
             }
             if (data.roomBoardSize !== undefined && data.roomBoardSize !== '') {
-              const validBoardSizes = new Set(['720p', '1080p', '1440p', 'big']);
-              if (validBoardSizes.has(data.roomBoardSize)) {
+              if (isValidBoardSize(data.roomBoardSize)) {
                 room.settings.boardSize = data.roomBoardSize;
               }
             }

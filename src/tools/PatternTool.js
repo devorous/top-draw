@@ -4,6 +4,26 @@ import { getPatternTile } from '../utils/patternTile.js';
 import { ensureSizedCanvas } from '../utils/drawing.js';
 
 /**
+ * How often a remote pattern preview is redrawn, in ms.
+ *
+ * Pattern is by a wide margin the most expensive tool in the app. Measured at
+ * 1440p with 7 bots all using it: 90.8 % renderer main busy, 121 fps and a
+ * 1267 MB GPU peak, against ~60 %, ~165 fps and ~700 MB for brush, pixel,
+ * imageBrush and confetti.
+ *
+ * The reason is that `_drawRemotePreview` ran on EVERY arriving batch and each
+ * call does a full-board clearRect, a full-board pattern fill, a full-board
+ * destination-in composite AND allocates a brand new full-board canvas via
+ * document.createElement. Allocating a full-board canvas is the single most
+ * expensive canvas operation there is and it is invisible to JS timers. At up
+ * to the sender's tick rate per user that is ~360 of these per second in a
+ * 6-user room.
+ *
+ * 33 ms matches RemoteInkHandler / RemotePenHandler and the catchup loop.
+ */
+const PATTERN_PREVIEW_INTERVAL_MS = 33;
+
+/**
  * @fileoverview Pattern tool - Reveals a grid of images through a brush stroke.
  */
 
@@ -398,12 +418,68 @@ export class PatternTool extends Tool {
         this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
       }
     }
-    this._drawRemotePreview(user, offscreen.canvas, offscreen.strokePoints);
+    this._requestRemotePreview(user, offscreen);
+  }
+
+  /**
+   * Throttle the remote pattern preview to PATTERN_PREVIEW_INTERVAL_MS.
+   *
+   * Only the PREVIEW defers. Stamps are still written into `offscreen.canvas`
+   * synchronously by the caller above, and `remoteEndStroke` composites from
+   * that same mask — so the committed pixels, and therefore parity, are
+   * unchanged. A deferred render simply draws more accumulated mask, and since
+   * `_drawRemotePreview` clears and rebuilds the whole board every time there
+   * is no partial-region bookkeeping to get wrong.
+   *
+   * @param {Object} user - The remote user.
+   * @param {{canvas: HTMLCanvasElement, strokePoints: Array}} offscreen
+   * @returns {void}
+   * @private
+   */
+  _requestRemotePreview(user, offscreen) {
+    if (!this._previewTimers) this._previewTimers = new Map();
+    if (!this._previewRenderAt) this._previewRenderAt = new Map();
+
+    const now = performance.now();
+    const elapsed = now - (this._previewRenderAt.get(user.id) || 0);
+    if (elapsed >= PATTERN_PREVIEW_INTERVAL_MS) {
+      this._previewRenderAt.set(user.id, now);
+      this._drawRemotePreview(user, offscreen.canvas, offscreen.strokePoints);
+      return;
+    }
+    if (this._previewTimers.has(user.id)) return;
+    // Trailing edge, so the tail of a stroke is never left unrendered.
+    this._previewTimers.set(user.id, setTimeout(() => {
+      this._previewTimers.delete(user.id);
+      this._previewRenderAt.set(user.id, performance.now());
+      // The stroke may have ended and disposed the offscreen meanwhile.
+      const live = this.remoteOffscreens.get(user.id);
+      if (!live) return;
+      this._drawRemotePreview(user, live.canvas, live.strokePoints);
+    }, PATTERN_PREVIEW_INTERVAL_MS - elapsed));
+  }
+
+  /**
+   * Drop a pending deferred preview for a user.
+   *
+   * @param {number|string} userId
+   * @returns {void}
+   */
+  cancelRemotePreview(userId) {
+    const timer = this._previewTimers?.get(userId);
+    if (timer) {
+      clearTimeout(timer);
+      this._previewTimers.delete(userId);
+    }
   }
 
   remoteEndStroke(user) {
     const offscreen = this.remoteOffscreens.get(user.id);
     if (!offscreen) return;
+
+    // The commit below supersedes any pending preview; letting it fire
+    // afterwards would repaint a preview for an already-committed stroke.
+    this.cancelRemotePreview(user.id);
 
     const composite = this._buildPatternComposite(user, offscreen.canvas);
     if (composite) {

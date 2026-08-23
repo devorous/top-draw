@@ -20,6 +20,7 @@ import { RemoteUserHandler } from './remote/RemoteUserHandler.js';
 import { TouchHandler } from './input/TouchHandler.js';
 import { setupWebSocketHandlers } from './network/WebSocketHandlers.js';
 import { DebugOverlay, SyncClient, createDebugSync, ParityClient, ParityPanel } from './sync/index.js';
+import { logCanvasCensus } from './utils/canvasCensus.js';
 import { douglasPeucker, distanceBasedCulling } from './utils/drawing.js';
 import { bindPressAction } from './utils/buttonBinding.js';
 import { Moderation } from './auth/Moderation.js';
@@ -33,7 +34,7 @@ import { UpdateNoticeController } from './ui/UpdateNoticeController.js';
 import { supporterDialog } from './ui/SupporterDialog.js';
 import { ChatController } from './ui/ChatController.js';
 import { ToolLockManager } from './tools/ToolLockManager.js';
-import { InputBufferManager } from './input/InputBufferManager.js';
+import { InputBufferManager, detectLowPowerDevice } from './input/InputBufferManager.js';
 import { KeyboardHandler } from './input/KeyboardHandler.js';
 import { BrushModeManager } from './tools/BrushModeManager.js';
 import { BlendModeManager } from './canvas/BlendModeManager.js';
@@ -521,6 +522,7 @@ export class DrawingApp {
   async init() {
     window.app = this; // Set global reference early
     this.debugSync = createDebugSync(this); // window.app.debugSync.dumpParity()
+    this.canvasCensus = () => logCanvasCensus(this); // window.app.canvasCensus()
 
     // Initialize heavy subsystems (deferred from constructor)
     updateStartupStatus('Preparing drawing engine...');
@@ -3785,8 +3787,25 @@ export class DrawingApp {
     appState.appSettingsVisible = true;
   }
 
+  /**
+   * Resolve the tri-state low power preference to a boolean.
+   *
+   * 'auto' defers to device detection. This used to be a plain boolean read,
+   * which silently overwrote whatever detectLowPowerDevice() had decided at
+   * construction and made the detection dead code — see
+   * docs/board_size_lag_plan_2026-08-23.md F2.
+   *
+   * @returns {boolean}
+   */
+  isLowPowerModeActive() {
+    const pref = this.appPreferences?.general?.lowPowerMode ?? 'auto';
+    if (pref === 'on' || pref === true) return true;
+    if (pref === 'off' || pref === false) return false;
+    return detectLowPowerDevice();
+  }
+
   _applyLowPowerPreference() {
-    const lowPowerEnabled = !!this.appPreferences?.general?.lowPowerMode;
+    const lowPowerEnabled = this.isLowPowerModeActive();
     const targetTickRate = lowPowerEnabled ? LOW_POWER_TPS : NORMAL_TPS;
     const targetFPS = lowPowerEnabled ? LOW_POWER_FPS : 0;
 

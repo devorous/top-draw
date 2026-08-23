@@ -153,7 +153,17 @@ export class TimelapseCapturer {
     // instant, and sampling it directly made a mid-session layer toggle
     // flicker the layer in/out of the finished clip.
     if (layerManager) {
-      ctx.drawImage(layerManager.getCompositedCanvas({ ignoreVisibility: true }), 0, 0, w, h);
+      // Borrowed from the canvas pool and returned immediately: this runs on a
+      // 6 s timer for the whole session, and allocating a full-board canvas
+      // each time is a stall that no JS timer can see. The canvas is consumed
+      // by drawImage and never referenced again, which is the precondition
+      // getCompositedCanvas documents for `pooled`.
+      const composited = layerManager.getCompositedCanvas({ ignoreVisibility: true, pooled: true });
+      try {
+        ctx.drawImage(composited, 0, 0, w, h);
+      } finally {
+        layerManager.releaseCompositedCanvas(composited);
+      }
     } else {
       ctx.drawImage(src, 0, 0, w, h);
     }
