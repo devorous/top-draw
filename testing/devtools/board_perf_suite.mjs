@@ -86,6 +86,19 @@ const HEADLESS = flag('headless');
 const REPEAT = Number(arg('repeat', 1));
 const TARGET_URL = process.env.TARGET_URL || 'http://localhost:3000/go/';
 const WS_URL = process.env.WS_URL || 'ws://127.0.0.1:8030';
+// Attach to an already-running Chrome instead of launching one, e.g.
+// CDP_URL=http://127.0.0.1:9222 pointing at an `ssh -L` forward of the
+// Chromebook's DevTools port. The launch flags below (window size, GPU
+// rasterization, --force-gpu-mem-available-mb) are start-up only, so when
+// attaching they must be passed when that Chrome is launched instead.
+const CDP_URL = process.env.CDP_URL || '';
+// The N4500 needs well over 60s for the auth system to fall back to guest mode
+// on a cold load, and window.app only exists after that.
+const READY_TIMEOUT = Number(process.env.READY_TIMEOUT || 60_000);
+// Turn off the rolling tape (History -> Recent) for this session, to measure
+// what continuous stroke recording costs. Note the gallery time-lapse capturer
+// is already inert here: it needs role >= 7 and the suite joins as a guest.
+const DISABLE_REPLAY = process.env.DISABLE_REPLAY === '1';
 const K6_SCRIPT = arg('k6script', 'testing/medium_stress_test.js');
 // Restrict the bots to specific tools, e.g. --k6tools=ink,pen. With all 18
 // tools in the pool any one of them is ~5.5 % of traffic, which is below this
@@ -316,23 +329,42 @@ async function runOnce(runLabel) {
   }
   if (GPU_MEM_MB > 0) launchArgs.push(`--force-gpu-mem-available-mb=${GPU_MEM_MB}`);
 
-  const browser = await puppeteer.launch({
-    headless: HEADLESS,
-    args: launchArgs,
-    defaultViewport: null
-  });
+  const browser = CDP_URL
+    ? await puppeteer.connect({ browserURL: CDP_URL, defaultViewport: null })
+    : await puppeteer.launch({
+        headless: HEADLESS,
+        args: launchArgs,
+        defaultViewport: null
+      });
   const page = (await browser.pages())[0] || (await browser.newPage());
 
   try {
     if (CPU_THROTTLE > 1) await page.emulateCPUThrottling(CPU_THROTTLE);
     await page.goto(TARGET_URL, { waitUntil: 'networkidle2' });
-    await page.waitForFunction(() => window.app && window.app.self != null, { timeout: 60_000 });
+    await page.waitForFunction(() => window.app && window.app.self != null, { timeout: READY_TIMEOUT });
     await page.evaluate(PROBE);
+
+    // DISABLE_REPLAY=1 turns off stroke recording before the room is joined, so
+    // the rolling tape never starts for this session at all. Same switch the
+    // Settings UI drives (Recent replay length -> Off).
+    if (DISABLE_REPLAY) {
+      const applied = await page.evaluate(() => {
+        const prefs = JSON.parse(JSON.stringify(window.app.appPreferences));
+        prefs.general.replay.rollingEnabled = false;
+        prefs.general.galleryTimelapseEnabled = false;
+        window.app.setAppPreferences(prefs);
+        return {
+          rollingEnabled: window.app.appPreferences.general.replay.rollingEnabled,
+          recorderRunning: window.app.rollingTapeRecorder?.isEnabled?.() ?? null,
+        };
+      });
+      console.log(`    replay disabled: ${JSON.stringify(applied)}`);
+    }
 
     await page.evaluate((r) => { window.app.self.username = 'PERF'; window.app.handleRoomSelected(r); }, room);
     await page.waitForFunction(
       () => window.app?.wsClient?.connected && window.app?.sessionIndex != null,
-      { timeout: 60_000 }
+      { timeout: READY_TIMEOUT }
     );
 
     await page.evaluate((h, w) => window.__lockBoardSize(h, w), dims[0], dims[1]);
@@ -353,6 +385,13 @@ async function runOnce(runLabel) {
 
     const users = await page.evaluate(() => window.app.users?.size ?? 0);
     console.log(`    users in room: ${users}`);
+
+    // DevTools Performance counters -- the same CDP domain the Performance
+    // panel reads. Frame intervals say a frame was late; these say what it was
+    // late doing (script vs layout vs style vs everything else).
+    const cdp = await page.target().createCDPSession();
+    await cdp.send('Performance.enable');
+    const metricsBefore = await cdp.send('Performance.getMetrics');
 
     await page.tracing.start({
       path: tracePath,
@@ -381,7 +420,32 @@ async function runOnce(runLabel) {
       };
     });
 
+    // Sampled BEFORE tracing.stop(): stopping flushes the whole multi-MB trace
+    // over CDP, which takes longer than the measurement itself. Sampling after
+    // it put that transfer inside the span and diluted every percentage below
+    // to roughly a third of its real value.
+    const metricsAfter = await cdp.send('Performance.getMetrics');
+
     await page.tracing.stop();
+    const asMap = (m) => Object.fromEntries(m.metrics.map((x) => [x.name, x.value]));
+    const mBefore = asMap(metricsBefore);
+    const mAfter = asMap(metricsAfter);
+    // Durations are cumulative seconds of wall clock, so a delta over the
+    // window's span is the share of real time spent in that phase.
+    const spanSec = (mAfter.Timestamp - mBefore.Timestamp) || 1;
+    const pct = (k) => +((((mAfter[k] ?? 0) - (mBefore[k] ?? 0)) / spanSec) * 100).toFixed(1);
+    const devtools = {
+      spanSec: +spanSec.toFixed(1),
+      taskPct: pct('TaskDuration'),
+      scriptPct: pct('ScriptDuration'),
+      layoutPct: pct('LayoutDuration'),
+      recalcStylePct: pct('RecalcStyleDuration'),
+      layoutCount: (mAfter.LayoutCount ?? 0) - (mBefore.LayoutCount ?? 0),
+      recalcStyleCount: (mAfter.RecalcStyleCount ?? 0) - (mBefore.RecalcStyleCount ?? 0),
+      jsHeapMB: +((mAfter.JSHeapUsedSize ?? 0) / 1048576).toFixed(1),
+      nodes: mAfter.Nodes ?? null,
+    };
+    await cdp.detach().catch(() => { /* page may already be gone */ });
 
     // Reclaim check. The load phase keeps every bot drawing, so idle-reclaim
     // timers never fire inside it — this measures what those timers are worth
@@ -418,10 +482,12 @@ async function runOnce(runLabel) {
 
     const result = {
       label: runLabel, at: new Date().toISOString(), size: SIZE, dims, users,
-      vus: VUS, room, frames, census, reclaim, ...trace
+      vus: VUS, room, frames, census, reclaim, devtools, ...trace
     };
 
-    console.log(`\n  GPU used_bytes peak   ${result.gpu.peakMB} MB  (${result.gpu.samples} samples)`);
+    console.log(`\n  devtools task/script  ${devtools.taskPct}% task, ${devtools.scriptPct}% script, ${devtools.layoutPct}% layout, ${devtools.recalcStylePct}% style`);
+    console.log(`  devtools layout/style ${devtools.layoutCount} layouts, ${devtools.recalcStyleCount} style recalcs, JS heap ${devtools.jsHeapMB} MB`);
+    console.log(`  GPU used_bytes peak   ${result.gpu.peakMB} MB  (${result.gpu.samples} samples)`);
     console.log(`  canvas census         ${census.totalMB} MB across ${census.canvasCount} canvases, ${census.fullBoardCount} full-board`);
     console.log(`  live strokes          ${census.liveStrokes}  (composite cost is linear in this; compare runs with similar counts)`);
     console.log(`  stalls > 16 ms        ${result.stalls.count}   worst ${result.stalls.worstMs} ms`);
@@ -435,7 +501,10 @@ async function runOnce(runLabel) {
     for (const b of census.buckets) console.log(`    ${String(b.mb).padStart(7)} MB  x${String(b.count).padEnd(3)} ${b.label}`);
     return result;
   } finally {
-    await browser.close();
+    // An attached browser is not ours to kill -- closing it would take down the
+    // Chromebook's session between repeats.
+    if (CDP_URL) await browser.disconnect();
+    else await browser.close();
   }
 }
 

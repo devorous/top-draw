@@ -5118,20 +5118,35 @@ export class DrawingApp {
 
   // Pointer event handlers
 
-  isPointerOverBoard(clientX, clientY) {
+  /**
+   * @param {number} clientX
+   * @param {number} clientY
+   * @param {EventTarget|null} [eventTarget] - the dispatching event's `target`.
+   *   When given it is used instead of a fresh hit test; see below.
+   */
+  isPointerOverBoard(clientX, clientY, eventTarget = null) {
     const elements = this.ui?.elements;
     const boardBoundsEl = elements?.boards || elements?.board;
     if (!boardBoundsEl || !Number.isFinite(clientX) || !Number.isFinite(clientY)) return false;
 
-    // The drawable surface is continuously transformed by pan/zoom/rotate, so a
-    // cached bounding rect quickly becomes stale and causes false "off board"
-    // results in parts of the visible canvas.
-    const rect = boardBoundsEl.getBoundingClientRect();
-    if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) return false;
+    if (!this._isPointWithinBoardSurface(clientX, clientY, boardBoundsEl)) return false;
 
     // Treat all board-owned layers as valid hover targets while still rejecting
     // unrelated UI that overlaps the board area.
-    const topEl = document.elementFromPoint(clientX, clientY);
+    //
+    // `elementFromPoint` re-runs the hit test the browser already performed to
+    // dispatch this event, and forces a style+layout flush to do it. On a
+    // pointermove that fires 120-240x/sec it was the single most expensive call
+    // in the input path (profiled on the N4500: 230ms self time, versus 48ms
+    // for all the stroke geometry combined). The event's own target is the
+    // result of that same hit test, so prefer it when the caller has one.
+    //
+    // Callers without a meaningful target -- notably pointerleave, where
+    // `target` is the element being exited rather than the one under the
+    // cursor -- omit it and get the original behaviour.
+    const topEl = (eventTarget instanceof Element)
+      ? eventTarget
+      : document.elementFromPoint(clientX, clientY);
     if (!topEl) return false;
 
     const boardLayerEls = [
@@ -5146,6 +5161,58 @@ export class DrawingApp {
     }
 
     return topEl.closest?.('#boards, #board, #topBoard, #userBoards, .userBoard') !== null;
+  }
+
+  /**
+   * Bounds half of the hover test, answered from the app's own view state
+   * instead of the DOM.
+   *
+   * This used to be `#boards.getBoundingClientRect()`, deliberately uncached
+   * because pan/zoom/rotate continuously transform that element and a stale
+   * rect reports "off board" over visible canvas. The read itself is cheap;
+   * what is not is that every pointermove writes to the cursor SVG *inside*
+   * `#boards`, so the next move's read forces a full style+layout flush.
+   * At 120-240 moves/sec that made it the largest named cost in the input
+   * path (profiled on an N4500: 229ms self time, versus 48ms for all the
+   * stroke geometry combined).
+   *
+   * `#boards` is `position:absolute; top:0; left:0` inside `#boardContainer`,
+   * is sized to exactly the board dimensions (Board.applyTransform sets its
+   * width/height), and carries the pan/zoom/rotate transform with
+   * transform-origin 0 0. So "is this client point over the board" is the same
+   * question as "does it inverse-transform into [0,W] x [0,H]" — which
+   * `getBoardRelativePos` already answers for every stroke, off Board's cached
+   * *container* rect. That rect is transform-independent (the transform is on
+   * the child) and is invalidated on window resize, capture-phase scroll and a
+   * ResizeObserver on the container, i.e. every layout change that can move it.
+   * Reusing it introduces no staleness the drawing coordinates don't already
+   * depend on: if this rect were stale, strokes would land in the wrong place
+   * long before hover misreported.
+   *
+   * One behavioural difference, verified over a zoom x pan x rotation x flip
+   * matrix: the old rect test was the axis-aligned *bounding box* of a rotated
+   * board, so it accepted points in the corners outside the board itself. This
+   * test is the exact rotated rect. Those corner points then failed the
+   * board-layer check below anyway, so nothing that used to return true stops
+   * doing so; the probe found zero points accepted here that the rect test
+   * rejected, in any state.
+   *
+   * @param {number} clientX
+   * @param {number} clientY
+   * @param {Element} boardBoundsEl - fallback element, used only pre-init.
+   * @returns {boolean}
+   */
+  _isPointWithinBoardSurface(clientX, clientY, boardBoundsEl) {
+    const board = this.board;
+    if (!board?.container) {
+      const rect = boardBoundsEl.getBoundingClientRect();
+      return !(clientX < rect.left || clientX > rect.right
+        || clientY < rect.top || clientY > rect.bottom);
+    }
+
+    const pos = board.getBoardRelativePos(clientX, clientY);
+    return pos.x >= 0 && pos.x <= board.getWidth()
+      && pos.y >= 0 && pos.y <= board.getHeight();
   }
 
   syncBoardHoverState(isOnBoard, { forceRefresh = false, event = null } = {}) {
@@ -5366,7 +5433,7 @@ export class DrawingApp {
     // Pointer moves are listened to on window so active drags can continue off-canvas.
     // When the pointer is simply hovering outside the board, suppress local buffering
     // and remote broadcasts so replay/history do not accumulate phantom cursor moves.
-    this.syncBoardHoverState(this.isPointerOverBoard(e.clientX, e.clientY), { event: e });
+    this.syncBoardHoverState(this.isPointerOverBoard(e.clientX, e.clientY, e.target), { event: e });
     if (!this.isOnBoard && !hasActiveBoardInteraction) {
       return;
     }
