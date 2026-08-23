@@ -3632,6 +3632,7 @@
 
   .chat-shell.hud::before {
     opacity: calc(var(--chat-opacity-raw) * var(--chat-surface-idle));
+    visibility: visible;
     transition: opacity 0.3s ease;
   }
 
@@ -3656,15 +3657,25 @@
   }
 
   /* The bar morphs between a full-width strip and the collapsed pill, so the
-     pill's own properties animate rather than snapping. */
+     pill's own properties animate rather than snapping.
+
+     `align-self: center` + `width: 100%` is the open state written the long
+     way round: identical to the flex default it replaces, but it means the
+     collapse only has to change the width (100% -> fit-content, which
+     interpolate-size can carry) instead of also swapping align-self, which is
+     a discrete property and made the pill jump from centred to flush-left in
+     one frame. min-height joins it for the same reason as the shell's. */
   .chat-shell.hud .hud-bar {
+    align-self: center;
+    width: 100%;
     opacity: var(--chat-bar-idle);
     background-color: transparent;
     border: 1px solid transparent;
     border-radius: 999px;
     transition: opacity 0.3s ease, background-color 0.28s ease,
       border-color 0.28s ease, box-shadow 0.28s ease, padding 0.28s ease,
-      margin 0.28s ease;
+      margin 0.28s ease, width 0.3s cubic-bezier(0.32, 0.72, 0, 1),
+      min-height 0.3s cubic-bezier(0.32, 0.72, 0, 1);
   }
 
   /* The field drops its own fill at idle, not just its opacity — otherwise the
@@ -3717,8 +3728,15 @@
     text-shadow: none;
   }
 
+  /* The mirror of the peek plate's own transition below. Without it the plate
+     only animated on the way down: dropping .peek handed the stream straight
+     back to the open layout, so its width, padding and corners snapped in one
+     frame while the shell was still growing around it. */
   .chat-shell.hud .message-stream {
     background: transparent;
+    transition: width 0.26s cubic-bezier(0.32, 0.72, 0, 1), background 0.3s ease,
+      padding 0.26s cubic-bezier(0.32, 0.72, 0, 1),
+      border-radius 0.26s cubic-bezier(0.32, 0.72, 0, 1);
   }
 
   /* Controls stay out of the way until the window is awake. */
@@ -3837,7 +3855,24 @@
      jump, and the composer slides out from under it. */
   .chat-shell.hud {
     interpolate-size: allow-keywords;
-    transition: height 0.34s cubic-bezier(0.32, 0.72, 0, 1);
+    /* min-height and max-height ride the same curve as height, and that is not
+       cosmetic. The open window's `min-height: 240px` and the peek's
+       `max-height: 42vh` are both hard clamps: flip the class and the used
+       height jumps to the new bound on the very first frame, then eases from
+       there. That instant jump — ~130px on the way open, ~110px on the way
+       closed — was the snap. Animating the bounds alongside the height keeps
+       them clear of it for the whole run, so nothing ever clamps mid-flight. */
+    transition: height 0.34s cubic-bezier(0.32, 0.72, 0, 1),
+      min-height 0.34s cubic-bezier(0.32, 0.72, 0, 1),
+      max-height 0.34s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  /* A length rather than `none`, so the peek's 42vh has something to
+     interpolate against. It matches the ceiling onResize already enforces
+     (8px of margin top and bottom), so it clamps nothing that wasn't clamped
+     before. Mini keeps its own 360px ceiling. */
+  .chat-shell.hud:not(.mini) {
+    max-height: calc(100vh - 16px);
   }
 
   /* A manual drag-resize sets height directly every pointermove — the peek
@@ -3857,11 +3892,19 @@
     pointer-events: none;
   }
 
-  /* display:none, not just opacity:0 — a transparent pseudo still gets a layer,
-     and that layer is what showed up as a pale rectangle over the board. */
+  /* The surface fades rather than switching off: `display: none` popped the
+     whole panel — fill, border and all — in and out in one frame while the box
+     was still easing, which read as the window snapping open even though its
+     height was animating perfectly. `visibility` is what keeps the promise the
+     old `display: none` was making (a transparent pseudo still gets a layer,
+     and that layer is what showed up as a pale rectangle over the board), so
+     it flips only once the fade has finished and the pseudo is out of the
+     paint tree at rest. On the way open the delay is 0, so the fill starts
+     coming up with the first frame of the growth. */
   .chat-shell.hud.peek::before {
-    display: none;
     opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.24s ease, visibility 0s linear 0.24s;
   }
 
   /* Nothing in the chat body paints a surface of its own. The shell's ::before
@@ -3917,7 +3960,9 @@
        whenever the plate shrank. */
     background: rgba(11, 13, 16, 0.52);
     pointer-events: auto;
-    transition: width 0.26s cubic-bezier(0.32, 0.72, 0, 1), background 0.3s ease;
+    transition: width 0.26s cubic-bezier(0.32, 0.72, 0, 1), background 0.3s ease,
+      padding 0.26s cubic-bezier(0.32, 0.72, 0, 1),
+      border-radius 0.26s cubic-bezier(0.32, 0.72, 0, 1);
   }
 
   /* Nothing left to plate once the lines have faded out. */
@@ -4122,8 +4167,15 @@
       transform: none;
     }
 
+    .chat-shell.hud .message-stream,
     .chat-shell.hud.peek .message-stream {
       transition: none;
+    }
+
+    /* Zero-length rather than `none`: the delay is what keeps the pseudo out of
+       the paint tree while collapsed, so it still has to fire — just now. */
+    .chat-shell.hud.peek::before {
+      transition: opacity 0s, visibility 0s;
     }
 
     .chat-shell.hud.peek .message-row:last-child {
