@@ -708,6 +708,16 @@ html[data-mobile='true'] {
   flex-direction: column;
 }
 
+/* .selection-mode-container is a centring column, so its children shrink to fit
+   their content — which is why .radio-group has to ask for width: 100%. An
+   in-track slider row has nothing to be sized by: the label is absolutely
+   positioned and the track has no intrinsic width, so the row collapsed to zero
+   and all that showed was the value text spilling out of it. */
+.selection-mode-container > .sliderContainer,
+#fillAdvancedSettings {
+  width: 100%;
+}
+
 /* Shape "Draw Mode" ("Corner to Corner" / "Center Scaling") — the labels are
    too long to sit side-by-side in the sidebar, so stack them full-width. */
 #shapeModeOptions .radio-group {
@@ -1005,19 +1015,31 @@ html[data-mobile='true'] {
   user-select: none;
 }
 
+// The off state used to be --bg-tertiary behind a --border-subtle hairline,
+// which sits one step *below* this panel's --bg-elevated surface with a border
+// at 8% white — near-invisible, so the switch read as a floating dot rather
+// than a control. It's now a recessed slot: the darkest surface in the ramp,
+// an outline derived from the text colour (so it survives a custom theme), and
+// an inner shadow for depth.
 .tool-toggle-track {
   position: relative;
   flex: none;
   width: 34px;
   height: 20px;
   border-radius: 10px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-subtle);
+  background: var(--bg-primary);
+  border: 1px solid color-mix(in srgb, var(--text-primary) 24%, transparent);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
   transition: background var(--transition-fast), border-color var(--transition-fast);
+
+  &:hover {
+    border-color: color-mix(in srgb, var(--text-primary) 42%, transparent);
+  }
 
   &:has(input:checked) {
     background: var(--accent-primary);
     border-color: var(--accent-primary);
+    box-shadow: none;
   }
 
   &:has(input:focus-visible) {
@@ -1040,7 +1062,11 @@ html[data-mobile='true'] {
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: var(--text-secondary);
+  // #toolOptions rebinds --text-secondary to --text-primary, so the old token
+  // gave the off knob the same near-white as the on knob. Mixing it back
+  // towards the slot keeps off/on distinct at a glance.
+  background: color-mix(in srgb, var(--text-primary) 55%, var(--bg-primary));
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
   transition: transform var(--transition-fast), background var(--transition-fast);
 
   .tool-toggle-track:has(input:checked) & {
@@ -1055,12 +1081,24 @@ html[data-mobile='true'] {
   color: var(--text-primary);
 }
 
+/* The text tool's "Temporary Text" switch sits in a .sliderContainer instead of
+   a .tool-toggle-container, and `.sliderContainer label` — a class *and* a type
+   selector, so it outranks .tool-toggle — was centring it and stamping it with
+   the uppercase 10px slider-label type. Put it back in line with every other
+   switch in the panel. */
+.sliderContainer > .tool-toggle {
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 6px;
+  font-size: inherit;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
 /* Toggle hints. The description used to sit under every switch permanently in
    --text-muted, which was both the clutter and the least readable text in the
    panel. UI.initToggleHints() moves it behind a "?" beside the label; it opens
-   on hover/focus, or stays pinned after a click (which is all touch gets).
-   Revealed in flow rather than as a floating popover because #toolSliders and
-   #toolExtras are scroll containers and would clip one. */
+   on hover/focus, or stays pinned after a click (which is all touch gets). */
 .tool-toggle-labelRow {
   display: inline-flex;
   align-items: center;
@@ -1069,48 +1107,70 @@ html[data-mobile='true'] {
 
 .hintBtn {
   flex: none;
-  width: 14px;
-  height: 14px;
-  padding: 0;
-  border: 1px solid var(--border-subtle);
+  width: 18px;
+  height: 18px;
+  // "?" has no descender, so a flex-centred em box parks the glyph visibly
+  // above the circle's centre. The 2px of top padding pushes the (border-box)
+  // content area down by 1px, which lands it optically centred.
+  padding: 2px 0 0;
+  border: 0;
   border-radius: 999px;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 9px;
+  // Inverted: a filled accent disc with the glyph knocked out of it. The glyph
+  // takes --bg-primary rather than a literal dark, so it stays the far end of
+  // the surface ramp under a custom theme.
+  background: var(--accent-primary);
+  color: var(--bg-primary);
+  font-size: 12px;
   font-weight: 700;
   line-height: 1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: help;
-  transition: color var(--transition-fast), border-color var(--transition-fast);
+  opacity: 0.85;
+  transition: opacity var(--transition-fast), background var(--transition-fast),
+    box-shadow var(--transition-fast);
 }
 
 .hintBtn:hover,
 .hintBtn:focus-visible,
-.hint-open .hintBtn {
-  color: var(--accent-primary);
-  border-color: var(--accent-primary);
+.hintBtn[aria-expanded='true'] {
+  background: var(--accent-hover);
+  opacity: 1;
+  box-shadow: 0 0 0 2px var(--accent-glow);
 }
 
+/* The hint is a floating card, not an in-flow paragraph. #toolSliders and
+   #toolExtras are scroll containers and would clip a popover, so
+   UI.initToggleHints() moves the element to <body> and shows it in the top
+   layer via the popover API (plain fixed positioning where that is missing).
+   JS writes left/top; the rest is here. The UA sheet for [popover] sets
+   inset: 0, margin: auto and overflow: auto — all three have to be undone or
+   the card lands centred in the viewport. */
 .tool-toggle-hint {
-  margin: 6px 0 0;
-  padding: 6px 8px;
-  border-left: 2px solid var(--accent-primary);
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-  background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
-  font-size: 11px;
-  line-height: 1.4;
-  color: var(--text-primary);
-}
-
-.has-toggle-hint > .tool-toggle-hint {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  z-index: 1200;
   display: none;
+  overflow: visible;
+  width: max-content;
+  max-width: 240px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-subtle);
+  border-left: 2px solid var(--accent-primary);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-lg);
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.45;
+  letter-spacing: normal;
+  text-transform: none;
 }
 
-.has-toggle-hint:has(.hintBtn:hover) > .tool-toggle-hint,
-.has-toggle-hint:has(.hintBtn:focus-visible) > .tool-toggle-hint,
-.has-toggle-hint.hint-open > .tool-toggle-hint {
+.tool-toggle-hint.is-open {
   display: block;
 }
 

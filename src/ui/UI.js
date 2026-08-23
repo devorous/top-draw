@@ -297,12 +297,18 @@ export class UI {
    * text is on demand and shown in full contrast.
    *
    * Built here rather than in the markup so every existing hint is covered and
-   * any hint added later gets the affordance for free. Hover/focus reveal is
-   * pure CSS — see .has-toggle-hint in layout/_sidebar.scss; this only wires
-   * the click-to-pin behaviour that touch needs.
+   * any hint added later gets the affordance for free.
+   *
+   * The hint shows as a floating card rather than opening in flow: #toolSliders
+   * and #toolExtras are scroll containers, so the element is moved to <body>
+   * and — where the browser has it — put in the top layer with the popover API,
+   * which no ancestor can clip or out-stack. Position is set from here because
+   * anchor positioning is not portable yet.
    */
   initToggleHints() {
     const hints = document.querySelectorAll('.tool-toggle-hint');
+    const supportsPopover = typeof HTMLElement !== 'undefined'
+      && Object.prototype.hasOwnProperty.call(HTMLElement.prototype, 'popover');
     let seq = 0;
 
     for (const hint of hints) {
@@ -311,8 +317,6 @@ export class UI {
 
       const label = host.querySelector('.tool-toggle-label');
       if (!label) continue;
-
-      host.classList.add('has-toggle-hint');
 
       // The button has to sit beside the label text, but .tool-toggle is a
       // column (label above the switch), so the pair needs its own row.
@@ -331,43 +335,137 @@ export class UI {
       btn.setAttribute('aria-describedby', hint.id);
       btn.setAttribute('aria-label', `About ${label.textContent.trim()}`);
       row.appendChild(btn);
+
+      // A <button> is a labelable element and these labels carry no `for`, so
+      // the browser picked the "?" — the first labelable descendant — as the
+      // label's control. Clicking the switch's text then activated the button
+      // (opening the hint) and never touched the checkbox. Binding the label to
+      // its checkbox explicitly fixes both halves: the text flips the switch
+      // again, and the button, being interactive content, no longer triggers
+      // label activation at all.
+      const toggleLabel = row.closest('label');
+      const input = toggleLabel?.querySelector('input[type="checkbox"], input[type="radio"]');
+      if (toggleLabel && input) {
+        if (!input.id) input.id = `${hint.id}-input`;
+        toggleLabel.htmlFor = input.id;
+      }
+
+      if (supportsPopover) hint.setAttribute('popover', 'manual');
+      document.body.appendChild(hint);
+      btn._toggleHint = hint;
+      this._wireToggleHint(btn, hint);
     }
 
     const panel = this.elements.toolOptions;
     if (!panel || panel.dataset.hintClickBound) return;
     panel.dataset.hintClickBound = 'true';
 
-    const closeAll = () => {
-      for (const el of panel.querySelectorAll('.hint-open')) {
-        el.classList.remove('hint-open');
-        el.querySelector('.hintBtn')?.setAttribute('aria-expanded', 'false');
-      }
-    };
+    // Clicking the button pins the card open; clicking anywhere else dismisses
+    // it. Pinning is handled on click rather than pointerdown because the
+    // button sits inside the <label> — only cancelling the click stops it from
+    // also flipping the switch it is describing.
+    document.addEventListener('click', (e) => {
+      const btn = e.target.closest?.('.hintBtn');
+      if (!btn) return;
 
-    panel.addEventListener('click', (e) => {
-      const btn = e.target.closest('.hintBtn');
-      if (!btn) {
-        closeAll();
-        return;
-      }
-
-      // The button sits inside the <label>, so a plain click would also flip
-      // the switch it is describing.
       e.preventDefault();
       e.stopPropagation();
 
-      const host = btn.closest('.has-toggle-hint');
-      if (!host) return;
+      if (this._openHintBtn === btn && this._hintPinned) {
+        this._closeToggleHint();
+      } else {
+        this._openToggleHint(btn, true);
+      }
+    }, true);
 
-      const open = !host.classList.contains('hint-open');
-      closeAll();
-      host.classList.toggle('hint-open', open);
-      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
-    });
+    document.addEventListener('pointerdown', (e) => {
+      if (e.target.closest?.('.hintBtn, .tool-toggle-hint')) return;
+      this._closeToggleHint();
+    }, true);
 
-    panel.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') closeAll();
-    });
+    // Scrolling the panel (or resizing) leaves the card stranded next to
+    // nothing, and the button may have scrolled out of the container entirely.
+    // A keypress usually means a tool shortcut, which swaps the panel out from
+    // under it.
+    window.addEventListener('scroll', () => this._closeToggleHint(), true);
+    window.addEventListener('resize', () => this._closeToggleHint());
+    document.addEventListener('keydown', () => this._closeToggleHint());
+  }
+
+  /** Hover/focus wiring for one hint button. */
+  _wireToggleHint(btn, hint) {
+    const scheduleClose = () => {
+      if (this._hintPinned) return;
+      clearTimeout(this._hintCloseTimer);
+      // Long enough to cross the gap between the button and the card, so the
+      // text stays selectable.
+      this._hintCloseTimer = setTimeout(() => this._closeToggleHint(), 140);
+    };
+    const cancelClose = () => clearTimeout(this._hintCloseTimer);
+
+    btn.addEventListener('mouseenter', () => this._openToggleHint(btn, false));
+    btn.addEventListener('mouseleave', scheduleClose);
+    btn.addEventListener('focus', () => this._openToggleHint(btn, false));
+    btn.addEventListener('blur', scheduleClose);
+    hint.addEventListener('mouseenter', cancelClose);
+    hint.addEventListener('mouseleave', scheduleClose);
+  }
+
+  /**
+   * Shows one hint card beside its button, closing any other. `pinned` cards
+   * survive the pointer leaving — that is the only way touch can read one.
+   */
+  _openToggleHint(btn, pinned) {
+    const hint = btn._toggleHint;
+    if (!hint) return;
+
+    clearTimeout(this._hintCloseTimer);
+    if (this._openHintBtn && this._openHintBtn !== btn) this._closeToggleHint();
+
+    hint.classList.add('is-open');
+    if (hint.hasAttribute('popover')) {
+      try { hint.showPopover(); } catch { /* already open */ }
+    }
+
+    // Measured after showing, so the card has a real size to place.
+    const anchor = btn.getBoundingClientRect();
+    const card = hint.getBoundingClientRect();
+    const margin = 8;
+    const gap = 6;
+
+    let left = anchor.left + anchor.width / 2 - card.width / 2;
+    left = Math.max(margin, Math.min(left, window.innerWidth - card.width - margin));
+
+    // Above by preference: the switch sits directly below its label row, and a
+    // card dropped under the "?" would cover the thing it is describing.
+    let top = anchor.top - card.height - gap;
+    if (top < margin) {
+      top = Math.min(anchor.bottom + gap, window.innerHeight - card.height - margin);
+      top = Math.max(margin, top);
+    }
+
+    hint.style.left = `${Math.round(left)}px`;
+    hint.style.top = `${Math.round(top)}px`;
+
+    btn.setAttribute('aria-expanded', 'true');
+    this._openHintBtn = btn;
+    this._hintPinned = this._hintPinned || pinned;
+  }
+
+  /** Hides whichever hint card is open. */
+  _closeToggleHint() {
+    clearTimeout(this._hintCloseTimer);
+    const btn = this._openHintBtn;
+    this._openHintBtn = null;
+    this._hintPinned = false;
+    if (!btn) return;
+
+    const hint = btn._toggleHint;
+    hint?.classList.remove('is-open');
+    if (hint?.hasAttribute('popover')) {
+      try { hint.hidePopover(); } catch { /* already hidden */ }
+    }
+    btn.setAttribute('aria-expanded', 'false');
   }
 
   /**

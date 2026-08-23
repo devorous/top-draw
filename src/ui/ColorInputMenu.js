@@ -2,6 +2,8 @@
  * @fileoverview Color Input Menu - Allows manual RGB/HSV color input.
  */
 
+const PIN_STORAGE_KEY = 'topDrawColorInputPinned';
+
 /**
  * ColorInputMenu class
  */
@@ -13,6 +15,7 @@ export class ColorInputMenu {
     this.onColorChange = options.onColorChange || (() => {});
     this.currentMode = 'rgb'; // 'rgb', 'hsv', or 'hex'
     this.isOpen = false;
+    this.isPinned = false;
     this.elements = {};
   }
 
@@ -21,6 +24,8 @@ export class ColorInputMenu {
    */
   init() {
     this.cacheElements();
+    this.isPinned = this.loadPinned();
+    this.updatePinUI();
     this.setupEventListeners();
   }
 
@@ -32,6 +37,7 @@ export class ColorInputMenu {
       menu: document.getElementById('colorInputMenu'),
       openBtn: document.getElementById('colorInputBtn'),
       closeBtn: document.getElementById('colorInputClose'),
+      pinBtn: document.getElementById('colorInputPin'),
       tabs: document.querySelectorAll('.colorInputTab'),
       rgbMode: document.getElementById('rgbMode'),
       hsvMode: document.getElementById('hsvMode'),
@@ -63,6 +69,11 @@ export class ColorInputMenu {
 
     this.elements.closeBtn.addEventListener('click', () => this.close());
 
+    this.elements.pinBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.togglePin();
+    });
+
     this.elements.tabs.forEach(tab => {
       tab.addEventListener('click', () => {
         const mode = tab.dataset.mode;
@@ -83,6 +94,7 @@ export class ColorInputMenu {
 
     document.addEventListener('click', (e) => {
       if (this.isOpen &&
+          !this.isPinned &&
           !this.elements.menu.contains(e.target) &&
           !this.elements.openBtn.contains(e.target)) {
         this.close();
@@ -115,6 +127,53 @@ export class ColorInputMenu {
   close() {
     this.elements.menu.style.display = 'none';
     this.isOpen = false;
+  }
+
+  /**
+   * Toggles the pinned state and persists it.
+   */
+  togglePin() {
+    this.isPinned = !this.isPinned;
+    this.updatePinUI();
+    this.savePinned();
+  }
+
+  /**
+   * Reflects the pinned state on the pin button.
+   */
+  updatePinUI() {
+    const { pinBtn } = this.elements;
+    if (!pinBtn) {
+      return;
+    }
+
+    const label = this.isPinned ? 'Unpin menu' : 'Keep menu open';
+    pinBtn.setAttribute('aria-pressed', this.isPinned ? 'true' : 'false');
+    pinBtn.title = label;
+    pinBtn.setAttribute('aria-label', label);
+  }
+
+  /**
+   * Reads the persisted pinned state.
+   * @returns {boolean} Whether the menu should resist outside-click dismissal
+   */
+  loadPinned() {
+    try {
+      return localStorage.getItem(PIN_STORAGE_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Persists the pinned state.
+   */
+  savePinned() {
+    try {
+      localStorage.setItem(PIN_STORAGE_KEY, this.isPinned ? 'true' : 'false');
+    } catch {
+      // Private-mode / blocked storage: the pin still works for this session.
+    }
   }
 
   /**

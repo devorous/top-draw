@@ -106,20 +106,22 @@
   bottom: 8px;
   left: 6px;
   right: auto;
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
   color: var(--text-secondary);
-  font-size: 14px;
-  font-weight: 600;
   cursor: pointer;
   transition: all var(--transition-fast);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 120;
+}
+
+.colorInputBtn svg {
+  display: block;
 }
 
 html[data-sidebar-side='left'] .colorInputBtn {
@@ -190,6 +192,44 @@ html[data-sidebar-side='left'] .colorInputMenu {
 .colorInputTab.active {
   background: var(--accent-primary);
   color: var(--bg-primary);
+}
+
+.colorInputActions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+// Pinning suppresses the outside-click dismissal so the menu can be left open
+// while painting. The close button still closes it — pin only blocks the
+// implicit dismiss, never an explicit one.
+.colorInputPin {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+.colorInputPin svg {
+  display: block;
+}
+
+.colorInputPin:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.colorInputPin[aria-pressed='true'] {
+  background: color-mix(in srgb, var(--accent-primary) 16%, transparent);
+  color: var(--accent-primary);
 }
 
 .colorInputClose {

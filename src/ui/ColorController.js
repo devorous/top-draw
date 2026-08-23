@@ -331,12 +331,15 @@ export class ColorController {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'colorPickerPopoutButton';
-    button.title = 'Open mini color picker';
-    button.setAttribute('aria-label', 'Open mini color picker');
+    button.title = 'Pop out picker onto the board';
+    button.setAttribute('aria-label', 'Pop out picker onto the board');
+    // Open-in-new-window mark. The previous two-offset-rectangles glyph is the
+    // universal "duplicate/copy" mark, which is not what this button does.
     button.innerHTML = `
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <rect x="5" y="6" width="11" height="11" rx="2" stroke="currentColor" stroke-width="1.8"></rect>
-        <rect x="9" y="3" width="11" height="11" rx="2" stroke="currentColor" stroke-width="1.8"></rect>
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <path d="M14 9.8v3.4A1.8 1.8 0 0 1 12.2 15H3A1.8 1.8 0 0 1 1.2 13.2V4A1.8 1.8 0 0 1 3 2.2h3.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path>
+        <path d="M9.8 1H15v5.2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path>
+        <path d="M15 1 8.4 7.6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path>
       </svg>
     `;
 

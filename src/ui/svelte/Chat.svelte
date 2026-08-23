@@ -2548,8 +2548,7 @@
         {#if activeView === 'directory'}
           <section class="directory-view">
             <div class="directory-header">
-              <h3>Start a private message</h3>
-              <p>Pick someone from the room to open a direct thread.</p>
+              <h3>Start a private conversation</h3>
             </div>
 
             <div class="directory-list">
