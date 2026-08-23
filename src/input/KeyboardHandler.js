@@ -354,7 +354,9 @@ export class KeyboardHandler {
       case 'color.slot3':
       case 'color.slot4':
       case 'color.slot5':
-      case 'color.slot6': {
+      case 'color.slot6':
+      case 'color.slot7':
+      case 'color.slot8': {
         const idx = parseInt(actionId.replace('color.slot', ''), 10) - 1;
         const preset = appState.customColors[idx];
         if (preset) {

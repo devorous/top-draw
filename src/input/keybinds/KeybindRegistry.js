@@ -172,6 +172,20 @@ export const KEYBIND_ACTIONS = [
     defaultBinding: '6'
   },
   {
+    id: 'color.slot7',
+    label: 'Select custom color 7',
+    description: 'Select the seventh saved custom color preset.',
+    category: 'Colors',
+    defaultBinding: '7'
+  },
+  {
+    id: 'color.slot8',
+    label: 'Select custom color 8',
+    description: 'Select the eighth saved custom color preset.',
+    category: 'Colors',
+    defaultBinding: '8'
+  },
+  {
     id: 'selection.copy',
     label: 'Copy selection',
     description: 'Copy the current selection.',
