@@ -527,6 +527,19 @@ export function setupUserHandlers(wsClient, app) {
         setTimeout(() => {
           app.syncClient.requestSync();
         }, 500);
+      } else if (data.users.some(u => Number(u.sessionIndex) === selfIdx)) {
+        // This payload names US, so the roster has already flushed the joiner —
+        // the race the fallback timer guards against (added to the room but not
+        // yet in getJoinedUsers() output) is over, and "nobody else here" is a
+        // real answer rather than a half-built roster. Sync now instead of
+        // parking a genuinely solo joiner behind the 2.5s timer: with no peers,
+        // no checkpoint and an empty tail there is nothing to wait for.
+        app._needsSync = false;
+        if (app._needsSyncFallbackTimer) {
+          clearTimeout(app._needsSyncFallbackTimer);
+          app._needsSyncFallbackTimer = null;
+        }
+        app.syncClient.requestSync();
       } else if (!app._needsSyncFallbackTimer) {
         app._needsSyncFallbackTimer = setTimeout(() => {
           app._needsSyncFallbackTimer = null;

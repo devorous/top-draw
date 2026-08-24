@@ -190,7 +190,22 @@ export class SyncCoordinator {
       .map(({ userId, frames }) => ({ userId, frames: frameFilter.filter(userId, frames) }));
     const pendingMessageCount = pendingBundles.reduce((total, b) => total + b.frames.length, 0);
     // Latest tool state per user, re-sent at the end of the serve (see 2c).
+    //
+    // Never the REQUESTER's own. handleJoinAfterConnect() broadcasts the local
+    // user's full tool-state set (smoothing/size/color/font/tool/shape mode/
+    // spacing/hardness/blend/layer/thinning/simulate-pressure — one frame per
+    // state key) the instant it joins, so by the time the sync request lands the
+    // tape holds ~13 frames under our own userId and step 2c echoed every one of
+    // them straight back at us. The joiner is the authority on its own tool
+    // state: it never left `app.self`, requestSync()'s wipe doesn't touch it,
+    // and _replayBufferInner explicitly saves and restores the local
+    // image-tool keys across a rebuild to undo exactly this kind of echo.
+    //
+    // On a lone join to a cold room with loadSnapshotOnFirstJoin off — no
+    // checkpoint, empty tail, no pending strokes — that self-echo WAS the whole
+    // sync: a blank board arriving as a 13-step progress bar.
     const toolStateBundles = (tape?.getToolStateBundles?.() || [])
+      .filter(({ userId }) => Number(userId) !== requesterSessionIndex)
       .map(({ userId, frames }) => ({ userId, frames: frameFilter.filter(userId, frames) }));
     const toolStateMessageCount = toolStateBundles.reduce((total, b) => total + b.frames.length, 0);
     const [boardHeight, boardWidth] = getBoardDimensionsForSize(this.room?.settings?.boardSize);
