@@ -3000,6 +3000,27 @@ export class Board {
     return needsFullRedraw ? null : dirtyRects;
   }
 
+  /**
+   * Whether the live preview surface (topCanvas, and each remote user's board)
+   * currently sits directly above `layerIdx` in the paint order.
+   *
+   * While someone is drawing, `compositeAllLayers` splits the stack: mainCanvas
+   * takes 0..splitLayer, the preview surfaces paint over it, and
+   * upperLayersCanvas paints over them. So a preview drawn for `layerIdx` is in
+   * the right place only when the split lands on that same layer — otherwise
+   * mainCanvas is holding layers above `layerIdx` and the preview would cover
+   * content that should occlude it. An active selection or fill preview moves
+   * the split somewhere else, which is exactly when that goes wrong.
+   *
+   * @param {number} layerIdx - Layer the preview belongs to.
+   * @returns {boolean}
+   */
+  previewSurfaceSitsAboveLayer(layerIdx) {
+    if (this.activeSelectionLayer >= 0) return false;
+    if (this.activeFillPreviewLayer >= 0) return false;
+    return (this.app?.self?.activeLayer ?? 0) === layerIdx;
+  }
+
   _findActiveEraserPreview() {
     const layerCount = this.layerManager?.getLayerCount?.() ?? 0;
     const localUserId = this.app?.self?.id;

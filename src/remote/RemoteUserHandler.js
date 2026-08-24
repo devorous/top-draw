@@ -132,8 +132,13 @@ export class RemoteUserHandler {
     if (!user?.board) return;
 
     const isActiveEraser = user.tool === 'erase' && user.mousedown && !user.panning;
+    // An eraser using the background-colour preview draws its finished preview
+    // straight onto this surface, so hiding it would hide the preview itself.
+    // Only the destination-out path wants this canvas as an invisible source.
+    const eraserOwnsSurface = isActiveEraser &&
+      (this.toolManager.getTool('erase')?._canUseBackgroundPreview?.(user) ?? false);
     if (!user._layeredPreviewActive) {
-      user.board.style.opacity = isActiveEraser ? '0' : '';
+      user.board.style.opacity = (isActiveEraser && !eraserOwnsSurface) ? '0' : '';
     }
 
     const blendMode = user.tool === 'erase' ? 'source-over' : (user.blendMode || 'source-over');

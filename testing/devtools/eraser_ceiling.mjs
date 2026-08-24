@@ -106,7 +106,8 @@ const SETUP = `(() => {
     copyPreviewSource: lm._copyPreviewSource.bind(lm),
     stampPoint: EP._stampPoint,
     compositeUpper: board._compositeUpperLayers.bind(board),
-    groupWithFlat: lm._compositeGroupWithFlatCanvas.bind(lm)
+    groupWithFlat: lm._compositeGroupWithFlatCanvas.bind(lm),
+    canUseBgPreview: EP._canUseBackgroundPreview
   };
 
   const restoreAll = () => {
@@ -119,6 +120,7 @@ const SETUP = `(() => {
     EP._stampPoint = orig.stampPoint;
     board._compositeUpperLayers = orig.compositeUpper;
     lm._compositeGroupWithFlatCanvas = orig.groupWithFlat;
+    EP._canUseBackgroundPreview = orig.canUseBgPreview;
   };
 
   const noop = () => {};
@@ -133,6 +135,10 @@ const SETUP = `(() => {
     'no-publish':        () => { app.selectTool('erase'); EP._publishPreviewStroke = noop; },
     'no-previewcopy':    () => { app.selectTool('erase'); lm._copyPreviewSource = noop; },
     'no-previewblit':    () => { app.selectTool('erase'); EP._renderPreviewPath = noop; },
+    // The shipped behaviour before the background-colour preview existed: force
+    // every erase down the destination-out publish + per-frame composite path.
+    // Renders correctly, so this is a true A/B rather than a ceiling.
+    'force-destout':     () => { app.selectTool('erase'); EP._canUseBackgroundPreview = () => false; },
     'no-drawpreview':    () => { app.selectTool('erase'); EP.drawPreview = noop; },
     'no-stamp':          () => { app.selectTool('erase'); EP._stampPoint = noop; },
     // Ceiling for "cache the group's base composite and only re-apply the

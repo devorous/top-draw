@@ -55,12 +55,24 @@ export class EraserTool extends Tool {
    */
   onPointerDown(user, pos) {
     this._activeUser = user;
-    if (this._isLocalUser(user)) this._setPreviewMaskVisible(false);
     this.lastPos.set(this._getUserId(user), { x: pos.x, y: pos.y });
     user.clearLine();
     user._strokeLayer = user.activeLayer ?? 0;
     this._beginStroke(user);
     this._resetStrokeState(user);
+
+    // Decide the preview path up front so the surface starts out with the right
+    // visibility: the first move tick may not produce dirty bounds, and until it
+    // does drawPreview does not run to set it.
+    this._setPreviewSurfaceVisible(user, this._canUseBackgroundPreview(user));
+
+    // Ask for one composite now, whichever path we take. Starting a stroke moves
+    // the composite split to this layer, which is what moves the layers above it
+    // off mainCanvas and onto upperLayersCanvas — i.e. above the preview surface.
+    // The background preview relies on that having happened; it does not request
+    // a composite of its own thereafter.
+    this.board.requestUpdate();
+
     const rect = this.getPreviewDirtyRect(user);
     if (rect !== false) {
       this._clearPreview(user, rect);
@@ -127,7 +139,7 @@ export class EraserTool extends Tool {
     this._clearStrokeState(user);
 
     this._clearPreview(user);
-    if (this._isLocalUser(user)) this._setPreviewMaskVisible(true);
+    this._setPreviewSurfaceVisible(user, true);
   }
 
   appendBufferedPoint(user, pos, pressure = user.pressure, size = user.size, opacity = user.opacity) {
@@ -176,14 +188,24 @@ export class EraserTool extends Tool {
     const state = this._getStrokeState(user);
     if (!state || !this._hasDirtyBounds(state)) return;
 
-    // The mask is blitted straight onto the preview surface at the eraser's
-    // opacity — the same thing eraseMaskOnGroup does at commit time. There used
-    // to be an intermediate `previewCanvas` here that re-tinted the mask with
-    // the background colour, but nothing ever looked at those pixels: topCanvas
-    // (and a remote user's board) is held at opacity 0 for the whole gesture,
-    // and every consumer downstream is a `destination-out` draw, which reads
-    // alpha only. That tint pass was ~35% of the eraser's per-tick cost on a
-    // weak client and it existed to compute a colour no one could see.
+    // Two ways to show an in-progress erase, off the SAME mask pixels:
+    //
+    //  - background preview: show the mask on the preview surface as-is. It is
+    //    already stamped in the background colour, so it reads as an erase, and
+    //    it costs one blit and nothing else — no publish into the layer stack,
+    //    no composite. This is the brush's cost profile.
+    //  - destination-out preview: hide the preview surface, publish the mask
+    //    into the layer composite as a per-user destination-out stroke, and
+    //    composite every frame. Correct everywhere, and ~8.7 ms/frame on a weak
+    //    client because the main canvas gets touched on every tick.
+    //
+    // _canUseBackgroundPreview decides, and is re-checked every tick: a remote
+    // user can put content on a lower layer mid-stroke and invalidate it. Both
+    // paths render the same mask, so switching between them mid-stroke needs
+    // nothing more than toggling the surface's visibility.
+    const useBackgroundPreview = this._canUseBackgroundPreview(user);
+    if (useBackgroundPreview) this._syncMaskFillStyle(state);
+
     this.board.withSelectionMaskClip(ctx, user.id, () => {
       const prevAlpha = ctx.globalAlpha;
       ctx.globalAlpha = state.opacity ?? 1;
@@ -197,6 +219,16 @@ export class EraserTool extends Tool {
       ctx.globalAlpha = prevAlpha;
     });
 
+    if (useBackgroundPreview) {
+      // Nothing else to do: the surface IS the preview. Drop any preview stroke
+      // a previous tick published on the other path, which also asks for the
+      // one composite needed to retire it.
+      this._setPreviewSurfaceVisible(user, true);
+      this.board.layerManager?.clearUserPreviewStroke?.(this._getUserId(user));
+      state.previewDirtyBounds = null;
+      return;
+    }
+
     // Publish the per-user preview into the layer composite as a transient
     // destination-out preview stroke. Each user gets their own preview entry
     // (activePreviewByUser), so simultaneous erasers no longer fight over a
@@ -204,13 +236,13 @@ export class EraserTool extends Tool {
     this._publishPreviewStroke(user, ctx, rect);
 
     state.previewDirtyBounds = null;
-    // The live preview surface (topCanvas) is only a source for the per-user
-    // destination-out preview stroke published above; the visible erase preview
-    // is composited into the main canvas. Keep topCanvas hidden so it isn't also
-    // painted on top — a full clearTop(null) (e.g. when mirror regions force a
-    // null preview rect) resets its opacity and would otherwise double the erase
-    // strength in the preview vs. the committed result.
-    if (this._isLocalUser(user)) this._setPreviewMaskVisible(false);
+    // On this path the preview surface is only a SOURCE for the destination-out
+    // stroke published above; the visible erase is composited into the main
+    // canvas. Keep it hidden so it isn't also painted on top — a full
+    // clearTop(null) (e.g. when mirror regions force a null preview rect) resets
+    // its opacity and would otherwise double the erase strength in the preview
+    // versus the committed result.
+    this._setPreviewSurfaceVisible(user, false);
     this.board.requestUpdate();
   }
 
@@ -408,6 +440,22 @@ export class EraserTool extends Tool {
     this.board.topCanvas.style.opacity = visible ? '' : '0';
   }
 
+  /**
+   * Show or hide the surface this user's preview is drawn on. The local user
+   * draws onto topCanvas; every remote user has their own `.userBoard`, which
+   * RemoteUserHandler otherwise hides for the whole of an erase gesture.
+   * @param {Object} user - The erasing user.
+   * @param {boolean} visible
+   * @private
+   */
+  _setPreviewSurfaceVisible(user, visible) {
+    if (this._isLocalUser(user)) {
+      this._setPreviewMaskVisible(visible);
+      return;
+    }
+    if (user?.board) user.board.style.opacity = visible ? '' : '0';
+  }
+
   _getUserId(user) {
     return user?.id ?? this.board.app?.self?.id ?? 0;
   }
@@ -488,7 +536,8 @@ export class EraserTool extends Tool {
       dirtyBounds: null,
       previewDirtyBounds: null,
       maxRadius: 0,
-      opacity: 1
+      opacity: 1,
+      fillStyle: null
     };
   }
 
@@ -504,6 +553,67 @@ export class EraserTool extends Tool {
     state.previewDirtyBounds = null;
     state.maxRadius = 0;
     state.opacity = user?.opacity ?? 1;
+    state.fillStyle = this._backgroundFillStyle();
+  }
+
+  /**
+   * Keep the mask's tint matching the board background, which another user can
+   * change mid-stroke. Only the already-stamped pixels are stale, so one
+   * `source-in` re-fill fixes them; new stamps pick the colour up on their own.
+   * @param {Object} state - Per-user eraser stroke state.
+   * @private
+   */
+  _syncMaskFillStyle(state) {
+    const fill = this._backgroundFillStyle();
+    if (state.fillStyle === fill) return;
+    state.fillStyle = fill;
+    const ctx = state.maskCtx;
+    ctx.save();
+    ctx.globalCompositeOperation = 'source-in';
+    ctx.fillStyle = fill;
+    ctx.fillRect(0, 0, state.maskCanvas.width, state.maskCanvas.height);
+    ctx.restore();
+  }
+
+  /**
+   * Whether this stroke's preview can be drawn as a plain background-coloured
+   * stroke on the preview surface, instead of being published into the layer
+   * stack as a `destination-out` preview and composited every frame.
+   *
+   * The two are pixel-identical when an erase on this layer reveals nothing but
+   * the background. For an opaque destination pixel D over background B with
+   * eraser alpha a, `destination-out` leaves alpha 1-a and composites to
+   * `D(1-a) + Ba`; painting B over D at globalAlpha a gives `Ba + D(1-a)`. Same
+   * result, for every a — so this is exact where it applies, not an
+   * approximation.
+   *
+   * It applies when:
+   *  - no layer BELOW this one can paint, or an erase would reveal that layer's
+   *    pixels rather than the background. Vacuously true on the bottom layer,
+   *    which is where most boards do all their work.
+   *  - the background is opaque, or an erase reveals transparency, not a colour.
+   *  - the preview surface is directly above this layer in the paint order.
+   *    Content ABOVE needs no check: upperLayersCanvas paints over the preview
+   *    surfaces already, exactly as it does for brush strokes.
+   *  - this is a single-layer erase; erase-all-layers reveals the background
+   *    everywhere and has its own flattened preview path.
+   * @param {Object} user - The erasing user.
+   * @returns {boolean}
+   * @private
+   */
+  _canUseBackgroundPreview(user) {
+    if (this._shouldEraseAllLayers(user)) return false;
+    const lm = this.board.layerManager;
+    if (!lm?.rangeHasRenderableContent) return false;
+
+    const bg = this.board.getCompositeBackgroundColor?.() ?? this.board.backgroundColor;
+    if (!bg || (bg[3] ?? 1) < 1) return false;
+
+    const strokeLayer = this._getStrokeLayer(user);
+    if (!this.board.previewSurfaceSitsAboveLayer?.(strokeLayer)) return false;
+    if (lm.rangeHasRenderableContent(0, strokeLayer)) return false;
+
+    return true;
   }
 
   _clearStrokeState(user) {
@@ -544,6 +654,23 @@ export class EraserTool extends Tool {
     state.lastStampPos = { x: point.x, y: point.y, radius };
   }
 
+  /**
+   * The mask is stamped in the board's background colour rather than white.
+   *
+   * Nothing downstream reads the mask's RGB — every consumer draws it with
+   * `destination-out`, which uses source alpha only — so the choice is free. It
+   * buys the background-colour preview path: when an erase on this layer would
+   * reveal nothing but the background, the same mask can be shown directly on
+   * the preview surface and *is* the finished preview, with no destination-out
+   * publish and no per-frame composite behind it.
+   * @returns {string}
+   * @private
+   */
+  _backgroundFillStyle() {
+    const [r, g, b] = this.board.getCompositeBackgroundColor?.() ?? this.board.backgroundColor ?? [255, 255, 255];
+    return `rgb(${r}, ${g}, ${b})`;
+  }
+
   _stampCircle(state, x, y, radius, userId = null) {
     const ctx = state.maskCtx;
     ctx.save();
@@ -551,7 +678,7 @@ export class EraserTool extends Tool {
       this.board._applyMaskClipToCtx?.(ctx, userId);
     }
     ctx.globalCompositeOperation = 'source-over';
-    ctx.fillStyle = 'rgba(255,255,255,1)';
+    ctx.fillStyle = state.fillStyle || 'rgba(255,255,255,1)';
     ctx.beginPath();
     ctx.arc(x, y, radius, 0, Math.PI * 2);
     ctx.fill();
