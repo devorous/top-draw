@@ -175,13 +175,26 @@ export class EraserTool extends Tool {
     if (!ctx || !user?.currentLine?.length) return;
     const state = this._getStrokeState(user);
     if (!state || !this._hasDirtyBounds(state)) return;
-    const [r, g, b] = this.board.backgroundColor;
+
+    // The mask is blitted straight onto the preview surface at the eraser's
+    // opacity — the same thing eraseMaskOnGroup does at commit time. There used
+    // to be an intermediate `previewCanvas` here that re-tinted the mask with
+    // the background colour, but nothing ever looked at those pixels: topCanvas
+    // (and a remote user's board) is held at opacity 0 for the whole gesture,
+    // and every consumer downstream is a `destination-out` draw, which reads
+    // alpha only. That tint pass was ~35% of the eraser's per-tick cost on a
+    // weak client and it existed to compute a colour no one could see.
     this.board.withSelectionMaskClip(ctx, user.id, () => {
-      this._renderPreviewPath(ctx, user.currentLine, r, g, b, user, rect);
+      const prevAlpha = ctx.globalAlpha;
+      ctx.globalAlpha = state.opacity ?? 1;
+
+      this._renderPreviewPath(ctx, state, rect);
 
       this.board.forEachMirrorRegion({ rect: this._boundsToRect(state.dirtyBounds) }, (region) => {
-        this.board.drawMirroredCanvas(ctx, state.previewCanvas, region, 0, 0);
+        this.board.drawMirroredCanvas(ctx, state.maskCanvas, region, 0, 0);
       });
+
+      ctx.globalAlpha = prevAlpha;
     });
 
     // Publish the per-user preview into the layer composite as a transient
@@ -330,14 +343,19 @@ export class EraserTool extends Tool {
     };
   }
 
-  _renderPreviewPath(ctx, points, r, g, b, user, rect = null) {
-    const state = this._getStrokeState(user);
-    if (!state || !this._hasDirtyBounds(state)) return;
-    this._renderPreviewMask(state, `rgb(${r}, ${g}, ${b})`, rect);
-    const sourceRect = rect ? clampRectToCanvas(rect, state.previewCanvas) : null;
+  /**
+   * Blit the accumulated eraser mask onto a preview surface. The caller owns
+   * `ctx.globalAlpha` (set to the stroke opacity) and any clipping.
+   * @param {CanvasRenderingContext2D} ctx - Preview context.
+   * @param {Object} state - Per-user eraser stroke state.
+   * @param {{x:number,y:number,width:number,height:number}|null} [rect=null] - Dirty region; null redraws the whole board.
+   * @private
+   */
+  _renderPreviewPath(ctx, state, rect = null) {
+    const sourceRect = rect ? clampRectToCanvas(rect, state.maskCanvas) : null;
     if (sourceRect) {
       ctx.drawImage(
-        state.previewCanvas,
+        state.maskCanvas,
         sourceRect.x,
         sourceRect.y,
         sourceRect.width,
@@ -348,7 +366,7 @@ export class EraserTool extends Tool {
         sourceRect.height
       );
     } else {
-      ctx.drawImage(state.previewCanvas, 0, 0);
+      ctx.drawImage(state.maskCanvas, 0, 0);
     }
   }
 
@@ -463,15 +481,9 @@ export class EraserTool extends Tool {
     maskCanvas.width = width;
     maskCanvas.height = height;
 
-    const previewCanvas = document.createElement('canvas');
-    previewCanvas.width = width;
-    previewCanvas.height = height;
-
     return {
       maskCanvas,
       maskCtx: maskCanvas.getContext('2d'),
-      previewCanvas,
-      previewCtx: previewCanvas.getContext('2d'),
       lastStampPos: null,
       dirtyBounds: null,
       previewDirtyBounds: null,
@@ -487,7 +499,6 @@ export class EraserTool extends Tool {
   _resetStrokeState(user) {
     const state = this._ensureStrokeState(user);
     state.maskCtx.clearRect(0, 0, state.maskCanvas.width, state.maskCanvas.height);
-    state.previewCtx.clearRect(0, 0, state.previewCanvas.width, state.previewCanvas.height);
     state.lastStampPos = null;
     state.dirtyBounds = null;
     state.previewDirtyBounds = null;
@@ -499,7 +510,6 @@ export class EraserTool extends Tool {
     const state = this._getStrokeState(user);
     if (!state) return;
     state.maskCtx.clearRect(0, 0, state.maskCanvas.width, state.maskCanvas.height);
-    state.previewCtx.clearRect(0, 0, state.previewCanvas.width, state.previewCanvas.height);
     state.lastStampPos = null;
     state.dirtyBounds = null;
     state.previewDirtyBounds = null;
@@ -548,40 +558,6 @@ export class EraserTool extends Tool {
     ctx.restore();
 
     this._expandBounds(state, x - radius, y - radius, x + radius, y + radius);
-  }
-
-  _renderPreviewMask(state, fillStyle, rect = null) {
-    const { previewCtx, previewCanvas, maskCanvas } = state;
-    const sourceRect = rect ? clampRectToCanvas(rect, previewCanvas) : null;
-
-    if (sourceRect) {
-      previewCtx.clearRect(sourceRect.x, sourceRect.y, sourceRect.width, sourceRect.height);
-      previewCtx.drawImage(
-        maskCanvas,
-        sourceRect.x,
-        sourceRect.y,
-        sourceRect.width,
-        sourceRect.height,
-        sourceRect.x,
-        sourceRect.y,
-        sourceRect.width,
-        sourceRect.height
-      );
-    } else {
-      previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
-      previewCtx.drawImage(maskCanvas, 0, 0);
-    }
-
-    previewCtx.save();
-    previewCtx.globalCompositeOperation = 'source-in';
-    previewCtx.globalAlpha = state.opacity ?? 1;
-    previewCtx.fillStyle = fillStyle;
-    if (sourceRect) {
-      previewCtx.fillRect(sourceRect.x, sourceRect.y, sourceRect.width, sourceRect.height);
-    } else {
-      previewCtx.fillRect(0, 0, previewCanvas.width, previewCanvas.height);
-    }
-    previewCtx.restore();
   }
 
   _expandBounds(state, minX, minY, maxX, maxY) {

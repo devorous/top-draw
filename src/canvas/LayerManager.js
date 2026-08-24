@@ -2264,6 +2264,33 @@ export class LayerManager {
   }
 
   /**
+   * Whether any visible group in [startIdx, endIdx) could put a pixel on screen.
+   *
+   * Structural, not pixel-based: `flatCanvas` stays null until something is
+   * baked into a layer (only layer 0 gets one up front), so an untouched layer
+   * is recognisable without reading back any image data. Deliberately
+   * conservative — a `flatCanvas` that exists but happens to be blank counts as
+   * content, so this can only ever over-report, never skip real pixels.
+   *
+   * @param {number} startIdx - Start index, inclusive.
+   * @param {number} endIdx - End index, exclusive.
+   * @returns {boolean}
+   */
+  rangeHasRenderableContent(startIdx, endIdx) {
+    const count = Math.min(endIdx, this.layerGroups.length);
+    for (let i = Math.max(0, startIdx); i < count; i++) {
+      const group = this.layerGroups[i];
+      if (!group?.visible) continue;
+      if (group.flatCanvas) return true;
+      if (group.bakedSequences.length > 0) return true;
+      if (group.strokeStack.length > 0) return true;
+      if (group.activeStrokeByUser.size > 0) return true;
+      if ((group.activePreviewByUser?.size ?? 0) > 0) return true;
+    }
+    return false;
+  }
+
+  /**
    * Check if range of layers has blend mode strokes
    * @param {number} startIdx - Start index
    * @param {number} endIdx - End index

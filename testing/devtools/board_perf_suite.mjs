@@ -105,6 +105,12 @@ const K6_SCRIPT = arg('k6script', 'testing/medium_stress_test.js');
 // suite's run-to-run noise — narrowing the pool is how a single tool's render
 // path gets enough signal to judge.
 const K6_TOOLS = arg('k6tools', null);
+// Which tool the LOCAL driven client draws with. --k6tools only changes what the
+// BOTS do; without this the local strokes are always the default brush, so a
+// tool whose cost lands on the drawing client's own render path (the eraser
+// composites its preview into the layer stack every tick, the brush does not)
+// is invisible no matter what the bots are set to.
+const LOCAL_TOOL = arg('localtool', null);
 
 const BOARD_SIZES = {
   '720p': [720, 1280], '1080p': [1080, 1920], '1440p': [1440, 2560],
@@ -344,6 +350,19 @@ async function runOnce(runLabel) {
     await page.waitForFunction(() => window.app && window.app.self != null, { timeout: READY_TIMEOUT });
     await page.evaluate(PROBE);
 
+    // KDE PowerDevil blanks the panel on its own timer, which kills vsync and
+    // rAF while document.visibilityState stays "visible" — two earlier runs
+    // reported ~1 % CPU and zero frames and looked like a clean result. Chrome's
+    // --disable-backgrounding-* flags do not cover it. Needs a secure context,
+    // which the -R tunnel to the Chromebook's own localhost provides.
+    const wakeLock = await page.evaluate(async () => {
+      try {
+        window.__wakeLock = await navigator.wakeLock.request('screen');
+        return 'held';
+      } catch (e) { return `unavailable: ${e.name}`; }
+    });
+    console.log(`    screen wake lock: ${wakeLock}`);
+
     // DISABLE_REPLAY=1 turns off stroke recording before the room is joined, so
     // the rolling tape never starts for this session at all. Same switch the
     // Settings UI drives (Recent replay length -> Off).
@@ -369,6 +388,17 @@ async function runOnce(runLabel) {
 
     await page.evaluate((h, w) => window.__lockBoardSize(h, w), dims[0], dims[1]);
     await sleep(1500);
+
+    if (LOCAL_TOOL) {
+      const active = await page.evaluate((t) => {
+        window.app.selectTool(t);
+        return { tool: window.app.self?.tool, active: window.app.activeTool };
+      }, LOCAL_TOOL);
+      if (active.tool !== LOCAL_TOOL) {
+        throw new Error(`--localtool=${LOCAL_TOOL} did not take (self.tool=${active.tool}) — every number below would be for the wrong tool`);
+      }
+      console.log(`    local tool: ${active.tool}`);
+    }
 
     // k6 bots. Started before the trace so the join storm is not what we
     // measure — the interesting state is a room already carrying N users.
@@ -482,7 +512,8 @@ async function runOnce(runLabel) {
 
     const result = {
       label: runLabel, at: new Date().toISOString(), size: SIZE, dims, users,
-      vus: VUS, room, frames, census, reclaim, devtools, ...trace
+      vus: VUS, room, localTool: LOCAL_TOOL, k6Tools: K6_TOOLS,
+      frames, census, reclaim, devtools, ...trace
     };
 
     console.log(`\n  devtools task/script  ${devtools.taskPct}% task, ${devtools.scriptPct}% script, ${devtools.layoutPct}% layout, ${devtools.recalcStylePct}% style`);

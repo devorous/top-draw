@@ -55,8 +55,9 @@ export class Board {
     this.topCtx = null;
     this.upperLayersCtx = null;
     this._upperLayersCompositeStart = null;
+    this._upperLayersCompositeEnd = null;
     this._mainCompositeEnd = null;
-    this.selectionCtx = null;
+  this.selectionCtx = null;
     this.cursorsSvg = null;
     this.mirrorLine = null;
     this._maskStopButton = null;
@@ -2567,6 +2568,7 @@ export class Board {
       this.upperLayersCtx.clearRect(0, 0, this.getWidth(), this.getHeight());
     }
     this._upperLayersCompositeStart = null;
+    this._upperLayersCompositeEnd = null;
     this._setLayerPresent(this.upperLayersCanvas, false);
     this._mainCompositeEnd = null;
     this.markCompositeFull();
@@ -2927,18 +2929,49 @@ export class Board {
 
   _compositeUpperLayers(startIdx, endIdx, dirtyRects) {
     if (!this.upperLayersCtx) return;
+
+    // Nothing to draw above the split — either the range is empty (drawing on
+    // the topmost layer) or every layer in it is untouched, which is the usual
+    // shape of a board: content on layer 0, empty layers above it.
+    //
+    // This used to hand that range to compositeLayerRange regardless, which
+    // full-board clearRect'd this canvas and composited nothing into it on
+    // every frame of every stroke, AND kept a board-sized canvas in the
+    // compositor's blend tree to show the nothing. Stubbing the whole call out
+    // measured +14 % fps on the eraser, which composites every tick; clipping
+    // it to dirty rects did not, because the cost was the canvas being touched
+    // and present at all rather than the area covered. Once it is clear it
+    // stays clear, so only the transition needs work.
+    if (endIdx <= startIdx || !this.layerManager.rangeHasRenderableContent(startIdx, endIdx)) {
+      if (this._upperLayersCompositeStart !== null) {
+        this._clearCompositeContext(this.upperLayersCtx, null);
+        this._upperLayersCompositeStart = null;
+        this._upperLayersCompositeEnd = null;
+      }
+      this._setLayerPresent(this.upperLayersCanvas, false);
+      return;
+    }
+
+    // A dirty rect is only valid if this canvas already holds a composite of
+    // the SAME layer range; when the split moves, everything outside the rects
+    // is stale and the whole canvas has to be rebuilt. That is exactly the rule
+    // _getSplitMainDirtyRects applies to mainCanvas — this passed a hardcoded
+    // null instead, so every composite during a stroke did a full-board clear
+    // plus a full-board re-composite of the upper layers. The eraser made that
+    // expensive by composting on every tick rather than on commit.
+    const sameRange = this._upperLayersCompositeStart === startIdx &&
+      this._upperLayersCompositeEnd === endIdx;
+
     this.layerManager.compositeLayerRange(
       this.upperLayersCtx,
       startIdx,
       endIdx,
       null,
-      null
+      sameRange ? dirtyRects : null
     );
     this._upperLayersCompositeStart = startIdx;
-    // Drawing on the topmost layer gives an empty range, so this board-sized
-    // canvas composites to nothing — the common case. compositeLayerRange has
-    // already cleared it; keep it out of the blend tree until it holds content.
-    this._setLayerPresent(this.upperLayersCanvas, endIdx > startIdx);
+    this._upperLayersCompositeEnd = endIdx;
+    this._setLayerPresent(this.upperLayersCanvas, true);
   }
 
   _clearUpperLayers(dirtyRects) {
@@ -2949,6 +2982,7 @@ export class Board {
       this._clearCompositeContext(this.upperLayersCtx, dirtyRects);
     }
     this._upperLayersCompositeStart = null;
+    this._upperLayersCompositeEnd = null;
     this._setLayerPresent(this.upperLayersCanvas, false);
   }
 
@@ -2991,9 +3025,15 @@ export class Board {
         if (!isAllLayers) continue;
 
         const strokeState = eraserTool?._getStrokeState?.(user) ?? user?._eraserStrokeState ?? null;
+        // A remote user's own board canvas is the exact analogue of topCanvas:
+        // EraserTool.drawPreview paints the mask into it at the stroke opacity,
+        // mirror reflections included. The raw maskCanvas is the fallback, but
+        // it carries neither the opacity nor the reflections, so prefer the
+        // painted surface — it used to prefer a `previewCanvas` that this tool
+        // no longer keeps, since re-tinting an alpha-only mask was dead work.
         const maskCanvas = userId === localUserId
           ? this.topCanvas
-          : strokeState?.previewCanvas ?? strokeState?.maskCanvas ?? user?.context?.canvas;
+          : user?.context?.canvas ?? strokeState?.maskCanvas;
 
         if (!maskCanvas) continue;
 
