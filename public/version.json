@@ -1,7 +1,7 @@
 {
-  "latest": "1.13.0-beta",
-  "minRequired": "1.13.0-beta",
-  "releaseDate": "2026-08-23T23:13:14.117Z",
-  "notes": "Improvements have been made to the chat UI, selection tool can now be mirrored properly and a number of small UI fixes. Some new fonts have been added to the text tool and some new brush images to the custom brush tool. Improvements have been made to the rendering engine which should help lower end devices with lag issues.",
-  "downloadUrl": "https://www.ddraw.ca/download"
+  "latest": "1.13.1-beta",
+  "minRequired": "1.13.1-beta",
+  "releaseDate": "2026-08-24T00:16:28.659Z",
+  "notes": "",
+  "downloadUrl": "https://www.ddraw.ca/"
 }

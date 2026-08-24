@@ -210,8 +210,10 @@ export class LandingPage {
    * @param {boolean} [opts.inRoom=false] - When true, the landing page is shown
    *   as an embedded overlay on top of an active room (dimmed backdrop + close
    *   button) instead of the full-screen entry experience.
+   * @param {boolean} [opts.login=false] - In-room variant that shows the auth
+   *   panel instead of the rooms list (self context menu → "Log in").
    */
-  show({ inRoom = false } = {}) {
+  show({ inRoom = false, login = false } = {}) {
     this._inRoom = inRoom;
 
     const overlay = document.getElementById('overlay');
@@ -227,6 +229,7 @@ export class LandingPage {
     if (this.els.landingPage) {
       this.els.landingPage.style.display = 'flex';
       this.els.landingPage.classList.toggle('landing-in-room', inRoom);
+      this.els.landingPage.classList.toggle('landing-in-room-login', inRoom && login);
     }
 
     if (this.els.landingCloseBtn) {
@@ -270,7 +273,7 @@ export class LandingPage {
       this.els.landingCloseBtn.style.display = 'none';
     }
     if (this.els.landingPage) {
-      this.els.landingPage.classList.remove('landing-in-room');
+      this.els.landingPage.classList.remove('landing-in-room', 'landing-in-room-login');
       this.els.landingPage.style.display = 'none';
     }
 

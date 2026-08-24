@@ -5,6 +5,8 @@ import './css/main.scss';
 import { scheduleStartupUpdateCheck } from './platform/updater.js';
 import { setupServiceWorker } from './platform/registerSW.js';
 import { installAppConfirmGlobal } from './ui/ConfirmDialog.js';
+import { initAuthTabs } from './auth/authTabs.js';
+import { applyAuthPendingUI, hasStoredAuthToken } from './auth/authPending.js';
 
 inject();
 
@@ -217,6 +219,11 @@ function revealLandingShell() {
   if (landingPage) {
     landingPage.style.display = 'flex';
   }
+
+  // Auth lives in the deferred App chunk, so set the pending state here or the
+  // login form (tabs and all) renders underneath "Loading account..." until it
+  // arrives. Auth takes over from this once it inits.
+  applyAuthPendingUI(hasStoredAuthToken());
   if (refreshRoomsBtn) {
     refreshRoomsBtn.disabled = true;
     refreshRoomsBtn.classList.add('disabled');
@@ -340,8 +347,11 @@ function attachDeferredLandingHandlers() {
   const loginBtn = document.getElementById('loginBtn');
   const loginOfflineBtn = document.getElementById('loginOfflineBtn');
   const refreshRoomsBtn = document.getElementById('refreshRoomsBtn');
-  const registerBtn = document.getElementById('registerBtn');
   const roomIdInput = document.getElementById('roomIdInput');
+
+  // Guest / Sign in / Register tabs are pure DOM, so they respond immediately
+  // instead of waiting on the deferred App chunk. Auth adopts this controller.
+  initAuthTabs();
 
   const canRunDeferredJoin = () => {
     const joinButtons = [authLoggedInJoinBtn, joinBtnLoggedIn, loginJoinBtn, guestJoinBtn]
@@ -402,12 +412,6 @@ function attachDeferredLandingHandlers() {
     void runDeferredAction((readyApp) => readyApp.connectForRoomDiscovery());
   });
 
-  registerBtn?.addEventListener('click', (event) => {
-    if (app) return;
-    event.preventDefault();
-    void runDeferredAction((readyApp) => readyApp.auth?.showRegisterPanel());
-  });
-
   roomIdInput?.addEventListener('keydown', (event) => {
     if (app || event.key !== 'Enter') return;
     event.preventDefault();
@@ -419,6 +423,12 @@ function attachDeferredLandingHandlers() {
     if (app || event.key !== 'Enter') return;
     event.preventDefault();
     void runDeferredAction((readyApp) => readyApp.handleLandingLogin());
+  });
+
+  document.getElementById('registerSubmitBtn')?.addEventListener('click', (event) => {
+    if (app) return;
+    event.preventDefault();
+    void runDeferredAction((readyApp) => readyApp.auth?.handleRegister());
   });
 }
 

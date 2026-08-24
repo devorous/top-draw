@@ -685,6 +685,8 @@ export class UI {
       offlineBtn: document.getElementById('offlineBtn'),
       loginOfflineBtn: document.getElementById('loginOfflineBtn'),
       loginUsername: document.getElementById('loginUsername'),
+      // Sign in tab's own username field — #loginUsername is the Guest tab's.
+      loginAccountUsername: document.getElementById('loginAccountUsername'),
       loginPassword: document.getElementById('loginPassword'),
       loginForm: document.getElementById('loginForm'),
       loginBtn: document.getElementById('loginBtn'),

@@ -913,6 +913,32 @@ body.desktop-window-chrome #landingPage {
   }
 }
 
+/* In-room login (user list → right-click your name → "Log in"): the same
+   floating shell as the room browser, but flipped — the auth panel is the
+   point, so it takes the full width and the rooms list steps aside. */
+#landingPage.landing-in-room.landing-in-room-login {
+  .landingAuth {
+    display: flex;
+    width: 100%;
+    border-right: 0;
+  }
+
+  .landingRooms {
+    display: none;
+  }
+
+  .landingContainer {
+    max-width: 460px;
+  }
+
+  /* Entry-experience actions ("Draw Alone", the desktop download) would drop
+     the user out of the room they're already in — not what this dialog is for. */
+  .landingDivider,
+  .landingSecondaryActions {
+    display: none;
+  }
+}
+
 .landingContainer {
   display: flex;
   position: relative;

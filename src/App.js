@@ -24,6 +24,7 @@ import { logCanvasCensus } from './utils/canvasCensus.js';
 import { douglasPeucker, distanceBasedCulling } from './utils/drawing.js';
 import { bindPressAction } from './utils/buttonBinding.js';
 import { Moderation } from './auth/Moderation.js';
+import { setActiveAuthTab } from './auth/authTabs.js';
 import { ColorInputMenu } from './ui/ColorInputMenu.js';
 import { ColorController } from './ui/ColorController.js';
 import { MobileLayoutController } from './ui/MobileLayoutController.js';
@@ -1275,7 +1276,6 @@ export class DrawingApp {
         btn.style.display = 'none';
       });
     }
-    elements.selfListUser.addEventListener('click', () => this.handleRenameself());
 
     this.ensureAppSettingsButton();
     const appSettingsBtn = document.getElementById('appSettingsBtn');
@@ -2332,7 +2332,7 @@ export class DrawingApp {
   async handleLandingLogin() {
     if (!this.auth || this.auth.isLoggedIn) return;
 
-    const username = this.ui.elements.loginUsername?.value.trim();
+    const username = (this.ui.elements.loginAccountUsername || this.ui.elements.loginUsername)?.value.trim();
     const password = this.ui.elements.loginPassword?.value;
 
     if (!username || !password) {
@@ -3434,6 +3434,17 @@ export class DrawingApp {
       this.landingPage.isAuthenticated = true;
       this.landingPage.authToken = token;
       this.landingPage.username = username;
+
+      // Logged in from the in-room overlay (self context menu → "Log in").
+      // We're already drawing in a room, so adopt the account name in place
+      // rather than waiting for a fresh join that never comes.
+      if (this.connected) {
+        this.ui.updateSelfName(username);
+        this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastNameChange(username));
+        this.landingPage.closeInRoom();
+        const roleNames = ['Guest', 'User', 'Trusted', 'Helper', 'Mod', 'Admin', 'Owner', 'Noble', 'Holy', 'Deity'];
+        this.ui.showToast(`Logged in as ${username} (${roleNames[role] || 'Guest'})`, 3000);
+      }
       return;
     }
 
@@ -3510,6 +3521,16 @@ export class DrawingApp {
       profileBtn.onclick = () => {
         menu.style.display = 'none';
         showProfileDialog(this.self.registeredName || this.self.username);
+      };
+    }
+
+    // Guests get a way into the login form without leaving the room.
+    const loginBtn = document.getElementById('selfLoginBtn');
+    if (loginBtn) {
+      loginBtn.style.display = this.auth?.isLoggedIn ? 'none' : '';
+      loginBtn.onclick = () => {
+        menu.style.display = 'none';
+        this.openLoginFromRoom();
       };
     }
 
@@ -3618,16 +3639,14 @@ export class DrawingApp {
   }
 
   /**
-   * Prompts the user to rename themselves.
+   * Opens the login form on top of the current room. The landing overlay runs
+   * in `inRoom` mode, so dismissing it returns to the board without
+   * disconnecting, and a successful login is adopted in place.
    */
-  handleRenameself() {
-    if (!this.inputBufferManager.tickTimer) return;
-    const name = prompt('Enter your name:', this.self.username);
-    if (name !== null && name.trim() !== '') {
-      this.self.setUsername(name.trim());
-      this.ui.updateSelfName(name.trim());
-      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastNameChange(name.trim()));
-    }
+  openLoginFromRoom() {
+    if (!this.landingPage) return;
+    this.landingPage.show({ inRoom: true, login: true });
+    setActiveAuthTab('signin', { focus: true });
   }
 
   /**

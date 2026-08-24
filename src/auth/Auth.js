@@ -2,11 +2,13 @@ import { isTauriDesktop, openDiscordOAuthWindow } from '../platform/desktop.js';
 import { debug } from '../utils/debug.js';
 import { resolveApiUrl } from '../config/serverEndpoints.js';
 import { badgesForUser, renderBadgesInto } from '../ui/Badges.js';
+import { initAuthTabs, setActiveAuthTab } from './authTabs.js';
+import { AUTH_TOKEN_KEY, applyAuthPendingUI } from './authPending.js';
 
 /**
  * Auth module — handles token storage, login/register form logic, auto-login
  */
-const TOKEN_KEY = 'topDrawAuthToken';
+const TOKEN_KEY = AUTH_TOKEN_KEY;
 const REMEMBER_ME_KEY = 'topDrawRememberMe';
 const USERNAME_KEY = 'topDrawUsername';
 const USERNAME_SETUP_DISMISSED_PREFIX = 'topDrawUsernameSetupDismissed:';
@@ -53,7 +55,7 @@ export class Auth {
       wrapper.style.minHeight = '';
     }
 
-    [this.els.authNotLoggedIn, this.els.authLoggedIn, this.els.registerPanel, this.els.passwordResetPanel]
+    [this.els.authNotLoggedIn, this.els.authLoggedIn, this.els.passwordResetPanel]
       .filter(Boolean)
       .forEach((el) => {
         el.style.minHeight = '';
@@ -65,8 +67,11 @@ export class Auth {
       // Login state elements
       authNotLoggedIn: document.getElementById('authNotLoggedIn'),
       authLoggedIn: document.getElementById('authLoggedIn'),
+      // Guest / Sign in / Register segmented control
+      authTabs: document.getElementById('authTabs'),
       // Not logged in form
       loginUsername: document.getElementById('loginUsername'),
+      loginAccountUsername: document.getElementById('loginAccountUsername'),
       loginPassword: document.getElementById('loginPassword'),
       loginBtn: document.getElementById('loginBtn'),
       discordLoginBtn: document.getElementById('discordLoginBtn'),
@@ -81,10 +86,7 @@ export class Auth {
       authLoggedInJoinBtn: document.getElementById('authLoggedInJoinBtn'),
       joinBtnLoggedIn: document.getElementById('joinBtnLoggedIn'),
       discordLinkBtn: document.getElementById('discordLinkBtn'),
-      // Registration
-      registerBtn: document.getElementById('registerBtn'),
-      registerPanel: document.getElementById('authRegisterPanel'),
-      registerClose: document.getElementById('registerClose'),
+      // Registration (lives in the Register tab inside #authNotLoggedIn)
       registerUsername: document.getElementById('registerUsername'),
       registerPassword: document.getElementById('registerPassword'),
       registerEmail: document.getElementById('registerEmail'),
@@ -168,7 +170,28 @@ export class Auth {
     }
   }
 
+  /**
+   * Adopt the shared tab controller (already wired by main.js at first paint)
+   * and react to switches. The tabs themselves are DOM-only, so they work
+   * before the deferred App chunk — and therefore this class — exists.
+   */
+  setupAuthTabs() {
+    const tabs = initAuthTabs();
+    if (!tabs) return;
+
+    tabs.subscribe(() => {
+      this.clearLandingError();
+      this.syncAuthStateHeights();
+    });
+  }
+
+  setActiveAuthTab(name, options) {
+    setActiveAuthTab(name, options);
+  }
+
   setupListeners() {
+    this.setupAuthTabs();
+
     this.els.loginBtn?.addEventListener('click', (e) => {
       e.preventDefault();
       this.handleLogin();
@@ -221,14 +244,16 @@ export class Auth {
     this.els.authUsernameBtn?.addEventListener('click', () => {
       const currentUsername = this.loggedInUsername;
       this.logout();
+      // Carry the name into both doors — the user may be swapping accounts or
+      // dropping to a guest session, and we don't know which yet.
       if (this.els.loginUsername) {
         this.els.loginUsername.value = currentUsername || '';
       }
+      if (this.els.loginAccountUsername) {
+        this.els.loginAccountUsername.value = currentUsername || '';
+      }
     });
 
-    // Register button — opens registration panel
-    this.els.registerBtn?.addEventListener('click', () => this.showRegisterPanel());
-    this.els.registerClose?.addEventListener('click', () => this.hideRegisterPanel());
     this.els.registerSubmitBtn?.addEventListener('click', () => this.handleRegister());
     this.els.forgotPasswordBtn?.addEventListener('click', () => this.showPasswordResetRequestPanel());
     this.els.passwordResetClose?.addEventListener('click', () => this.hidePasswordResetPanel());
@@ -695,7 +720,7 @@ export class Auth {
     this.syncAuthStateHeights();
 
     if (!wasLoggedIn) {
-      await this._transitionTo(this.els.authLoggedIn, [this.els.authNotLoggedIn, this.els.registerPanel, this.els.passwordResetPanel]);
+      await this._transitionTo(this.els.authLoggedIn, [this.els.authNotLoggedIn, this.els.passwordResetPanel]);
     }
 
     if (this.onLoggedInStateChange) {
@@ -745,7 +770,7 @@ export class Auth {
     this.els.landingAuthPanel?.classList.remove('auth-is-logged-in');
     this.syncAuthStateHeights();
 
-    await this._transitionTo(this.els.authNotLoggedIn, [this.els.authLoggedIn, this.els.registerPanel, this.els.passwordResetPanel]);
+    await this._transitionTo(this.els.authNotLoggedIn, [this.els.authLoggedIn, this.els.passwordResetPanel]);
 
     if (this.onLoggedInStateChange) {
       this.onLoggedInStateChange(false, null);
@@ -770,7 +795,9 @@ export class Auth {
       return;
     }
 
-    const username = this.els.loginUsername?.value.trim();
+    // The Sign in pane has its own username field; #loginUsername belongs to
+    // the Guest pane and is empty whenever the user is actually signing in.
+    const username = (this.els.loginAccountUsername || this.els.loginUsername)?.value.trim();
     const password = this.els.loginPassword?.value;
 
     if (!username || !password) {
@@ -796,14 +823,13 @@ export class Auth {
   }
 
   /**
-   * Show the registration panel, hiding the room input
+   * Open the Register tab, carrying over whatever was typed on the Sign in tab.
    */
-  async showRegisterPanel() {
-    this.clearLandingError();
-    const username = this.els.loginUsername?.value.trim() || '';
+  showRegisterPanel() {
+    const username = this.els.loginAccountUsername?.value.trim() || '';
     const password = this.els.loginPassword?.value || '';
 
-    // Pre-fill username/password from the login form
+    // Pre-fill username/password from the sign-in form
     if (this.els.registerUsername) {
       this.els.registerUsername.value = username;
     }
@@ -815,28 +841,14 @@ export class Auth {
     if (this.els.registerSecretQuestion) this.els.registerSecretQuestion.value = '';
     if (this.els.registerSecretAnswer) this.els.registerSecretAnswer.value = '';
 
-    // Hide landing-only actions while the account panel is open.
-    const divider = document.querySelector('.landingDivider');
-    const secondaryActions = document.querySelector('.landingSecondaryActions');
-    
-    if (divider) divider.style.display = 'none';
-    if (secondaryActions) secondaryActions.style.display = 'none';
-
-    await this._transitionTo(this.els.registerPanel, [this.els.authNotLoggedIn, this.els.authLoggedIn, this.els.passwordResetPanel]);
+    this.setActiveAuthTab('register');
   }
 
   /**
-   * Hide the registration panel, restore the login form
+   * Leave the Register tab (e.g. after a successful sign-up).
    */
-  async hideRegisterPanel() {
-    this.clearLandingError();
-    const divider = document.querySelector('.landingDivider');
-    const secondaryActions = document.querySelector('.landingSecondaryActions');
-    
-    if (divider) divider.style.display = '';
-    if (secondaryActions) secondaryActions.style.display = '';
-
-    await this._transitionTo(this.els.authNotLoggedIn, [this.els.registerPanel]);
+  hideRegisterPanel() {
+    this.setActiveAuthTab('guest');
   }
 
   setPasswordResetMessage(message, kind = 'neutral') {
@@ -890,7 +902,7 @@ export class Auth {
     if (divider) divider.style.display = 'none';
     if (secondaryActions) secondaryActions.style.display = 'none';
 
-    await this._transitionTo(this.els.passwordResetPanel, [this.els.authNotLoggedIn, this.els.authLoggedIn, this.els.registerPanel]);
+    await this._transitionTo(this.els.passwordResetPanel, [this.els.authNotLoggedIn, this.els.authLoggedIn]);
   }
 
   async showPasswordResetCompletePanel() {
@@ -905,7 +917,7 @@ export class Auth {
     if (divider) divider.style.display = 'none';
     if (secondaryActions) secondaryActions.style.display = 'none';
 
-    await this._transitionTo(this.els.passwordResetPanel, [this.els.authNotLoggedIn, this.els.authLoggedIn, this.els.registerPanel]);
+    await this._transitionTo(this.els.passwordResetPanel, [this.els.authNotLoggedIn, this.els.authLoggedIn]);
   }
 
   async hidePasswordResetPanel() {
@@ -1661,14 +1673,7 @@ export class Auth {
       clearTimeout(this._authPendingTimeout);
       this._authPendingTimeout = null;
     }
-    this.els.landingAuthPanel?.classList.toggle('auth-is-pending', pending);
-    if (this.els.authLoadingState) {
-      this.els.authLoadingState.style.display = pending ? 'flex' : 'none';
-    }
-    const loginForm = document.getElementById('loginForm');
-    if (loginForm) {
-      loginForm.style.display = pending ? 'none' : '';
-    }
+    applyAuthPendingUI(pending);
     // Disable room list join buttons during auth pending
     const roomListJoinBtns = [this.els.loginJoinBtn, this.els.joinBtnLoggedIn];
     roomListJoinBtns.forEach(btn => {

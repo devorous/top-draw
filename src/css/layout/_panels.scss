@@ -178,13 +178,10 @@
   }
 }
 
+/* Your own entry has no left-click action — right-click opens the self menu
+   (role info, profile, and "Log in" for guests), so don't hint at a click. */
 .listUser.self {
   color: rgba(255, 255, 255, 0.45);
-  cursor: pointer;
-}
-
-.listUser.self:hover {
-  text-decoration: underline;
 }
 
 /* Rank-based username styling */

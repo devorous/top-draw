@@ -1,11 +1,11 @@
 {
-  "version": "1.12.3-beta",
-  "notes": "Improvements have been made to the chat UI, selection tool can now be mirrored properly and a number of small UI fixes. Some new fonts have been added to the text tool and some new brush images to the custom brush tool.",
-  "pub_date": "2026-08-18T04:12:33.707Z",
+  "version": "1.13.1-beta",
+  "notes": "",
+  "pub_date": "2026-08-24T00:16:28.659Z",
   "platforms": {
     "windows-x86_64": {
-      "url": "https://www.ddraw.ca/desktop-updates/windows-x86_64/Ddraw_1.12.3-beta_x64-setup.exe",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQ01XR1piUDlNem9SUm53NzNsd1VSS3Fhb2ZUM0s0T2R3bk91U0NzYlZpcGFwc2JwQ2FBQ3ZsQ2RsZXA0cWlUSkJQeFRINlZ3Mm1DSDlsbTIrM3BIMVdBcVhzQmM0QUFnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3MTE5MjcxCWZpbGU6RGRyYXdfMS4xMi4zLWJldGFfeDY0LXNldHVwLmV4ZQpkNlJhc05MOTQ4QnRha1R3SFNTUWo5V3NuRW5GQ0h1MVB2ZklQN01NT2VJMWhNOTRPWnVLS25PWlNCbW1pWlE0RUUrYzB2ZHR4Z2hCZXBjc253dGxDdz09Cg=="
+      "url": "https://www.ddraw.ca/desktop-updates/windows-x86_64/Ddraw_1.13.1-beta_x64-setup.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQ01XR1piUDlNenFSeDRibEFlR0FsUzFQall5eVd0cEo1bFBUNUZRandMdGVYTHRHbGR4Q202Zk9MaHhBbFQyV1paemFndzRQUTJYTGpRTzU5c3hXOFMwRlZWUmpHQkFjPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3NTMzNzI3CWZpbGU6RGRyYXdfMS4xMy4xLWJldGFfeDY0LXNldHVwLmV4ZQovdXVucGJXaXpsejl3d3h2cG5ObGZZeGtSV1U2aThXbGN6RkxFYlE5NWN0bWtGaUhkWnRGQ1VVKy9OMWtyeGh2TGJ2TjJYdStqTmloTXZSTWk4YmRDZz09Cg=="
     }
   }
 }
