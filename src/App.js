@@ -3023,6 +3023,14 @@ export class DrawingApp {
       this.rollingTapeRecorder?.start(this);
     }
     this.ui.hideOverlay();
+    // The board goes live on this line, but the first requestSync() does not
+    // fire here — UserHandlers waits for a USERS payload that names another
+    // user and then defers 500ms, or falls back to a 2.5s timer when we're
+    // alone. Anything drawn in that window lands on a canvas requestSync() is
+    // about to wipe. Hold the board behind the sync overlay until then.
+    if (this.currentRoomId && !this.isOfflineMode && !this.syncClient?.hasCompletedSync) {
+      this.syncClient?.beginPendingSync();
+    }
     this.ui.showCursor();
     this.ui.updateSelfName(this.self.username);
     this.ui.showConnectionStatus('connected', this.currentRoomId);

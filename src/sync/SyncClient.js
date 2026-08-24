@@ -67,6 +67,21 @@ export class SyncClient {
     this.syncing = false;
     /** @type {boolean} */
     this.hasCompletedSync = false;
+    /**
+     * True from the moment we join a room until the first requestSync() takes
+     * over. See beginPendingSync().
+     * @type {boolean}
+     */
+    this.pendingSync = false;
+    /** @type {number|null} */
+    this._pendingSyncTimer = null;
+    /**
+     * Ceiling on the pre-sync gate. UserHandlers' fallback fires at 2.5s, so
+     * this only ever trips when the sync request never happens at all — better
+     * a live board than one wedged behind a permanent overlay.
+     * @type {number}
+     */
+    this.PENDING_SYNC_TIMEOUT_MS = 15000;
 
     /**
      * Pending async import promises — createImageBitmap is async, and we must
@@ -238,7 +253,7 @@ export class SyncClient {
     if (this.inactiveControlsEl) {
       this.inactiveControlsEl.style.display = 'none';
     }
-    if (!this.syncing && this.overlayEl) {
+    if (!this.syncing && !this.pendingSync && this.overlayEl) {
       this.overlayEl.classList.remove('active');
       this.overlayEl.style.pointerEvents = '';
     }
@@ -266,11 +281,64 @@ export class SyncClient {
   }
 
   /**
+   * Arms the pre-sync gate.
+   *
+   * handleJoinAfterConnect() flips `connected`, hides the login overlay and
+   * starts the tick loop — the board is fully live from that instant. But the
+   * first requestSync() doesn't fire there: UserHandlers waits for a USERS
+   * payload that actually names another user and then defers 500ms (or 2.5s via
+   * the alone-in-the-room fallback). That left a half-second-to-two-and-a-half-
+   * second window of an interactive board whose contents requestSync() was
+   * about to wipe, and a stroke started inside it never got a pointerup —
+   * handlePointerUp bails on isSyncing(), so `self.mousedown` stayed true and
+   * the preview was never torn down.
+   *
+   * Hold the overlay up and the input gates closed across that window instead.
+   * requestSync() clears the gate as it takes over.
+   *
+   * @param {string} [text='Loading...'] - Overlay message for the wait.
+   * @returns {void}
+   */
+  beginPendingSync(text = 'Loading...') {
+    if (this.syncing || this.pendingSync) return;
+    this.pendingSync = true;
+
+    this.showOverlay();
+    if (this.progressTextEl) this.progressTextEl.textContent = text;
+    if (this.progressFillEl) this.progressFillEl.style.width = '0%';
+
+    if (this._pendingSyncTimer) clearTimeout(this._pendingSyncTimer);
+    this._pendingSyncTimer = setTimeout(() => {
+      this._pendingSyncTimer = null;
+      if (!this.pendingSync) return;
+      debug.warn('[SyncClient] Pending-sync gate timed out — releasing the board');
+      this.clearPendingSync();
+    }, this.PENDING_SYNC_TIMEOUT_MS);
+  }
+
+  /**
+   * Releases the pre-sync gate. Leaves the overlay to the caller: requestSync()
+   * re-shows it immediately for the sync proper, everything else wants it gone.
+   *
+   * @param {{hideOverlay?: boolean}} [options={}]
+   * @returns {void}
+   */
+  clearPendingSync({ hideOverlay = true } = {}) {
+    if (this._pendingSyncTimer) {
+      clearTimeout(this._pendingSyncTimer);
+      this._pendingSyncTimer = null;
+    }
+    if (!this.pendingSync) return;
+    this.pendingSync = false;
+    if (hideOverlay && !this.syncing) this.hideOverlay();
+  }
+
+  /**
    * Whether canvas interactions should be blocked.
    * @returns {boolean}
    */
   isCanvasInputBlocked() {
-    return !!this.inactive;
+    return !!this.inactive || !!this.pendingSync;
   }
 
   /**
@@ -290,6 +358,10 @@ export class SyncClient {
       return;
     }
 
+    // We're taking over the gate below (or bailing out of it on an early
+    // return), so retire the pre-sync hold either way.
+    this.clearPendingSync({ hideOverlay: false });
+
     const normalizedTarget = targetUserId !== null && targetUserId !== undefined
       ? Number(targetUserId)
       : null;
@@ -305,10 +377,25 @@ export class SyncClient {
 
     if (this.hasCompletedSync && normalizedTarget === null && !this.inactive && !force) {
       debug('[SyncClient] Already completed initial sync, ignoring duplicate auto-sync request');
+      // Nothing is going to raise the overlay again on this path — don't leave
+      // the pre-sync hold painted over a board we've already released.
+      if (!this.syncing) this.hideOverlay();
       return;
     }
 
     this._resetSyncAttempt();
+
+    // A sync can land while WE are mid-stroke — an AFK resync, a parity
+    // fallback, or a moderator-triggered resync from the user list. The board
+    // wipe below drops the local half-stroke's pixels, but nothing closes the
+    // stroke itself: handlePointerUp bails on isSyncing(), so `self.mousedown`
+    // would stay true past _completeSync() and the next pointermove would keep
+    // extending a stroke that was never started. cancelCurrentStroke() tears
+    // down the tool state, the preview and the active stroke canvas, and sends
+    // the CANCEL that tells peers to drop their copy of it too.
+    if (this.app?.hasCurrentStrokeInProgress?.()) {
+      this.app.cancelCurrentStroke?.();
+    }
 
     const activeRemoteUserIds = new Set();
     if (this.app?.users && this.app?.remoteUserHandler) {
@@ -836,7 +923,16 @@ export class SyncClient {
       // should flow straight to their handlers so the board can drain to the
       // present moment.
       this.buffering = false;
+      const bufferedCount = this.eventBuffer.length;
       this.replayBuffer();
+      // Nothing was buffered, so there is no replay to wait on: finish now
+      // rather than parking the board under a "Catching up..." overlay that
+      // describes work we never did. This is the common case for a solo or
+      // quiet-room join.
+      if (bufferedCount === 0) {
+        this._completeSync();
+        return;
+      }
       // The buffered command tail is dispatched synchronously above, but it does
       // not become visible immediately — remote strokes composite on a later
       // frame and the RemoteUserHandler catch-up loop animates cursors to their
@@ -904,8 +1000,7 @@ export class SyncClient {
     const REQUIRED_IDLE_TICKS = 3;  // consecutive idle polls before we call replay done
     const POLL_MS = 48;             // ~3 frames; setTimeout keeps draining in hidden tabs (rAF is paused)
     let idleTicks = 0;
-
-    this.updateProgress('Catching up...');
+    let announced = false;
 
     if (this._drainTimer) {
       clearTimeout(this._drainTimer);
@@ -923,11 +1018,15 @@ export class SyncClient {
       // visible underneath the overlay before we hide it.
       this.board?.compositeAllLayers();
 
-      // The catch-up loop self-clears its timer once every remote cursor has
-      // converged to its target, so a null timer means the replay has visibly
-      // settled.
-      const catchupIdle = !this.app?.remoteUserHandler?.catchupTimer;
-      idleTicks = catchupIdle ? idleTicks + 1 : 0;
+      const backlogged = this._hasCatchupBacklog();
+      // Only claim to be catching up once there is something to catch up on.
+      // Otherwise a quiet join flashed "Catching up..." for the handful of
+      // idle polls it takes to confirm there is no backlog.
+      if (backlogged && !announced) {
+        announced = true;
+        this.updateProgress('Catching up...');
+      }
+      idleTicks = backlogged ? 0 : idleTicks + 1;
 
       if (idleTicks >= REQUIRED_IDLE_TICKS || (now() - startedAt) >= MAX_DRAIN_MS) {
         this._drainTimer = null;
@@ -938,6 +1037,43 @@ export class SyncClient {
     };
 
     this._drainTimer = setTimeout(poll, POLL_MS);
+  }
+
+  /**
+   * Whether any remote cursor is still far enough behind its latest target that
+   * the replayed tail is visibly unfinished.
+   *
+   * This deliberately does NOT test `remoteUserHandler.catchupTimer`, which was
+   * the old signal. That timer runs for as long as ANY remote user is mid-
+   * stroke, and every live MM restarts it — so if someone else was simply
+   * drawing while we joined, it never went null and the drain sat on its full
+   * 5s cap with the overlay up. What actually distinguishes replay backlog from
+   * live drawing is distance: a replayed tail leaves the interpolated cursor a
+   * long way behind its target, while a live stroke stays within a few pixels
+   * of it.
+   *
+   * @private
+   * @returns {boolean}
+   */
+  _hasCatchupBacklog() {
+    const users = this.app?.users;
+    if (!users || !this.app?.remoteUserHandler?.catchupTimer) return false;
+
+    const BACKLOG_DIST = 48;                        // board px
+    const BACKLOG_DIST_SQ = BACKLOG_DIST * BACKLOG_DIST;
+    const selfIdx = this.app.sessionIndex;
+
+    for (const [userId, user] of users.entries()) {
+      if (userId === selfIdx) continue;
+      if (!user?.mousedown || user.panning) continue;
+      const target = user.remoteTarget;
+      const buffer = user.smoothBuffer;
+      if (!target || !buffer) continue;
+      const dx = target.x - buffer.x;
+      const dy = target.y - buffer.y;
+      if (dx * dx + dy * dy > BACKLOG_DIST_SQ) return true;
+    }
+    return false;
   }
 
   /**
@@ -952,6 +1088,7 @@ export class SyncClient {
       this.board.markCompositeFull();
       this.board.compositeAllLayers();
     }
+    this.clearPendingSync({ hideOverlay: false });
     this.hideOverlay();
     this.syncing = false;
     this.buffering = false;
@@ -1379,6 +1516,7 @@ export class SyncClient {
       clearTimeout(this._drainTimer);
       this._drainTimer = null;
     }
+    this.clearPendingSync({ hideOverlay: false });
     this.inactiveControlsEl?.remove();
     if (this.overlayEl) {
       this.overlayEl.classList.remove('active');
@@ -1406,6 +1544,7 @@ export class SyncClient {
       clearTimeout(this._drainTimer);
       this._drainTimer = null;
     }
+    this.clearPendingSync({ hideOverlay: false });
     this.syncing = false;
     this.buffering = false;
     this._rebuilding = false;
