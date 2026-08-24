@@ -9,9 +9,8 @@
    ======================================== */
 
 .sliderValue {
-  cursor: ns-resize; // Up-down arrow for drag-to-adjust
+  cursor: text; // Click to type - there is no drag-to-adjust
   user-select: none;
-  touch-action: none;
   padding: 2px 6px;
   border-radius: var(--radius-sm);
   transition: all var(--transition-fast);
@@ -22,19 +21,6 @@
 .sliderValue:hover {
   background: var(--bg-elevated);
   box-shadow: 0 0 0 1px var(--accent-primary);
-
-  &::after {
-    content: '⇕';
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
-    font-size: 1.2em;
-    color: var(--accent-primary);
-    opacity: 0.3;
-    pointer-events: none;
-    z-index: -1;
-  }
 }
 
 .sliderValueInput {
@@ -64,10 +50,6 @@
   cursor: text;
   background: var(--bg-elevated);
   box-shadow: 0 0 0 1px var(--accent-primary);
-}
-
-.sliderValue:has(.sliderValueInput)::after {
-  display: none;
 }
 
 /* Mobile: enlarge native range thumbs (dual pressure slider, inline .slider
@@ -495,7 +477,7 @@ html[data-mobile='true'] {
   --intrack-height: var(--intrack-height-mobile);
 }
 
-.sliderContainer:has(> .slider, > #sizeSliderMount, > #thinningSlider, > .dual-slider) {
+.sliderContainer:not(.no-track):has(> .slider, > #sizeSliderMount, > #thinningSlider, > .dual-slider) {
   position: relative;
   gap: 0;
   margin-bottom: 6px;
@@ -513,7 +495,7 @@ html[data-mobile='true'] {
     inset: 0 0 auto 0;
     height: var(--intrack-height);
     margin: 0;
-    padding: 0 2px 0 3px;
+    padding: 0 var(--lock-col) 0 3px;
     gap: 4px;
     pointer-events: none;
   }
@@ -542,6 +524,7 @@ html[data-mobile='true'] {
     background: transparent;
     min-width: 0;
     padding: 0 1px;
+    margin-right: 10px;
   }
 
   // Drag-to-adjust and click-to-type are still there, so the chip has to come
@@ -551,53 +534,10 @@ html[data-mobile='true'] {
     background: var(--bg-elevated);
   }
 
-  // The lock pops out into the panel's own left gutter instead of taking a slot
-  // in the row, so the whole width belongs to the name and value. #toolSliders
-  // is a scroll container and clips at its border edge, so its left padding is
-  // the entire overhang budget — see the widened gutter below.
-  // Hidden until the row is hovered; a lock that is ON stays visible, because
-  // that is state you have to be able to see without going looking for it.
+  // The label turned pointer events off so drags reach the bar; the lock has to
+  // opt back in. Its position comes from the lock column below.
   > .sliderLabel > .lock-btn {
-    position: absolute;
-    left: -13px;
-    top: 50%;
-    transform: translateY(-50%);
-    margin: 0;
-    padding: 1px;
-    z-index: 3;
-    border-radius: 3px;
-    background: var(--bg-secondary);
-    box-shadow: 0 0 0 1px var(--border-subtle);
     pointer-events: auto;
-    opacity: 0;
-    transition: opacity var(--transition-fast), transform var(--transition-fast);
-
-    img,
-    svg {
-      width: 12px;
-      height: 12px;
-    }
-  }
-
-  &:hover > .sliderLabel > .lock-btn,
-  &:focus-within > .sliderLabel > .lock-btn {
-    opacity: 0.75;
-  }
-
-  > .sliderLabel > .lock-btn:hover,
-  > .sliderLabel > .lock-btn:focus-visible,
-  > .sliderLabel > .lock-btn.locked {
-    opacity: 1;
-  }
-
-  // The shared .lock-btn hover/active rules use a bare scale(), which would
-  // drop the centring translate.
-  > .sliderLabel > .lock-btn:hover {
-    transform: translateY(-50%) scale(1.1);
-  }
-
-  > .sliderLabel > .lock-btn:active {
-    transform: translateY(-50%) scale(0.95);
   }
 
   // Track hosts. The PointerSlider mount keeps the .slider class, so the global
@@ -616,28 +556,81 @@ html[data-mobile='true'] {
   }
 }
 
-// Touch has no hover to reveal them with, so locks stay visible there.
-html[data-mobile='true']
-  .sliderContainer:has(> .slider, > #sizeSliderMount, > #thinningSlider, > .dual-slider)
-  > .sliderLabel
-  > .lock-btn {
-  opacity: 0.85;
+/* ----------------------------------------
+   Trackless rows
+
+   Thinning hides its track when the toggle is off. The in-track label is
+   absolutely positioned, so with the track gone the row collapsed to zero
+   height and the toggle painted on top of Pressure below it. `.no-track`
+   (set by UI.setThinningTrackVisible) puts the label back in flow and paints
+   the empty track behind it, so the row keeps its own line either way.
+   ---------------------------------------- */
+
+.sliderContainer.no-track {
+  position: relative;
+  gap: 0;
+  margin-bottom: 6px;
+
+  // In flow, not absolute: with no track underneath it, the label is the only
+  // thing holding the row open.
+  > .sliderLabel {
+    height: var(--intrack-height);
+    margin: 0;
+    padding: 0 0 0 3px;
+    gap: 4px;
+    background: var(--bg-tertiary);
+    border-radius: var(--radius-sm);
+  }
+
+  > .sliderLabel > .pressureToggle {
+    flex: 1 1 auto;
+    min-width: 0;
+    gap: 3px;
+  }
 }
 
 /* ----------------------------------------
-   Lock gutter
+   Lock column
 
-   The lock chips overhang into #toolSliders' left padding, and a scroll
-   container clips at its border edge — so that padding is the whole overhang
-   budget. Widening it and pulling .sliders back by the same amount buys the
-   chips more room without moving a single track.
+   The lock gets a reserved strip at the right end of the row rather than
+   sitting on top of the bar. The track is in flow, so the container's
+   padding-right is what shortens it; the in-track label overlays the whole row
+   and so pads itself by the same amount, which keeps the name and value inside
+   the track's ends. The trackless row's label is in flow and shrinks on its
+   own, so its bar stops short of the lock too.
+
+   Width is the lock's own box: a 14px icon plus its 2px side padding.
    ---------------------------------------- */
 
-#toolSliders {
-  padding-left: 13px;
+.sliderContainer.no-track,
+.sliderContainer:not(.no-track):has(> .slider, > #sizeSliderMount, > #thinningSlider, > .dual-slider) {
+  --lock-col: 18px;
 
-  > .sliders {
-    margin-left: -3px;
+  padding-right: var(--lock-col);
+
+  // Pulled out of the label's flow into the reserved strip. `right` resolves
+  // against the label's padding box when the label is the overlay (it is
+  // positioned) and against the container's when it is in flow — both end at
+  // the row's right edge, so one value covers each case.
+  // The 6px X nudge hangs the lock past that edge, which sits better against
+  // the track than flush. It is a transform, so it shifts only the painted
+  // button and leaves the reserved column's geometry alone.
+  > .sliderLabel > .lock-btn {
+    position: absolute;
+    right: 0;
+    top: 50%;
+    transform: translate(6px, -50%);
+    margin: 0;
+  }
+
+  // The shared .lock-btn hover/active rules use a bare scale(), which would
+  // drop both the nudge and the centring translate.
+  > .sliderLabel > .lock-btn:hover {
+    transform: translate(6px, -50%) scale(1.1);
+  }
+
+  > .sliderLabel > .lock-btn:active {
+    transform: translate(6px, -50%) scale(0.95);
   }
 }
 

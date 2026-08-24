@@ -1,21 +1,18 @@
 /**
- * @fileoverview Handles click-to-edit and drag-to-adjust functionality for numeric value displays.
+ * @fileoverview Handles click-to-edit functionality for numeric value displays.
  */
 
 /**
  * EditableValueHandler class
  */
 export class EditableValueHandler {
-  constructor() {
-    /**
-     * Pixels of vertical movement before drag starts.
-     * @type {number}
-     */
-    this.DRAG_THRESHOLD = 3;
-  }
-
   /**
-   * Make a span element editable with click-to-edit and drag-to-adjust
+   * Make a span element editable by clicking it to type a value.
+   *
+   * These values sit on top of the slider track now, so there is deliberately
+   * no drag-to-adjust: a vertical drag on the number fought with the bar
+   * underneath it, and the bar is the faster way to change the value anyway.
+   *
    * @param {HTMLElement} spanEl - The span element to make editable
    * @param {Object} opts - Configuration options
    * @param {number|Function} opts.min - Minimum value or function returning it
@@ -23,16 +20,13 @@ export class EditableValueHandler {
    * @param {number} opts.step - Step size for snapping
    * @param {string} [opts.suffix=''] - Suffix to append to display value (e.g., 'px', '%')
    * @param {Function} opts.onCommit - Callback when value changes: (newValue) => {}
-   * @param {Function} [opts.dragStep] - Optional function to compute dynamic step: (currentVal) => step
    */
   makeEditable(spanEl, opts) {
-    const { min, max, step, suffix = '', onCommit, dragStep } = opts;
+    const { min, max, step, suffix = '', onCommit } = opts;
     const resolveBound = (bound) => {
       const value = typeof bound === 'function' ? bound() : bound;
       return Number.isFinite(Number(value)) ? Number(value) : 0;
     };
-
-    let dragState = null;
 
     /**
      * Opens the inline text editor for the value.
@@ -91,71 +85,18 @@ export class EditableValueHandler {
       });
     };
 
+    // Kept off the track underneath, which owns the drag.
     spanEl.addEventListener('pointerdown', (e) => {
       if (spanEl.querySelector('.sliderValueInput')) return;
-      e.preventDefault();
-
-      const currentText = spanEl.textContent;
-      const currentMin = resolveBound(min);
-      const startVal = parseFloat(currentText.replace(suffix, '').trim()) || currentMin;
-
-      dragState = {
-        startY: e.clientY,
-        startVal,
-        dragging: false,
-        pointerId: e.pointerId
-      };
-
-      spanEl.setPointerCapture(e.pointerId);
+      e.stopPropagation();
     });
 
-    spanEl.addEventListener('pointermove', (e) => {
-      if (!dragState) return;
-
-      const dy = dragState.startY - e.clientY; // up = positive
-
-      if (!dragState.dragging) {
-        if (Math.abs(dy) < this.DRAG_THRESHOLD) return;
-        dragState.dragging = true;
-        spanEl.classList.add('dragging');
-        document.body.classList.add('parameter-dragging');
-      }
-
-      const currentStep = dragStep ? dragStep(dragState.lastVal ?? dragState.startVal) : step;
-
-      let sensitivity = currentStep;
-      if (e.shiftKey) sensitivity = currentStep * 10;
-      else if (e.altKey) sensitivity = currentStep * 0.1;
-
-      let val = dragState.startVal + dy * sensitivity;
-      val = Math.max(resolveBound(min), Math.min(resolveBound(max), val));
-      const snapStep = dragStep ? dragStep(val) : step;
-      val = Math.round(val / snapStep) * snapStep;
-      val = Math.max(resolveBound(min), Math.min(resolveBound(max), val));
-      val = parseFloat(val.toFixed(10));
-      dragState.lastVal = val;
-
-      spanEl.textContent = suffix ? `${val}${suffix}` : String(val);
-      onCommit(val);
+    // Opened on click, not pointerdown: a touch swipe that starts on the number
+    // should scroll the panel, and only a real tap produces a click.
+    spanEl.addEventListener('click', (e) => {
+      if (spanEl.querySelector('.sliderValueInput')) return;
+      e.stopPropagation();
+      openEditor();
     });
-
-    /**
-     * Ends the drag operation.
-     * @param {PointerEvent} e - Pointer event
-     */
-    const endDrag = (e) => {
-      if (!dragState) return;
-      const wasDragging = dragState.dragging;
-      spanEl.classList.remove('dragging');
-      document.body.classList.remove('parameter-dragging');
-      dragState = null;
-
-      if (!wasDragging) {
-        openEditor();
-      }
-    };
-
-    spanEl.addEventListener('pointerup', endDrag);
-    spanEl.addEventListener('pointercancel', endDrag);
   }
 }

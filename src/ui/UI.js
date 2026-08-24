@@ -908,6 +908,7 @@ menuBtn: document.getElementById('menuBtn'),
       textPositionMultiplierSlider: document.querySelector('.slider.textPositionMultiplier'),
       textPositionOffsetSlider: document.querySelector('.slider.textPositionOffset'),
       thinningSliderContainer: document.getElementById('thinningSlider'),
+      thinningRow: document.getElementById('ink-thinning'),
       simulatePressureCheckbox: document.getElementById('simulatePressureCheckbox'),
 
       fontSelect: document.getElementById('font-select'),
@@ -2356,13 +2357,29 @@ menuBtn: document.getElementById('menuBtn'),
   updateSimulatePressure(simulate) {
     if (this.elements.thinningEnabled) {
       this.elements.thinningEnabled.checked = simulate;
-      // Update visibility to match checkbox state
-      if (this.elements.thinningSliderContainer) {
-        this.elements.thinningSliderContainer.style.display = simulate ? '' : 'none';
-      }
-      if (this.elements.thinningValue) {
-        this.elements.thinningValue.style.display = simulate ? '' : 'none';
-      }
+    }
+    this.setThinningTrackVisible(simulate);
+  }
+
+  /**
+   * Shows or hides the Thinning track and its value.
+   *
+   * With thinning off there is no track left to host the in-track label, and
+   * the label is absolutely positioned - so the row collapsed to zero height
+   * and the toggle painted on top of Pressure. `.no-track` puts the label back
+   * in flow so the row keeps a row's worth of height either way.
+   *
+   * @param {boolean} visible - Whether thinning is enabled.
+   */
+  setThinningTrackVisible(visible) {
+    if (this.elements.thinningSliderContainer) {
+      this.elements.thinningSliderContainer.style.display = visible ? '' : 'none';
+    }
+    if (this.elements.thinningValue) {
+      this.elements.thinningValue.style.display = visible ? '' : 'none';
+    }
+    if (this.elements.thinningRow) {
+      this.elements.thinningRow.classList.toggle('no-track', !visible);
     }
   }
 

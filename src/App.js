@@ -1397,12 +1397,7 @@ export class DrawingApp {
     if (elements.thinningEnabled) {
       elements.thinningEnabled.addEventListener('change', (e) => {
         // Update visibility
-        if (elements.thinningSliderContainer) {
-          elements.thinningSliderContainer.style.display = elements.thinningEnabled.checked ? '' : 'none';
-        }
-        if (elements.thinningValue) {
-          elements.thinningValue.style.display = elements.thinningEnabled.checked ? '' : 'none';
-        }
+        this.ui.setThinningTrackVisible(elements.thinningEnabled.checked);
         // Update simulate pressure state
         const simulate = e.target.checked;
         this.self.setSimulatePressure(simulate);
@@ -1574,7 +1569,6 @@ export class DrawingApp {
     // Editable slider values
     this.ui.makeValueEditable(elements.sizeValue, {
       min: 0.25, max: 100, step: 0.25, suffix: '',
-      dragStep: (val) => val > 10 ? 1 : 0.25,
       onCommit: (val) => {
         this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastSizeChange(val));
         if (this.self.mousedown && this.self.tool === 'brush') {
@@ -1736,11 +1730,10 @@ export class DrawingApp {
       this.handlePatternOffsetYChange
     );
 
-    // Pressure range value: drag to adjust max pressure, click to edit both
+    // Pressure range value: click to edit both ends. No drag-to-adjust - see
+    // EditableValueHandler.makeEditable for why.
     {
       const pressureSpan = elements.pressureValue;
-      const DRAG_THRESHOLD = 3;
-      let dragState = null;
 
       const openPressureEditor = () => {
         if (pressureSpan.querySelector('.sliderValueInput')) return;
@@ -1820,56 +1813,14 @@ export class DrawingApp {
 
       pressureSpan.addEventListener('pointerdown', (e) => {
         if (pressureSpan.querySelector('.sliderValueInput')) return;
-        e.preventDefault();
-
-        dragState = {
-          startY: e.clientY,
-          startMax: Number(elements.pressureMaxSlider.value),
-          startMin: Number(elements.pressureMinSlider.value),
-          dragging: false,
-          pointerId: e.pointerId
-        };
-
-        pressureSpan.setPointerCapture(e.pointerId);
+        e.stopPropagation();
       });
 
-      pressureSpan.addEventListener('pointermove', (e) => {
-        if (!dragState) return;
-
-        const dy = dragState.startY - e.clientY;
-
-        if (!dragState.dragging) {
-          if (Math.abs(dy) < DRAG_THRESHOLD) return;
-          dragState.dragging = true;
-          pressureSpan.classList.add('dragging');
-          document.body.classList.add('parameter-dragging');
-        }
-
-        let sensitivity = 1;
-        if (e.shiftKey) sensitivity = 10;
-        else if (e.altKey) sensitivity = 0.1;
-
-        let mx = Math.round(dragState.startMax + dy * sensitivity);
-        mx = Math.max(dragState.startMin, Math.min(100, mx));
-
-        elements.pressureMaxSlider.value = mx;
-        this.ui.updatePressureValue(dragState.startMin, mx);
+      pressureSpan.addEventListener('click', (e) => {
+        if (pressureSpan.querySelector('.sliderValueInput')) return;
+        e.stopPropagation();
+        openPressureEditor();
       });
-
-      const endPressureDrag = () => {
-        if (!dragState) return;
-        const wasDragging = dragState.dragging;
-        pressureSpan.classList.remove('dragging');
-        document.body.classList.remove('parameter-dragging');
-        dragState = null;
-
-        if (!wasDragging) {
-          openPressureEditor();
-        }
-      };
-
-      pressureSpan.addEventListener('pointerup', endPressureDrag);
-      pressureSpan.addEventListener('pointercancel', endPressureDrag);
     }
 
     // Selection mode radio buttons
@@ -4372,12 +4323,7 @@ export class DrawingApp {
       const elements = this.ui.elements;
       if (elements.thinningEnabled && elements.thinningEnabled.checked) {
         elements.thinningEnabled.checked = false;
-        if (elements.thinningSliderContainer) {
-          elements.thinningSliderContainer.style.display = 'none';
-        }
-        if (elements.thinningValue) {
-          elements.thinningValue.style.display = 'none';
-        }
+        this.ui.setThinningTrackVisible(false);
         this.ui.showToast('Tablet detected - thinning disabled', 3000);
         this.tabletThinningWarningShown = true;
       }
@@ -5769,6 +5715,7 @@ export class DrawingApp {
       if (this.ui.elements.thinningEnabled) {
         this.ui.elements.thinningEnabled.checked = false;
       }
+      this.ui.setThinningTrackVisible(false);
       if (this.connected) {
         this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastSimulatePressureChange(false));
       }
