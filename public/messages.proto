@@ -139,6 +139,15 @@ message Msg {
     SYNC_PARITY_MISMATCH_REPORT = 144; // Client→server: post-diff detail for persistence
     SYNC_CHECKPOINT_MINTED = 145;  // Server→client: a checkpoint was minted at snapshot_seq; truncate the fingerprint log before it (shared baseSeq watermark)
     SET_BADGE = 146;               // Client→server: change the user's selected cosmetic badge
+    // Background history backfill. After SYNC_COMPLETE the server streams the
+    // ~2 minutes of drawing a joiner missed so their rolling DVR tape ("History
+    // → Recent") starts populated rather than blank. BEGIN carries the base
+    // checkpoint image, CHUNK carries batches of the original wire frames, END
+    // closes the stream. These are tape material only — the client must never
+    // apply them to the live board. See server/RoomHistory.js.
+    HISTORY_BACKFILL_BEGIN = 147;
+    HISTORY_BACKFILL_CHUNK = 148;
+    HISTORY_BACKFILL_END = 149;
   }
 
   // Tool enum
@@ -541,6 +550,22 @@ message Msg {
   // travel with the lift (not read from local per-viewer state) so every
   // client rasterizes the same commit pixels for this selection.
   bool sel_extended_warp = 202;
+
+  // === History Backfill Fields (203+) ===
+  // One archived frame: the original wire bytes, plus when and where it sat in
+  // the room's timeline so the client can rebuild a scrubbable tape from it.
+  message HistoryFrame {
+    uint64 ts   = 1;  // Wall-clock ms of the commit this frame belongs to
+    uint64 seq  = 2;  // Server seq of that commit (preamble frames share it)
+    bytes  data = 3;  // Original encoded message bytes, replayed as-is
+  }
+  repeated HistoryFrame history_frames = 203; // HISTORY_BACKFILL_CHUNK: batch of frames, ascending
+  uint32 history_total = 204;      // BEGIN/END: total frames in this backfill
+  uint32 history_window_ms = 205;  // BEGIN: span the server is able to serve
+  bool history_blank_base = 206;   // BEGIN: base is an empty board, no image follows
+  // BEGIN also reuses the existing snapshot_* fields for the base checkpoint
+  // image (snapshot_layers / snapshot_id / snapshot_ts / snapshot_seq), exactly
+  // as BOARD_SNAPSHOT_RESTORE does — same payload, different destination.
 
   message FingerprintEntry {
     uint64  seq         = 1;

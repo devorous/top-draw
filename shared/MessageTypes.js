@@ -56,7 +56,13 @@ export const T = {
   SYNC_PARITY_RESYNC_REQUEST: 143,
   SYNC_PARITY_MISMATCH_REPORT: 144,
   SYNC_CHECKPOINT_MINTED: 145,
-  SET_BADGE: 146
+  SET_BADGE: 146,
+  // Background history backfill: after SYNC_COMPLETE the server streams the
+  // frames a joiner missed (server/RoomHistory.js) so their rolling DVR tape
+  // starts populated instead of blank. These never touch the live board.
+  HISTORY_BACKFILL_BEGIN: 147,
+  HISTORY_BACKFILL_CHUNK: 148,
+  HISTORY_BACKFILL_END: 149
 };
 
 /**

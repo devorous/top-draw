@@ -6,6 +6,7 @@ import { ParityCoordinator } from './ParityCoordinator.js';
 import { T } from '../shared/MessageTypes.js';
 import { StrokeFingerprintLog } from '../shared/StrokeFingerprint.js';
 import { StrokeTape } from './StrokeTape.js';
+import { RoomHistory } from './RoomHistory.js';
 import { WebSocket } from 'ws';
 import { getDB } from './db.js';
 import { scoreProvider } from './providerScoring.js';
@@ -112,6 +113,16 @@ export class Room {
      * @type {StrokeTape}
      */
     this.strokeTape = new StrokeTape(T);
+
+    /**
+     * Archive of the frames the checkpoint truncations above retire, kept for a
+     * rolling ~2 minutes so a joiner can be backfilled with the history they
+     * would otherwise have missed. Fed by truncation, never by extending
+     * strokeLog/strokeTape retention — those two ARE the parity window.
+     * See server/RoomHistory.js.
+     * @type {RoomHistory}
+     */
+    this.history = new RoomHistory();
 
     /** @type {ParityCoordinator} Handles SYNC_PARITY_* messages for this room. */
     this.parityCoordinator = new ParityCoordinator(this, this.sendTo);
@@ -234,7 +245,35 @@ export class Room {
     this.invalidateJoinCheckpoint();
     this.strokeLog?.clear?.();
     this.strokeTape?.clear?.();
+    this.history?.clear?.();
     this.clearAllTiles?.();
+  }
+
+  /**
+   * Register this session's ORIGIN anchor on the history archive: what the
+   * board looked like at seq 0.
+   *
+   * Without it the commits retired by a room's FIRST checkpoint had no image
+   * before them, so the archive could not serve them and history only started
+   * working from the second checkpoint (~30s in). A room starts blank, and an
+   * adopted snapshot is deliberately re-stamped at seq 0 (see
+   * _adoptPersistedBase) — either way seq 0 is a real, servable base.
+   *
+   * Called from beginSessionBase, which runs exactly once per session.
+   * beginBlankJoinSession is the wrong home for it: it early-returns when the
+   * room is already flagged invalidated, which is precisely the state
+   * resetJoinSyncState leaves behind, so a room's second session would silently
+   * get no origin at all.
+   *
+   * @param {{id: string}|null} base - Adopted snapshot, or null for a blank start.
+   * @private
+   */
+  _registerHistoryOrigin(base) {
+    if (!this.history) return;
+    // Stamped at session start rather than the snapshot's own timestamp, which
+    // can be days old — the archive prunes anchors by ts.
+    if (base?.id) this.history.addAnchor({ id: base.id, seq: 0, ts: Date.now() });
+    else this.history.addAnchor({ seq: 0, ts: Date.now(), blank: true });
   }
 
   /**
@@ -257,6 +296,7 @@ export class Room {
 
     if (this.settings.loadSnapshotOnFirstJoin === false || !this.canPersistSnapshots()) {
       this.beginBlankJoinSession();
+      this._registerHistoryOrigin(null);
       this._sessionBasePromise = Promise.resolve(null);
       return this._sessionBasePromise;
     }
@@ -266,6 +306,10 @@ export class Room {
       // Never leave the session in limbo: fall back to the blank start.
       this.beginBlankJoinSession();
       return null;
+    }).then((base) => {
+      // Covers all three outcomes — adopted, cold-room blank, failed-and-blank.
+      this._registerHistoryOrigin(base);
+      return base;
     });
     return this._sessionBasePromise;
   }
@@ -318,6 +362,7 @@ export class Room {
     this.invalidateJoinCheckpoint();
     this.strokeLog?.clear?.();
     this.strokeTape?.clear?.();
+    this.history?.clear?.();
     this.clearAllTiles?.();
     this.snapshots = this.snapshots.filter(s => !s?.auto);
     // The next session re-decides its base from scratch (the room object often

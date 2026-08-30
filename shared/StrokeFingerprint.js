@@ -341,24 +341,35 @@ export class StrokeFingerprintLog {
    * its log clean over only the post-checkpoint tail, so an existing client whose
    * hash still folded in the (now-removed) pre-checkpoint entries would mismatch
    * it and desync. (See the Stage-1 checkpoint-join path.)
+   *
+   * Returns the removed entries, each carrying its wire `bytes` when this log
+   * stores them, so a caller can archive what a checkpoint retires instead of
+   * losing it (server/RoomHistory.js). The bytes are read off `_bytesBySeq`
+   * BEFORE it is pruned — retention here is unchanged, the caller just gets a
+   * last look at the frames on their way out.
+   *
    * @param {number} cutoffSeq
+   * @returns {Array<Object>} removed entries, ascending by seq (may be empty)
    */
   truncateBefore(cutoffSeq) {
-    if (this.entries.length === 0) return;
+    if (this.entries.length === 0) return [];
     let idx = this.entries.findIndex(e => e.seq >= cutoffSeq);
     // No entry at/after the cutoff → every entry precedes it; drop them all.
     if (idx === -1) idx = this.entries.length;
-    if (idx > 0) {
-      const removed = this.entries.splice(0, idx);
-      this.evicted += idx;
-      if (removed.length) {
-        this.droppedThroughSeq = Math.max(this.droppedThroughSeq, removed[removed.length - 1].seq);
+    if (idx === 0) return [];
+
+    const removed = this.entries.splice(0, idx);
+    this.evicted += idx;
+    this.droppedThroughSeq = Math.max(this.droppedThroughSeq, removed[removed.length - 1].seq);
+    if (this._bytesBySeq) {
+      for (const r of removed) {
+        const bytes = this._bytesBySeq.get(r.seq);
+        if (bytes) r.bytes = bytes;
+        this._bytesBySeq.delete(r.seq);
       }
-      if (this._bytesBySeq) {
-        for (const r of removed) this._bytesBySeq.delete(r.seq);
-      }
-      this._recomputeRollingHash();
     }
+    this._recomputeRollingHash();
+    return removed;
   }
 
   /**

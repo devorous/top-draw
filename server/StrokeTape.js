@@ -180,6 +180,23 @@ export class StrokeTape {
     this._toolState = new Map();
     /** In-flight stroke preamble per user: userId -> Array<Uint8Array|ref> */
     this._pending = new Map();
+    /**
+     * Arrival timestamps running parallel to `_pending` / `_bundles`, one per
+     * frame. Purely for the history backfill (server/RoomHistory.js): the join
+     * tail replays a preamble as fast as it can and does not care when the
+     * frames happened, but a REPLAY does — without per-frame times every frame
+     * of a stroke carries only the commit's timestamp, so the whole stroke
+     * lands on one instant and pops into existence instead of drawing, with no
+     * cursor motion and no preview.
+     *
+     * Kept as a side table rather than folded into the frame arrays so every
+     * existing consumer (getBundle, getPendingBundles, getToolStateBundles,
+     * TapeFrameFilter) keeps its `Uint8Array[]` shape untouched.
+     * @type {Map<number, number[]>}
+     */
+    this._pendingTs = new Map();
+    /** @type {Map<number, number[]>} Commit seq -> per-frame timestamps. */
+    this._bundleTs = new Map();
     /** In-flight selection setup per user: userId -> Uint8Array[] */
     this._pendingSelection = new Map();
     /** Completed bundles: commitSeq -> Array<Uint8Array|ref> (preamble frames, ordered) */
@@ -310,7 +327,7 @@ export class StrokeTape {
       // The MD-time snapshot only captures state as it was at mousedown; without
       // this the stroke is reconstructed with the original size/color/etc.
       const pend = this._pending.get(uid);
-      if (pend) pend.push(copy);
+      if (pend) { pend.push(copy); this._pendingTs.get(uid)?.push(Date.now()); }
       return;
     }
 
@@ -331,17 +348,22 @@ export class StrokeTape {
       if (st) for (const b of st.values()) preamble.push(b);
       preamble.push(bytes.slice());
       this._pending.set(uid, preamble);
+      // The tool-state snapshot is replayed as an instant at mousedown — the
+      // frames may be minutes old, but re-applying them takes no time and the
+      // stroke starts here.
+      this._pendingTs.set(uid, new Array(preamble.length).fill(Date.now()));
       return;
     }
 
     if (t === T.MM) {
       const pend = this._pending.get(uid);
-      if (pend) pend.push(bytes.slice());
+      if (pend) { pend.push(bytes.slice()); this._pendingTs.get(uid)?.push(Date.now()); }
       return;
     }
 
     if (t === T.CANCEL) {
       this._pending.delete(uid);
+      this._pendingTs.delete(uid);
       return;
     }
 
@@ -359,7 +381,9 @@ export class StrokeTape {
       const pend = this.nonStrokeCommitTypes.has(t) ? null : this._pending.get(uid);
       if (pend && pend.length > 0) {
         this._bundles.set(seq, pend);
+        this._bundleTs.set(seq, this._pendingTs.get(uid) || []);
         this._pending.delete(uid);
+        this._pendingTs.delete(uid);
         this._enforceCap();
         return;
       }
@@ -367,6 +391,9 @@ export class StrokeTape {
       const bundle = this._buildCommitPreamble(uid, t);
       if (bundle.length > 0) {
         this._bundles.set(seq, bundle);
+        // A fill/paste/selection preamble is setup that replays as one instant
+        // at the commit — no geometry unfolds over time here.
+        this._bundleTs.set(seq, new Array(bundle.length).fill(Date.now()));
         this._enforceCap();
       }
 
@@ -458,7 +485,49 @@ export class StrokeTape {
     if (this._bundles.size > this.cap) {
       const oldest = this._bundles.keys().next().value;
       this._bundles.delete(oldest);
+      this._bundleTs.delete(oldest);
     }
+  }
+
+  /**
+   * Resolve a stored preamble into sendable frames AND their arrival times,
+   * kept index-aligned. Needed because resolution can DROP frames (an image
+   * whose payload has since been evicted), which would silently shift a plain
+   * parallel timestamp array by one and mis-time the rest of the stroke.
+   * @private
+   * @param {Array<Uint8Array|{__imageRef: number}>} frames
+   * @param {number[]} tsList
+   * @returns {{frames: Uint8Array[], ts: number[]}}
+   */
+  _resolveWithTs(frames, tsList) {
+    const outFrames = [];
+    const outTs = [];
+    if (!frames) return { frames: outFrames, ts: outTs };
+    for (let i = 0; i < frames.length; i++) {
+      const f = frames[i];
+      if (f && f.__imageRef !== undefined) {
+        const bytes = this._imageFrames.get(f.__imageRef);
+        if (!bytes) continue;
+        outFrames.push(bytes);
+      } else {
+        outFrames.push(f);
+      }
+      outTs.push(tsList?.[i]);
+    }
+    return { frames: outFrames, ts: outTs };
+  }
+
+  /**
+   * Preamble frames for a commit together with their per-frame arrival times.
+   * Used by the history backfill, which replays a stroke rather than rushing
+   * it. Returns null when the seq has no bundle.
+   * @param {number} seq
+   * @returns {{frames: Uint8Array[], ts: number[]}|null}
+   */
+  getBundleWithTs(seq) {
+    const frames = this._bundles.get(seq);
+    if (!frames) return null;
+    return this._resolveWithTs(frames, this._bundleTs.get(seq));
   }
 
   /**
@@ -511,19 +580,50 @@ export class StrokeTape {
    * Drop bundles with seq < cutoffSeq. Mirrors StrokeFingerprintLog.truncateBefore
    * so the geometry tape and the commit log stay bounded together at checkpoints.
    * Keys are inserted in ascending seq order, so we can stop at the first kept key.
+   *
+   * Returns the dropped preambles keyed by seq, with image handles already
+   * RESOLVED to bytes. Resolution has to happen here, at the moment of
+   * retirement: bundles hold `{__imageRef}` handles into a byte-budgeted store
+   * that keeps evicting after this point, so a caller archiving the raw handles
+   * (server/RoomHistory.js) would end up holding references to brushes that no
+   * longer exist and replay every historical stamp with the wrong image.
+   *
    * @param {number} cutoffSeq
+   * @returns {Map<number, {frames: Uint8Array[], ts: number[]}>} dropped
+   *   preambles by commit seq, with per-frame arrival times
    */
   truncateBefore(cutoffSeq) {
+    const dropped = new Map();
     for (const k of this._bundles.keys()) {
-      if (k < cutoffSeq) this._bundles.delete(k);
-      else break;
+      if (k >= cutoffSeq) break;
+      const frames = this._bundles.get(k);
+      if (frames && frames.length > 0) {
+        dropped.set(k, this._resolveWithTs(frames, this._bundleTs.get(k)));
+      }
+      this._bundles.delete(k);
+      this._bundleTs.delete(k);
     }
+    return dropped;
+  }
+
+  /**
+   * Whether this user currently has an open stroke (an MD with no matching
+   * commit yet). Used to tell a DRAWING move from a hover move: the former is
+   * already retained in the user's pending preamble and will ship with the
+   * stroke's commit, the latter belongs to nobody and is otherwise dropped.
+   * @param {number} userId
+   * @returns {boolean}
+   */
+  isMidStroke(userId) {
+    const frames = this._pending.get(userId | 0);
+    return !!frames && frames.length > 0;
   }
 
   /** Discard any in-flight (uncommitted) stroke geometry for a departed user. */
   dropUser(userId) {
     const uid = userId | 0;
     this._pending.delete(uid);
+    this._pendingTs.delete(uid);
     this._toolState.delete(uid);
     this._pendingSelection.delete(uid);
     // Their image payloads are no longer pinned as "current", so they become
@@ -535,8 +635,10 @@ export class StrokeTape {
   clear() {
     this._toolState.clear();
     this._pending.clear();
+    this._pendingTs.clear();
     this._pendingSelection.clear();
     this._bundles.clear();
+    this._bundleTs.clear();
     this._imageFrames.clear();
     this._imageBytes = 0;
   }

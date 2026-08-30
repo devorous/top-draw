@@ -11,6 +11,33 @@ import { snapshotCoversRoomBoard } from '../shared/qoi.js';
 const DEFAULT_SNAPSHOT_MAX_PER_ROOM = 100;
 const SNAPSHOT_LIST_PAGE_SIZE = 20;
 
+/**
+ * Truncate the room's parity/join window at a newly-minted checkpoint and move
+ * the frames that retires into the room's history archive.
+ *
+ * The truncation itself is unchanged from what these three call sites did
+ * before — `strokeLog` and `strokeTape` still collapse to the post-checkpoint
+ * tail, which is what keeps the parity window in lockstep with every client's
+ * own SYNC_CHECKPOINT_MINTED truncation. The only difference is that the frames
+ * on their way out are handed to `room.history` instead of being freed, so a
+ * later joiner can be backfilled with the last ~2 minutes of drawing they would
+ * otherwise never see. Order matters: the log must be read before the tape is
+ * truncated, and the anchor registered after the commits it supersedes are in.
+ *
+ * @param {Object} room
+ * @param {number} baseSeq - The checkpoint's applied-seq watermark.
+ * @param {{id: string, ts: number}} anchor - Identity of the checkpoint image,
+ *   resolved against `room.snapshots` when the backfill is served.
+ */
+function archiveRetiredFrames(room, baseSeq, anchor) {
+  const retiredCommits = room.strokeLog?.truncateBefore?.(baseSeq + 1) || [];
+  const retiredPreambles = room.strokeTape?.truncateBefore?.(baseSeq + 1) || null;
+  if (!room.history) return;
+  room.history.archive(retiredCommits, retiredPreambles);
+  room.history.addAnchor({ id: anchor?.id, seq: baseSeq, ts: anchor?.ts ?? Date.now() });
+  room.history.prune();
+}
+
 function isSoloRoomOccupant(room) {
   return room?.getClientCount?.() === 1;
 }
@@ -267,8 +294,10 @@ export async function handleSnapshotSave(ws, data, room) {
     // selection, so `base.seq >= checkpointSeq` always.
     const base = room.getJoinCheckpointMeta?.() || { id: snapshotId, seq: checkpointSeq };
     const baseSeq = base.seq > 0 ? base.seq : checkpointSeq;
-    room.strokeLog?.truncateBefore?.(baseSeq + 1);
-    room.strokeTape?.truncateBefore?.(baseSeq + 1);
+    // Truncation is also the only moment these frames are still whole, so it is
+    // where the history archive is fed. Retention above is unchanged — the
+    // retired frames are handed on rather than dropped. See server/RoomHistory.js.
+    archiveRetiredFrames(room, baseSeq, { id: base.id || snapshotId, ts: snapshotTs });
     room.broadcastToAll({
       t: T.SYNC_CHECKPOINT_MINTED,
       snapshotId: base.id || snapshotId,
@@ -374,8 +403,7 @@ export async function handleSnapshotSave(ws, data, room) {
           layers: layers,
         };
         room.addSnapshot?.({ ...restoreSnapshot, seq: restoreSeq, auto: true });
-        room.strokeLog?.truncateBefore?.(restoreSeq + 1);
-        room.strokeTape?.truncateBefore?.(restoreSeq + 1);
+        archiveRetiredFrames(room, restoreSeq, { id: restoreSnapshot.id, ts: restoreSnapshot.ts });
         room.joinCheckpointInvalidated = false;
         await persistRestoredCheckpoint(room, restoreSnapshot, restoreSeq);
       }
@@ -536,8 +564,7 @@ export async function handleSnapshotRestore(ws, data, room) {
         seq: restoreSeq,
         auto: true,
       });
-      room.strokeLog?.truncateBefore?.(restoreSeq + 1);
-      room.strokeTape?.truncateBefore?.(restoreSeq + 1);
+      archiveRetiredFrames(room, restoreSeq, { id: snapshotData.id, ts: snapshotData.ts });
       // We now hold a fresh, valid in-memory base, so undo any prior "skip the
       // persisted checkpoint" invalidation from a blank/lone-join session.
       room.joinCheckpointInvalidated = false;

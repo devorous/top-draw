@@ -140,6 +140,15 @@ export class WebSocketClient {
     this._processingScheduled = false;
 
     /**
+     * In-flight server history backfill, accumulated between
+     * HISTORY_BACKFILL_BEGIN and _END. Null when none is streaming. See
+     * {@link WebSocketClient._handleHistoryBackfill}.
+     * @private
+     * @type {{anchorTs: number, anchorLayers: Array, expected: number, frames: Array}|null}
+     */
+    this._historyBackfill = null;
+
+    /**
      * @private
      * @type {Set<number>}
      */
@@ -634,6 +643,80 @@ export class WebSocketClient {
     }
   }
 
+  /**
+   * Accumulate the server's post-join history backfill and hand it to the
+   * rolling tape recorder.
+   *
+   * The server archives the ~2 minutes of drawing that a joiner missed
+   * (server/RoomHistory.js) and streams it here in chunks once the board is
+   * already up, so "History → Recent" is populated immediately instead of
+   * staying blank until the joiner has been in the room for two minutes.
+   *
+   * Frames arrive as the original wire bytes and are decoded here, one chunk
+   * per tick, rather than all at once at the end — a busy room's backfill can
+   * be thousands of frames and the server already paces the chunks to spread
+   * that cost. Nothing is applied until END: a connection that drops mid-stream
+   * leaves the tape exactly as it was rather than half-extended.
+   *
+   * @private
+   * @param {Object} data - HISTORY_BACKFILL_BEGIN / _CHUNK / _END
+   */
+  _handleHistoryBackfill(data) {
+    if (data.t === T.HISTORY_BACKFILL_BEGIN) {
+      // A blank base carries no image on purpose: the session started on an
+      // empty board, which is a perfectly good thing to replay onto.
+      const blank = !!data.historyBlankBase;
+      const layers = data.snapshotLayers;
+      if (!blank && (!Array.isArray(layers) || layers.length === 0)) {
+        this._historyBackfill = null;
+        return;
+      }
+      this._historyBackfill = {
+        anchorTs: Number(data.snapshotTs) || Date.now(),
+        anchorLayers: blank ? null : layers,
+        anchorBlank: blank,
+        expected: Number(data.historyTotal) || 0,
+        frames: [],
+      };
+      return;
+    }
+
+    const pending = this._historyBackfill;
+    if (!pending) return;
+
+    if (data.t === T.HISTORY_BACKFILL_CHUNK) {
+      for (const frame of data.historyFrames || []) {
+        if (!frame?.data || frame.data.length === 0) continue;
+        try {
+          const msg = this.Msg.decode(frame.data);
+          // Same fixup the live drain applies to batched frames: point streams
+          // travel delta-encoded on the wire.
+          if (Array.isArray(msg.ps) && msg.ps.length >= 2) msg.ps = decodePs(msg.ps);
+          pending.frames.push({ ts: Number(frame.ts) || pending.anchorTs, msg });
+        } catch (err) {
+          // One unreadable frame shouldn't cost the whole window; the tape just
+          // replays that stroke incompletely.
+          console.warn('[History] Failed to decode backfill frame:', err);
+        }
+      }
+      return;
+    }
+
+    // HISTORY_BACKFILL_END
+    this._historyBackfill = null;
+    const recorder = window.app?.rollingTapeRecorder;
+    if (!recorder?.seedFromBackfill) return;
+    const seeded = recorder.seedFromBackfill({
+      anchorTs: pending.anchorTs,
+      anchorLayers: pending.anchorLayers,
+      anchorBlank: pending.anchorBlank,
+      frames: pending.frames,
+    });
+    if (seeded) {
+      console.log(`[History] Seeded rolling tape with ${pending.frames.length} backfilled frame(s)`);
+    }
+  }
+
   _parseFloatingGalleryVoronoi(rawJson) {
     if (!rawJson) return null;
     try {
@@ -778,6 +861,18 @@ export class WebSocketClient {
     // Parity messages route to ParityClient outside the main switch — they
     // don't need any of the live-app side effects (cursor updates etc.).
     if (this.parityClient && this.parityClient.receive(data)) return;
+
+    // History backfill routes outside the switch too, and for a stronger
+    // reason: these frames are two-minute-old geometry that must reach the
+    // rolling tape and NOTHING else. They never touch the board, the stroke
+    // log or the seq watermark. (The TimeMachine tap in _tapInbound already
+    // ignores them — the replay allowlist has no entry for these types.)
+    if (data.t === T.HISTORY_BACKFILL_BEGIN
+      || data.t === T.HISTORY_BACKFILL_CHUNK
+      || data.t === T.HISTORY_BACKFILL_END) {
+      this._handleHistoryBackfill(data);
+      return;
+    }
 
     // Checkpoint watermark: a checkpoint was minted at snapshot_seq. Truncate
     // our fingerprint log before it so the compared window is the post-checkpoint
@@ -2710,6 +2805,9 @@ export class WebSocketClient {
    * @returns {void}
    */
   requestSync(targetUserId = null) {
+    // Any backfill still streaming belongs to the sync we're abandoning; its
+    // frames would be spliced onto a tape that has since been re-anchored.
+    this._historyBackfill = null;
     const msg = { t: T.SYNC_REQUEST };
     if (targetUserId !== null) {
       msg.tu = targetUserId;

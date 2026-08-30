@@ -2967,6 +2967,23 @@ function broadcastToRoom(room, payload, excludeIndex = null) {
     room.strokeTape.observe(payload.t, payload.u | 0, buffer, POOLED_MSG.seq, isCommitType(payload.t), payload);
   }
 
+  // Between-stroke cursor movement for the history backfill. The tape only
+  // retains MM frames INSIDE a stroke (they ride in that stroke's preamble and
+  // ship with its commit), so a backfilled tape drew every stroke correctly and
+  // then teleported each cursor straight to the start of the next one. Hover
+  // moves belong to no commit and are otherwise dropped entirely.
+  //
+  // The copy is mandatory: `buffer` is the shared encoder output and is
+  // overwritten by the very next broadcast (same reason StrokeTape copies).
+  if (room?.history && payload.t === T.MM && !room.strokeTape?.isMidStroke?.(payload.u | 0)) {
+    room.history.recordCursor({
+      seq: POOLED_MSG.seq,
+      ts: Date.now(),
+      userId: payload.u | 0,
+      bytes: new Uint8Array(buffer),
+    });
+  }
+
   // Commit-class messages echo back to the sender so their strokeLog stays
   // in lockstep with the server's. The client recognizes self-echoes by
   // sessionIndex and skips the draw handlers (it already drew locally).

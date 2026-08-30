@@ -45,6 +45,14 @@ const PRUNE_INTERVAL_MS = 5000;
  */
 const IDLE_LEADOUT_MS = 500;
 /**
+ * Tick spacing used to spread a backfilled commit's frames (see
+ * {@link RollingTapeRecorder.seedFromBackfill}). The server archives frames
+ * keyed by commit, so a stroke's MM frames all share one timestamp; 16ms is the
+ * 60 TPS cadence they were actually emitted at, which turns a stroke that would
+ * otherwise pop into existence back into a stroke that draws.
+ */
+const BACKFILL_FRAME_TICK_MS = 16;
+/**
  * Safety cap on resident deltas. Two minutes of normal drawing is far below
  * this; the cap only matters during pathological floods (e.g. a script). When
  * hit we drop the oldest deltas regardless of the checkpoint anchor — a slightly
@@ -82,6 +90,14 @@ export class RollingTapeRecorder {
     this._deltas = [];
     /** @type {Array<{ts: number, blob: Blob}>} */
     this._visualCheckpoints = [];
+
+    /**
+     * True once the server's history backfill has been spliced onto the front
+     * of this tape. One per anchoring — cleared with the buffers, so a resync
+     * (which re-anchors) can accept a fresh backfill.
+     * @type {boolean}
+     */
+    this._backfilled = false;
 
     this._intraTimer = null;
     this._visualTimer = null;
@@ -246,6 +262,129 @@ export class RollingTapeRecorder {
     } else {
       this.start(app);
     }
+  }
+
+  // ── server history backfill ─────────────────────────────────────────────────
+
+  /**
+   * Splice the server's archived history onto the FRONT of the tape.
+   *
+   * A joiner's tape starts at the moment they synced, so "Recent" is blank for
+   * the first two minutes in every room they enter while everyone already
+   * present can scrub back through what was just drawn. The server keeps that
+   * window (server/RoomHistory.js) and streams it here after SYNC_COMPLETE.
+   *
+   * The frames are the same wire messages a live peer recorded, so they compose
+   * exactly like locally-captured deltas; the only difference is where the base
+   * image comes from. That base is a checkpoint IMAGE, not a captured layer
+   * state, so it rides in as a synthetic BOARD_SNAPSHOT_RESTORE delta at the
+   * head of the tape — ReplayEngine already applies those to its replay board
+   * (`_replayBoard.restoreSnapshot`), which means no new restore path and no
+   * QOI decoding here. The checkpoint entry that precedes it reuses the join
+   * anchor's snapshot purely so the tape has a valid base object; the restore
+   * delta immediately overwrites its pixels.
+   *
+   * Timing is real, with one fallback. The server stamps every frame with its
+   * own arrival time (StrokeTape's parallel timestamp track), so a stroke's
+   * MD/MM frames unfold at the rate they were drawn and hover moves between
+   * strokes play at their true spacing; gaps go through the same
+   * IDLE_LEADOUT_MS dead-air compression the live clock uses. Frames that
+   * genuinely share an instant — the tool-state snapshot at mousedown,
+   * selection setup before a commit — are spread at BACKFILL_FRAME_TICK_MS so
+   * they cannot stack on one timestamp, capped so they never run into whatever
+   * comes next.
+   *
+   * Frames arrive in SEQ order, which is not always TS order: another user's
+   * hover during someone's stroke is sequenced before that stroke's commit but
+   * happened during it. The clock below only ever moves forward, so such a
+   * frame costs no time rather than rewinding the tape.
+   *
+   * @param {{anchorTs: number, anchorLayers: Array<Uint8Array>|null, anchorBlank?: boolean, frames: Array<{ts: number, msg: Object}>}} backfill
+   * @returns {boolean} true when the tape was extended
+   */
+  seedFromBackfill({ anchorTs, anchorLayers, anchorBlank = false, frames } = {}) {
+    if (!this._enabled || this._backfilled) return false;
+    if (!Array.isArray(frames) || frames.length === 0) return false;
+    if (!anchorBlank && (!Array.isArray(anchorLayers) || anchorLayers.length === 0)) return false;
+    // Nothing to attach to, and nothing to trust: a tape with known gaps must
+    // not be presented as a continuous history just because we lengthened it.
+    if (this._checkpoints.length === 0 || this._stale) return false;
+
+    const startVirtual = this._checkpoints[0].ts;
+    const base = Number(anchorTs) || frames[0].ts;
+
+    // Walk the frames once, assigning each a virtual offset from the anchor.
+    // Frames sharing a timestamp are one commit ("a run") and are spread over
+    // the ticks that produced them; the gap between runs is the compressed
+    // dead air. The spread cap is computed once per RUN, not per frame: a
+    // per-frame cap only clamps the run's LAST frame, so a stroke long enough
+    // to hit the cap ended up with its final frame stamped earlier than its
+    // second-to-last one, and the tape stopped being monotonic.
+    let virtual = 0;
+    let prevWall = base;
+    let runOffset = 0;
+    let runStart = 0;
+    let runCap = IDLE_LEADOUT_MS;
+    let runTs = null;
+    const offsets = new Array(frames.length);
+
+    for (let i = 0; i < frames.length; i++) {
+      const wall = Number(frames[i].ts) || prevWall;
+      if (wall !== runTs) {
+        // New commit: advance the compressed clock across the real gap, then
+        // look ahead for how much room this run has before the next one.
+        virtual += Math.min(Math.max(wall - prevWall, 0), IDLE_LEADOUT_MS);
+        prevWall = wall;
+        runTs = wall;
+        runOffset = virtual;
+        runStart = i;
+        let nextWall = null;
+        for (let j = i + 1; j < frames.length; j++) {
+          const w = Number(frames[j].ts);
+          if (w !== wall) { nextWall = w; break; }
+        }
+        runCap = nextWall == null
+          ? IDLE_LEADOUT_MS
+          : Math.min(Math.max(nextWall - wall, 0), IDLE_LEADOUT_MS);
+      }
+      const spread = Math.min((i - runStart) * BACKFILL_FRAME_TICK_MS, runCap);
+      offsets[i] = runOffset + spread;
+      if (offsets[i] > virtual) virtual = offsets[i];
+    }
+
+    // Land the newest backfilled frame just before the join anchor, so history
+    // runs continuously into the locally-recorded tape.
+    const span = virtual;
+    const originVirtual = startVirtual - 1 - span;
+
+    // Head delta = the base the history replays onto. A blank session origin
+    // rides in as CLR (ReplayEngine clears the replay board on it) rather than
+    // as an image; that is what lets history cover a room's first checkpoint
+    // instead of starting only after its second.
+    const seeded = [
+      {
+        ts: originVirtual,
+        wall: base,
+        msg: anchorBlank
+          ? { t: T.CLR }
+          : { t: T.BOARD_SNAPSHOT_RESTORE, snapshotLayers: anchorLayers },
+        dir: 'in',
+      },
+    ];
+    for (let i = 0; i < frames.length; i++) {
+      seeded.push({
+        ts: originVirtual + offsets[i],
+        wall: Number(frames[i].ts) || base,
+        msg: frames[i].msg,
+        dir: 'in',
+      });
+    }
+
+    this._checkpoints.unshift({ ts: originVirtual, snapshot: this._checkpoints[0].snapshot });
+    this._deltas.unshift(...seeded);
+    this._backfilled = true;
+    this._notify();
+    return true;
   }
 
   // ── delta tap ─────────────────────────────────────────────────────────────
@@ -472,6 +611,9 @@ export class RollingTapeRecorder {
       checkpointCount: this._checkpoints.length,
       oldestTs: anchor ? anchor.ts : null,
       newestTs: this._enabled ? now : null,
+      // True when part of this tape came from the server rather than from
+      // messages we saw live (see seedFromBackfill).
+      backfilled: this._backfilled,
       // "Has something worth scrubbing": at least one delta beyond the anchor.
       hasContent: !!anchor && this._deltas.some((d) => d.ts >= anchor.ts),
     };
@@ -638,6 +780,7 @@ export class RollingTapeRecorder {
     this._visualCheckpoints = [];
     this._activitySinceVisual = false;
     this._activitySinceIntra = false;
+    this._backfilled = false;
     // Re-anchor the activity clock to the present so the fresh tape starts at
     // real time and only diverges once dead air accumulates.
     const now = Date.now();

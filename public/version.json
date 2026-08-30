@@ -2,6 +2,6 @@
   "latest": "1.13.1-beta",
   "minRequired": "1.13.1-beta",
   "releaseDate": "2026-08-24T00:16:28.659Z",
-  "notes": "",
+  "notes": "Syncing now provides you with the last 2 minutes of drawing history to view via the history button. Fixed a bug in the eraser algorithm that should reduce lag. ",
   "downloadUrl": "https://www.ddraw.ca/"
 }

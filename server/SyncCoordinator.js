@@ -7,6 +7,31 @@ import { getBoardDimensionsForSize } from '../shared/boardSizes.js';
 
 const ROOM_OVERLAY_SESSION_INDEX = 0xffffffff;
 
+/** Grace period after SYNC_COMPLETE before history starts streaming. */
+const HISTORY_BACKFILL_START_DELAY_MS = 1500;
+/** Frames per HISTORY_BACKFILL_CHUNK. */
+const HISTORY_BACKFILL_CHUNK_SIZE = 250;
+/** Gap between chunks, so the backfill yields to live traffic. */
+const HISTORY_BACKFILL_CHUNK_INTERVAL_MS = 60;
+/** Abandon the backfill if the joiner's send buffer is this far behind. */
+const HISTORY_BACKFILL_BACKPRESSURE_BYTES = 2 * 1024 * 1024;
+/**
+ * Hard ceiling on frames in one backfill.
+ *
+ * A checkpointing room self-limits: the archive prunes to a 2-minute horizon
+ * and the live tail is only the seconds since the last checkpoint. A room that
+ * never checkpoints (unregistered — Room.canPersistSnapshots wants an ownerId)
+ * has no horizon at all, and its live tail grows to the fingerprint log's 10k
+ * commit cap, whose preambles can be hundreds of thousands of frames. Serving
+ * that would roughly double an already-expensive join.
+ *
+ * Over the ceiling we serve NOTHING rather than a prefix: the base image is the
+ * session origin, so dropping the oldest frames would replay later strokes onto
+ * a board missing the earlier ones — a hole in the history, which is worse than
+ * no history.
+ */
+const HISTORY_BACKFILL_MAX_FRAMES = 60_000;
+
 /**
  * Handles the multi-step canvas synchronization flow for new users.
  */
@@ -292,6 +317,212 @@ export class SyncCoordinator {
     this._sendActiveImagesToJoiner(ws);
     this._sendActiveObscureRegionsToJoiner(ws);
     this.sendTo(ws, { t: T.SYNC_COMPLETE });
+
+    // 4. History backfill, in the background. Strictly after SYNC_COMPLETE and
+    //    on a later tick so it never delays the board appearing.
+    this._scheduleHistoryBackfill(ws, requesterSessionIndex);
+  }
+
+  /**
+   * Stream the room's archived history to a joiner so their rolling DVR tape
+   * ("History → Recent") starts populated instead of blank.
+   *
+   * This is decoratively separate from the join serve above and must stay that
+   * way: nothing here affects the board the joiner renders. The frames are the
+   * same wire bytes the live tail uses, but they are wrapped in
+   * HISTORY_BACKFILL_CHUNK rather than sent bare, so the client routes them to
+   * the tape recorder and can never mistake two-minute-old geometry for live
+   * content. Sending them bare and bracketing with BEGIN/END would be cheaper
+   * on the wire but would race: a live broadcast landing between the brackets
+   * would be swallowed into the tape and never drawn.
+   *
+   * Paced across ticks. A backfill can be a few thousand frames and the joiner
+   * has just finished paying for a full sync; blocking the event loop to push
+   * all of it at once would stall every other client in the room.
+   *
+   * @param {WebSocket} ws
+   * @param {number} requesterSessionIndex
+   * @private
+   */
+  _scheduleHistoryBackfill(ws, requesterSessionIndex) {
+    const history = this.room?.history;
+    if (!history) return;
+    const log = this.room?.strokeLog;
+    const tape = this.room?.strokeTape;
+
+    // Prune first so the served window matches the advertised one — the last
+    // checkpoint may have been a while ago on a quiet board.
+    history.prune();
+    const { anchor, commits: archived, cursors } = history.getBackfill();
+    if (!anchor) {
+      console.log(`[History] No origin anchor for room "${this.room?.id}"; skipping backfill for ${requesterSessionIndex}`);
+      return;
+    }
+
+    // The archive holds only what a checkpoint has RETIRED. Everything since
+    // the last checkpoint is still live in strokeLog/strokeTape, so the archive
+    // alone leaves a hole between the newest checkpoint and the join — and in a
+    // room that has never checkpointed at all (an UNREGISTERED room never mints
+    // one: Room.canPersistSnapshots requires an ownerId, so _requestSnapshot
+    // returns immediately) the archive is empty and there is no history to show
+    // whatsoever, which is exactly what an unowned test room looks like.
+    //
+    // So the backfill is archive + live tail. The two are disjoint by
+    // construction — truncation moves a commit from one to the other — but the
+    // seq map below is authoritative anyway.
+    const latestSeq = log?.getSummary?.().latestSeq || 0;
+    const liveEntries = log && latestSeq > anchor.seq
+      ? log.getRange(anchor.seq + 1, latestSeq)
+      : [];
+
+    const bySeq = new Map();
+    for (const c of archived) bySeq.set(c.seq, c);
+    for (const e of liveEntries) {
+      if (bySeq.has(e.seq)) continue;
+      const bytes = log.getBytes(e.seq);
+      const bundle = tape?.getBundleWithTs?.(e.seq);
+      const frames = bundle?.frames || [];
+      if (!bytes && frames.length === 0) continue;
+      bySeq.set(e.seq, {
+        seq: e.seq,
+        ts: e.timestamp || Date.now(),
+        userId: e.userId | 0,
+        frames,
+        frameTs: bundle?.ts || [],
+        bytes,
+      });
+    }
+    if (bySeq.size === 0 && (cursors?.length || 0) === 0) {
+      console.log(`[History] Nothing to backfill for ${requesterSessionIndex} `
+        + `(anchor seq ${anchor.seq}${anchor.blank ? ' blank' : ''}, archived 0, live 0, cursors 0)`);
+      return;
+    }
+    const commits = Array.from(bySeq.values()).sort((a, b) => a.seq - b.seq);
+    console.log(`[History] Backfill for ${requesterSessionIndex}: ${archived.length} archived + `
+      + `${commits.length - archived.length} live commit(s), ${cursors?.length || 0} cursor frame(s), `
+      + `from anchor seq ${anchor.seq}`
+      + `${anchor.blank ? ' (blank base)' : ` (image ${anchor.id})`}`);
+
+    // The archive holds anchor METADATA; the image itself lives in the room's
+    // snapshot ring. The one anchor with no image is the session ORIGIN when
+    // the board started blank — an empty canvas is a real base, and it is what
+    // lets history cover the room's very first checkpoint instead of only
+    // everything after the second.
+    //
+    // Any other missing image means the ring evicted it, and serving the deltas
+    // alone would draw two minutes of strokes over the wrong board — worse than
+    // serving nothing.
+    let baseImage = null;
+    if (!anchor.blank) {
+      baseImage = (this.room?.snapshots || []).find((s) => s?.id === anchor.id
+        && Array.isArray(s.layers) && s.layers.length > 0);
+      if (!baseImage) {
+        console.log(`[History] No base image for anchor ${anchor.id}; skipping backfill for ${requesterSessionIndex}`);
+        return;
+      }
+    }
+
+    // Flatten to a single ordered frame list. Each commit contributes its
+    // preamble frames then its own bytes, exactly as the live tail does, and
+    // all of them carry the commit's timestamp so the client's tape can place
+    // the stroke on its timeline. Sub-stroke timing is lost (a long stroke
+    // replays at its commit instant) — the archive is keyed by commit, and
+    // per-frame arrival times were never recorded.
+    // Image-tool payloads (brush/pattern/confetti bitmaps) ride in EVERY
+    // stroke's preamble, so a run of strokes sharing a brush would otherwise
+    // ship the same multi-megabyte bitmap once per stroke. The filter keeps
+    // only the frames that actually change what the receiver holds — identical
+    // to the join tail's use of it, and valid across both sources because the
+    // archive retains the tape's own frame objects (identity is what
+    // isDedupableFrame tests).
+    const frameFilter = new TapeFrameFilter(tape);
+    const frames = [];
+    // Cursor frames interleave with the commits by seq — the server allocates
+    // one for every broadcast, MM included, so a single ordering covers both
+    // and the hover between two strokes lands exactly where it happened.
+    let ci = 0;
+    const cursorTrack = cursors || [];
+    for (const commit of commits) {
+      while (ci < cursorTrack.length && cursorTrack[ci].seq < commit.seq) {
+        const c = cursorTrack[ci++];
+        frames.push({ ts: c.ts, seq: c.seq, data: c.bytes });
+      }
+      // Each preamble frame goes out with its OWN arrival time, so the stroke
+      // replays as it was drawn — cursor moving, preview building — instead of
+      // every frame landing on the commit's instant and the stroke popping into
+      // existence fully formed. The filter returns an ordered SUBSEQUENCE of
+      // commit.frames (deduped brush payloads are dropped), so walk the two
+      // together by identity to recover each kept frame's timestamp.
+      const kept = frameFilter.filter(commit.userId, commit.frames);
+      const tsList = commit.frameTs || [];
+      let src = 0;
+      for (const frame of kept) {
+        while (src < commit.frames.length && commit.frames[src] !== frame) src++;
+        const ts = tsList[src] ?? commit.ts;
+        src++;
+        frames.push({ ts, seq: commit.seq, data: frame });
+      }
+      if (commit.bytes) frames.push({ ts: commit.ts, seq: commit.seq, data: commit.bytes });
+    }
+    // Hover after the last commit — the cursor drifting on an idle board.
+    while (ci < cursorTrack.length) {
+      const c = cursorTrack[ci++];
+      frames.push({ ts: c.ts, seq: c.seq, data: c.bytes });
+    }
+    if (frames.length === 0) return;
+    if (frames.length > HISTORY_BACKFILL_MAX_FRAMES) {
+      console.log(`[History] Backfill for ${requesterSessionIndex} is ${frames.length} frames `
+        + `(> ${HISTORY_BACKFILL_MAX_FRAMES}) — skipping. A room that never checkpoints has no `
+        + `2-minute horizon; register the room so auto-checkpoints mint.`);
+      return;
+    }
+
+    const spanMs = frames[frames.length - 1].ts - frames[0].ts;
+    setTimeout(() => {
+      if (ws.readyState !== WebSocket.OPEN) return;
+      this.sendTo(ws, {
+        t: T.HISTORY_BACKFILL_BEGIN,
+        ...(baseImage ? { snapshotLayers: baseImage.layers, snapshotId: anchor.id } : {}),
+        historyBlankBase: !baseImage,
+        snapshotTs: anchor.ts,
+        snapshotSeq: anchor.seq,
+        historyTotal: frames.length,
+        historyWindowMs: Math.max(0, spanMs),
+      });
+      this._pumpHistoryChunks(ws, requesterSessionIndex, frames, 0);
+    }, HISTORY_BACKFILL_START_DELAY_MS);
+  }
+
+  /**
+   * Send one chunk of backfill frames and queue the next.
+   * @private
+   */
+  _pumpHistoryChunks(ws, requesterSessionIndex, frames, offset) {
+    if (ws.readyState !== WebSocket.OPEN) return;
+
+    // Drop the rest if the socket is already backed up. A joiner on a slow link
+    // must not have history pile into its send buffer ahead of live drawing —
+    // the backfill is a nicety, the live feed is not.
+    if (ws.bufferedAmount > HISTORY_BACKFILL_BACKPRESSURE_BYTES) {
+      console.log(`[History] Backpressure (${ws.bufferedAmount}B) — truncating backfill for `
+        + `${requesterSessionIndex} at ${offset}/${frames.length}`);
+      this.sendTo(ws, { t: T.HISTORY_BACKFILL_END, historyTotal: offset });
+      return;
+    }
+
+    const end = Math.min(offset + HISTORY_BACKFILL_CHUNK_SIZE, frames.length);
+    this.sendTo(ws, {
+      t: T.HISTORY_BACKFILL_CHUNK,
+      historyFrames: frames.slice(offset, end),
+    });
+
+    if (end >= frames.length) {
+      this.sendTo(ws, { t: T.HISTORY_BACKFILL_END, historyTotal: frames.length });
+      console.log(`[History] Backfilled ${frames.length} frame(s) to ${requesterSessionIndex}`);
+      return;
+    }
+    setTimeout(() => this._pumpHistoryChunks(ws, requesterSessionIndex, frames, end),
+      HISTORY_BACKFILL_CHUNK_INTERVAL_MS);
   }
 
   /**
