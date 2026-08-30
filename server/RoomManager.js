@@ -51,6 +51,15 @@ export class Room {
       // back up from the room's last persisted snapshot instead of a blank
       // canvas. See Room.beginSessionBase / SyncCoordinator._serveCheckpointJoin.
       loadSnapshotOnFirstJoin: true,
+      // Explicitly pinned start state: the id of the snapshot a re-opening room
+      // adopts instead of its newest one. null = follow the newest snapshot
+      // (the historical behaviour). Set from Room Settings -> Start state.
+      startSnapshotId: null,
+      // "Clear saved state": ignore every snapshot taken at or before this
+      // timestamp, so the room opens blank without deleting anything. Any
+      // snapshot taken AFTER it supersedes the clear, which is what makes the
+      // blank start temporary and self-healing. 0 = not cleared.
+      startSnapshotClearedTs: 0,
       dedicatedReplayUser: null,
       textOverlayLifetimeMs: 30 * 1000,
       private: false,
@@ -330,11 +339,26 @@ export class Room {
    * @private
    */
   async _adoptPersistedBase() {
+    // A pinned start state wins over the room's newest snapshot; without it (or
+    // if the pinned image has since been deleted) fall back to the newest.
     // forJoin:false deliberately — `joinCheckpointInvalidated` is set when the
     // room empties, and this call is precisely the decision to un-invalidate it.
-    const persisted = await this.getLatestSnapshotData({ forJoin: false });
+    const pinned = this.settings.startSnapshotId
+      ? await this.getSnapshotDataById(this.settings.startSnapshotId)
+      : null;
+    const persisted = pinned || await this.getLatestSnapshotData({ forJoin: false });
     if (!persisted || !Array.isArray(persisted.layers) || persisted.layers.length === 0) {
       // Nothing to adopt (cold room) — a blank start, same as the setting off.
+      this.beginBlankJoinSession();
+      return null;
+    }
+
+    // Cleared start state: everything from before the clear is disregarded, so
+    // the room opens blank until someone draws (the next snapshot is newer than
+    // the watermark and takes over on its own). A pin outranks the clear.
+    const clearedTs = Number(this.settings.startSnapshotClearedTs) || 0;
+    if (!pinned && clearedTs && Number(persisted.ts || 0) <= clearedTs) {
+      console.log(`[Room] "${this.id}" start state was cleared; opening blank`);
       this.beginBlankJoinSession();
       return null;
     }
@@ -349,7 +373,7 @@ export class Room {
     };
     this.addSnapshot(base);
     this.joinCheckpointInvalidated = false;
-    console.log(`[Room] "${this.id}" session adopted persisted snapshot ${base.id} as its base`);
+    console.log(`[Room] "${this.id}" session adopted ${pinned ? 'pinned' : 'persisted'} snapshot ${base.id} as its base`);
     return base;
   }
 
@@ -575,6 +599,34 @@ export class Room {
   }
 
   /**
+   * Loads one specific persisted snapshot's layer data by id, scoped to this
+   * room. Used by the pinned start state — unlike getLatestSnapshotData it
+   * never consults the in-memory rolling buffer, because a pin names a
+   * persisted image and the buffer only holds this session's captures.
+   * @param {string} snapshotId
+   * @returns {Promise<{id: string, ts: number, issuer: string, layers: Array, seq: number}|null>}
+   */
+  async getSnapshotDataById(snapshotId) {
+    if (!snapshotId) return null;
+    const db = getDB();
+    if (!db) return null;
+
+    try {
+      const doc = await db.collection('room_snapshots').findOne({ roomId: this.id, snapshotId });
+      if (!doc || !doc.r2Key) return null;
+
+      const fileBytes = await getSnapshotFile(doc.r2Key);
+      if (!fileBytes) return null;
+      const bundle = await decodeSnapshotFile(fileBytes, doc.format);
+      if (!Array.isArray(bundle?.layers) || bundle.layers.length === 0) return null;
+      return { id: doc.snapshotId, ts: doc.timestamp, issuer: doc.issuer, layers: bundle.layers, seq: doc.seq || 0 };
+    } catch (err) {
+      console.error(`[Room] Failed to fetch pinned snapshot ${snapshotId} for "${this.id}":`, err);
+      return null;
+    }
+  }
+
+  /**
    * Called when all users in the room have been AFK for the configured delay.
    * Restores the last snapshot to reset the canvas to a known good state.
    * @private
@@ -652,6 +704,12 @@ export class Room {
         this.settings.hideChatNotifications = !!doc.settings?.hideChatNotifications;
         // Absent in rooms saved before this setting existed — default on.
         this.settings.loadSnapshotOnFirstJoin = doc.settings?.loadSnapshotOnFirstJoin !== false;
+        this.settings.startSnapshotId = typeof doc.settings?.startSnapshotId === 'string' && doc.settings.startSnapshotId
+          ? doc.settings.startSnapshotId
+          : null;
+        this.settings.startSnapshotClearedTs = Number.isFinite(doc.settings?.startSnapshotClearedTs)
+          ? Math.max(0, Math.floor(doc.settings.startSnapshotClearedTs))
+          : 0;
         this.settings.mirrorRegions = Array.isArray(doc.settings?.mirrorRegions) ? doc.settings.mirrorRegions : [];
         this.settings.dedicatedReplayUser = doc.settings?.dedicatedReplayUser || null;
         this.settings.textOverlayLifetimeMs = Number.isFinite(doc.settings?.textOverlayLifetimeMs)
@@ -721,6 +779,8 @@ export class Room {
               autoMuteVpnUsers: this.settings.autoMuteVpnUsers,
               hideChatNotifications: this.settings.hideChatNotifications,
               loadSnapshotOnFirstJoin: this.settings.loadSnapshotOnFirstJoin,
+              startSnapshotId: this.settings.startSnapshotId || null,
+              startSnapshotClearedTs: this.settings.startSnapshotClearedTs || 0,
               textOverlayLifetimeMs: this.settings.textOverlayLifetimeMs,
               mirrorRegions: this.settings.mirrorRegions,
               dedicatedReplayUser: this.settings.dedicatedReplayUser,

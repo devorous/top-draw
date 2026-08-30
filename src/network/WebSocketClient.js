@@ -1830,6 +1830,14 @@ export class WebSocketClient {
         this.emit('board_snapshot_request');
         break;
 
+      case T.ROOM_START_SNAPSHOT_INFO:
+        this.emit('room_start_snapshot_info', {
+          // 0 = blank start, 1 = follows the room's newest snapshot, 2 = pinned.
+          state: Number(data.roomStartSnapshotState) || 0,
+          snapshot: (data.snapshotList || [])[0] || null
+        });
+        break;
+
       case T.BOARD_SNAPSHOT_SAVE:
         // Private response to a BOARD_SNAPSHOT_GET request (not a broadcast restore)
         if (data.snapshotId && data.snapshotProbe) {

@@ -18,7 +18,7 @@ import { postReleaseUpdateToDiscord } from './discordBot.js';
 import { handleAuthLogin, handleAuthRegister, handleAuthMe, handleAuthUsernameUpdate, handlePasswordResetRequest, handlePasswordResetComplete, handleEmailSet, handleEmailVerify, handleEmailDecline, handleDiscordConfig, handleDiscordOAuthStart, handleDiscordOAuthCallback, handleDiscordDdrawAccountLink } from './authRoutes.js';
 import { handleUserProfile, handleUpdateProfile } from './userRoutes.js';
 import { getGalleryPreviewItem, renderGalleryPreviewHtml } from './galleryPreview.js';
-import { handleSnapshotSave, handleSnapshotList, handleSnapshotRestore, handleSnapshotDelete, handleSnapshotGet, handleSnapshotRegionRestore, handleFirstJoinerBase } from './snapshots.js';
+import { handleSnapshotSave, handleSnapshotList, handleSnapshotRestore, handleSnapshotDelete, handleSnapshotGet, handleSnapshotRegionRestore, handleFirstJoinerBase, handleStartStateGet, handleStartStateSet } from './snapshots.js';
 import { getSnapshotFile } from './r2.js';
 import { encodeSnapshotFile, decodeSnapshotFile } from './snapshotCodec.js';
 import { handleCheckpointUpload, handleCheckpointList, handleCheckpointGet } from './checkpoints.js';
@@ -336,6 +336,8 @@ function shouldAllowWsMessage(ws, data) {
     case T.GLOBAL_ROLE_SET:
     case T.GLOBAL_MESSAGE:
     case T.BOARD_SNAPSHOT_DELETE:
+    case T.ROOM_START_SNAPSHOT_GET:
+    case T.ROOM_START_SNAPSHOT_SET:
     case T.CHECKPOINT_LIST:
     case T.CHECKPOINT_GET:
     case T.REPLAY_REQUEST:
@@ -5401,6 +5403,15 @@ wss.on('connection', async (ws, req) => {
         case T.BOARD_SNAPSHOT_REGION_RESTORE:
           if (ws.isShadowBanned) break;
           await handleSnapshotRegionRestore(ws, data, room);
+          break;
+
+        case T.ROOM_START_SNAPSHOT_GET:
+          await handleStartStateGet(ws, data, room);
+          break;
+
+        case T.ROOM_START_SNAPSHOT_SET:
+          if (ws.isShadowBanned) break;
+          await handleStartStateSet(ws, data, room);
           break;
 
         case T.CHECKPOINT_UPLOAD: {

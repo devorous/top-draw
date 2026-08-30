@@ -111,6 +111,10 @@
   let offlinePromotionRole = $state(4);
   let showUnregisterConfirm = $state(false);
 
+  let startStateBusy = $state(false);
+  let startStateRequestedKey = $state('');
+  const startStateThumbUrls = new Map();
+
   let visible = $derived(appState.roomSettingsVisible);
   let roomData = $derived(appState.currentRoomData);
   let userRole = $derived(appState.selfRole);
@@ -124,12 +128,49 @@
     timeStyle: 'short'
   });
 
+  // Start state: which snapshot an empty room comes back up on. -1 until the
+  // server has answered; then 0 = nothing saved, 1 = the room's newest snapshot
+  // (automatic), 2 = an explicitly pinned one, 3 = cleared (opens blank until
+  // something newer is saved).
+  let startState = $derived(appState.roomStartSnapshot ? Number(appState.roomStartSnapshot.state) : -1);
+  let startStateSnapshot = $derived(appState.roomStartSnapshot?.snapshot || null);
+
+  let startStateThumbUrl = $derived.by(() => {
+    const snap = startStateSnapshot;
+    if (!snap?.id || !snap.thumb || snap.thumb.length === 0) return '';
+    let url = startStateThumbUrls.get(snap.id);
+    if (!url) {
+      url = URL.createObjectURL(new Blob([snap.thumb], { type: 'image/jpeg' }));
+      startStateThumbUrls.set(snap.id, url);
+    }
+    return url;
+  });
+
+  let startStateTitle = $derived(
+    startState === 3 ? 'Cleared'
+      : startState === 2 ? 'Pinned board state'
+        : startState === 1 ? 'Latest snapshot (automatic)'
+          : startState === 0 ? 'Nothing saved yet'
+            : 'Loading...'
+  );
+
+  let startStateSubtitle = $derived.by(() => {
+    if (startState < 0) return '';
+    if (startState === 3) return 'Opens blank until the next snapshot is taken.';
+    if (!startStateSnapshot) return 'The room will open on a blank canvas.';
+    const when = new Date(Number(startStateSnapshot.ts || 0));
+    const who = startStateSnapshot.issuer ? `by ${startStateSnapshot.issuer}` : '';
+    return [dateFormatter.format(when), who].filter(Boolean).join(' · ');
+  });
+
   $effect(() => {
     if (visible && roomData && hydratedRoomId !== (roomData.id || '')) {
       loadRoomData(roomData);
       hydratedRoomId = roomData.id || '';
     }
     if (!visible) {
+      startStateRequestedKey = '';
+      startStateBusy = false;
       activeTab = TAB_GENERAL;
       roleSavingTarget = '';
       rosterFilter = '';
@@ -147,6 +188,65 @@
       requestModerationRoster();
     }
   });
+
+  $effect(() => {
+    if (!visible || activeTab !== TAB_GENERAL) return;
+    const key = roomId || '';
+    if (startStateRequestedKey === key) return;
+    startStateRequestedKey = key;
+    // Drop the previous room's answer so the card reads "Loading..." rather
+    // than briefly showing another room's saved board.
+    appState.roomStartSnapshot = null;
+    window.app?.snapshotManager?.requestRoomStartState();
+  });
+
+  // Any fresh answer from the server ends the pending action.
+  $effect(() => {
+    appState.roomStartSnapshot;
+    startStateBusy = false;
+  });
+
+  // Thumbnails are object URLs; release them when the dialog is torn down.
+  $effect(() => () => {
+    for (const url of startStateThumbUrls.values()) URL.revokeObjectURL(url);
+    startStateThumbUrls.clear();
+  });
+
+  async function setStartStateToCurrentBoard() {
+    const snapshotManager = window.app?.snapshotManager;
+    if (!snapshotManager || startStateBusy) return;
+
+    startStateBusy = true;
+    const sent = await snapshotManager.saveAsRoomStartState();
+    if (!sent) {
+      startStateBusy = false;
+      displayMessage('Could not capture the board', 'error');
+      return;
+    }
+    displayMessage('Saved the current board as this room’s start state', 'success');
+    // Safety net: the busy flag normally clears on the server's reply.
+    setTimeout(() => { startStateBusy = false; }, 8000);
+  }
+
+  function clearStartState() {
+    const snapshotManager = window.app?.snapshotManager;
+    if (!snapshotManager || startStateBusy) return;
+
+    startStateBusy = true;
+    snapshotManager.clearRoomStartState();
+    displayMessage('Cleared — the room will open blank', 'success');
+    setTimeout(() => { startStateBusy = false; }, 8000);
+  }
+
+  function followLatestSnapshot() {
+    const snapshotManager = window.app?.snapshotManager;
+    if (!snapshotManager || startStateBusy) return;
+
+    startStateBusy = true;
+    snapshotManager.followLatestRoomSnapshot();
+    displayMessage('Following the room’s latest snapshot again', 'success');
+    setTimeout(() => { startStateBusy = false; }, 8000);
+  }
 
   $effect(() => {
     if (visible && activeTab === TAB_FLOATING_GALLERY) {
@@ -800,6 +900,52 @@
             <span class="form-hint">The first person into an empty room picks the board up where it was left. Off starts them on a blank canvas.</span>
           </div>
 
+          <div class="form-group">
+            <span class="form-label">Saved board state</span>
+            <div class="start-state-card">
+              {#if startStateThumbUrl}
+                <img class="start-state-thumb" src={startStateThumbUrl} alt="Saved board state" draggable="false" />
+              {:else}
+                <div class="start-state-thumb start-state-thumb-empty">
+                  {startState === 0 || startState === 3 ? 'Blank' : startState < 0 ? '' : 'No preview'}
+                </div>
+              {/if}
+              <div class="start-state-meta">
+                <span class="start-state-title">{startStateTitle}</span>
+                <span class="start-state-sub">{startStateSubtitle}</span>
+                {#if startStateSnapshot?.name}
+                  <span class="start-state-name">{startStateSnapshot.name}</span>
+                {/if}
+              </div>
+            </div>
+            <div class="start-state-actions">
+              <button
+                type="button"
+                class="start-state-btn"
+                onclick={setStartStateToCurrentBoard}
+                disabled={startStateBusy}
+              >Set to current board</button>
+              <button
+                type="button"
+                class="start-state-btn"
+                onclick={clearStartState}
+                disabled={startStateBusy || startState === 3 || startState === 0}
+              >Clear</button>
+              <button
+                type="button"
+                class="start-state-btn"
+                onclick={followLatestSnapshot}
+                disabled={startStateBusy || (startState !== 2 && startState !== 3)}
+              >Use latest snapshot</button>
+            </div>
+            <span class="form-hint">
+              What this room opens on once it has been empty. Left alone it follows the room&rsquo;s newest
+              snapshot. <strong>Set to current board</strong> pins this exact board until you change it.
+              <strong>Clear</strong> makes it open blank without deleting anything &mdash; the next snapshot
+              taken becomes the start state again, so use the checkbox above if you want it blank for good.
+            </span>
+          </div>
+
           <div class="form-group checkbox-group">
             <label>
               <input type="checkbox" bind:checked={hideChatNotifications} />
@@ -1378,6 +1524,83 @@
     font-size: 0.76rem;
     color: var(--text-muted);
     line-height: 1.4;
+  }
+
+  .start-state-card {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    padding: 0.55rem;
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--bg-primary) 84%, black);
+  }
+
+  .start-state-thumb {
+    width: 96px;
+    aspect-ratio: 16 / 9;
+    flex: 0 0 auto;
+    object-fit: cover;
+    border-radius: 5px;
+    background: color-mix(in srgb, var(--bg-tertiary) 85%, black);
+    display: block;
+  }
+
+  .start-state-thumb-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    border: 1px dashed var(--border-subtle);
+  }
+
+  .start-state-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
+  }
+
+  .start-state-title {
+    font-size: 0.84rem;
+    color: var(--text-primary);
+  }
+
+  .start-state-sub,
+  .start-state-name {
+    font-size: 0.74rem;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .start-state-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  .start-state-btn {
+    border: 1px solid var(--border-subtle);
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--bg-primary) 84%, black);
+    color: var(--text-secondary);
+    padding: 0.42rem 0.7rem;
+    font: inherit;
+    font-size: 0.8rem;
+    cursor: pointer;
+  }
+
+  .start-state-btn:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--accent-color) 24%, transparent);
+    color: var(--text-primary);
+  }
+
+  .start-state-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
   }
 
   .form-hint strong {

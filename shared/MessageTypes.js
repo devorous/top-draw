@@ -62,7 +62,13 @@ export const T = {
   // starts populated instead of blank. These never touch the live board.
   HISTORY_BACKFILL_BEGIN: 147,
   HISTORY_BACKFILL_CHUNK: 148,
-  HISTORY_BACKFILL_END: 149
+  HISTORY_BACKFILL_END: 149,
+  // Room start state: which snapshot an empty room comes back up on. GET asks,
+  // INFO answers, SET pins one snapshot (or clears the pin, falling back to the
+  // room's newest snapshot). See server/snapshots.js.
+  ROOM_START_SNAPSHOT_GET: 150,
+  ROOM_START_SNAPSHOT_INFO: 151,
+  ROOM_START_SNAPSHOT_SET: 152
 };
 
 /**

@@ -148,6 +148,10 @@ message Msg {
     HISTORY_BACKFILL_BEGIN = 147;
     HISTORY_BACKFILL_CHUNK = 148;
     HISTORY_BACKFILL_END = 149;
+    // Room start state: which snapshot an empty room comes back up on.
+    ROOM_START_SNAPSHOT_GET = 150;  // Client->server: what is the room's start state?
+    ROOM_START_SNAPSHOT_INFO = 151; // Server->client: room_start_snapshot_state + snapshot_list[0]
+    ROOM_START_SNAPSHOT_SET = 152;  // Client->server: pin snapshot_id (empty = clear the pin)
   }
 
   // Tool enum
@@ -427,6 +431,11 @@ message Msg {
   repeated bytes snapshot_layers = 106; // Per-layer QOI encoded data
   bool snapshot_restore_after_save = 107; // SAVE: server should broadcast restore after persisting
   uint64 snapshot_seq = 108; // SAVE: client's applied-seq the capture represents; SYNC_CHECKPOINT_MINTED: the checkpoint's seq watermark
+  bool snapshot_pin = 207;   // SAVE: also pin this save as the room's start state
+  // ROOM_START_SNAPSHOT_INFO: 0 = none (room starts blank), 1 = the room's
+  // newest snapshot (default), 2 = an explicitly pinned snapshot. Tri-state
+  // rather than a bool so proto3's omitted-false can't read as "unset".
+  uint32 room_start_snapshot_state = 208;
 
   message SnapshotMeta {
     string id = 1;

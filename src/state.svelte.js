@@ -83,6 +83,10 @@ class DrawingState {
   snapshotHasMore = $state(true);
   snapshotListVersion = $state(0);
   snapshotMenuVisible = $state(false);
+  // What an empty room comes back up on, as reported by ROOM_START_SNAPSHOT_INFO:
+  // { state: 0 none / 1 newest snapshot / 2 pinned, snapshot: SnapshotMeta|null }.
+  // null until Room Settings asks for it.
+  roomStartSnapshot = $state(null);
 
   // Session recorder mini viewer
   recorderPanelVisible = $state(false);

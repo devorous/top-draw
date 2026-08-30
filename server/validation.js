@@ -879,8 +879,22 @@ export async function sanitizeMessage(data) {
       sanitized.snapshotRestoreAfterSave = sanitizeBoolean(
         data.snapshotRestoreAfterSave ?? data.snapshot_restore_after_save
       );
+      // "Set to current board" in Room Settings: pin this save as the room's
+      // start state (owner/admin only — enforced in handleSnapshotSave).
+      sanitized.snapshotPin = sanitizeBoolean(data.snapshotPin ?? data.snapshot_pin);
       return sanitized;
     }
+
+    case T.ROOM_START_SNAPSHOT_GET:
+      return sanitized;
+
+    case T.ROOM_START_SNAPSHOT_SET:
+      // Empty id is meaningful: with state 3 it clears the start state, with
+      // anything else it goes back to following the newest snapshot. Neither
+      // may return null.
+      sanitized.snapshotId = sanitizeString(data.snapshotId, 64);
+      sanitized.roomStartSnapshotState = clampInt(data.roomStartSnapshotState, 0, 3, 0);
+      return sanitized;
 
     case T.BOARD_SNAPSHOT_LIST_REQUEST:
       if (data.snapshotTs !== undefined) {

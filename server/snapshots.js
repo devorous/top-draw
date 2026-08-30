@@ -3,6 +3,7 @@
 import { getDB } from './db.js';
 import { T } from '../shared/MessageTypes.js';
 import { authorize, Action } from './permissions.js';
+import { Role } from './SessionManager.js';
 import { getRecorder } from './deltaRecorder.js';
 import { uploadSnapshotFile, getSnapshotFile, deleteSnapshotFile } from './r2.js';
 import { encodeSnapshotFile, decodeSnapshotFile } from './snapshotCodec.js';
@@ -62,6 +63,19 @@ function canRestoreWholeBoard(ws, room) {
   return authorize(ws, Action.MOD_MUTE, null) || isSoloRoomOccupant(room);
 }
 
+/**
+ * Who may change the room's start state (pin/unpin the snapshot an empty room
+ * comes back up on). Deliberately the ROOM_UPDATE gate — owner or room ADMIN+ /
+ * global HOLY+ — not the Trusted+ snapshot gate: this decides what everyone
+ * walks into next time the room opens, which is a room-settings decision.
+ * Mirrors getRoomAdminAuthority in server/index.js.
+ */
+function canManageStartState(ws, room) {
+  if (room?.ownerId && room.ownerId === ws?.userId) return true;
+  if (Number(ws?.roomRole || 0) >= Role.ADMIN) return true;
+  return Number(ws?.globalRole || 0) >= Role.HOLY;
+}
+
 function sendRestorePermissionDenied(ws, room) {
   // The restore has no dedicated ack; a MOD_RESULT denial surfaces as a toast
   // client-side (AuthModHandlers 'mod_result'), so a refused restore is at
@@ -89,6 +103,11 @@ async function deleteSnapshotRecord(db, room, doc) {
 
 async function pruneSnapshotsForRoom(db, room) {
   const maxSnapshots = getSnapshotMaxPerRoom();
+  // The pinned start state is exempt from retention. Auto-saves land every 15s
+  // in a busy room, so an unprotected pin would silently roll off the bottom of
+  // the 100-snapshot window and the room would quietly fall back to its newest
+  // snapshot instead of the one the owner chose.
+  const pinnedId = room.settings?.startSnapshotId || null;
 
   const overflow = await db.collection('room_snapshots')
     .find({ roomId: room.id })
@@ -98,6 +117,7 @@ async function pruneSnapshotsForRoom(db, room) {
     .toArray();
 
   for (const doc of overflow) {
+    if (pinnedId && doc.snapshotId === pinnedId) continue;
     await deleteSnapshotRecord(db, room, doc);
   }
 }
@@ -262,6 +282,10 @@ export async function handleSnapshotSave(ws, data, room) {
   const layers = data.snapshotLayers || [];
   const thumbBytes = data.snapshotThumb || null; // JPEG bytes
   const isAuto = !!data.a;
+  // Whether the pin request below produced a reply; a pin that could not be
+  // applied (no DB, dev without ALLOW_DEV_SNAPSHOTS) still owes the requester
+  // an answer, or the Room Settings panel sits on its pending state.
+  let pinAnswered = false;
 
   // Applied-seq the capture represents (seq-stamp for the checkpoint timeline).
   const checkpointSeq = Math.max(0, Math.round(Number(data.snapshotSeq) || 0));
@@ -362,10 +386,26 @@ export async function handleSnapshotSave(ws, data, room) {
         getRecorder(room.id).onCheckpoint(snapshotId);
       }
 
+      // "Set to current board" in Room Settings: one manual save that also
+      // becomes the room's pinned start state. Done here rather than as a
+      // follow-up ROOM_START_SNAPSHOT_SET so the client never has to learn the
+      // generated snapshot id, and a half-applied pin is impossible.
+      if (data.snapshotPin && !isAuto && canManageStartState(ws, room)) {
+        room.settings.startSnapshotId = snapshotId;
+        room.settings.startSnapshotClearedTs = 0;
+        await room.saveToDB();
+        pinAnswered = true;
+        await sendStartStateInfo(ws, room);
+      }
+
     } catch (err) {
       console.error(`[Snapshot] Failed to save snapshot ${snapshotId} for room ${room.id}:`, err);
       throw err;
     }
+  }
+
+  if (data.snapshotPin && !isAuto && !pinAnswered && canManageStartState(ws, room)) {
+    await sendStartStateInfo(ws, room);
   }
 
   // If client requested an immediate restore broadcast (used when uploading a
@@ -768,6 +808,147 @@ export async function handleSnapshotDelete(ws, data, room) {
   }
 
   room.snapshots = room.snapshots.filter(s => s.id !== snapshotId);
+
+  // A pin pointing at a deleted image would silently fall back to the newest
+  // snapshot on the next session; clear it so the setting reflects reality.
+  if (room.settings?.startSnapshotId === snapshotId) {
+    room.settings.startSnapshotId = null;
+    await room.saveToDB();
+  }
+}
+
+/**
+ * Describe the snapshot a re-opening room would come back up on, and how it was
+ * chosen. Mirrors Room._adoptPersistedBase: a pin wins, then the clear
+ * watermark, then the room's newest persisted snapshot.
+ *
+ * @param {Room} room
+ * @returns {Promise<{state: number, doc: Object|null}>}
+ *   state: 0 nothing saved, 1 newest snapshot, 2 pinned, 3 cleared (opens blank)
+ */
+async function resolveStartStateDoc(room) {
+  const db = getDB();
+  if (!db || !room?.canPersistSnapshots?.()) return { state: 0, doc: null };
+
+  const pinnedId = room.settings?.startSnapshotId || null;
+  if (pinnedId) {
+    const doc = await db.collection('room_snapshots').findOne({ roomId: room.id, snapshotId: pinnedId });
+    // A pin whose image is gone is reported as no pin at all — the room would
+    // fall back to its newest snapshot, so that is what the panel should show.
+    if (doc && doc.r2Key) return { state: 2, doc };
+  }
+
+  const latest = await db.collection('room_snapshots').findOne(
+    { roomId: room.id, r2Key: { $ne: null } },
+    { sort: { timestamp: -1 } }
+  );
+
+  // Cleared, and nothing newer has been saved since: the room opens blank. The
+  // snapshot itself still exists (and still shows in history) — it is just not
+  // what the room comes back up on.
+  const clearedTs = Number(room.settings?.startSnapshotClearedTs) || 0;
+  if (clearedTs && (!latest || Number(latest.timestamp || 0) <= clearedTs)) {
+    return { state: 3, doc: null };
+  }
+
+  return latest ? { state: 1, doc: latest } : { state: 0, doc: null };
+}
+
+/**
+ * Sends the room's current start state to one client as ROOM_START_SNAPSHOT_INFO.
+ * The snapshot itself rides in `snapshotList` (0 or 1 entries) so it reuses the
+ * existing SnapshotMeta shape — id/ts/issuer/name/auto/thumb.
+ * @param {WebSocket} ws
+ * @param {Room} room
+ */
+async function sendStartStateInfo(ws, room) {
+  let resolved = { state: 0, doc: null };
+  try {
+    resolved = await resolveStartStateDoc(room);
+  } catch (err) {
+    console.error(`[Snapshot] Failed to resolve start state for room "${room.id}":`, err);
+  }
+
+  const doc = resolved.doc;
+  room.sendTo(ws, {
+    t: T.ROOM_START_SNAPSHOT_INFO,
+    roomStartSnapshotState: resolved.state,
+    snapshotList: doc ? [{
+      id: doc.snapshotId,
+      ts: doc.timestamp,
+      issuer: doc.issuer || '',
+      auto: !!doc.auto,
+      thumb: doc.thumbnail ? (doc.thumbnail.buffer || doc.thumbnail) : null,
+      name: doc.name || (doc.auto ? `Auto-save ${new Date(doc.timestamp).toLocaleTimeString()}` : `Saved ${new Date(doc.timestamp).toLocaleString()}`)
+    }] : []
+  });
+}
+
+/**
+ * ROOM_START_SNAPSHOT_GET: report the room's start state to the requester.
+ * Read-only, so it uses the same gate as snapshot history rather than the
+ * room-settings gate — the dialog is only shown to owners/admins anyway.
+ * @param {WebSocket} ws
+ * @param {Object} data
+ * @param {Room} room
+ */
+export async function handleStartStateGet(ws, data, room) {
+  if (!canViewSnapshotHistory(ws, room)) return;
+  await sendStartStateInfo(ws, room);
+}
+
+/**
+ * ROOM_START_SNAPSHOT_SET: choose what the room opens on. Three actions, keyed
+ * off `roomStartSnapshotState` (the same tri-state field the INFO reply uses):
+ *
+ *   snapshotId set -> pin that snapshot
+ *   state 3        -> clear: stamp the watermark so the room opens blank until
+ *                     something newer is saved. Deletes nothing.
+ *   anything else  -> follow the room's newest snapshot again (undoes both)
+ *
+ * Always answers with the resulting state so a refused or no-op change still
+ * repaints the panel with the truth.
+ * @param {WebSocket} ws
+ * @param {Object} data - { snapshotId, roomStartSnapshotState }
+ * @param {Room} room
+ */
+export async function handleStartStateSet(ws, data, room) {
+  if (!canManageStartState(ws, room)) {
+    ws.send(room.Msg.encode(room.Msg.create({
+      t: T.MOD_RESULT,
+      a: false,
+      authError: 'Only the room owner or an admin can change the room start state'
+    })).finish());
+    return;
+  }
+  if (!room?.canPersistSnapshots?.()) {
+    // Unregistered rooms keep no snapshots at all; answer anyway so the panel
+    // repaints with the truth ("nothing saved") instead of hanging on pending.
+    await sendStartStateInfo(ws, room);
+    return;
+  }
+
+  const snapshotId = typeof data?.snapshotId === 'string' ? data.snapshotId : '';
+  const requestedState = Number(data?.roomStartSnapshotState) || 0;
+
+  if (snapshotId) {
+    const doc = await findSnapshotDoc(room.id, snapshotId);
+    if (!doc || !doc.r2Key) {
+      await sendStartStateInfo(ws, room);
+      return;
+    }
+    room.settings.startSnapshotId = snapshotId;
+    room.settings.startSnapshotClearedTs = 0;
+  } else if (requestedState === 3) {
+    room.settings.startSnapshotId = null;
+    room.settings.startSnapshotClearedTs = Date.now();
+  } else {
+    room.settings.startSnapshotId = null;
+    room.settings.startSnapshotClearedTs = 0;
+  }
+
+  await room.saveToDB();
+  await sendStartStateInfo(ws, room);
 }
 
 /**

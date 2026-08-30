@@ -43,6 +43,14 @@ export function setupSnapshotHandlers(wsClient, app) {
     debug(`[Snapshot] Received ${data.snapshotList.length} snapshot(s) (${append ? 'append' : 'replace'})`);
   });
 
+  // Room Settings -> Start state: which snapshot an empty room comes back up on.
+  wsClient.on('room_start_snapshot_info', (data) => {
+    appState.roomStartSnapshot = {
+      state: Number(data.state) || 0,
+      snapshot: data.snapshot || null
+    };
+  });
+
   // Handle server requesting us to capture a snapshot
   wsClient.on('board_snapshot_request', () => {
     app.snapshotManager.handleServerRequest();

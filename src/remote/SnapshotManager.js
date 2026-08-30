@@ -114,6 +114,71 @@ export class SnapshotManager {
   }
 
   /**
+   * Capture the board exactly as it is now and pin that capture as the room's
+   * start state (what an empty room comes back up on). A normal manual save
+   * plus a pin flag, so the pinned image also shows up in snapshot history.
+   * Owner/admin only — enforced server-side.
+   * @returns {Promise<boolean>} whether a capture was sent
+   */
+  async saveAsRoomStartState() {
+    const capture = this._captureSnapshotPixels();
+    if (!capture) return false;
+
+    try {
+      const [encoded, thumbBytes] = await Promise.all([
+        this._runWhenIdle(() => this._encodeSnapshotPixels(capture)),
+        this._generateThumbnail(),
+      ]);
+      if (!encoded?.layers?.length) return false;
+      this.lastSnapshotHash = encoded.hash;
+
+      this._sendSnapshotSave({
+        layers: encoded.layers,
+        snapshotSeq: capture.snapshotSeq,
+        thumbBytes,
+        name: `Room start state ${new Date().toLocaleString()}`,
+        auto: false,
+        pin: true,
+      });
+      return true;
+    } catch (err) {
+      console.warn('[SnapshotManager] Start-state snapshot encode failed:', err);
+      return false;
+    }
+  }
+
+  /**
+   * Ask the server which snapshot the room would come back up on.
+   */
+  requestRoomStartState() {
+    this.app.wsClient?.send({ t: T.ROOM_START_SNAPSHOT_GET });
+  }
+
+  /**
+   * Pin an existing snapshot as the room's start state.
+   * @param {string} snapshotId
+   */
+  setRoomStartSnapshot(snapshotId = '') {
+    this.app.wsClient?.send({ t: T.ROOM_START_SNAPSHOT_SET, snapshotId: snapshotId || '' });
+  }
+
+  /**
+   * Clear the room's saved start state: it opens blank until something newer is
+   * saved. Non-destructive — no snapshot is deleted, and the next snapshot taken
+   * becomes the room's start state again.
+   */
+  clearRoomStartState() {
+    this.app.wsClient?.send({ t: T.ROOM_START_SNAPSHOT_SET, snapshotId: '', roomStartSnapshotState: 3 });
+  }
+
+  /**
+   * Go back to following the room's newest snapshot, undoing a pin or a clear.
+   */
+  followLatestRoomSnapshot() {
+    this.app.wsClient?.send({ t: T.ROOM_START_SNAPSHOT_SET, snapshotId: '', roomStartSnapshotState: 1 });
+  }
+
+  /**
    * Request the list of snapshots from the server.
    */
   requestList({ beforeTs = 0, append = false } = {}) {
@@ -280,7 +345,7 @@ export class SnapshotManager {
     return capture; // snapshotSeq is the baked watermark, set by the board
   }
 
-  _sendSnapshotSave({ layers, snapshotSeq, thumbBytes = null, name = null, auto = false }) {
+  _sendSnapshotSave({ layers, snapshotSeq, thumbBytes = null, name = null, auto = false, pin = false }) {
     if (!this.app.wsClient || !this.app.connected) return;
 
     if (auto) {
@@ -294,6 +359,7 @@ export class SnapshotManager {
       a: auto,
     };
     if (name) msg.n = name;
+    if (pin) msg.snapshotPin = true;
     if (thumbBytes) msg.snapshotThumb = thumbBytes;
 
     this.app.wsClient.send(msg);
