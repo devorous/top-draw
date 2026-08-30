@@ -460,6 +460,23 @@ html[data-mobile='true'] {
 }
 
 
+/* ----------------------------------------
+   Row overlays
+
+   The name, the toggle and the number sit on top of a track, and a drag that
+   starts on any of them is handed to that track by UI.initInTrackRowDrag().
+   The track is already touch-action: none, so these have to match it or a
+   touch drag would scroll the panel out from under the gesture instead — and
+   a pen drag would select the label text on its way across.
+   ---------------------------------------- */
+
+.sliderContainer .sliderLabel > .pressureToggle,
+.sliderContainer .sliderLabel > .sliderValue,
+.sliderContainer .offset-slider-group > .sliderValue {
+  touch-action: none;
+  user-select: none;
+}
+
 /* ========================================
    In-Track Slider Rows
 

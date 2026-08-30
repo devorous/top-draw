@@ -87,6 +87,29 @@ function sendRestorePermissionDenied(ws, room) {
   })).finish());
 }
 
+/**
+ * Explain to one client why a "set the room start state" request could not be
+ * honored, then repaint their panel with what the state actually is. Both
+ * halves matter: the MOD_RESULT surfaces as a toast (AuthModHandlers
+ * 'mod_result'), and the INFO reply releases the panel's pending state instead
+ * of leaving the buttons disabled until their timeout.
+ * @param {WebSocket} ws
+ * @param {Room} room
+ * @param {string} reason
+ */
+async function denyStartStateChange(ws, room, reason) {
+  try {
+    ws.send(room.Msg.encode(room.Msg.create({
+      t: T.MOD_RESULT,
+      a: false,
+      authError: reason
+    })).finish());
+  } catch (err) {
+    console.warn('[Snapshot] Failed to send start-state denial:', err);
+  }
+  await sendStartStateInfo(ws, room);
+}
+
 function getSnapshotMaxPerRoom() {
   const parsed = Number.parseInt(process.env.SNAPSHOT_MAX_PER_ROOM || '', 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_SNAPSHOT_MAX_PER_ROOM;
@@ -264,12 +287,25 @@ export async function handleSnapshotSave(ws, data, room) {
   const isServerRequested = room?.clearPendingSnapshotRequest
     ? room.clearPendingSnapshotRequest(ws.sessionIndex)
     : room?._pendingSnapshotRequests?.has(ws.sessionIndex);
+
+  // A pin is a deliberate button press, not a background auto-save: every path
+  // that drops the save has to say so, or "Set to current board" looks broken.
+  const wantsPin = !!data.snapshotPin && !data.a;
+
   if (isServerRequested) {
     room._pendingSnapshotRequests?.delete(ws.sessionIndex);
   } else if (!canManualSaveSnapshot(ws, room)) {
+    if (wantsPin) await denyStartStateChange(ws, room, 'You do not have permission to save a board snapshot here');
     return;
   }
   if (!room?.canPersistSnapshots?.()) {
+    if (wantsPin) {
+      await denyStartStateChange(ws, room, 'This room is unregistered, so it cannot keep a saved board state');
+    }
+    return;
+  }
+  if (wantsPin && !canManageStartState(ws, room)) {
+    await denyStartStateChange(ws, room, 'Only the room owner or an admin can set the room start state');
     return;
   }
 
@@ -390,7 +426,7 @@ export async function handleSnapshotSave(ws, data, room) {
       // becomes the room's pinned start state. Done here rather than as a
       // follow-up ROOM_START_SNAPSHOT_SET so the client never has to learn the
       // generated snapshot id, and a half-applied pin is impossible.
-      if (data.snapshotPin && !isAuto && canManageStartState(ws, room)) {
+      if (wantsPin) {
         room.settings.startSnapshotId = snapshotId;
         room.settings.startSnapshotClearedTs = 0;
         await room.saveToDB();
@@ -404,8 +440,18 @@ export async function handleSnapshotSave(ws, data, room) {
     }
   }
 
-  if (data.snapshotPin && !isAuto && !pinAnswered && canManageStartState(ws, room)) {
-    await sendStartStateInfo(ws, room);
+  if (wantsPin && !pinAnswered) {
+    // Reached when the save never touched the DB: no Mongo, or a dev server
+    // without ALLOW_DEV_SNAPSHOTS (NODE_ENV !== 'production'), where snapshot
+    // persistence is off by design. The board was captured fine — there is just
+    // nowhere to keep it, so the room's start state is unchanged.
+    await denyStartStateChange(
+      ws,
+      room,
+      shouldPersist
+        ? 'Snapshot storage is unavailable, so the room start state was not changed'
+        : 'This server has snapshot saving disabled (set ALLOW_DEV_SNAPSHOTS=true for local dev)'
+    );
   }
 
   // If client requested an immediate restore broadcast (used when uploading a

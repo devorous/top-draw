@@ -9,9 +9,9 @@ export class EditableValueHandler {
   /**
    * Make a span element editable by clicking it to type a value.
    *
-   * These values sit on top of the slider track now, so there is deliberately
-   * no drag-to-adjust: a vertical drag on the number fought with the bar
-   * underneath it, and the bar is the faster way to change the value anyway.
+   * These values sit on top of the slider track now, so the number itself has
+   * no drag-to-adjust: a drag that starts on it belongs to the bar underneath,
+   * and UI.initInTrackRowDrag() hands it there.
    *
    * @param {HTMLElement} spanEl - The span element to make editable
    * @param {Object} opts - Configuration options
@@ -91,8 +91,9 @@ export class EditableValueHandler {
       e.stopPropagation();
     });
 
-    // Opened on click, not pointerdown: a touch swipe that starts on the number
-    // should scroll the panel, and only a real tap produces a click.
+    // Opened on click, not pointerdown: only a real tap produces a click, and
+    // a click that ended a drag is swallowed before it reaches here (see
+    // UI.initInTrackRowDrag).
     spanEl.addEventListener('click', (e) => {
       if (spanEl.querySelector('.sliderValueInput')) return;
       e.stopPropagation();

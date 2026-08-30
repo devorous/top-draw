@@ -78,6 +78,7 @@ export class UI {
     this.initInTrackLabels();
     this.initToggleHints();
     this.initPointerSliders();
+    this.initInTrackRowDrag();
     this.initDropdowns();
     await this._preloadSVGIcons(); // Await preloading of SVG icons
     this.remoteUserUI = new RemoteUserUI(this.elements, this.icons);
@@ -288,6 +289,206 @@ export class UI {
         label.replaceChild(span, node);
       }
     }
+  }
+
+  /**
+   * Tap-vs-drag for everything that sits on top of an in-track slider: the
+   * toggle labels (Thinning, Pressure) and the value readouts.
+   *
+   * These overlays have to take pointer events or they could never be clicked,
+   * which handed their share of the row away from the bar underneath: a drag
+   * that started on the name toggled the checkbox, and one that started on the
+   * number did nothing at all. Now the gesture decides. A tap still toggles or
+   * opens the editor; once the pointer moves past TOGGLE_DRAG_SLOP the gesture
+   * is handed to the slider the overlay is sitting on and the click it ends
+   * with is swallowed, so the checkbox and the editor are left alone.
+   */
+  initInTrackRowDrag() {
+    const overlays = document.querySelectorAll([
+      '.sliderContainer .sliderLabel > .pressureToggle',
+      '.sliderContainer .sliderLabel > .sliderValue',
+      // The pattern X/Y offsets put their number straight in the group rather
+      // than in a label, and each group carries its own track.
+      '.sliderContainer .offset-slider-group > .sliderValue'
+    ].join(', '));
+
+    for (const overlay of overlays) {
+      if (overlay.classList.contains('pressureToggle')) {
+        this._wireRowDragHandoff(overlay);
+        continue;
+      }
+
+      // While the inline editor is open the span is a text field: dragging in
+      // it is selecting text, not driving the bar.
+      this._wireRowDragHandoff(overlay, (el) => !el.querySelector('.sliderValueInput'));
+    }
+  }
+
+  _wireRowDragHandoff(overlay, isEnabled = null) {
+    if (overlay._rowDragHandoffReady) return;
+    // A pattern offset pair puts two tracks in one container, so the group is
+    // the row wherever there is one.
+    const container = overlay.closest('.offset-slider-group') || overlay.closest('.sliderContainer');
+    if (!container) return;
+    overlay._rowDragHandoffReady = true;
+
+    const TOGGLE_DRAG_SLOP = 4;
+    let start = null;
+    let suppressClick = false;
+
+    const stopTracking = () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerEnd);
+      window.removeEventListener('pointercancel', onPointerEnd);
+      start = null;
+    };
+
+    const onPointerMove = (event) => {
+      if (!start || event.pointerId !== start.pointerId) return;
+      if (Math.abs(event.clientX - start.x) < TOGGLE_DRAG_SLOP
+        && Math.abs(event.clientY - start.y) < TOGGLE_DRAG_SLOP) return;
+
+      stopTracking();
+      // A row whose track is hidden (pressure off, thinning collapsed) has
+      // nothing to hand the drag to, so the gesture stays a tap.
+      suppressClick = this._handOffRowDrag(container, event);
+    };
+
+    const onPointerEnd = () => stopTracking();
+
+    overlay.addEventListener('pointerdown', (event) => {
+      if (isEnabled && !isEnabled(overlay)) return;
+      if (!event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) return;
+      suppressClick = false;
+      start = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+      window.addEventListener('pointermove', onPointerMove);
+      window.addEventListener('pointerup', onPointerEnd);
+      window.addEventListener('pointercancel', onPointerEnd);
+    });
+
+    // Capture phase, and immediate: the checkbox's activation behaviour runs
+    // after dispatch, and the value editor opens from a listener on this very
+    // span — which UI.init() registers ahead of, so stopping the rest of the
+    // chain here is what keeps the editor shut.
+    overlay.addEventListener('click', (event) => {
+      if (!suppressClick) return;
+      suppressClick = false;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }, true);
+  }
+
+  /**
+   * Passes a drag that began on a row overlay to that row's track. Returns
+   * whether a track actually took it.
+   */
+  _handOffRowDrag(container, event) {
+    const isVisible = (el) => !!el && el.getBoundingClientRect().width > 0;
+
+    const dualSlider = container.querySelector('.dual-slider');
+    if (isVisible(dualSlider)) return this._startDualSliderDrag(dualSlider, event);
+
+    // PointerSlider's own root — the mount div around it carries .slider too,
+    // but its handlers live on the component, so dispatching at the mount
+    // would go nowhere.
+    const pointerSlider = container.querySelector('[role="slider"]');
+    if (isVisible(pointerSlider)) {
+      pointerSlider.dispatchEvent(new PointerEvent('pointerdown', {
+        pointerId: event.pointerId,
+        pointerType: event.pointerType,
+        isPrimary: true,
+        button: 0,
+        buttons: 1,
+        clientX: event.clientX,
+        clientY: event.clientY,
+        bubbles: true,
+        cancelable: true
+      }));
+
+      // With the capture in hand the component sees the rest of the gesture
+      // itself. Without it, it still hears pointermove/pointerup on the
+      // document but not pointercancel — which a touch pointer can be dealt at
+      // any moment, and which would otherwise leave the bar tracking a pointer
+      // that is no longer down.
+      if (!pointerSlider.hasPointerCapture?.(event.pointerId)) {
+        const forwardCancel = (cancelEvent) => {
+          if (cancelEvent.pointerId !== event.pointerId) return;
+          window.removeEventListener('pointerup', forwardCancel);
+          window.removeEventListener('pointercancel', forwardCancel);
+          if (cancelEvent.type !== 'pointercancel') return;
+          pointerSlider.dispatchEvent(new PointerEvent('pointercancel', {
+            pointerId: cancelEvent.pointerId,
+            pointerType: cancelEvent.pointerType,
+            isPrimary: true,
+            bubbles: true
+          }));
+        };
+        window.addEventListener('pointerup', forwardCancel);
+        window.addEventListener('pointercancel', forwardCancel);
+      }
+
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * The pressure row is still two overlapping native ranges, which cannot be
+   * handed a synthetic pointerdown — a native thumb only moves for real input.
+   * So the drag is driven here instead: whichever handle the pointer started
+   * nearest follows it until release.
+   */
+  _startDualSliderDrag(dualSlider, event) {
+    const inputs = dualSlider.querySelectorAll('input[type="range"]');
+    if (!inputs.length) return false;
+
+    const rect = dualSlider.getBoundingClientRect();
+    const min = Number(inputs[0].min || 0);
+    const max = Number(inputs[0].max || 100);
+    const step = Number(inputs[0].step) || 1;
+
+    const valueAt = (clientX) => {
+      const percent = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+      const value = min + percent * (max - min);
+      return Math.max(min, Math.min(max, Math.round(value / step) * step));
+    };
+
+    let handle = inputs[0];
+    let closest = Infinity;
+    const grabbed = valueAt(event.clientX);
+    for (const input of inputs) {
+      const distance = Math.abs(Number(input.value) - grabbed);
+      if (distance < closest) {
+        closest = distance;
+        handle = input;
+      }
+    }
+
+    const apply = (clientX) => {
+      handle.value = String(valueAt(clientX));
+      handle.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+
+    const onMove = (moveEvent) => {
+      if (moveEvent.pointerId !== event.pointerId) return;
+      apply(moveEvent.clientX);
+    };
+
+    const onEnd = (endEvent) => {
+      if (endEvent.pointerId !== event.pointerId) return;
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onEnd);
+      window.removeEventListener('pointercancel', onEnd);
+      handle.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onEnd);
+    window.addEventListener('pointercancel', onEnd);
+
+    apply(event.clientX);
+    return true;
   }
 
   /**
