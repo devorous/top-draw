@@ -24,6 +24,13 @@
     },
     {
       section: 'Basic Tutorial',
+      title: 'Brush Modes',
+      target: '#brushModeOptions',
+      text: 'Ink tapers like a calligraphy pen. Fluid lays down a smooth, painterly line that won\'t double-darken where it overlaps itself. Pixel stamps hard-edged squares for pixel art. Classic is the plain original brush with no extra shaping.',
+      beforeEnter: () => window.app?.selectTool?.('ink')
+    },
+    {
+      section: 'Basic Tutorial',
       title: 'Room Settings',
       target: '[data-tut="room-settings"], #roomSettingsBtn',
       text: 'Room settings appear for rooms you can edit, including unowned rooms created by this browser.',
@@ -53,7 +60,8 @@
       target: '[data-tut="mirror"], #mirrorBtn',
       text: 'Drag to draw a mirror region on the canvas.',
       allowCanvas: true,
-      actionLabel: 'The canvas is unlocked. Draw a mirror region, then press Next'
+      actionLabel: 'The canvas is unlocked. Draw a mirror region, then press Next',
+      mirrorDependent: true
     },
     {
       section: 'Basic Tutorial',
@@ -63,7 +71,8 @@
       actionTarget: '[data-tut="mirror"], #mirrorBtn',
       actionLabel: 'Click Mirror again to review editing/removal controls, or press Next',
       allowCanvas: true,
-      targetControl: true
+      targetControl: true,
+      mirrorDependent: true
     },
     {
       section: 'Basic Tutorial',
@@ -72,7 +81,8 @@
       text: 'Use the region controls to edit or remove the mirror region. Click Edit to change the mirror mode and guides, or X to remove the region from the canvas.',
       allowCanvas: true,
       targetControl: true,
-      skipIfMissing: true
+      skipIfMissing: true,
+      mirrorDependent: true
     },
     {
       section: 'Basic Tutorial',
@@ -135,6 +145,7 @@
       fallbackTarget: '.blend-dropdown, [data-tut="blend-mode"], .blend-btn',
       text: 'BG mode blends each stroke against the room background. Existing mode blends only where pixels already exist. Try switching between BG and Existing, then draw on the canvas to compare.',
       allowCanvas: true,
+      targetControl: true,
       actionLabel: 'The canvas is unlocked for testing on this step'
     },
     {
@@ -237,7 +248,7 @@
       section: 'Advanced Tools',
       title: 'Text Tool',
       target: '#textBtn',
-      text: 'The Text tool lets you place text on the canvas.. Click anywhere on the board to start typing. Clicking or pressing enter with no text entered swaps you back to your previous tool.',
+      text: 'The Text tool lets you place text on the canvas. Click anywhere on the board to start typing. Clicking or pressing enter with no text entered swaps you back to your previous tool.',
       beforeEnter: () => window.app?.selectTool?.('text')
     },
     {
@@ -255,6 +266,7 @@
       text: 'Have a look at the fonts available in the tool options and pick one that you like best!',
       beforeEnter: () => window.app?.selectTool?.('text'),
       allowCanvas: true,
+      targetControl: true,
       skipIfMissing: true
     },
     {
@@ -280,6 +292,7 @@
       text: 'Switching back to Fill. Enable Advanced, then click and DRAG inside your circle: move up/down to increase or decrease the blur of the fill edge, and left/right to expand or contract the fill area.',
       beforeEnter: () => window.app?.selectTool?.('fill'),
       allowCanvas: true,
+      targetControl: true,
       skipIfMissing: true
     },
     {
@@ -414,6 +427,10 @@
     { key: 'Advanced Tools', label: 'Advanced', blurb: 'Text, flood fill, glitch blur & pattern brush.' }
   ];
 
+  // Order tracks auto-continue in once one finishes (see `finish()`). Independent
+  // of SECTIONS' display order in the picker/mini switcher.
+  const FLOW_ORDER = ['Basic Tutorial', 'Selection', 'Advanced Tools', 'Replay'];
+
   // Friendly names for tools a step can wait on (see `awaitTool`).
   const TOOL_LABELS = {
     select: 'Selection',
@@ -462,6 +479,16 @@
   // The tracks that actually have at least one available step right now - used
   // to build the picker / switcher so empty tracks never show up.
   let availableSections = $derived(SECTIONS.filter((section) => sections.includes(section.key)));
+  // The next track to auto-continue into once the current one finishes, or
+  // null if this is the last track in FLOW_ORDER (or not part of the chain).
+  let nextFlowSection = $derived.by(() => {
+    const pos = FLOW_ORDER.indexOf(activeSection);
+    if (pos < 0) return null;
+    for (let i = pos + 1; i < FLOW_ORDER.length; i += 1) {
+      if (sections.includes(FLOW_ORDER[i])) return FLOW_ORDER[i];
+    }
+    return null;
+  });
   // An `awaitTool` step is "gated" until the user actually selects the tool it
   // teaches. Until then we spotlight the tool button and hold the lesson body.
   let awaitingTool = $derived(!!currentStep?.awaitTool && appState.currentTool !== currentStep.awaitTool);
@@ -679,9 +706,9 @@
     );
   }
 
-  function firstIndexAfterSection(section, startIndex = index) {
+  function firstIndexPastMirrorSteps(startIndex = index) {
     for (let i = startIndex + 1; i < visibleSteps.length; i += 1) {
-      if ((visibleSteps[i].section || 'Tutorial') !== section) return i;
+      if (!visibleSteps[i].mirrorDependent) return i;
     }
     return visibleSteps.length;
   }
@@ -712,7 +739,7 @@
       return;
     }
     if (currentStep?.title === 'Mirror Mode' && !isMirrorTutorialOpen()) {
-      moveToIndex(firstIndexAfterSection('Basic Tutorial'));
+      moveToIndex(firstIndexPastMirrorSteps());
       return;
     }
     moveToIndex(index + 1);
@@ -740,6 +767,10 @@
   }
 
   function finish() {
+    if (nextFlowSection) {
+      startTutorial(nextFlowSection);
+      return;
+    }
     storageSet(FINISHED_KEY, 'true');
     cleanupRevealedContainers();
     promptVisible = false;
@@ -817,9 +848,9 @@
   }
 
   function handleMirrorRegionRemoved() {
-    if (!active || (currentStep?.section || 'Tutorial') !== 'Basics') return;
+    if (!active || (currentStep?.section || 'Tutorial') !== 'Basic Tutorial') return;
     cleanupStep(currentStep);
-    moveToIndex(firstIndexAfterSection('Basic Tutorial'));
+    moveToIndex(firstIndexPastMirrorSteps());
   }
 
   function handleContextMenu() {
@@ -1025,7 +1056,7 @@
       </div>
       <div class="tutorialActions">
         <button type="button" onclick={back} disabled={index === 0}>Back</button>
-        <button type="button" class="primary" onclick={next}>{index === total - 1 ? 'Finish' : 'Next'}</button>
+        <button type="button" class="primary" onclick={next}>{index === total - 1 ? (nextFlowSection ? 'Continue' : 'Finish') : 'Next'}</button>
         <button type="button" onclick={stop}>Exit Tutorial</button>
       </div>
     </div>
