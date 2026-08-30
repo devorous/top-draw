@@ -76,10 +76,58 @@
   let sidebarTags = $state([]);
   let sidebarLoading = $state(false);
 
-  // Tag strip: show only the most-used tags until expanded
-  const TAG_PREVIEW_COUNT = 8;
+  // ── Tag strip fitting ──
+  // Collapsed, the strip is a single row: fit as many WHOLE tag chips as the
+  // strip width allows, then a "+N more" chip for the rest. Chip metrics below
+  // must track the `.tag-strip-list .tag-chip` CSS.
+  const TAG_MAX_SHOWN = 12;       // hard cap: only ever the top 12 tags
+  const TAG_PREVIEW_FALLBACK = 8; // used until the strip has been measured
+  const STRIP_CHIP_FONT = '12.16px Inter, -apple-system, sans-serif'; // 0.76rem
+  const STRIP_CHIP_CHROME = 13.24;    // padding 0.32rem * 2 + 1.5px border * 2
+  const STRIP_CHIP_INNER_GAP = 5.6;   // gap 0.35rem between #tag and its count
+  const STRIP_CHIP_GAP = 7.2;         // list gap 0.45rem
+  const STRIP_ROW_SLACK = 2;          // rounding slack so the last chip can't wrap
   let tagsExpanded = $state(false);
-  let visibleTags = $derived(tagsExpanded ? sidebarTags : sidebarTags.slice(0, TAG_PREVIEW_COUNT));
+  let tagStripWidth = $state(0);
+
+  /**
+   * How many tag chips fit on one row of the strip, leaving room for "+N more".
+   * @param {{tag: string, count: number}[]} tags
+   * @param {number} width  strip content width in px
+   * @param {number} _fontVersion  reactivity key only — see tagFontVersion
+   * @returns {number}
+   */
+  function fitStripTags(tags, width, _fontVersion) {
+    if (!tags?.length) return 0;
+    if (!(width > 0)) return Math.min(tags.length, TAG_PREVIEW_FALLBACK);
+    const avail = width - STRIP_ROW_SLACK;
+
+    const chipWidth = (entry) =>
+      measureTagText(entry.tag, STRIP_CHIP_FONT)
+      + measureTagText(String(entry.count ?? ''), STRIP_CHIP_FONT)
+      + STRIP_CHIP_INNER_GAP + STRIP_CHIP_CHROME;
+
+    let used = 0;
+    let shown = 0;
+    for (const entry of tags) {
+      const w = chipWidth(entry) + (shown ? STRIP_CHIP_GAP : 0);
+      if (used + w > avail) break;
+      used += w;
+      shown++;
+    }
+    if (shown >= tags.length) return tags.length;
+    if (!shown) return 1; // always show something, even if it has to overflow
+
+    // Reserve room for the "+N more" chip, dropping tags until it fits.
+    while (shown > 1) {
+      const expand = measureTagText(`+${tags.length - shown} more`, STRIP_CHIP_FONT)
+        + STRIP_CHIP_CHROME + STRIP_CHIP_GAP;
+      if (used + expand <= avail) break;
+      used -= chipWidth(tags[shown - 1]) + STRIP_CHIP_GAP;
+      shown--;
+    }
+    return shown;
+  }
 
   // ── Card tag row fitting ──
   // The row is a single line: fit as many WHOLE tags as the card width allows,
@@ -94,14 +142,19 @@
   let tagFontVersion = $state(0); // bumped once webfonts land so widths re-measure
   let tagMeasureCtx = null;
 
-  function measureTagText(text) {
+  function measureTagText(text, font = TAG_CHIP_FONT) {
     if (!tagMeasureCtx) {
       if (typeof document === 'undefined') return text.length * 6;
       tagMeasureCtx = document.createElement('canvas').getContext('2d');
     }
-    tagMeasureCtx.font = TAG_CHIP_FONT;
+    tagMeasureCtx.font = font;
     return tagMeasureCtx.measureText(text).width;
   }
+
+  let stripTags = $derived(sidebarTags.slice(0, TAG_MAX_SHOWN));
+  let tagPreviewCount = $derived(fitStripTags(stripTags, tagStripWidth, tagFontVersion));
+  let visibleTags = $derived(tagsExpanded ? stripTags : stripTags.slice(0, tagPreviewCount));
+
 
   /**
    * @param {string[]} tags
@@ -115,7 +168,7 @@
     // Before the grid has been measured, show one tag; it ellipsizes if too long.
     if (!(avail > 0)) return { shown: tags.slice(0, 1), hidden: tags.length - 1 };
 
-    const chipWidth = (tag) => measureTagText(`#${tag}`) + TAG_CHIP_CHROME;
+    const chipWidth = (tag) => measureTagText(tag) + TAG_CHIP_CHROME;
     const shown = [];
     let used = 0;
     for (const tag of tags) {
@@ -1542,7 +1595,7 @@
         {:else if authorFilter}
           <h1>{authorFilter}'s Art</h1>
         {:else if tagFilter}
-          <h1>#{tagFilter}</h1>
+          <h1>{tagFilter}</h1>
         {:else}
           <h1 class="ggallery">GGallery</h1>
         {/if}
@@ -1640,15 +1693,15 @@
               {#if sidebarTags.length === 0}
                 <p class="tag-strip-empty">{sidebarLoading ? 'Loading tags...' : 'No tags yet'}</p>
               {:else}
-                <div class="tag-strip-list">
+                <div class="tag-strip-list" bind:clientWidth={tagStripWidth}>
                   {#each visibleTags as entry}
                     <button class="tag-chip" class:active={tagFilter === entry.tag} onclick={() => filterByTag(entry.tag)}>
-                      #{entry.tag} <span>{entry.count}</span>
+                      {entry.tag} <span>{entry.count}</span>
                     </button>
                   {/each}
-                  {#if sidebarTags.length > TAG_PREVIEW_COUNT}
+                  {#if stripTags.length > tagPreviewCount}
                     <button class="tag-chip tag-expand" onclick={() => tagsExpanded = !tagsExpanded}>
-                      {tagsExpanded ? '− less' : `+${sidebarTags.length - TAG_PREVIEW_COUNT} more`}
+                      {tagsExpanded ? "Show less" : `+${stripTags.length - tagPreviewCount} more`}
                     </button>
                   {/if}
                 </div>
@@ -1704,10 +1757,10 @@
               {@const fit = fitTags(item.tags, cardWidth, tagFontVersion)}
               <div class="card-tags-row">
                 {#each fit.shown as tag}
-                  <button class="tag-chip card-tag-chip" title={`#${tag}`} onclick={(e) => { e.stopPropagation(); filterByTag(tag); }}>#{tag}</button>
+                  <button class="tag-chip card-tag-chip" title={tag} onclick={(e) => { e.stopPropagation(); filterByTag(tag); }}>{tag}</button>
                 {/each}
                 {#if fit.hidden > 0}
-                  <span class="tag-more" title={item.tags.slice(fit.shown.length).map((t) => `#${t}`).join(' ')}>+{fit.hidden}</span>
+                  <span class="tag-more" title={item.tags.slice(fit.shown.length).join(", ")}>+{fit.hidden}</span>
                 {/if}
               </div>
             {/if}
@@ -1748,7 +1801,7 @@
                         <span class="post-dot">·</span>
                         <span class="post-tags">
                           {#each item.tags.slice(0, 4) as tag}
-                            <button class="post-tag" onclick={() => filterByTag(tag)}>#{tag}</button>
+                            <button class="post-tag" onclick={() => filterByTag(tag)}>{tag}</button>
                           {/each}
                         </span>
                       {/if}
@@ -1962,7 +2015,7 @@
               <div class="lb-tags">
                 {#if lightbox.tags?.length}
                   {#each lightbox.tags as tag}
-                    <button class="tag-chip" onclick={() => { closeLightbox(); filterByTag(tag); }}>#{tag}</button>
+                    <button class="tag-chip" onclick={() => { closeLightbox(); filterByTag(tag); }}>{tag}</button>
                   {/each}
                 {:else if canEditTags(lightbox)}
                   <button class="tag-editor-toggle tag-editor-toggle-inline" onclick={() => tagEditorOpen = true} aria-label="Add tags">
@@ -2783,11 +2836,6 @@
     font-weight: 500;
   }
 
-  .tag-expand {
-    border-style: dashed;
-    color: var(--text-dim);
-  }
-
   .tag-chip {
     display: inline-flex;
     align-items: center;
@@ -2808,6 +2856,24 @@
     border-color: var(--accent);
     background: rgba(0, 212, 170, 0.1);
     transform: translateY(-1px);
+  }
+
+  /* Not a tag — the row-expander. Dimmer and dashed so it reads as a control,
+     and it stays neutral on hover instead of taking the tag accent. */
+  .tag-expand {
+    border-style: dashed;
+    border-color: rgba(255, 255, 255, 0.12);
+    background: transparent;
+    color: var(--text-dim);
+    opacity: 0.7;
+  }
+
+  .tag-expand:hover {
+    opacity: 1;
+    color: var(--text);
+    border-color: rgba(255, 255, 255, 0.28);
+    background: rgba(255, 255, 255, 0.04);
+    transform: none;
   }
 
 

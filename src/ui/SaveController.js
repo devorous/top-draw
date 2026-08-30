@@ -120,11 +120,15 @@ export class SaveController {
       const imageData = targetCanvas.toDataURL('image/png');
       const apiBase = import.meta.env.VITE_API_BASE_URL || '';
 
-      // Auto-add room tag for floating art
-      const roomTag = this.app.wsClient?.roomId || 'lobby';
+      // Auto-add room tag for floating art. The save dialog seeds the room tag
+      // into its own tag field and passes autoRoomTag:false, so a user who
+      // removes the chip there doesn't get it added back here.
       const tags = metadata.tags ? [...metadata.tags] : [];
-      if (!tags.includes(roomTag)) {
-        tags.push(roomTag);
+      if (metadata.autoRoomTag !== false) {
+        const roomTag = this.app.wsClient?.roomId || 'lobby';
+        if (!tags.includes(roomTag)) {
+          tags.push(roomTag);
+        }
       }
 
       const res = await fetch(`${apiBase}/api/gallery/upload`, {

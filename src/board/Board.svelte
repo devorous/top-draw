@@ -20,6 +20,7 @@
   let topPeriod = $state('all');
   let tagFilter = $state(null);
   let sidebarTags = $state([]);
+  const TAG_MAX_SHOWN = 12; // strip shows only the top 12 tags
   let sidebarLoading = $state(false);
   let likedIds = $state(new Set());
   let user = $state(null);
@@ -361,7 +362,7 @@
         <h1 class="ggallery">GGallery</h1>
         <p class="board-tag">
           {#if tagFilter}
-            <span>#{tagFilter}</span>
+            <span>{tagFilter}</span>
             <button class="clear-tag" onclick={clearTagFilter}>clear</button>
           {:else}
             Board view
@@ -399,12 +400,12 @@
           <p class="tag-strip-empty">{sidebarLoading ? 'Loading tags...' : 'No tags yet'}</p>
         {:else}
           <div class="tag-strip-list">
-            {#each sidebarTags.slice(0, 24) as entry}
+            {#each sidebarTags.slice(0, TAG_MAX_SHOWN) as entry}
               <button class="tag-chip" class:active={tagFilter === entry.tag} onclick={() => filterByTag(entry.tag)}>
-                #{entry.tag} <span>{entry.count}</span>
+                {entry.tag} <span>{entry.count}</span>
               </button>
             {/each}
-            {#if sidebarTags.length > 24}
+            {#if sidebarTags.length > TAG_MAX_SHOWN}
               <span class="tag-more">...</span>
             {/if}
           </div>
@@ -448,7 +449,7 @@
                     <span class="post-dot">·</span>
                     <span class="post-tags">
                       {#each item.tags.slice(0, 4) as tag}
-                        <button class="post-tag" onclick={() => filterByTag(tag)}>#{tag}</button>
+                        <button class="post-tag" onclick={() => filterByTag(tag)}>{tag}</button>
                       {/each}
                     </span>
                   {/if}

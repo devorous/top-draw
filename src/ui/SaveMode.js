@@ -3,6 +3,12 @@
  * Allows users to select a region (or full board) before saving locally or to gallery.
  */
 
+// Mirrors MAX_TAG_LENGTH in server/gallery.js. The server also caps a whole
+// item at 12 tags; 'discord' is appended outside the field when that toggle is
+// on, so the field itself stops one short.
+const MAX_TAG_LENGTH = 24;
+const MAX_USER_TAGS = 11;
+
 export class SaveMode {
   /**
    * @param {Object} app - The main application instance
@@ -49,10 +55,13 @@ export class SaveMode {
     // Options state
     this.transparent = false;
     this.shareToDiscord = false;
-    this.tagUsername = true;
     this.uploadTimelapse = true;
     this.galleryTitle = '';
     this.galleryDescription = '';
+    this.galleryTags = [];
+    // The seeded username chip. Keeping it is what tags the upload with the
+    // author name; removing it uploads as Anonymous.
+    this.usernameTag = '';
     this.preExistingCanvasFixedSelection = false;
     this.step = 'main'; // 'main' or 'gallery'
 
@@ -167,25 +176,28 @@ export class SaveMode {
         <div class="saveModeGalleryFields">
           <label class="saveModeField">
             <span>Title</span>
-            <input id="saveModeTitle" type="text" maxlength="60" placeholder="Optional, max 60 characters" />
+            <input id="saveModeTitle" type="text" maxlength="60" />
           </label>
           <div class="saveModeGalleryToggles">
             <label class="saveModeOptionsCheckbox">
               <input type="checkbox" id="saveModeShareDiscord">
               <span>Share to Discord</span>
             </label>
-            <label class="saveModeOptionsCheckbox">
-              <input type="checkbox" id="saveModeTagUsername" checked>
-              <span>Tag my username</span>
-            </label>
             <label class="saveModeOptionsCheckbox saveModeTimelapseToggle" hidden>
               <input type="checkbox" id="saveModeUploadTimelapse" checked>
               <span>Upload Timelapse</span>
             </label>
           </div>
+          <div class="saveModeField saveModeTagsField">
+            <span>Tags</span>
+            <div class="saveModeTagInput" id="saveModeTagInput">
+              <input id="saveModeTagEntry" type="text" maxlength="24" autocomplete="off"
+                     placeholder="Type something and press Enter" />
+            </div>
+          </div>
           <label class="saveModeField saveModeDescriptionField">
             <span>Description</span>
-            <textarea id="saveModeDescription" maxlength="300" rows="2" placeholder="Optional, max 300 characters"></textarea>
+            <textarea id="saveModeDescription" maxlength="300" rows="2" placeholder="This thing I drew is cool because..."></textarea>
           </label>
         </div>
         <div class="saveModeOptionsActions">
@@ -327,10 +339,6 @@ export class SaveMode {
       this.shareToDiscord = e.target.checked;
     });
 
-    this.optionsPanel.querySelector('#saveModeTagUsername').addEventListener('change', (e) => {
-      this.tagUsername = e.target.checked;
-    });
-
     this.titleInput = this.optionsPanel.querySelector('#saveModeTitle');
     this.titleInput?.addEventListener('input', (e) => {
       this.galleryTitle = e.target.value;
@@ -342,6 +350,54 @@ export class SaveMode {
     this.descriptionInput = this.optionsPanel.querySelector('#saveModeDescription');
     this.descriptionInput?.addEventListener('input', (e) => {
       this.galleryDescription = e.target.value;
+    });
+
+    // Tag chip input. Enter/comma commits the pending text; Backspace on an
+    // empty field pops the last chip, the usual chip-input muscle memory.
+    this.tagInputWrap = this.optionsPanel.querySelector('#saveModeTagInput');
+    this.tagEntryInput = this.optionsPanel.querySelector('#saveModeTagEntry');
+    this.tagEntryInput?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ',') {
+        e.preventDefault();
+        // Enter on an empty field falls through to uploading, matching the
+        // title field's behaviour.
+        if (!this.tagEntryInput.value.trim()) {
+          if (e.key === 'Enter') this._performSave(false);
+          return;
+        }
+        this._commitTagEntry();
+      } else if (e.key === 'Backspace' && !this.tagEntryInput.value) {
+        this._removeTag(this.galleryTags[this.galleryTags.length - 1]);
+      }
+    });
+    // Commit whatever is typed when focus leaves, so a half-entered tag isn't
+    // silently dropped on upload.
+    this.tagEntryInput?.addEventListener('blur', () => this._commitTagEntry());
+    this.tagEntryInput?.addEventListener('paste', (e) => {
+      const text = e.clipboardData?.getData('text');
+      if (!text || !/[,\n]/.test(text)) return;
+      e.preventDefault();
+      this._addTags(text.split(/[,\n]/));
+    });
+    // Remove on mousedown, not click: the entry field's blur handler can commit
+    // a pending tag and re-render the chips, detaching the one being clicked
+    // before its click event ever lands. preventDefault also keeps focus in the
+    // field so the user can keep typing.
+    this.tagInputWrap?.addEventListener('mousedown', (e) => {
+      const chip = e.target.closest('.saveModeTagChip');
+      if (!chip) return;
+      e.preventDefault();
+      this._removeTag(chip.dataset.tag);
+    });
+    this.tagInputWrap?.addEventListener('click', (e) => {
+      // The whole chip is the remove target, not just its ×. Reached only by
+      // keyboard activation; a mouse chip click is already handled above.
+      const chip = e.target.closest('.saveModeTagChip');
+      if (chip) {
+        this._removeTag(chip.dataset.tag);
+        return;
+      }
+      this.tagEntryInput?.focus();
     });
 
     this.trimStartInput?.addEventListener('input', () => this._onTrimInput('start'));
@@ -408,6 +464,123 @@ export class SaveMode {
   }
 
   /**
+   * Normalises one tag the same way the gallery API does, so the chips show
+   * exactly what will be stored. See normalizeTags() in server/gallery.js.
+   * @param {string} raw
+   * @returns {string} normalised tag, or '' if nothing usable remains
+   */
+  _normalizeTag(raw) {
+    return String(raw || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '')
+      // The server rejects over-long tags outright; truncating here keeps a
+      // pasted tag usable rather than silently dropping it on upload.
+      .slice(0, MAX_TAG_LENGTH)
+      .replace(/-$/, '');
+  }
+
+  /**
+   * Adds tags from raw user input, skipping blanks and duplicates.
+   * @param {string[]} rawTags
+   */
+  _addTags(rawTags) {
+    let added = false;
+    let full = false;
+
+    for (const raw of rawTags) {
+      const tag = this._normalizeTag(raw);
+      if (!tag || this.galleryTags.includes(tag)) continue;
+      if (this.galleryTags.length >= MAX_USER_TAGS) {
+        full = true;
+        break;
+      }
+      this.galleryTags.push(tag);
+      added = true;
+    }
+
+    if (full) this.ui.showToast?.(`Up to ${MAX_USER_TAGS} tags`, 2000, 'error');
+    if (added) this._renderTagChips();
+  }
+
+  /**
+   * Commits whatever is currently typed in the tag entry field.
+   */
+  _commitTagEntry() {
+    if (!this.tagEntryInput) return;
+    const pending = this.tagEntryInput.value;
+    if (!pending.trim()) {
+      this.tagEntryInput.value = '';
+      return;
+    }
+    this._addTags(pending.split(','));
+    this.tagEntryInput.value = '';
+  }
+
+  /**
+   * @param {string} tag
+   */
+  _removeTag(tag) {
+    if (!tag) return;
+    const index = this.galleryTags.indexOf(tag);
+    if (index === -1) return;
+    this.galleryTags.splice(index, 1);
+    this._renderTagChips();
+  }
+
+  /**
+   * Re-renders the chip list in front of the tag entry field.
+   */
+  _renderTagChips() {
+    if (!this.tagInputWrap || !this.tagEntryInput) return;
+
+    for (const chip of this.tagInputWrap.querySelectorAll('.saveModeTagChip')) {
+      chip.remove();
+    }
+
+    for (const tag of this.galleryTags) {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'saveModeTagChip';
+      chip.dataset.tag = tag;
+      chip.title = `Remove ${tag}`;
+      chip.setAttribute('aria-label', `Remove tag ${tag}`);
+      const label = document.createElement('span');
+      label.className = 'saveModeTagChipLabel';
+      label.textContent = tag;
+      // Affordance only — the click is handled on the chip itself.
+      const remove = document.createElement('span');
+      remove.className = 'saveModeTagChipRemove';
+      remove.textContent = '×';
+      remove.setAttribute('aria-hidden', 'true');
+      chip.append(label, remove);
+      this.tagInputWrap.insertBefore(chip, this.tagEntryInput);
+    }
+  }
+
+  /**
+   * Resets the tag field to its defaults — the author's username and the
+   * current room — which the user can then remove or add to. Used by both
+   * open paths, so re-entering the gallery step keeps their edits.
+   */
+  _resetTags() {
+    this.usernameTag = this._normalizeTag(
+      this.app.auth?.loggedInUsername || this.app.auth?.getStoredUsername?.() || ''
+    );
+    const roomTag = this._normalizeTag(this.app.wsClient?.roomId || 'lobby');
+
+    this.galleryTags = [];
+    for (const tag of [this.usernameTag, roomTag]) {
+      if (tag && !this.galleryTags.includes(tag)) this.galleryTags.push(tag);
+    }
+
+    if (this.tagEntryInput) this.tagEntryInput.value = '';
+    this._renderTagChips();
+  }
+
+  /**
    * Set whether a time-lapse is generated and attached to this upload.
    * On by default; unchecking hides the preview window and suppresses the
    * attach entirely (including SaveController's fallback render).
@@ -458,16 +631,15 @@ export class SaveMode {
     this.preExistingCanvasRegion = null;
     this.transparent = false;
     this.shareToDiscord = false;
-    this.tagUsername = true;
     this.uploadTimelapse = true;
     this.galleryTitle = '';
     this.galleryDescription = '';
     this.activeTool = 'select';
     this.optionsPanel.querySelector('#saveModeTransparent').checked = false;
     this.optionsPanel.querySelector('#saveModeShareDiscord').checked = false;
-    this.optionsPanel.querySelector('#saveModeTagUsername').checked = true;
     if (this.titleInput) this.titleInput.value = '';
     if (this.descriptionInput) this.descriptionInput.value = '';
+    this._resetTags();
     this._resetTimelapsePreview();
     this._showStep('main');
 
@@ -1111,8 +1283,13 @@ export class SaveMode {
       await this.app.handleSaveToGallery(canvas, {
         title: this.galleryTitle.trim(),
         description: (this.galleryDescription || '').trim(),
-        tags: this.shareToDiscord ? ['discord'] : [],
-        tagUsername: this.tagUsername,
+        tags: this.shareToDiscord ? [...this.galleryTags, 'discord'] : [...this.galleryTags],
+        // The username chip doubles as the old "Tag my username" toggle:
+        // drop it and the item is credited to Anonymous.
+        tagUsername: !this.usernameTag || this.galleryTags.includes(this.usernameTag),
+        // Tags are the user's to curate here, so don't let SaveController
+        // re-add the room tag they just removed.
+        autoRoomTag: false,
         // Crop the auto time-lapse to what's actually being saved, not the
         // whole board. Null = full board (also for pre-existing canvases,
         // which have no board-space mapping).
@@ -1674,16 +1851,15 @@ export class SaveMode {
     this.lassoPoints = [];
     this.transparent = false;
     this.shareToDiscord = false;
-    this.tagUsername = true;
     this.uploadTimelapse = true;
     this.galleryTitle = '';
     this.galleryDescription = '';
     this.activeTool = fixedSelection ? 'pan' : 'select';
     this.optionsPanel.querySelector('#saveModeTransparent').checked = false;
     this.optionsPanel.querySelector('#saveModeShareDiscord').checked = false;
-    this.optionsPanel.querySelector('#saveModeTagUsername').checked = true;
     if (this.titleInput) this.titleInput.value = '';
     if (this.descriptionInput) this.descriptionInput.value = '';
+    this._resetTags();
     this._resetTimelapsePreview();
     this._showStep('main');
 

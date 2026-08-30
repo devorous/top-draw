@@ -150,7 +150,7 @@
             {#if item.tags && item.tags.length > 0}
               <div class="tags">
                 {#each item.tags as tag}
-                  <span class="tag">#{tag}</span>
+                  <span class="tag">{tag}</span>
                 {/each}
               </div>
             {/if}
