@@ -80,6 +80,18 @@ const LOW_POWER_FPS = 30;
 const BLUR_RADIUS_MAX = 10;
 const GLITCH_BLUR_RADIUS_MAX = 25;
 const WASM_INIT_TIMEOUT_MS = 15000;
+
+// Tool rail collapse ladder, applied in order until the rail fits its height.
+// Groups become flyouts first (icons stay full size), then the whole rail
+// shrinks, and .is-scrollable is the final fallback in
+// App.updateToolRailCollapseState.
+const TOOL_RAIL_COLLAPSE_STAGES = [
+  'force-move-collapse',
+  'force-shapes-collapse',
+  'force-blur-collapse',
+  'force-compact',
+  'force-compact-2'
+];
 const COALESCED_INPUT_TOOLS = new Set([
   'brush',
   'flowPen',
@@ -994,7 +1006,8 @@ export class DrawingApp {
 
   setupToolGroupMenus() {
     const groups = Array.from(document.querySelectorAll('.toolGroup'));
-    if (groups.length === 0) return;
+    const rail = document.querySelector('.tools');
+    if (!rail) return;
 
     const closeGroups = (except = null) => {
       for (const group of groups) {
@@ -1008,7 +1021,14 @@ export class DrawingApp {
       const subgroup = group.querySelector('.toolSubgroup');
       if (!subgroup) continue;
 
+      // The flyout is a child of the rail, so once the rail clips (mobile, or
+      // the .is-scrollable last-resort stage) an absolutely positioned flyout
+      // is swallowed by that clipping box. Re-anchor it as fixed whenever the
+      // rail clips, right before it becomes visible.
+      group.addEventListener('pointerenter', () => this._positionToolFlyout(group));
+
       group.addEventListener('pointerdown', (event) => {
+        this._positionToolFlyout(group);
         group.dataset.wasOpenOnPress = group.classList.contains('is-open') ? 'true' : 'false';
         group.classList.remove('is-suppressed');
         closeGroups(group);
@@ -1043,14 +1063,115 @@ export class DrawingApp {
       if (event.key === 'Escape') closeGroups();
     });
 
-    let resizeRefreshFrame = null;
-    window.addEventListener('resize', () => {
-      if (resizeRefreshFrame) return;
-      resizeRefreshFrame = requestAnimationFrame(() => {
-        resizeRefreshFrame = null;
-        this.ui.updateToolButton(this.self?.tool);
+    // A scrolled rail invalidates every open flyout's fixed position, and the
+    // pointer is nowhere near the group it started over.
+    rail.addEventListener('scroll', () => closeGroups(), { passive: true });
+
+    window.addEventListener('resize', () => this.scheduleToolRailCollapseUpdate());
+
+    // The rail also changes height when the sidebar does (chat, board menu,
+    // fullscreen) and changes width when the tools resizer is dragged, which
+    // changes --tool-btn-size and therefore the height it needs.
+    if (typeof ResizeObserver !== 'undefined') {
+      this._toolRailResizeObserver = new ResizeObserver(() => {
+        this.scheduleToolRailCollapseUpdate();
       });
+      this._toolRailResizeObserver.observe(rail);
+    }
+
+    this.scheduleToolRailCollapseUpdate();
+  }
+
+  /**
+   * Anchor a collapsed group's flyout with position: fixed while the rail is
+   * clipping its overflow, so the flyout escapes the clipping box. Reverts to
+   * the stylesheet's absolute positioning as soon as the rail stops clipping.
+   *
+   * @param {HTMLElement} group
+   */
+  _positionToolFlyout(group) {
+    const subgroup = group?.querySelector?.('.toolSubgroup');
+    if (!subgroup) return;
+
+    const rail = group.closest('.tools');
+    const railStyle = rail ? window.getComputedStyle(rail) : null;
+    const clips = !!railStyle && (railStyle.overflowY !== 'visible' || railStyle.overflowX !== 'visible');
+
+    if (!clips) {
+      subgroup.style.removeProperty('position');
+      subgroup.style.removeProperty('top');
+      subgroup.style.removeProperty('left');
+      subgroup.style.removeProperty('right');
+      return;
+    }
+
+    const primary = group.querySelector(':scope > .tool.btn') || group;
+    const rect = primary.getBoundingClientRect();
+
+    // The flyout is display:none until it opens, so it can't be measured —
+    // estimate from the primary button, which is the same size as every
+    // button inside it.
+    const count = subgroup.querySelectorAll('.tool.btn').length || 1;
+    const estimatedHeight = count * rect.height + (count - 1) * 4 + 10;
+    const top = Math.max(4, Math.min(rect.top - 5, window.innerHeight - estimatedHeight - 4));
+
+    subgroup.style.position = 'fixed';
+    subgroup.style.top = `${top}px`;
+
+    if (document.documentElement.dataset.sidebarSide === 'left') {
+      subgroup.style.left = `${rect.right}px`;
+      subgroup.style.right = 'auto';
+    } else {
+      subgroup.style.right = `${window.innerWidth - rect.left}px`;
+      subgroup.style.left = 'auto';
+    }
+  }
+
+  scheduleToolRailCollapseUpdate() {
+    if (this._toolRailCollapseFrame) return;
+
+    this._toolRailCollapseFrame = requestAnimationFrame(() => {
+      this._toolRailCollapseFrame = null;
+      this.updateToolRailCollapseState();
     });
+  }
+
+  /**
+   * Collapse the tool rail one stage at a time until it fits its own height.
+   *
+   * Replaces the old fixed max-height media queries, which keyed off the
+   * viewport rather than the rail and so both over- and under-collapsed. The
+   * final stage makes the rail scrollable, which is what guarantees no tool
+   * can ever be cut off no matter how short the screen is.
+   */
+  updateToolRailCollapseState() {
+    // Mobile collapses every group unconditionally via CSS and needs its 44px
+    // touch targets kept — the compact stages would undo both.
+    if (isMobile()) return;
+
+    const rail = document.querySelector('.tools');
+    if (!rail) return;
+
+    const previous = TOOL_RAIL_COLLAPSE_STAGES.filter(stage => rail.classList.contains(stage));
+    rail.classList.remove(...TOOL_RAIL_COLLAPSE_STAGES, 'is-scrollable');
+
+    const isOverflowing = () => rail.scrollHeight - rail.clientHeight > 1;
+
+    for (const stage of TOOL_RAIL_COLLAPSE_STAGES) {
+      if (!isOverflowing()) break;
+      rail.classList.add(stage);
+    }
+
+    if (isOverflowing()) {
+      rail.classList.add('is-scrollable');
+    }
+
+    // Collapsing a group turns its subgroup into a flyout, which changes which
+    // icon the primary button has to render.
+    const changed = previous.length !== TOOL_RAIL_COLLAPSE_STAGES.filter(stage => rail.classList.contains(stage)).length;
+    if (changed) {
+      this.ui?.updateToolButton?.(this.self?.tool);
+    }
   }
 
   getToolGroupActiveTool(groupId, fallbackTool) {
@@ -1067,7 +1188,10 @@ export class DrawingApp {
 
   isToolGroupCollapsed(group) {
     const subgroup = group?.querySelector?.('.toolSubgroup');
-    return subgroup ? window.getComputedStyle(subgroup).position === 'absolute' : false;
+    if (!subgroup) return false;
+    // 'fixed' as well as 'absolute': _positionToolFlyout re-anchors the flyout
+    // when the rail clips. Expanded subgroups are static.
+    return window.getComputedStyle(subgroup).position !== 'static';
   }
 
   /**

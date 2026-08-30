@@ -510,7 +510,10 @@
 
   function isToolGroupCollapsed(group) {
     const subgroup = group?.querySelector?.('.toolSubgroup');
-    return subgroup ? getComputedStyle(subgroup).position === 'absolute' : false;
+    if (!subgroup) return false;
+    // 'fixed' as well: App._positionToolFlyout re-anchors flyouts when the tool
+    // rail clips. Expanded subgroups are static.
+    return getComputedStyle(subgroup).position !== 'static';
   }
 
   function openTopbarMenuForTarget(target) {

@@ -390,6 +390,10 @@ html[data-sidebar-side='left'] .sidebarToggleBtn .panelIcon {
 .tool.btn {
   width: var(--tool-btn-size);
   height: var(--tool-btn-size);
+  // Never let a short rail squash the icons into slivers: the rail either
+  // fits at full size, collapses a stage (App.updateToolRailCollapseState),
+  // or scrolls.
+  flex-shrink: 0;
   // No side padding at all, and 1px top/bottom — the icon gets the full
   // width of the rail. object-fit keeps it square, so the vertical inset
   // is what actually sizes the glyph.
@@ -404,6 +408,7 @@ html[data-sidebar-side='left'] .sidebarToggleBtn .panelIcon {
   display: flex;
   flex-direction: column;
   align-items: center;
+  flex-shrink: 0;
   gap: 4px;
   position: relative;
   width: 100%;
@@ -473,11 +478,10 @@ html[data-sidebar-side='left'] .sidebarToggleBtn .panelIcon {
   }
 }
 
-/* Staggered Collapse Breakpoints (Lowered by 150px) */
-
-@media (max-height: 800px) {
-  #moveGroup { @include collapsed-group; }
-  html[data-sidebar-side='left'] #moveGroup .toolSubgroup {
+/* Flyout side flip for a left-docked rail. Written as `html[...] &` so it
+   composes with whatever selector the group is nested under. */
+@mixin collapsed-group-left-flyout {
+  html[data-sidebar-side='left'] & .toolSubgroup {
     right: auto;
     left: 100%;
     padding-right: 4px;
@@ -485,23 +489,87 @@ html[data-sidebar-side='left'] .sidebarToggleBtn .panelIcon {
   }
 }
 
-@media (max-height: 700px) {
-  #shapesGroup { @include collapsed-group; }
-  html[data-sidebar-side='left'] #shapesGroup .toolSubgroup {
-    right: auto;
-    left: 100%;
-    padding-right: 4px;
-    padding-left: 12px;
+/* Staggered collapse ladder.
+
+   These used to be @media (max-height: 800/700/600px) breakpoints, which
+   guessed: the rail's height is the *sidebar's* height, not the viewport's,
+   and the guess left the bottom tools cut off on short screens while
+   collapsing groups needlessly on tall ones with a large rail width.
+   App.updateToolRailCollapseState now measures the rail and applies these
+   stages one at a time until the content fits — same measured approach as
+   .boardBtns / updateTopbarCollapseState. */
+.tools.force-move-collapse #moveGroup {
+  @include collapsed-group;
+  @include collapsed-group-left-flyout;
+}
+
+.tools.force-shapes-collapse #shapesGroup {
+  @include collapsed-group;
+  @include collapsed-group-left-flyout;
+}
+
+.tools.force-blur-collapse #blurGroup {
+  @include collapsed-group;
+  @include collapsed-group-left-flyout;
+}
+
+/* Stages 4-5: every group is already a flyout and the rail still doesn't
+   fit, so trade icon size for rows before giving up and scrolling. */
+.tools.force-compact {
+  --tool-btn-size: min(var(--tools-width), 32px);
+  gap: 2px;
+
+  .railUtilities {
+    height: 24px;
+  }
+
+  .railChip {
+    width: 20px;
+    height: 20px;
+
+    svg {
+      width: 14px;
+      height: 14px;
+    }
+  }
+
+  .railUtilitiesRule {
+    margin: 1px 0 3px;
   }
 }
 
-@media (max-height: 600px) {
-  #blurGroup { @include collapsed-group; }
-  html[data-sidebar-side='left'] #blurGroup .toolSubgroup {
-    right: auto;
-    left: 100%;
-    padding-right: 4px;
-    padding-left: 12px;
+.tools.force-compact-2 {
+  --tool-btn-size: min(var(--tools-width), 24px);
+  gap: 1px;
+
+  .railUtilities {
+    height: 20px;
+  }
+
+  .railChip {
+    width: 17px;
+    height: 17px;
+
+    svg {
+      width: 12px;
+      height: 12px;
+    }
+  }
+}
+
+/* Last resort: the rail scrolls, so a tool is always reachable even if the
+   viewport is shorter than the smallest possible rail. The scrollbar is
+   hidden because it would eat a third of a ~36px rail; flyouts are switched
+   to position: fixed by App._positionToolFlyout so this clipping box can't
+   swallow them. */
+.tools.is-scrollable {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-bottom: 2px;
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
   }
 }
 

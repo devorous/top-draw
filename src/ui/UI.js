@@ -2111,11 +2111,9 @@ menuBtn: document.getElementById('menuBtn'),
 
       const subgroup = group.querySelector('.toolSubgroup');
       const subgroupStyle = subgroup ? window.getComputedStyle(subgroup) : null;
-      const isCollapsedPopup = subgroupStyle?.position === 'absolute';
-      const isGroupVisible = isCollapsedPopup && (
-        group.classList.contains('is-open') ||
-        subgroupStyle.display !== 'none'
-      );
+      // 'fixed' too: App._positionToolFlyout re-anchors flyouts when the
+      // rail clips its own overflow. Expanded subgroups are static.
+      const isCollapsedPopup = !!subgroupStyle && subgroupStyle.position !== 'static';
 
       if (!isCollapsedPopup) {
         delete group.dataset.activeTool;
@@ -2125,13 +2123,11 @@ menuBtn: document.getElementById('menuBtn'),
         continue;
       }
 
-      if (!isGroupVisible) {
-        for (const toolName of groupConfig.slots) {
-          restoreButton(buttons[toolName]);
-        }
-        continue;
-      }
-
+      // Promotion is unconditional while the group is collapsed — it used to
+      // be gated on the flyout being open, which meant the rail showed the
+      // group's default tool (pan/line/blur) even when zoom/rectangle/glitch
+      // was the selected one: you couldn't see what was active without
+      // hovering, and the icons shuffled under the pointer when you did.
       const activeTool = groupConfig.slots.includes(tool)
         ? tool
         : (group.dataset.activeTool || groupConfig.primary);
