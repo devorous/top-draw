@@ -199,6 +199,9 @@ export class SaveMode {
             <span>Description</span>
             <textarea id="saveModeDescription" maxlength="300" rows="2" placeholder="This thing I drew is cool because..."></textarea>
           </label>
+          <p class="saveModeGuestNote" id="saveModeGuestNote" hidden>
+            You're not signed in — this uploads as Anonymous, and you won't be able to edit or delete it later.
+          </p>
         </div>
         <div class="saveModeOptionsActions">
           <button class="btn secondary" id="saveModeGalleryBack">Back</button>
@@ -354,6 +357,7 @@ export class SaveMode {
 
     // Tag chip input. Enter/comma commits the pending text; Backspace on an
     // empty field pops the last chip, the usual chip-input muscle memory.
+    this.guestNote = this.optionsPanel.querySelector('#saveModeGuestNote');
     this.tagInputWrap = this.optionsPanel.querySelector('#saveModeTagInput');
     this.tagEntryInput = this.optionsPanel.querySelector('#saveModeTagEntry');
     this.tagEntryInput?.addEventListener('keydown', (e) => {
@@ -444,14 +448,13 @@ export class SaveMode {
   }
 
   /**
-   * Opens the gallery details step (requires being logged in).
+   * Opens the gallery details step. Signing in is not required — a logged-out
+   * user uploads as a guest, credited to "Anonymous" with no author chip.
    */
   _openGalleryStep() {
-    if (!localStorage.getItem('topDrawAuthToken')) {
-      this.ui.showToast('Log in to save to the gallery');
-      return;
-    }
     this._showStep('gallery');
+    // Guests may upload, but the item is unowned afterwards — say so up front.
+    if (this.guestNote) this.guestNote.hidden = !!localStorage.getItem('topDrawAuthToken');
     // The toggle is only shown to entitled users; everyone else keeps the
     // plain form and never generates a clip.
     if (this.uploadTimelapseToggle) {
@@ -543,10 +546,17 @@ export class SaveMode {
     for (const tag of this.galleryTags) {
       const chip = document.createElement('button');
       chip.type = 'button';
-      chip.className = 'saveModeTagChip';
+      // The username chip is also the attribution control, so it says so —
+      // removing it is what credits the upload to "Anonymous" instead.
+      const isAuthorChip = !!this.usernameTag && tag === this.usernameTag;
+      chip.className = isAuthorChip ? 'saveModeTagChip saveModeTagChipAuthor' : 'saveModeTagChip';
       chip.dataset.tag = tag;
-      chip.title = `Remove ${tag}`;
-      chip.setAttribute('aria-label', `Remove tag ${tag}`);
+      chip.title = isAuthorChip
+        ? `Remove ${tag} to upload anonymously`
+        : `Remove ${tag}`;
+      chip.setAttribute('aria-label', isAuthorChip
+        ? `Remove tag ${tag} and upload anonymously`
+        : `Remove tag ${tag}`);
       const label = document.createElement('span');
       label.className = 'saveModeTagChipLabel';
       label.textContent = tag;

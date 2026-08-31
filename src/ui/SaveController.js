@@ -104,11 +104,11 @@ export class SaveController {
    * @async
    */
   async handleSaveToGallery(canvas, metadata = {}) {
+    // No token is allowed: the server accepts a guest upload and stores it with
+    // no author, credited to "Anonymous" in the gallery. Sending an empty
+    // Authorization header instead of omitting it would read as a broken
+    // session and 401, so the header only goes on when there is a token.
     const token = localStorage.getItem('topDrawAuthToken');
-    if (!token) {
-      this.ui.showToast('Log in to save to the gallery');
-      return;
-    }
 
     const targetCanvas = canvas ?? this.board.mainCanvas;
     const btn = this.ui.elements.saveToGalleryBtn;
@@ -137,7 +137,7 @@ export class SaveController {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
           imageData,
@@ -160,13 +160,13 @@ export class SaveController {
         return;
       }
 
-      this.ui.showToast('Saved to gallery!');
+      this.ui.showToast(token ? 'Saved to gallery!' : 'Saved to gallery as Anonymous');
 
       // Fire-and-forget: render + attach a time-lapse for entitled users. Not
       // awaited so the save UI completes immediately; the clip attaches when
       // ready. metadata.timelapse === false means the user opted out in the
       // save dialog — skip even the fallback render.
-      if (data?.id && metadata.timelapse !== false && this.canUseGalleryTimelapse()) {
+      if (token && data?.id && metadata.timelapse !== false && this.canUseGalleryTimelapse()) {
         this._uploadGalleryTimelapse(data.id, metadata.timelapseRegion ?? null, token, metadata.timelapseBlob ?? null)
           .catch(err => console.warn('[Timelapse] upload failed:', err));
       }

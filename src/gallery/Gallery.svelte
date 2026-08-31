@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { ProfileDialog } from '../ui/ProfileDialog.js';
   import TimelapseEditor from './TimelapseEditor.svelte';
+  import { ANONYMOUS_AUTHOR } from '../../shared/identity.js';
 
   // API base URL - defaults to relative (dev proxy) or can be set via env var for production
   const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
@@ -34,6 +35,16 @@
   let items = $state([]);
   const prefersReducedMotion = typeof window !== 'undefined'
     && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
+  /**
+   * The item was uploaded with the username tag off, so `author` is the
+   * ANONYMOUS_AUTHOR label rather than a username. Nothing that resolves a name
+   * to an account (profile dialog, author filter) may be handed it — an account
+   * called "Anonymous" would otherwise inherit every anonymous upload.
+   */
+  function isAnonymousAuthor(item) {
+    return item?.tagUsername === false || item?.author === ANONYMOUS_AUTHOR;
+  }
 
   /** Item has a clip the current viewer is allowed to see (censoring aside). */
   function hasViewableTimelapse(item) {
@@ -798,12 +809,22 @@
     commentActionBusy = false;
   }
 
+  /**
+   * Owner of the item. An anonymised item reports `isAuthor` from the server
+   * instead — its `author` is the ANONYMOUS_AUTHOR label, so matching on the
+   * name would both hide the controls from the real owner and offer them to
+   * anyone whose account happens to be called "Anonymous".
+   */
+  function isOwnItem(item) {
+    return !!user && (item?.isAuthor === true || (!isAnonymousAuthor(item) && user.username === item.author));
+  }
+
   function canEditTags(item) {
-    return !!user && (user.username === item.author || (user.role || 0) >= HOLY_ROLE);
+    return isOwnItem(item) || (!!user && (user.role || 0) >= HOLY_ROLE);
   }
 
   function canDeleteImage(item) {
-    return !!user && (user.username === item.author || (user.role || 0) >= HOLY_ROLE);
+    return isOwnItem(item) || (!!user && (user.role || 0) >= HOLY_ROLE);
   }
 
   function canEditTimelapse(item) {
@@ -1736,7 +1757,11 @@
             </div>
             <div class="card-meta">
               <div class="card-meta-main">
-                <button class="card-author" onclick={(e) => { e.stopPropagation(); profileDialog.show(item.author); }}>{item.author}</button>
+                {#if isAnonymousAuthor(item)}
+                  <span class="card-author is-anon">{item.author}</span>
+                {:else}
+                  <button class="card-author" onclick={(e) => { e.stopPropagation(); profileDialog.show(item.author); }}>{item.author}</button>
+                {/if}
                 {#if item.createdAt}
                   <span class="card-date" title={formatDateTime(item.createdAt)}>{shortDate(item.createdAt)}</span>
                 {/if}
@@ -1794,7 +1819,11 @@
 
                   <div class="post-body">
                     <div class="post-meta">
-                      <button class="post-author" onclick={() => profileDialog.show(item.author)}>{item.author}</button>
+                      {#if isAnonymousAuthor(item)}
+                        <span class="post-author is-anon">{item.author}</span>
+                      {:else}
+                        <button class="post-author" onclick={() => profileDialog.show(item.author)}>{item.author}</button>
+                      {/if}
                       <span class="post-dot">·</span>
                       <span class="post-date">{shortDate(item.createdAt)}</span>
                       {#if item.tags?.length}
@@ -2008,7 +2037,11 @@
         <div class="lb-info">
           <div class="lb-meta-block">
             <div class="lb-meta">
-              <button class="lb-author" onclick={() => profileDialog.show(lightbox.author)}>by {lightbox.author}</button>
+              {#if isAnonymousAuthor(lightbox)}
+                <span class="lb-author is-anon">by {lightbox.author}</span>
+              {:else}
+                <button class="lb-author" onclick={() => profileDialog.show(lightbox.author)}>by {lightbox.author}</button>
+              {/if}
               <span class="lb-date" title={formatDateTime(lightbox.createdAt)}>{formatDateTime(lightbox.createdAt)}</span>
             </div>
             <div class="lb-tags-row">
@@ -2785,6 +2818,12 @@
     transition: color 0.15s;
   }
   .card-author:hover { color: var(--accent); }
+  .card-author.is-anon,
+  .post-author.is-anon,
+  .lb-author.is-anon { cursor: default; font-style: italic; }
+  .card-author.is-anon:hover { color: rgba(255, 255, 255, 0.7); }
+  .post-author.is-anon:hover { text-decoration: none; }
+  .lb-author.is-anon:hover { color: var(--text-dim); }
 
   .card-date {
     flex: 0 0 auto;

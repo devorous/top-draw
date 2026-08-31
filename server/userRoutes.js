@@ -65,16 +65,21 @@ export async function handleUserProfile(req, res, username) {
       }
     }
 
+    // Uploads made with the username tag off still store their real author, so
+    // every public credit query has to exclude them — otherwise the profile
+    // lists the very upload the user chose to publish anonymously.
+    const authoredPublicly = { author: user.username, tagUsername: { $ne: false } };
+
     const [uploadCount, totalLikes] = await Promise.all([
-      db.collection('gallery').countDocuments({ author: user.username }),
+      db.collection('gallery').countDocuments(authoredPublicly),
       db.collection('gallery').aggregate([
-        { $match: { author: user.username } },
+        { $match: authoredPublicly },
         { $group: { _id: null, total: { $sum: '$likesCount' } } }
       ]).toArray(),
     ]);
 
     const recentUploads = await db.collection('gallery')
-      .find({ author: user.username })
+      .find(authoredPublicly)
       .sort({ createdAt: -1 })
       .limit(6)
       .toArray();

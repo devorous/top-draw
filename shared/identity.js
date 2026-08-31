@@ -1,3 +1,11 @@
+/**
+ * Display name shown instead of the uploader on a gallery item whose author
+ * opted out of the username tag. It is a LABEL, never a username: nothing that
+ * resolves a name to an account may be handed this string, or an account that
+ * happens to be called "Anonymous" inherits every anonymised upload.
+ */
+export const ANONYMOUS_AUTHOR = 'Anonymous';
+
 export const USERNAME_MIN_LENGTH = 2;
 export const USERNAME_MAX_LENGTH = 20;
 

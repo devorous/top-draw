@@ -8,6 +8,7 @@ import { getBearerToken, getRequestUser, getUserFromToken } from './authUser.js'
 import { INLINE_IMAGE_MIME_TYPES, validateDataUrlImage } from './imageValidation.js';
 import { getClientIp, httpRateLimiter } from './security.js';
 import { corsHeaders, writeJson, readRequestBody } from './httpUtils.js';
+import { ANONYMOUS_AUTHOR } from '../shared/identity.js';
 
 // Lazy-load sharp to avoid startup issues if not installed
 let sharp = null;
@@ -29,6 +30,10 @@ const MAX_GALLERY_IMAGE_PIXELS = 33_554_432;
 const THUMB_MAX_DIM = 400;
 const JSON_BODY_LIMIT = MAX_IMAGE_BYTES + 65536;
 const GALLERY_UPLOAD_LIMIT = { max: 12, windowMs: 60 * 60 * 1000, blockMs: 15 * 60 * 1000 };
+// Guests have no account to ban, so their quota is the only lever: keep it well
+// under the signed-in one, and on the same key so an account can't be used to
+// top up a guest burst from the same address.
+const GALLERY_GUEST_UPLOAD_LIMIT = { max: 3, windowMs: 60 * 60 * 1000, blockMs: 60 * 60 * 1000 };
 const GALLERY_COMMENT_LIMIT = { max: 20, windowMs: 5 * 60 * 1000, blockMs: 10 * 60 * 1000 };
 const GALLERY_LIKE_LIMIT = { max: 240, windowMs: 60 * 1000, blockMs: 60 * 1000 };
 const GALLERY_FAVORITE_LIMIT = { max: 60, windowMs: 60 * 1000, blockMs: 5 * 60 * 1000 };
@@ -262,14 +267,33 @@ function normalizeTags(input) {
   return tags;
 }
 
-function toClientGalleryItem(item, likedGalleryIds = null) {
+/**
+ * Mongo filter for "items publicly credited to this username". Items uploaded
+ * with the username tag off still store their real author, so they must never
+ * match — see toClientGalleryItem(), which shows them as ANONYMOUS_AUTHOR.
+ * @param {string} username
+ */
+function authorQuery(username) {
+  return { author: username, tagUsername: { $ne: false } };
+}
+
+/**
+ * @param {object} item - raw gallery document
+ * @param {Set<string>|null} [likedGalleryIds]
+ * @param {string|null} [viewerId] - requesting user's id, for the `isAuthor`
+ *   flag. An anonymised item hides its real author, so the client can no longer
+ *   recognise the owner by name — it needs this to keep showing them the
+ *   edit/delete controls the server would in fact allow.
+ */
+function toClientGalleryItem(item, likedGalleryIds = null, viewerId = null) {
   const id = item._id.toString();
   const tagUsername = item.tagUsername !== false;
   return {
+    isAuthor: !!viewerId && String(item.authorId) === String(viewerId),
     id,
     url: item.url,
     thumbUrl: item.thumbUrl || item.url,
-    author: tagUsername ? item.author : 'Anonymous',
+    author: tagUsername ? item.author : ANONYMOUS_AUTHOR,
     tagUsername,
     title: item.title || '',
     description: item.description || '',
@@ -283,15 +307,23 @@ function toClientGalleryItem(item, likedGalleryIds = null) {
   };
 }
 
-async function getRequestLikedGalleryIds(req, galleryIds = []) {
+/**
+ * Resolves the (optional) signed-in viewer for a public listing: their id, and
+ * which of `galleryIds` they have liked.
+ * @returns {Promise<{ id: string|null, likedIds: Set<string> }>}
+ */
+async function getRequestViewer(req, galleryIds = []) {
   const token = getBearerToken(req);
-  if (!token || galleryIds.length === 0) return new Set();
+  if (!token) return { id: null, likedIds: new Set() };
 
   const user = await getUserFromToken(token, { projection: { likedGalleryIds: 1 } });
-  if (!user || !Array.isArray(user.likedGalleryIds)) return new Set();
+  if (!user) return { id: null, likedIds: new Set() };
 
   const requested = new Set(galleryIds.map(String));
-  return new Set(user.likedGalleryIds.map(String).filter(id => requested.has(id)));
+  const likedIds = Array.isArray(user.likedGalleryIds)
+    ? new Set(user.likedGalleryIds.map(String).filter(id => requested.has(id)))
+    : new Set();
+  return { id: user._id.toString(), likedIds };
 }
 
 async function recordGalleryLike(db, { galleryId, userId, username }) {
@@ -354,7 +386,10 @@ export async function handleGalleryList(req, res) {
   const author = urlObj.searchParams.get('author');
   const tag = normalizeTags(urlObj.searchParams.get('tag')).at(0) || null;
   const query = {};
-  if (author) query.author = author;
+  // An anonymised item keeps its real author in the DB (so the uploader can
+  // still manage it), so an author filter has to exclude them or the upload
+  // shows up under the very name the user chose to hide.
+  if (author) Object.assign(query, authorQuery(author));
   if (tag) query.tags = tag;
   if (sortParam === 'top' && topPeriodMs[periodParam]) {
     query.createdAt = { $gte: new Date(Date.now() - topPeriodMs[periodParam]) };
@@ -397,10 +432,10 @@ export async function handleGalleryList(req, res) {
       db.collection('gallery').countDocuments(query),
     ]);
 
-    const likedGalleryIds = await getRequestLikedGalleryIds(req, items.map(item => item._id.toString()));
+    const viewer = await getRequestViewer(req, items.map(item => item._id.toString()));
 
     json(res, 200, {
-      items: items.map(item => toClientGalleryItem(item, likedGalleryIds)),
+      items: items.map(item => toClientGalleryItem(item, viewer.likedIds, viewer.id)),
       total,
       page,
       pages: Math.ceil(total / limit),
@@ -413,18 +448,28 @@ export async function handleGalleryList(req, res) {
 
 /**
  * POST /api/gallery/upload — upload canvas to R2 and save metadata.
- * Requires Authorization: Bearer <token>
+ * Authorization: Bearer <token> is optional: without it the upload is stored as
+ * a guest upload (no author, no owner), on a tighter per-IP quota. A token that
+ * is present but invalid is still an error — that means a broken session, not a
+ * guest, and silently stripping someone's byline would be worse than a 401.
  * Body: { imageData: "data:image/png;base64,...", title?: string, tags?: string[]|string }
  */
 export async function handleGalleryUpload(req, res) {
   const clientIp = getClientIp(req);
-  const uploadLimit = httpRateLimiter.consume(`gallery:upload:${clientIp}`, GALLERY_UPLOAD_LIMIT);
+  const isGuestUpload = !getBearerToken(req);
+  const uploadLimit = httpRateLimiter.consume(
+    `gallery:upload:${clientIp}`,
+    isGuestUpload ? GALLERY_GUEST_UPLOAD_LIMIT : GALLERY_UPLOAD_LIMIT
+  );
   if (!uploadLimit.allowed) {
     return json(res, 429, { error: 'Too many uploads. Please try again later.' });
   }
 
-  const authUser = await requireAuthenticatedUser(req, res, { projection: { username: 1 } });
-  if (!authUser) return;
+  let authUser = null;
+  if (!isGuestUpload) {
+    authUser = await requireAuthenticatedUser(req, res, { projection: { username: 1 } });
+    if (!authUser) return;
+  }
 
   const db = getDB();
   if (!db) return json(res, 503, { error: 'Database not available' });
@@ -441,7 +486,8 @@ export async function handleGalleryUpload(req, res) {
   }
 
   const { imageData, title, description, tags, tagUsername } = body;
-  const tagUsernameFlag = tagUsername !== false;
+  // A guest has no username to credit, so the item is anonymous by definition.
+  const tagUsernameFlag = !!authUser && tagUsername !== false;
   if (!imageData || typeof imageData !== 'string' || !imageData.startsWith('data:image/')) {
     return json(res, 400, { error: 'Missing or invalid imageData' });
   }
@@ -559,8 +605,12 @@ export async function handleGalleryUpload(req, res) {
     url,
     thumbUrl,
     imageHash,
-    author: authUser.username,
-    authorId: authUser._id.toString(),
+    // Guest uploads are stored with no author at all rather than the
+    // ANONYMOUS_AUTHOR label — a stored name would let an account that happens
+    // to be called "Anonymous" collect them through any author lookup.
+    author: authUser ? authUser.username : null,
+    authorId: authUser ? authUser._id.toString() : null,
+    guest: !authUser,
     tagUsername: tagUsernameFlag,
     title: (title || '').substring(0, 60).trim(),
     description: (description || '').substring(0, 300).trim(),
@@ -577,7 +627,8 @@ export async function handleGalleryUpload(req, res) {
       id: result.insertedId.toString(),
       url,
       thumbUrl,
-      author: tagUsernameFlag ? authUser.username : 'Anonymous',
+      author: tagUsernameFlag ? authUser.username : ANONYMOUS_AUTHOR,
+      isAuthor: !!authUser,
       tagUsername: tagUsernameFlag,
       title: doc.title,
       description: doc.description,
@@ -789,8 +840,8 @@ export async function handleGalleryItem(req, res, id) {
 
     if (!item) return json(res, 404, { error: 'Item not found' });
 
-    const likedGalleryIds = await getRequestLikedGalleryIds(req, [id]);
-    json(res, 200, toClientGalleryItem(item, likedGalleryIds));
+    const viewer = await getRequestViewer(req, [id]);
+    json(res, 200, toClientGalleryItem(item, viewer.likedIds, viewer.id));
   } catch (err) {
     console.error('[Gallery] Item fetch error:', err);
     json(res, 500, { error: 'Failed to fetch item' });
@@ -869,7 +920,7 @@ export async function handleGalleryLike(req, res, id) {
     const updated = await db.collection('gallery').findOneAndUpdate(
       { _id: objectId },
       { $inc: { likesCount: 1 } },
-      { returnDocument: 'after', projection: { likesCount: 1, tags: 1, _id: 1, url: 1, thumbUrl: 1, author: 1, authorId: 1, title: 1, description: 1, createdAt: 1, views: 1 } }
+      { returnDocument: 'after', projection: { likesCount: 1, tags: 1, _id: 1, url: 1, thumbUrl: 1, author: 1, authorId: 1, tagUsername: 1, title: 1, description: 1, createdAt: 1, views: 1 } }
     );
 
     const newLikesCount = updated?.likesCount || 1;
@@ -978,7 +1029,7 @@ export async function handleGalleryFavorites(req, res) {
 
     json(res, 200, {
       items: orderedItems.map(item => ({
-        ...toClientGalleryItem(item),
+        ...toClientGalleryItem(item, null, authUser._id.toString()),
       })),
       total,
       page,
@@ -1021,7 +1072,7 @@ export async function handleGalleryLiked(req, res) {
     const likedSet = new Set(likedGalleryIds);
 
     json(res, 200, {
-      items: orderedItems.map(item => toClientGalleryItem(item, likedSet)),
+      items: orderedItems.map(item => toClientGalleryItem(item, likedSet, authUser._id.toString())),
       total: likedGalleryIds.length,
       page,
       pages: Math.ceil(likedGalleryIds.length / limit),
@@ -1103,7 +1154,7 @@ export async function handleGallerySidebar(req, res) {
   const author = urlObj.searchParams.get('author');
   const activeTag = normalizeTags(urlObj.searchParams.get('tag')).at(0) || null;
   const galleryMatch = {};
-  if (author) galleryMatch.author = author;
+  if (author) Object.assign(galleryMatch, authorQuery(author));
   if (activeTag) galleryMatch.tags = activeTag;
 
   try {
@@ -1371,7 +1422,7 @@ export async function handleGalleryTagsUpdate(req, res, id) {
         id,
         url: item.url,
         thumbUrl: item.thumbUrl || item.url,
-        author: item.tagUsername !== false ? item.author : 'Anonymous',
+        author: item.tagUsername !== false ? item.author : ANONYMOUS_AUTHOR,
         tagUsername: item.tagUsername !== false,
         title: item.title || '',
         description: item.description || '',
@@ -1559,7 +1610,7 @@ export async function handleFloatingArtList(req, res) {
     );
 
     json(res, 200, {
-      items: merged.slice(0, limit).map((item) => toClientGalleryItem(item, likedSet)),
+      items: merged.slice(0, limit).map((item) => toClientGalleryItem(item, likedSet, authUser?._id ? authUser._id.toString() : null)),
       room: roomTag,
       minLikes,
       count: merged.length

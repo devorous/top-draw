@@ -583,6 +583,21 @@
   }
 }
 
+.saveModeGuestNote {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+// The author chip carries the byline, not just a tag: removing it publishes the
+// upload as "Anonymous", so it reads as a distinct, slightly stronger chip.
+.saveModeTagChipAuthor {
+  background: color-mix(in srgb, var(--accent-primary) 30%, transparent);
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--accent-primary) 70%, transparent);
+}
+
 // Beats `.saveModeField span`, which is the uppercase field-label style.
 .saveModeField .saveModeTagChipLabel {
   overflow: hidden;
