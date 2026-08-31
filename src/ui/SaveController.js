@@ -125,7 +125,9 @@ export class SaveController {
       // removes the chip there doesn't get it added back here.
       const tags = metadata.tags ? [...metadata.tags] : [];
       if (metadata.autoRoomTag !== false) {
-        const roomTag = this.app.wsClient?.roomId || 'lobby';
+        // wsClient has no public `roomId` — read the room the app actually
+        // tracks, same as SaveMode._resetTags().
+        const roomTag = this.app.currentRoomId || this.app.currentRoomData?.id || 'lobby';
         if (!tags.includes(roomTag)) {
           tags.push(roomTag);
         }

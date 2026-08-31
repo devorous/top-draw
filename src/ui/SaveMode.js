@@ -569,7 +569,12 @@ export class SaveMode {
     this.usernameTag = this._normalizeTag(
       this.app.auth?.loggedInUsername || this.app.auth?.getStoredUsername?.() || ''
     );
-    const roomTag = this._normalizeTag(this.app.wsClient?.roomId || 'lobby');
+    // wsClient has no public `roomId` — the app tracks the joined room as
+    // `currentRoomId` (falls back through currentRoomData.id for parity with
+    // how the rest of the app reads the room, then 'lobby' if truly none).
+    const roomTag = this._normalizeTag(
+      this.app.currentRoomId || this.app.currentRoomData?.id || 'lobby'
+    );
 
     this.galleryTags = [];
     for (const tag of [this.usernameTag, roomTag]) {
