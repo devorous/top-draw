@@ -1543,6 +1543,10 @@ export class WebSocketClient {
         this.emit('sel_cancel', { sessionIndex: data.u });
         break;
 
+      case T.SEL_HIDE:
+        this.emit('sel_hide', { sessionIndex: data.u, hidden: !!data.a });
+        break;
+
       case T.SEL_MASK: {
         let maskLassoPath = null;
         if (data.ps && data.ps.length >= 6) {
@@ -2743,6 +2747,15 @@ export class WebSocketClient {
    */
   broadcastSelectionCancel() {
     this.send({ t: T.SEL_CANCEL });
+  }
+
+  /**
+   * Hides or shows the local user's selection outline on other clients' boards,
+   * e.g. while the save dialog is open so it doesn't sit there distracting others.
+   * @param {boolean} hidden
+   */
+  broadcastSelectionVisibility(hidden) {
+    this.send({ t: T.SEL_HIDE, a: !!hidden });
   }
 
   /**

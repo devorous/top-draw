@@ -2036,8 +2036,11 @@ export class RemoteSelectionHandler {
     }
 
     // Draw animated marching ants border (skipped by replay renders, which
-    // want the floating content without the selection UI)
-    if (c && drawOutline) {
+    // want the floating content without the selection UI, and while the
+    // drawer has hidden their selection, e.g. their save dialog is open —
+    // the lifted content itself still has to blit above so hiding it doesn't
+    // punch a visible hole where the source was erased from)
+    if (c && drawOutline && !user.selectionHidden) {
       this._drawFloatingOutlineLikeLocal(user);
     }
 
@@ -2048,7 +2051,24 @@ export class RemoteSelectionHandler {
 
   drawPendingSelection(user, isLivePreview = false) {
     if (!user.pendingSelection) return;
+    if (user.selectionHidden) return;
     this._drawPendingSelectionLikeLocal(user);
+  }
+
+  /**
+   * Forces an immediate redraw of a user's selection overlay honoring the
+   * current `selectionHidden` flag, instead of waiting for the next
+   * marching-ants animation frame to pick it up.
+   */
+  refreshSelectionVisibility(user) {
+    if (!user) return;
+    this._clearUserOverlay(user);
+    if (user.selectionHidden) return;
+    if (user.floatingCanvas && user.selection) {
+      this.drawFloatingSelection(user);
+    } else if (user.pendingSelection) {
+      this.drawPendingSelection(user, false);
+    }
   }
 
   /**

@@ -147,6 +147,15 @@ export function setupSelectionHandlers(wrapHandler, app) {
     }
   });
 
+  // Purely cosmetic: hides/shows the sender's selection outline on our board
+  // (e.g. while they're in their save dialog). Never touches selection data.
+  wrapHandler('sel_hide', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (!user) return;
+    user.selectionHidden = !!data.hidden;
+    remoteUserHandler.selectionHandler.refreshSelectionVisibility(user);
+  });
+
   wrapHandler('sel_to_brush', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {

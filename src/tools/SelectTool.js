@@ -4297,9 +4297,15 @@ export class SelectTool extends Tool {
 
     const app = this.board.app;
     if (app?.saveMode) {
-      // Open save dialog with the selection canvas
+      // Open save dialog with the selection canvas. Hide the selection outline
+      // from other users while we're in the dialog deciding what to do with
+      // it — otherwise it just sits there on their board looking active.
       this.hideContextMenu();
-      app.saveMode.openWithCanvas(canvas, { boardRegion: this.getSelectionBoardRegion() });
+      app.wsClient?.broadcastSelectionVisibility(true);
+      app.saveMode.openWithCanvas(canvas, {
+        boardRegion: this.getSelectionBoardRegion(),
+        onClose: () => app.wsClient?.broadcastSelectionVisibility(false)
+      });
     } else {
       // Fallback to direct download if SaveMode not available
       const dataURL = canvas.toDataURL('image/png');

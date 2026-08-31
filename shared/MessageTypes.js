@@ -68,7 +68,10 @@ export const T = {
   // room's newest snapshot). See server/snapshots.js.
   ROOM_START_SNAPSHOT_GET: 150,
   ROOM_START_SNAPSHOT_INFO: 151,
-  ROOM_START_SNAPSHOT_SET: 152
+  ROOM_START_SNAPSHOT_SET: 152,
+  // Hide/show the sender's selection outline on other clients' boards (e.g.
+  // while the save dialog is open) — see server/index.js INACTIVE_FILTERED_TYPES.
+  SEL_HIDE: 153
 };
 
 /**

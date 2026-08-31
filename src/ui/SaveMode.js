@@ -644,6 +644,7 @@ export class SaveMode {
     this.preExistingCanvas = null;
     this.preExistingCanvasFixedSelection = false;
     this.preExistingCanvasRegion = null;
+    this._onCloseCallback = null;
     this.transparent = false;
     this.shareToDiscord = false;
     this.uploadTimelapse = true;
@@ -1843,6 +1844,8 @@ export class SaveMode {
    *   Where this canvas came from in board pixels. Without it the gallery
    *   time-lapse has no crop to work from and falls back to the whole board —
    *   a full-board clip attached to a cropped still.
+   * @param {Function} [options.onClose] - Called once when the dialog closes
+   *   (saved, canceled, or otherwise), regardless of outcome.
    */
   openWithCanvas(canvas, options = {}) {
     if (this.isActive) return;
@@ -1853,6 +1856,7 @@ export class SaveMode {
     this.preExistingCanvas = canvas;
     this.preExistingCanvasFixedSelection = fixedSelection;
     this.preExistingCanvasRegion = options.boardRegion ?? null;
+    this._onCloseCallback = options.onClose ?? null;
 
     // Ensure overlay is in DOM
     if (!this.overlay.parentNode) {
@@ -1958,6 +1962,10 @@ export class SaveMode {
     this.preExistingCanvas = null;
     this.preExistingCanvasFixedSelection = false;
     this.preExistingCanvasRegion = null;
+
+    const onClose = this._onCloseCallback;
+    this._onCloseCallback = null;
+    if (onClose) onClose();
 
     // Reset pan/zoom state
     this._isPanning = false;
