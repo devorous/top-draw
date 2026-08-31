@@ -95,3 +95,66 @@ export function resetSmoothingBuffer(buffer) {
 export function createSmoothingBuffer() {
   return { x: 0, y: 0, isFirst: true };
 }
+
+/**
+ * Applies a deadband (hysteresis) filter to a position and pressure.
+ *
+ * Unlike {@link applySmoothingEMA}, this never moves a point: a sample either
+ * passes through completely unchanged or is dropped. Samples closer than
+ * `radius` to the last emitted point are treated as sensor jitter and
+ * suppressed; the first sample beyond it is emitted verbatim and becomes the
+ * new anchor. The result is jitter rejection with zero lag and no rounding of
+ * corners or fine detail.
+ *
+ * Shares the buffer shape used by applySmoothingEMA ({x, y, p, isFirst}), so
+ * resetSmoothingBuffer and createSmoothingBuffer apply unchanged.
+ *
+ * @param {Object} buffer - Smoothing buffer with {x, y, p, isFirst}.
+ * @param {number} targetX - Target X position (raw input).
+ * @param {number} targetY - Target Y position (raw input).
+ * @param {number} targetP - Target pressure (0-1).
+ * @param {number} radius - Deadband radius in board px. <= 0 passes everything.
+ * @param {Object} [out] - Optional output object to write results into.
+ * @returns {Object} - {x, y, p, emit}. When emit is false, x/y/p hold the
+ *   unchanged anchor and the caller should discard the sample.
+ */
+export function applyDeadband(buffer, targetX, targetY, targetP, radius, out) {
+  const result = out || {};
+  const p = targetP !== undefined ? targetP : 1;
+
+  if (buffer.isFirst) {
+    buffer.x = targetX;
+    buffer.y = targetY;
+    buffer.p = p;
+    buffer.isFirst = false;
+
+    result.x = targetX;
+    result.y = targetY;
+    result.p = p;
+    result.emit = true;
+    return result;
+  }
+
+  const dx = targetX - buffer.x;
+  const dy = targetY - buffer.y;
+
+  if (radius > 0 && dx * dx + dy * dy < radius * radius) {
+    // Inside the deadband: hold the anchor and tell the caller to drop this one.
+    result.x = buffer.x;
+    result.y = buffer.y;
+    result.p = buffer.p;
+    result.emit = false;
+    return result;
+  }
+
+  // Outside the deadband: pass the sample through untouched.
+  buffer.x = targetX;
+  buffer.y = targetY;
+  buffer.p = p;
+
+  result.x = targetX;
+  result.y = targetY;
+  result.p = p;
+  result.emit = true;
+  return result;
+}

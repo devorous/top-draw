@@ -4,7 +4,8 @@
  */
 
 import { douglasPeucker } from '../utils/drawing.js';
-import { applySmoothingEMA, resetSmoothingBuffer } from '../utils/smoothing.js';
+import { applySmoothingEMA, applyDeadband, resetSmoothingBuffer } from '../utils/smoothing.js';
+import { FLOWPEN_DEADBAND, flowPenDeadbandRadius } from '../config/flowPenFilter.js';
 import * as wasm from '../wasm/ddraw_wasm.js';
 
 let douglasPeuckerWasm = null;
@@ -490,6 +491,12 @@ export class InputBufferManager {
     const lastRawY = points[points.length - 2];
     app.self.setTarget(lastRawX, lastRawY);
 
+    // The flowPen deadband drops samples rather than displacing them, so a tick
+    // can legitimately yield nothing to draw or broadcast. Target tracking above
+    // still runs off the raw input; everything below indexes localPoints and
+    // must not see an empty list.
+    if (localPoints.length < 3) return;
+
     const lastX = localPoints[localPoints.length - 3];
     const lastY = localPoints[localPoints.length - 2];
     const lastP = localPoints[localPoints.length - 1];
@@ -570,7 +577,10 @@ export class InputBufferManager {
   }
 
   _shouldPreserveStampPayload(toolName) {
-    // flowPen handles its own reduction in drainStampBuffer - don't double-reduce
+    // Tools whose stamp payload must go out point-for-point. flowPen is here
+    // because its stroke shape is defined by the stamp list itself; it is also
+    // absent from REDUCE_BEFORE_RENDER_TOOLS, so no reduction runs on it
+    // anywhere and the wire payload equals the locally rendered point list.
     return ['ink', 'circleBlur', 'imageBrush', 'pixel', 'flowPen', 'confetti'].includes(toolName);
   }
 
@@ -674,6 +684,10 @@ export class InputBufferManager {
     if (!app.self.mousedown || app.self.panning) return false;
     const smoothingTools = ['brush', 'flowPen', 'imageBrush', 'ink', 'erase'];
     if (!smoothingTools.includes(app.self.tool)) return false;
+    // The deadband never lags behind the pointer, so there is nothing to
+    // converge on: any residual is inside the deadband and is jitter we chose
+    // to discard. Converging on it would re-add the samples just filtered out.
+    if (FLOWPEN_DEADBAND.enabled && app.self.tool === 'flowPen') return false;
     if (app.self.tool !== 'ink' && (!app.self.smoothing || app.self.smoothing === 0)) return false;
     if (this.broadcastSmoothBuffer.isFirst) return false;
     const dx = app.self.targetX - this.broadcastSmoothBuffer.x;
@@ -696,6 +710,7 @@ export class InputBufferManager {
 
     const points = [targetPos.x, targetPos.y, targetP];
     const smoothedPoints = this.applyBroadcastSmoothing(points);
+    if (smoothedPoints.length < 3) return;
     const smoothedPos = { x: smoothedPoints[0], y: smoothedPoints[1] };
     const smoothedP = smoothedPoints[2];
 
@@ -790,6 +805,27 @@ export class InputBufferManager {
     if (points.length < 3) return points;
     const userSmoothing = this.app.self.smoothing || 0;
     const result = [];
+
+    // flowPen filters with a deadband instead of the EMA: it has no lag, so it
+    // rejects jitter without rounding off the fine detail the fluid brush is
+    // for. Suppressed samples are dropped outright, so this can return fewer
+    // triples than it was given — including none at all.
+    if (FLOWPEN_DEADBAND.enabled && this.app.self.tool === 'flowPen') {
+      const radius = flowPenDeadbandRadius(userSmoothing);
+      for (let i = 0; i < points.length; i += 3) {
+        const filtered = applyDeadband(
+          this.broadcastSmoothBuffer,
+          points[i],
+          points[i + 1],
+          points[i + 2],
+          radius,
+          this.broadcastSmoothBuffer.resultOut
+        );
+        if (filtered.emit) result.push(filtered.x, filtered.y, filtered.p);
+      }
+      return result;
+    }
+
     for (let i = 0; i < points.length; i += 3) {
       const smoothed = applySmoothingEMA(
         this.broadcastSmoothBuffer, 
