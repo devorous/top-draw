@@ -1,11 +1,11 @@
 {
-  "version": "1.13.1-beta",
-  "notes": "",
-  "pub_date": "2026-08-24T00:16:28.659Z",
+  "version": "1.13.2-beta",
+  "notes": "Syncing now provides you with the last 2 minutes of drawing history to view via the history button. Fixed a bug in the eraser algorithm that was causing lag. ",
+  "pub_date": "2026-08-31T02:49:20.758Z",
   "platforms": {
     "windows-x86_64": {
-      "url": "https://www.ddraw.ca/desktop-updates/windows-x86_64/Ddraw_1.13.1-beta_x64-setup.exe",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQ01XR1piUDlNenFSeDRibEFlR0FsUzFQall5eVd0cEo1bFBUNUZRandMdGVYTHRHbGR4Q202Zk9MaHhBbFQyV1paemFndzRQUTJYTGpRTzU5c3hXOFMwRlZWUmpHQkFjPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3NTMzNzI3CWZpbGU6RGRyYXdfMS4xMy4xLWJldGFfeDY0LXNldHVwLmV4ZQovdXVucGJXaXpsejl3d3h2cG5ObGZZeGtSV1U2aThXbGN6RkxFYlE5NWN0bWtGaUhkWnRGQ1VVKy9OMWtyeGh2TGJ2TjJYdStqTmloTXZSTWk4YmRDZz09Cg=="
+      "url": "https://www.ddraw.ca/desktop-updates/windows-x86_64/Ddraw_1.13.2-beta_x64-setup.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQ01XR1piUDlNenBuaFhreVhzZXFiMjlYVW1YTjltQzduUzh6U3IrUXlCdVNNSFRrKzdENHExWUU5cnh0bTVpbGxZS3lCM3VHcXViSU9kN21mSnIyYlZaRGlpMGpqQWd3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4MTQ1NDczCWZpbGU6RGRyYXdfMS4xMy4yLWJldGFfeDY0LXNldHVwLmV4ZQpCbytSdnlyY1F0WWNJeTVvZENPdGRUV2ZESnlCZ2NDQW8wM05scEo4dkl2OWFYNXAxWkl4SWhhbkFUd2dXeklDaWZoUXR3VXhiNEdMazVmR3N6TjFDQT09Cg=="
     }
   }
 }
