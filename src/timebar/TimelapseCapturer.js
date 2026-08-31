@@ -35,13 +35,16 @@ export class TimelapseCapturer {
     // Predicate gating capture — only entitled users accumulate frames, so the
     // 99% who can't use the feature don't pay the per-minute encode/memory cost.
     this._shouldCapture = typeof shouldCapture === 'function' ? shouldCapture : () => true;
-    /** @type {{ blob: Blob, ts: number, w: number, h: number, sig: number }[]} */
+    /** @type {{ blob: Blob, ts: number, w: number, h: number, sig: number, scale: number }[]} */
     this._frames = [];
     this._timer = null;
     this._capturing = false;
     this._enabled = false;
-    this._scale = 1;       // stored px / board px (constant for a fixed board)
     this._sigCanvas = null;
+    // Highest per-frame scale seen this session — tracked live as frames come
+    // in (rather than rescanning _frames at export time) so a mid-session
+    // board resize is reflected as soon as the sharper frame is captured.
+    this._maxScale = 0;
   }
 
   start() {
@@ -60,12 +63,14 @@ export class TimelapseCapturer {
   /** Clear captured frames (call after a successful upload). */
   reset() {
     this._frames = [];
+    this._maxScale = 0;
   }
 
   destroy() {
     this.stop();
     this._frames = [];
     this._sigCanvas = null;
+    this._maxScale = 0;
   }
 
   get frameCount() { return this._frames.length; }
@@ -112,6 +117,7 @@ export class TimelapseCapturer {
       return;
     }
     this._frames.push(frame);
+    if (frame.scale > this._maxScale) this._maxScale = frame.scale;
     if (this._frames.length > MAX_FRAMES) this._decimate();
   }
 
@@ -134,8 +140,9 @@ export class TimelapseCapturer {
     const src = this.board?.mainCanvas;
     if (!src || !src.width || !src.height) return null;
 
+    // Recomputed every capture (not cached) so a mid-session board resize is
+    // reflected immediately — each frame remembers the scale that produced it.
     const scale = Math.min(1, STORAGE_MAX_DIM / Math.max(src.width, src.height));
-    this._scale = scale;
     const w = Math.max(1, Math.round(src.width * scale));
     const h = Math.max(1, Math.round(src.height * scale));
 
@@ -171,7 +178,7 @@ export class TimelapseCapturer {
     const sig = this._signature(c);
     const blob = await new Promise(res => c.toBlob(res, 'image/webp', STORAGE_QUALITY));
     if (!blob) return null;
-    return { blob, ts: Date.now(), w, h, sig };
+    return { blob, ts: Date.now(), w, h, sig, scale };
   }
 
   /** Cheap 32×32 checksum of the frame, used only to skip unchanged frames. */
@@ -207,35 +214,51 @@ export class TimelapseCapturer {
     await this._tick(true); // end the clip on the latest board state (deduped if idle)
     if (this._frames.length === 0) return null;
 
-    const scale = this._scale || 1;
-    const fw = this._frames[0].w;
-    const fh = this._frames[0].h;
+    // A mid-session board resize means frames aren't all the same native
+    // resolution — each carries its own capture-time scale. Target the
+    // sharpest one seen during capture rather than clamping the whole clip
+    // to whichever frame happened to be captured first (and smallest).
+    const maxScale = this._maxScale || 1;
 
-    // Map the board-space rect into stored-frame pixels, clamp to the frame, and
-    // force even dimensions (VP8 requires even width/height).
-    let sx = 0, sy = 0, sw = fw, sh = fh;
+    let sw, sh;
     if (boardRect) {
-      sx = Math.round(boardRect.x * scale);
-      sy = Math.round(boardRect.y * scale);
-      sw = Math.round(boardRect.width * scale);
-      sh = Math.round(boardRect.height * scale);
+      sw = Math.round(boardRect.width * maxScale);
+      sh = Math.round(boardRect.height * maxScale);
+    } else {
+      const best = this._frames.reduce((a, b) => (b.w * b.h > a.w * a.h ? b : a));
+      sw = best.w;
+      sh = best.h;
     }
-    sx = Math.max(0, Math.min(sx, fw - 2));
-    sy = Math.max(0, Math.min(sy, fh - 2));
-    sw = Math.max(2, Math.min(sw, fw - sx));
-    sh = Math.max(2, Math.min(sh, fh - sy));
-    sw -= sw % 2;
-    sh -= sh % 2;
+    // Force even dimensions (VP8 requires even width/height).
+    sw = Math.max(2, sw - (sw % 2));
+    sh = Math.max(2, sh - (sh % 2));
 
     const frames = [];
     for (const f of this._frames) {
+      // Map the board-space rect into THIS frame's own pixel space — its scale
+      // may differ from other frames' if the board was resized mid-session.
+      const scale = f.scale || 1;
+      let sx = 0, sy = 0, srcW = f.w, srcH = f.h;
+      if (boardRect) {
+        sx = Math.round(boardRect.x * scale);
+        sy = Math.round(boardRect.y * scale);
+        srcW = Math.round(boardRect.width * scale);
+        srcH = Math.round(boardRect.height * scale);
+      }
+      sx = Math.max(0, Math.min(sx, f.w - 2));
+      sy = Math.max(0, Math.min(sy, f.h - 2));
+      srcW = Math.max(2, Math.min(srcW, f.w - sx));
+      srcH = Math.max(2, Math.min(srcH, f.h - sy));
+
       let bmp = null;
       try {
         bmp = await createImageBitmap(f.blob);
         const c = document.createElement('canvas');
         c.width = sw;
         c.height = sh;
-        c.getContext('2d').drawImage(bmp, sx, sy, sw, sh, 0, 0, sw, sh);
+        // Source rect is this frame's own space; destination is the clip's
+        // shared output size, so lower-res frames get upscaled to match.
+        c.getContext('2d').drawImage(bmp, sx, sy, srcW, srcH, 0, 0, sw, sh);
         frames.push(c);
       } catch (err) {
         console.warn('[Timelapse] frame decode failed:', err);
