@@ -231,7 +231,12 @@ export function setupDrawingHandlers(wrapHandler, app) {
         blendMode = 'source-over';
       }
       user.setBlendMode(blendMode);
-      user.setBlendBakeMode(data.blendBakeMode);
+      // Absent `bbm` means "unchanged", not "existing": `bbm` is a proto3 string,
+      // so an unset field arrives as '' and used to decode to 'existing' — which
+      // clips every later blended stroke to the layer's existing alpha on the
+      // OBSERVER only, shredding it along every old eraser path. Mirrors the MD
+      // handler's guard in RemoteUserHandler.handleMouseDown.
+      if (data.blendBakeMode !== undefined) user.setBlendBakeMode(data.blendBakeMode);
       remoteUserHandler.updateRemotePreviewPresentation(user);
       // If user is on text tool, switch preview mode (DOM vs canvas)
       if (user.tool === 'text') {

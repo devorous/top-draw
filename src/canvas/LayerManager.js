@@ -4,6 +4,7 @@
 
 import { PixelsWorkerClient } from '../workers/PixelsWorkerClient.js';
 import { blurImageData, getStackblurSync } from '../utils/blurUtils.js';
+import { normalizeBlendBakeMode } from '../../shared/blendBakeMode.js';
 
 /**
  * Manages multiple layer groups, each containing baked sequences, a stroke stack,
@@ -350,7 +351,7 @@ export class LayerManager {
    * @param {number} userId - User ID
    * @param {string} [blendMode='source-over'] - Blend mode
    */
-  beginUserStroke(groupIdx, userId, blendMode = 'source-over', blendBakeMode = 'existing') {
+  beginUserStroke(groupIdx, userId, blendMode = 'source-over', blendBakeMode = 'background') {
     const group = this.layerGroups[groupIdx];
     if (!group) return;
 
@@ -363,7 +364,7 @@ export class LayerManager {
       canvas,
       ctx,
       blendMode,
-      blendBakeMode: blendBakeMode === 'background' ? 'background' : 'existing',
+      blendBakeMode: normalizeBlendBakeMode(blendBakeMode),
       dirtyRect: { minX: this.width, minY: this.height, maxX: -1, maxY: -1 },
       affectedTiles: new Set()
     });
@@ -390,7 +391,7 @@ export class LayerManager {
         canvas,
         ctx,
         blendMode: createBlendMode,
-        blendBakeMode: metadata.blendBakeMode === 'background' ? 'background' : 'existing',
+        blendBakeMode: normalizeBlendBakeMode(metadata.blendBakeMode),
         dirtyRect: { minX: this.width, minY: this.height, maxX: -1, maxY: -1 },
         ...metadata
       };
@@ -402,7 +403,7 @@ export class LayerManager {
       active.blendMode = createBlendMode;
     }
     if (metadata.blendBakeMode) {
-      active.blendBakeMode = metadata.blendBakeMode === 'background' ? 'background' : 'existing';
+      active.blendBakeMode = normalizeBlendBakeMode(metadata.blendBakeMode);
     }
     return active.ctx;
   }

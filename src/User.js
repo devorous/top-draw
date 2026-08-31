@@ -4,6 +4,7 @@ import {
   DEFAULT_APPLIED_TEXT_SIZE_MULTIPLIER
 } from './utils/textLayout.js';
 import { truncateUsername } from '../shared/identity.js';
+import { normalizeBlendBakeMode } from '../shared/blendBakeMode.js';
 
 /**
  * @fileoverview User model representing a participant in a drawing session.
@@ -70,7 +71,7 @@ export class User {
       ? 'center-scaling'
       : 'corner-to-corner';
     this.blendMode = options.blendMode || 'source-over';
-    this.blendBakeMode = options.blendBakeMode === 'existing' ? 'existing' : 'background';
+    this.blendBakeMode = normalizeBlendBakeMode(options.blendBakeMode);
     this.activeLayer = options.activeLayer || 0;
     this.font = normalizeTextFont(options.font);
     this.textPositionMultiplier = options.textPositionMultiplier ?? DEFAULT_APPLIED_TEXT_SIZE_MULTIPLIER;
@@ -302,7 +303,7 @@ export class User {
   }
 
   setBlendBakeMode(mode) {
-    this.blendBakeMode = mode === 'background' ? 'background' : 'existing';
+    this.blendBakeMode = normalizeBlendBakeMode(mode);
   }
 
   /**

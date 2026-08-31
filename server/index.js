@@ -50,6 +50,7 @@ import {
 import { getAsnCheckStatus, lookupAsnForIp, initAsnCheck, isVpnAsn } from './asnCheck.js';
 import { lookupCountryForIp } from './geoCountry.js';
 import { getUsernameValidationMessage, isValidUsername, normalizeUsername } from '../shared/identity.js';
+import { normalizeBlendBakeMode } from '../shared/blendBakeMode.js';
 import { getIpSubnet, mergeHistory, normalizeIdentityPayload, recordConnectionEvent } from './identityTracking.js';
 import { generateFloatingGalleryVoronoi, getFloatingGalleryVoronoiJson } from './floatingVoronoi.js';
 
@@ -1557,7 +1558,7 @@ function mapUsersForBroadcast(users, viewer = null, room = null) {
         br: u.blurRadius || 5,
         ly: u.activeLayer || 0,
         bm: u.blendMode || 'source-over',
-        bbm: u.blendBakeMode === 'background' ? 'background' : 'existing',
+        bbm: normalizeBlendBakeMode(u.blendBakeMode),
         ib: u.imageBrush,
         pb: u.patternBrush,
         pm: u.patternMode || false,
@@ -2324,7 +2325,7 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
         opacity: data.p,
         layerIndex: data.ly ?? 0,
         blendMode: data.bm || 'source-over',
-        blendBakeMode: data.bbm === 'background' ? 'background' : 'existing',
+        blendBakeMode: normalizeBlendBakeMode(data.bbm),
         textPositionMultiplier: data.tm,
         textPositionOffset: data.to,
         x: ps[0] ?? 0,
@@ -5474,7 +5475,7 @@ wss.on('connection', async (ws, req) => {
                 p: Number(r.opacity) || 100,
                 ly: Number(r.layerIndex) || 0,
                 bm: r.blendMode || 'source-over',
-                bbm: r.blendBakeMode === 'background' ? 'background' : 'existing',
+                bbm: normalizeBlendBakeMode(r.blendBakeMode),
                 fo: r.font || '',
                 tm: Number.isFinite(Number(r.textPositionMultiplier)) ? Number(r.textPositionMultiplier) : 0,
                 to: Number.isFinite(Number(r.textPositionOffset)) ? Number(r.textPositionOffset) : 0,

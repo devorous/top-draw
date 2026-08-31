@@ -6,6 +6,7 @@
 
 import { appState } from '../state.svelte.js';
 import { debug } from '../utils/debug.js';
+import { normalizeBlendBakeMode } from '../../shared/blendBakeMode.js';
 
 /**
  * SyncClient manages the complex process of synchronizing the canvas state
@@ -782,7 +783,7 @@ export class SyncClient {
             width: data.w,
             height: data.h,
             blendMode: data.blendMode,
-            blendBakeMode: data.blendBakeMode || 'existing',
+            blendBakeMode: normalizeBlendBakeMode(data.blendBakeMode),
             userId: data.userId,
             timestamp: data.timestamp,
             seq: data.seq || 0,
@@ -821,7 +822,7 @@ export class SyncClient {
       canvas: record.canvas,
       ctx: record.ctx,
       blendMode: record.blendMode || 'source-over',
-      blendBakeMode: record.blendBakeMode || 'existing',
+      blendBakeMode: normalizeBlendBakeMode(record.blendBakeMode),
       dirtyRect: {
         minX: record.x,
         minY: record.y,

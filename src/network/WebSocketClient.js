@@ -7,6 +7,7 @@ import { T, Tool, ToolNames, ToolToEnum } from '../../shared/MessageTypes.js';
 import { packColor, unpackColor } from '../../shared/ColorUtils.js';
 import { BOARD_SIZE_PRESETS } from '../../shared/boardSizes.js';
 import { normalizeTextFont } from '../config/textFonts.js';
+import { normalizeBlendBakeMode, decodeBlendBakeMode } from '../../shared/blendBakeMode.js';
 import { ClientIdentity } from './ClientIdentity.js';
 import { StrokeFingerprintLog, isCommitType } from '../../shared/StrokeFingerprint.js';
 
@@ -1065,7 +1066,7 @@ export class WebSocketClient {
           blurRadius: (u.br ?? 500),
           activeLayer: u.ly ?? 0,
           blendMode: u.bm || 'source-over',
-          blendBakeMode: u.bbm === 'background' ? 'background' : 'existing',
+          blendBakeMode: normalizeBlendBakeMode(u.bbm),
           imageBrush: u.ib,
           ipHash: u.iph,
           thinning: u.th ? (u.th - 1) / 100 : undefined,
@@ -1162,7 +1163,7 @@ export class WebSocketClient {
           confettiData: data.g || null,
           layerIndex: data.ly,
           blendMode: data.bm,
-          blendBakeMode: data.bbm === 'background' ? 'background' : (data.bbm === 'existing' ? 'existing' : undefined),
+          blendBakeMode: decodeBlendBakeMode(data.bbm),
           seq: data.seq
         });
         break;
@@ -1233,7 +1234,7 @@ export class WebSocketClient {
           sessionIndex: data.u,
           layerIndex: data.ly ?? null,
           blendMode: data.bm || 'source-over',
-          blendBakeMode: data.bbm === 'background' ? 'background' : 'existing',
+          blendBakeMode: decodeBlendBakeMode(data.bbm),
           seq: data.seq
         });
         break;
@@ -1252,7 +1253,7 @@ export class WebSocketClient {
           blurRadius: data.br !== undefined ? data.br : undefined,
           activeLayer: data.ly !== undefined ? data.ly : undefined,
           blendMode: data.bm || undefined,
-          blendBakeMode: data.bbm,
+          blendBakeMode: decodeBlendBakeMode(data.bbm),
           thinning: data.th ? (data.th - 1) / 100 : undefined,
           simulatePressure: data.sim !== undefined ? data.sim === 2 : undefined,
           patternScale: data.patternScale,
@@ -1279,7 +1280,7 @@ export class WebSocketClient {
           opacity: (data.p ?? 100) / 100,
           layerIndex: data.ly ?? 0,
           blendMode: data.bm || 'source-over',
-          blendBakeMode: data.bbm === 'background' ? 'background' : 'existing',
+          blendBakeMode: normalizeBlendBakeMode(data.bbm),
           font: normalizeTextFont(data.fo),
           textPositionMultiplier: data.tm,
           textPositionOffset: data.to,
@@ -1641,7 +1642,7 @@ export class WebSocketClient {
           userId: data.u,
           x: data.sx, y: data.sy, w: data.sw, h: data.sh,
           blendMode: data.bm,
-          blendBakeMode: data.bbm === 'background' ? 'background' : 'existing',
+          blendBakeMode: normalizeBlendBakeMode(data.bbm),
           timestamp: data.stroke_ts ? Number(data.stroke_ts) : 0,
           seq: data.seq || 0,
           eraseAll: data.a || false,
@@ -1662,7 +1663,7 @@ export class WebSocketClient {
               w: stroke.width,
               h: stroke.height,
               blendMode: stroke.blendMode || 'source-over',
-              blendBakeMode: stroke.blendBakeMode === 'background' ? 'background' : 'existing',
+              blendBakeMode: normalizeBlendBakeMode(stroke.blendBakeMode),
               timestamp: stroke.timestamp ? Number(stroke.timestamp) : 0,
               seq: stroke.seq || 0,
               eraseAll: stroke.eraseAll || false,
@@ -2065,7 +2066,7 @@ export class WebSocketClient {
     const msg = { t: T.MD, ps: points, rs: radii };
     if (metadata.layerIndex !== undefined) msg.ly = metadata.layerIndex;
     if (metadata.blendMode) msg.bm = metadata.blendMode;
-    if (metadata.blendBakeMode) msg.bbm = metadata.blendBakeMode === 'background' ? 'background' : 'existing';
+    if (metadata.blendBakeMode) msg.bbm = normalizeBlendBakeMode(metadata.blendBakeMode);
     if (metadata.confettiData) msg.g = metadata.confettiData;
     this.send(msg);
   }
@@ -2187,7 +2188,7 @@ export class WebSocketClient {
    * @returns {void}
    */
   broadcastLayerBlendModeChange(layerIndex, blendMode, blendBakeMode = 'background') {
-    this.send({ t: T.CBM, ly: layerIndex, bm: blendMode, bbm: blendBakeMode === 'background' ? 'background' : 'existing' });
+    this.send({ t: T.CBM, ly: layerIndex, bm: blendMode, bbm: normalizeBlendBakeMode(blendBakeMode) });
   }
 
   /**
@@ -2245,7 +2246,7 @@ export class WebSocketClient {
       p: Math.round((payload.opacity ?? 1) * 100),
       ly: payload.layerIndex ?? 0,
       bm: payload.blendMode || 'source-over',
-      bbm: payload.blendBakeMode === 'background' ? 'background' : 'existing',
+      bbm: normalizeBlendBakeMode(payload.blendBakeMode),
       fo: payload.font,
       tm: payload.textPositionMultiplier ?? 0,
       to: payload.textPositionOffset ?? 0,
@@ -2802,7 +2803,7 @@ export class WebSocketClient {
     // the wire.
     if (blendMode && blendMode !== 'source-over') {
       msg.bm = blendMode;
-      msg.bbm = blendBakeMode === 'existing' ? 'existing' : 'background';
+      msg.bbm = normalizeBlendBakeMode(blendBakeMode);
     }
     this.send(msg);
   }

@@ -2,6 +2,7 @@
 
 import { T, Tool } from '../shared/MessageTypes.js';
 import { CHAT_IMAGE_MIME_TYPES, INLINE_IMAGE_MIME_TYPES, validateDataUrlImage, validateImageBytes } from './imageValidation.js';
+import { normalizeBlendBakeMode } from '../shared/blendBakeMode.js';
 
 export function hasOwnField(message, key) {
   return !!message && Object.prototype.hasOwnProperty.call(message, key);
@@ -143,9 +144,12 @@ const sanitizeBlendMode = (value) => {
   return VALID_BLEND_MODES.has(blendMode) ? blendMode : 'source-over';
 };
 
-const sanitizeBlendBakeMode = (value) => (
-  sanitizeString(value, 32) === 'background' ? 'background' : 'existing'
-);
+// Only the explicit string 'existing' selects the destructive bake mode; an
+// absent/empty `bbm` is 'background'. The inverse polarity meant the relay
+// rewrote every bbm-less message to 'existing', which clips the committed
+// stroke against the layer's existing alpha on receivers — shredding it along
+// every old eraser path. See shared/blendBakeMode.js.
+const sanitizeBlendBakeMode = (value) => normalizeBlendBakeMode(sanitizeString(value, 32));
 
 const sanitizeImageRect = (data) => ({
   sx: clampInt(data.sx, MIN_COORD, MAX_COORD, 0),

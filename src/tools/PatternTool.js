@@ -39,6 +39,13 @@ export class PatternTool extends Tool {
     this.offscreenCtx = null;
     this.dirtyBounds = null;
     this.remoteOffscreens = new Map(); // userId -> { canvas, ctx, strokePoints }
+    // Layer each in-flight stroke opened on, captured at MD. Not read back off
+    // `user._strokeLayer`: the remote path nulls that at MU but the local path
+    // never does (EraserTool sets it and nothing clears it), so a local pattern
+    // stroke drawn after an erase-then-switch-layer would commit to the erased
+    // layer. `user.activeLayer` at MD is what beginUserStroke actually used on
+    // both paths.
+    this.strokeLayerByUser = new Map(); // userId -> layer index
   }
 
   activate() {
@@ -64,6 +71,7 @@ export class PatternTool extends Tool {
 
   onPointerDown(user, pos) {
     this._activeUser = user;
+    this.strokeLayerByUser.set(user.id, user.activeLayer ?? 0);
     this.board.beginStroke(user);
     this.ensureOffscreenCanvas();
     this.offscreenCtx.clearRect(0, 0, this.offscreenCanvas.width, this.offscreenCanvas.height);
@@ -112,7 +120,7 @@ export class PatternTool extends Tool {
 
     this._stampFinalSegment(user, pos);
 
-    const ctx = this.board.getActiveLayerContext();
+    const ctx = this._getCommitContext(user);
     if (ctx) {
       const composite = this._buildPatternComposite(user);
       this._drawPatternCompositeToContext(ctx, composite, user);
@@ -147,6 +155,7 @@ export class PatternTool extends Tool {
     this.offscreenCtx.clearRect(0, 0, this.offscreenCanvas.width, this.offscreenCanvas.height);
     this.dirtyBounds = null;
     this.board.endStroke(user);
+    this.strokeLayerByUser.delete(user.id);
     this.lastStampPos.delete(user.id);
     this.board.clearTop();
   }
@@ -267,9 +276,37 @@ export class PatternTool extends Tool {
     return getPatternTile(user, this._tileCache);
   }
 
+  /**
+   * Resolve the layer + context this user's pattern stroke must commit into.
+   *
+   * Two things have to be explicit here. The LAYER is the one this stroke
+   * opened on, not `user.activeLayer` — a CL arriving mid-stroke moves the
+   * latter, and committing to the moved index manufactures a second,
+   * never-opened active stroke instead of filling the one `beginUserStroke`
+   * created. The BLEND and BAKE MODE have to travel too: on that manufactured
+   * record `getUserStrokeContext` would fall back to its own defaults, and a
+   * stroke that defaults into `blendBakeMode: 'existing'` is clipped at commit
+   * with `destination-in` against the layer's existing alpha — which carries a
+   * hole wherever anyone has ever erased. Same reasoning as RemoteInkHandler
+   * and RemotePenHandler, which already pass both.
+   *
+   * @param {Object} user - Stroke owner (local or remote).
+   * @returns {CanvasRenderingContext2D|undefined}
+   * @private
+   */
+  _getCommitContext(user) {
+    const strokeLayer = this.strokeLayerByUser.get(user.id) ?? user?.activeLayer ?? 0;
+    return this.board.layerManager?.getUserStrokeContext(
+      strokeLayer,
+      user.id,
+      user.blendMode || 'source-over',
+      { blendBakeMode: user.blendBakeMode }
+    );
+  }
+
   drawStamp(user, pos) {
     // Legacy method: stamp directly to layer (used by applyStamps for remote rendering).
-    const ctx = this.board.layerManager.getUserStrokeContext(user.activeLayer, user.id);
+    const ctx = this._getCommitContext(user);
     if (!ctx) return;
 
     const tile = this._getPatternTile(user);
@@ -357,6 +394,7 @@ export class PatternTool extends Tool {
   }
 
   remoteBeginStroke(user, pos) {
+    this.strokeLayerByUser.set(user.id, user._strokeLayer ?? user.activeLayer ?? 0);
     const w = this.board.mainCanvas.width;
     const h = this.board.mainCanvas.height;
     let offscreen = this.remoteOffscreens.get(user.id);
@@ -474,7 +512,7 @@ export class PatternTool extends Tool {
 
     const composite = this._buildPatternComposite(user, offscreen.canvas);
     if (composite) {
-      const ctx = this.board.layerManager.getUserStrokeContext(user.activeLayer, user.id);
+      const ctx = this._getCommitContext(user);
       this._drawPatternCompositeToContext(ctx, composite, user, offscreen.strokePoints);
     }
 
@@ -490,6 +528,7 @@ export class PatternTool extends Tool {
     }
 
     this.remoteOffscreens.delete(user.id);
+    this.strokeLayerByUser.delete(user.id);
     this.lastStampPos.delete(user.id);
   }
 
@@ -511,6 +550,7 @@ export class PatternTool extends Tool {
 
   clearUserState(userId) {
     this.remoteOffscreens.delete(userId);
+    this.strokeLayerByUser.delete(userId);
     this.lastStampPos.delete(userId);
   }
 }

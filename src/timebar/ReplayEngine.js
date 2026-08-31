@@ -17,6 +17,7 @@ import { drawReplayCursor } from '../replay/cursorOverlay.js';
 import * as wasm from '../wasm/ddraw_wasm.js';
 import { readQoiDimensions } from '../../shared/qoi.js';
 import { qoiToCanvas } from '../replay/layerStateCodec.js';
+import { normalizeBlendBakeMode } from '../../shared/blendBakeMode.js';
 import {
   TEXT_OVERLAY_DEFAULT_LIFETIME_MS,
   TEXT_OVERLAY_DEFAULT_MIN_OPACITY,
@@ -2701,7 +2702,7 @@ export class ReplayEngine {
           canvas,
           ctx,
           blendMode: strokeData.blendMode ?? 'source-over',
-          blendBakeMode: strokeData.blendBakeMode === 'background' ? 'background' : 'existing',
+          blendBakeMode: normalizeBlendBakeMode(strokeData.blendBakeMode),
           dirtyRect: strokeData.dirtyRect
             ? { ...strokeData.dirtyRect }
             : { minX: this.width, minY: this.height, maxX: -1, maxY: -1 },
@@ -3158,7 +3159,7 @@ export class ReplayEngine {
           // GLITCH_RESULT) composites against nothing instead of overlaying the
           // board content.
           if (msg.bbm !== undefined) {
-            user.setBlendBakeMode(msg.bbm === 'background' ? 'background' : 'existing');
+            user.setBlendBakeMode(normalizeBlendBakeMode(msg.bbm));
           }
           break;
 
@@ -3246,7 +3247,7 @@ export class ReplayEngine {
             opacity: msg.p !== undefined ? msg.p / 100 : user.opacity,
             layerIndex: msg.ly ?? user.activeLayer ?? 0,
             blendMode: msg.bm || user.blendMode || 'source-over',
-            blendBakeMode: msg.bbm === 'background' ? 'background' : 'existing',
+            blendBakeMode: normalizeBlendBakeMode(msg.bbm),
             font: msg.fo || user.font,
             textPositionMultiplier: msg.tm,
             textPositionOffset: msg.to,

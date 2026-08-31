@@ -12,6 +12,7 @@ import { RemoteInkHandler } from './RemoteInkHandler.js';
 import { RemoteSelectionHandler } from './RemoteSelectionHandler.js';
 import { setUserLayerContent, syncUserLayerDisplay, releaseUserLayer } from './userLayerPresence.js';
 import { releaseRemoteScratch } from './remoteScratchReclaim.js';
+import { normalizeBlendBakeMode } from '../../shared/blendBakeMode.js';
 
 /**
  * RemoteUserHandler coordinates the rendering of remote users' drawing events.
@@ -1217,7 +1218,7 @@ export class RemoteUserHandler {
       // stroke had (usually source-over → opaque squares). Force the glitch's
       // blend onto it so the commit composites correctly.
       active.blendMode = blendMode;
-      active.blendBakeMode = blendBakeMode === 'background' ? 'background' : 'existing';
+      active.blendBakeMode = normalizeBlendBakeMode(blendBakeMode);
     }
     if (!active?.ctx) return;
 

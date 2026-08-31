@@ -71,6 +71,7 @@ import * as wasm from './wasm/ddraw_wasm.js';
 // Svelte UI Components
 import { initSvelteUI, syncStoresFromApp, showProfile as showProfileDialog } from './ui/svelte/AppUI.svelte.js';
 import { appState, addRecentColor, getCustomPresetKey, toggleRecorderPanel } from './state.svelte.js';
+import { normalizeBlendBakeMode } from '../shared/blendBakeMode.js';
 
 const TEXT_FONT_SETTINGS_STORAGE_KEY = 'topDrawTextFontSettings';
 const SHAPE_DRAW_MODE_STORAGE_KEY = 'topDrawShapeDrawMode';
@@ -4730,7 +4731,7 @@ export class DrawingApp {
   }
 
   handleBlendBakeModeChange(mode) {
-    const blendBakeMode = mode === 'background' ? 'background' : 'existing';
+    const blendBakeMode = normalizeBlendBakeMode(mode);
     this.self?.setBlendBakeMode?.(blendBakeMode);
 
     if (this.connected && this.self) {
