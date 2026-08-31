@@ -274,7 +274,7 @@ export class ToolLockManager {
         ui.updatePressureValue(pMin, pMax);
         this.app.pressureEnabled = pEnabled;
         if (elements.pressureEnabled) elements.pressureEnabled.checked = pEnabled;
-        if (elements.pressureDualSlider) elements.pressureDualSlider.style.display = pEnabled ? '' : 'none';
+        ui.setPressureTrackVisible(pEnabled);
       }
       else if (prop === 'smoothing') {
         self.setSmoothing(value);

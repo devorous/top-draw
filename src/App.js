@@ -1505,8 +1505,7 @@ export class DrawingApp {
     // Pressure enable/disable checkbox
     elements.pressureEnabled.addEventListener('change', () => {
       this.pressureEnabled = elements.pressureEnabled.checked;
-      elements.pressureDualSlider.style.display = this.pressureEnabled ? '' : 'none';
-      elements.pressureValue.style.display = this.pressureEnabled ? '' : 'none';
+      this.ui.setPressureTrackVisible(this.pressureEnabled);
       this.clearActiveCustomPreset();
       this.updateCurrentToolPresetSettings();
     });
@@ -5209,7 +5208,7 @@ export class DrawingApp {
       } else if (property === 'pressureEnabled') {
         this.pressureEnabled = !!value;
         if (this.ui.elements.pressureEnabled) this.ui.elements.pressureEnabled.checked = !!value;
-        if (this.ui.elements.pressureDualSlider) this.ui.elements.pressureDualSlider.style.display = value ? '' : 'none';
+        this.ui.setPressureTrackVisible(!!value);
       }
     }
   }

@@ -2581,6 +2581,28 @@ menuBtn: document.getElementById('menuBtn'),
   }
 
   /**
+   * Shows or hides the Pressure track and its value.
+   *
+   * Same collapse as Thinning: with the dual slider hidden there is no track
+   * left under the absolutely positioned label, so the row collapses to zero
+   * height and overlaps Smoothing below it. `.no-track` puts the label back
+   * in flow so the row keeps a row's worth of height either way.
+   *
+   * @param {boolean} visible - Whether pressure is enabled.
+   */
+  setPressureTrackVisible(visible) {
+    if (this.elements.pressureDualSlider) {
+      this.elements.pressureDualSlider.style.display = visible ? '' : 'none';
+    }
+    if (this.elements.pressureValue) {
+      this.elements.pressureValue.style.display = visible ? '' : 'none';
+    }
+    if (this.elements.pressureContainer) {
+      this.elements.pressureContainer.classList.toggle('no-track', !visible);
+    }
+  }
+
+  /**
    * Updates the lock/unlock state of a tool property button.
    * @param {string} property - Property name
    * @param {boolean} locked - Whether it's locked
