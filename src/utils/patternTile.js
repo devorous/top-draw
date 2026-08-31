@@ -7,6 +7,31 @@
  */
 
 /**
+ * The on-canvas long edge (in board pixels) that a pattern tile occupies at
+ * 100% scale, regardless of the source image's native resolution. Baselined on
+ * pepper.gbr (49×61), so pepper renders at 100% exactly as it always has and
+ * every other brush — a 1024px texture or a 200px SVG render — now matches its
+ * apparent size instead of being ~17× bigger or smaller.
+ */
+export const PATTERN_BASE_SIZE = 61;
+
+/**
+ * Resolves the pattern-scale factor to feed a DOMMatrix for a repeating fill.
+ * Combines the user's scale slider with the per-brush normalization that makes
+ * 100% mean {@link PATTERN_BASE_SIZE} pixels for every brush.
+ *
+ * @param {Object} user - The drawing user (reads patternScale).
+ * @param {HTMLCanvasElement|null} tile - Tile from {@link getPatternTile}.
+ * @returns {number} Scale factor for the pattern transform.
+ */
+export function getPatternDrawScale(user, tile) {
+  const userScale = (user.patternScale || 100) / 100;
+  const baseDim = tile?.patternBaseDim;
+  if (!baseDim) return userScale;
+  return userScale * (PATTERN_BASE_SIZE / baseDim);
+}
+
+/**
  * Builds the pattern tile canvas for a user's active pattern brush.
  *
  * @param {Object} user - The drawing user (reads patternBrush, color,
@@ -64,6 +89,11 @@ export function getPatternTile(user, cache) {
   tileCanvas.width = tileWidth + padding;
   tileCanvas.height = tileHeight + padding;
 
+  // Long edge of the image itself (padding excluded) — getPatternDrawScale
+  // divides by this so 100% is the same on-canvas size for every brush, while
+  // spacing still widens the gap proportionally.
+  tileCanvas.patternBaseDim = Math.max(tileWidth, tileHeight);
+
   const tctx = tileCanvas.getContext('2d');
 
   // Enable image smoothing for SVGs to render them smoothly without pixelation
@@ -83,18 +113,12 @@ export function getPatternTile(user, cache) {
 
   tempCtx.drawImage(img, 0, 0, tileWidth, tileHeight);
 
-  // GIMP greyscale brushes are often black-on-white; map white → transparent
-  // (black = opaque) so source-in tinting works.
-  if (brush.type === 'gbr' && brush.colorDepth === 1) {
-    const imageData = tempCtx.getImageData(0, 0, tileWidth, tileHeight);
-    const data = imageData.data;
-    for (let i = 0; i < data.length; i += 4) {
-      const brightness = (data[i] + data[i + 1] + data[i + 2]) / 3;
-      data[i + 3] = 255 - brightness;
-      data[i] = data[i + 1] = data[i + 2] = 0;
-    }
-    tempCtx.putImageData(imageData, 0, 0);
-  }
+  // NOTE: 1-byte-per-pixel .gbr brushes arrive here already in the right shape —
+  // `parseGbr` renders them as dark ink whose ALPHA is the ink density. An older
+  // white → transparent pass used to run here on the assumption they were still
+  // black-on-white; on parser output it read every transparent pixel as (0,0,0,0),
+  // computed brightness 0, and turned it fully opaque black — inverting the tile
+  // into a black slab. Don't reintroduce it.
 
   // Draw centered and optionally tinted.
   tctx.save();

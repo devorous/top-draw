@@ -1,6 +1,6 @@
 import { resetPreviewContext } from '../ui/StrokePreviewRenderer.js';
 import { Tool } from './BaseTool.js';
-import { getPatternTile } from '../utils/patternTile.js';
+import { getPatternTile, getPatternDrawScale } from '../utils/patternTile.js';
 import { ensureSizedCanvas } from '../utils/drawing.js';
 
 /**
@@ -209,11 +209,7 @@ export class PatternTool extends Tool {
     tempCanvas.height = h;
     const tempCtx = tempCanvas.getContext('2d');
 
-    let scale = (user.patternScale || 100) / 100;
-    // SVGs are rendered at 200px but should display as 40px at 100% scale
-    if (user.patternBrush && user.patternBrush.type === 'svg') {
-      scale *= 0.2; // 200px / 40px = 5, so multiply by 1/5
-    }
+    const scale = getPatternDrawScale(user, tile);
     const offsetX = user.patternOffsetX || 0;
     const offsetY = user.patternOffsetY || 0;
     const pattern = tempCtx.createPattern(tile, 'repeat');
@@ -280,7 +276,7 @@ export class PatternTool extends Tool {
     if (!tile) return;
 
     const size = user.size * (user.pressure || 1);
-    const scale = (user.patternScale || 100) / 100;
+    const scale = getPatternDrawScale(user, tile);
     const offsetX = user.patternOffsetX || 0;
     const offsetY = user.patternOffsetY || 0;
 
@@ -341,12 +337,7 @@ export class PatternTool extends Tool {
     }
 
     const pattern = ctx.createPattern(tile, 'repeat');
-    let scale = (user.patternScale || 100) / 100;
-    // SVGs are rendered at 200px but should display as 40px at 100% scale
-    if (user.patternBrush && user.patternBrush.type === 'svg') {
-      scale *= 0.2; // 200px / 40px = 5, so multiply by 1/5
-    }
-    scale *= this.board?.zoom || 1;
+    const scale = getPatternDrawScale(user, tile) * (this.board?.zoom || 1);
     const offsetX = user.patternOffsetX || 0;
     const offsetY = user.patternOffsetY || 0;
 

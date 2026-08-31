@@ -9,7 +9,7 @@
 
 import { blurImageData, getStackblurSync } from '../utils/blurUtils.js';
 import { FillWorkerClient } from '../workers/FillWorkerClient.js';
-import { getPatternTile } from '../utils/patternTile.js';
+import { getPatternTile, getPatternDrawScale } from '../utils/patternTile.js';
 
 /**
  * Flood fill tool using optimized scanline algorithm via Web Worker.
@@ -295,11 +295,7 @@ export class FloodFillTool {
       return this._renderMask(ctx, result, r, g, b, userOpacity, blurRadius, width, height, null);
     }
 
-    let scale = (user.patternScale || 100) / 100;
-    // SVGs are rendered at 200px but should display as 40px at 100% scale
-    if (user.patternBrush && user.patternBrush.type === 'svg') {
-      scale *= 0.2;
-    }
+    const scale = getPatternDrawScale(user, tile);
     const offsetX = user.patternOffsetX || 0;
     const offsetY = user.patternOffsetY || 0;
     const rotation = user.patternRotation || 0;

@@ -41,7 +41,10 @@ export class PatternBrushGallery extends BrushGallery {
       ...circleBrush,
       id: 'builtin:pattern:circle',
       source: 'builtin',
-      kind: this.kind
+      kind: this.kind,
+      // After pepper (order 0) in the flat list; these register before the
+      // manifest loads, so the order has to be explicit.
+      order: 1
     });
 
     // Square brush
@@ -57,7 +60,8 @@ export class PatternBrushGallery extends BrushGallery {
       ...squareBrush,
       id: 'builtin:pattern:square',
       source: 'builtin',
-      kind: this.kind
+      kind: this.kind,
+      order: 2
     });
   }
 
@@ -99,12 +103,12 @@ export class PatternBrushGallery extends BrushGallery {
 
 
 
-  _isFolderBrush(brush) {
+  _folderGroupId(brush) {
     // Keep circle and square in the main list, not in a folder
     if (brush?.id === 'builtin:pattern:circle' || brush?.id === 'builtin:pattern:square') {
-      return false;
+      return null;
     }
-    return super._isFolderBrush(brush);
+    return super._folderGroupId(brush);
   }
 
   /**

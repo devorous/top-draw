@@ -2,7 +2,7 @@
  * @fileoverview Brush Gallery - loads and displays GIMP or image brushes from the brushes folder.
  */
 import { parseGbr, parseGih } from '../utils/parseGimp.js';
-import { BRUSH_MANIFEST } from './brushManifest.js';
+import { BRUSH_MANIFEST, BRUSH_GROUPS } from './brushManifest.js';
 import { assetLibrary } from './AssetLibrary.js';
 
 /**
@@ -110,7 +110,9 @@ export class BrushGallery {
               id: `builtin:${this.kind}:${entry.file}`,
               source: 'builtin',
               kind: this.kind,
-              pinned: !!entry.pinned
+              pinned: !!entry.pinned,
+              group: entry.group || null,
+              order: entry.order
             });
           }
         } catch (err) {
@@ -397,43 +399,93 @@ export class BrushGallery {
     if (!this.shouldShowBrush(brush)) return;
     for (const listEl of this.listElements) {
       const item = this.createGalleryItem(brush);
-      if (this._isFolderBrush(brush)) {
-        const folder = this._ensureFolderForList(listEl);
+      const groupId = this._folderGroupId(brush);
+      if (groupId) {
+        const folder = this._ensureFolderForList(listEl, groupId);
         folder.querySelector('.brushFolderContent').appendChild(item);
         this._updateFolderCount(folder);
       } else {
-        listEl.appendChild(item);
+        this._insertFlatItem(listEl, item, brush);
       }
     }
   }
 
-  _isFolderBrush(brush) {
-    if (brush?.pinned) return false;
-    return brush?.type === 'svg';
+  /**
+   * Places a tile in the flat list at its manifest `order`, rather than simply
+   * appending — brushes arrive as their decodes resolve, so append order is not
+   * the authored order. Brushes without an `order` (uploads) go to the end.
+   * @private
+   */
+  _insertFlatItem(listEl, item, brush) {
+    const order = Number.isFinite(brush?.order) ? brush.order : Number.MAX_SAFE_INTEGER;
+    item.dataset.order = order;
+    const after = Array.from(listEl.querySelectorAll(':scope > .brushItem[data-order]'))
+      .find(el => Number(el.dataset.order) > order);
+    if (after) after.insertAdjacentElement('beforebegin', item);
+    else listEl.appendChild(item);
   }
 
-  _getFolderForList(listEl) {
-    const next = listEl?.nextElementSibling;
-    return next?.classList?.contains('brushFolder') ? next : null;
+  /**
+   * Which collapsible folder a brush belongs in, or null for the flat list.
+   * SVGs with no explicit group fall back to Icons so uploaded SVG assets —
+   * which carry no manifest entry — keep filing themselves there.
+   * @private
+   */
+  _folderGroupId(brush) {
+    if (brush?.pinned) return null;
+    if (brush?.group) return brush.group;
+    return brush?.type === 'svg' ? 'icons' : null;
   }
 
-  _ensureFolderForList(listEl) {
-    const existing = this._getFolderForList(listEl);
+  /**
+   * Every folder belonging to a list: they are inserted as consecutive
+   * siblings directly after it.
+   * @private
+   */
+  _getFoldersForList(listEl) {
+    const folders = [];
+    let next = listEl?.nextElementSibling;
+    while (next?.classList?.contains('brushFolder')) {
+      folders.push(next);
+      next = next.nextElementSibling;
+    }
+    return folders;
+  }
+
+  _ensureFolderForList(listEl, groupId) {
+    const folders = this._getFoldersForList(listEl);
+    const existing = folders.find(f => f.dataset.group === groupId);
     if (existing) return existing;
+
+    const order = BRUSH_GROUPS.findIndex(g => g.id === groupId);
+    const label = BRUSH_GROUPS[order]?.label || groupId;
+
     const folder = document.createElement('div');
     folder.className = 'brushFolder collapsed';
+    folder.dataset.group = groupId;
     folder.innerHTML = `
       <button type="button" class="brushFolderHeader">
         <span class="brushFolderCaret">▶</span>
-        <span class="brushFolderLabel">Icons</span>
+        <span class="brushFolderLabel"></span>
         <span class="brushFolderCount">0</span>
       </button>
       <div class="brushFolderContent"></div>
     `;
+    folder.querySelector('.brushFolderLabel').textContent = label;
     folder.querySelector('.brushFolderHeader').addEventListener('click', () => {
       folder.classList.toggle('collapsed');
     });
-    listEl.insertAdjacentElement('afterend', folder);
+
+    // Keep folders in BRUSH_GROUPS order regardless of the order brushes
+    // happen to finish loading in. Unknown groups sort to the end.
+    const rank = (el) => {
+      const i = BRUSH_GROUPS.findIndex(g => g.id === el.dataset.group);
+      return i === -1 ? BRUSH_GROUPS.length : i;
+    };
+    const myRank = order === -1 ? BRUSH_GROUPS.length : order;
+    const before = folders.find(f => rank(f) > myRank);
+    if (before) before.insertAdjacentElement('beforebegin', folder);
+    else (folders[folders.length - 1] || listEl).insertAdjacentElement('afterend', folder);
     return folder;
   }
 
@@ -449,8 +501,7 @@ export class BrushGallery {
   _clearGalleryTiles() {
     this.listElements.forEach(listEl => {
       listEl.querySelectorAll('.brushItem[data-asset-id]').forEach(t => t.remove());
-      const folder = this._getFolderForList(listEl);
-      if (folder) {
+      for (const folder of this._getFoldersForList(listEl)) {
         folder.querySelectorAll('.brushItem[data-asset-id]').forEach(t => t.remove());
         this._updateFolderCount(folder);
       }
@@ -652,8 +703,7 @@ export class BrushGallery {
   _clearSelectionInAllGalleries() {
     for (const listEl of this.listElements) {
       listEl.querySelectorAll('.brushItem.selected').forEach(el => el.classList.remove('selected'));
-      const folder = this._getFolderForList(listEl);
-      if (folder) {
+      for (const folder of this._getFoldersForList(listEl)) {
         folder.querySelectorAll('.brushItem.selected').forEach(el => el.classList.remove('selected'));
       }
     }

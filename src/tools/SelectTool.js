@@ -7,7 +7,7 @@ import { Homography } from '../utils/homography.js';
 import { debug } from '../utils/debug.js';
 import { performHomographyTransform, imageDataToCanvas, calculateCornerBounds, computeWarpOutputBounds } from '../utils/homographyUtils.js';
 import { pointInHull, distanceBasedCulling } from '../utils/drawing.js';
-import { getPatternTile } from '../utils/patternTile.js';
+import { getPatternTile, getPatternDrawScale } from '../utils/patternTile.js';
 import { paintHardenedEraseMask, needsHardenedEraseMask } from '../utils/eraseMask.js';
 import { Tool } from './BaseTool.js';
 import { assetLibrary } from '../ui/AssetLibrary.js';
@@ -138,11 +138,7 @@ export class SelectTool extends Tool {
       return;
     }
 
-    let scale = (user.patternScale || 100) / 100;
-    // SVGs are rendered at 200px but should display as 40px at 100% scale
-    if (user.patternBrush && user.patternBrush.type === 'svg') {
-      scale *= 0.2;
-    }
+    const scale = getPatternDrawScale(user, tile);
     const offsetX = user.patternOffsetX || 0;
     const offsetY = user.patternOffsetY || 0;
     const rotation = user.patternRotation || 0;
@@ -229,8 +225,7 @@ export class SelectTool extends Tool {
     if (this.patternMode) {
       const tile = this._getPatternTile(user);
       if (tile) {
-        let scale = (user.patternScale || 100) / 100;
-        if (user.patternBrush?.type === 'svg') scale *= 0.2;
+        const scale = getPatternDrawScale(user, tile);
         const pattern = ctx.createPattern(tile, 'repeat');
         const matrix = new DOMMatrix()
           .translate((user.patternOffsetX || 0) - offsetX, (user.patternOffsetY || 0) - offsetY)
