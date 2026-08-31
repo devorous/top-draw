@@ -1,7 +1,7 @@
 <script>
   import { appState } from '../../state.svelte.js';
 
-  let { apiBaseUrl = '', onClose = null } = $props();
+  let { apiBaseUrl = '', galleryBaseUrl = '/gallery', onClose = null } = $props();
 
   let visible = $derived(appState.galleryItemDialog.visible);
   let itemId = $derived(appState.galleryItemDialog.itemId);
@@ -185,7 +185,7 @@
             </div>
 
             <div class="footer">
-              <a href="/gallery/{encodeURIComponent(item.id)}" target="_blank" class="view-full-btn">
+              <a href="{galleryBaseUrl}/{encodeURIComponent(item.id)}" target="_blank" class="view-full-btn">
                 View in Gallery →
               </a>
             </div>

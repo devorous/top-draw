@@ -308,10 +308,13 @@ export function initSvelteUI(app) {
   const galleryItemDialogTarget = document.getElementById('galleryItemDialogMount');
   if (galleryItemDialogTarget) {
     const apiBase = import.meta.env.VITE_API_BASE_URL || '';
+    // In Tauri, relative URLs resolve to tauri://localhost — use absolute URL instead
+    const galleryBase = isTauriDesktop() ? 'https://ddraw.ca/gallery' : '/gallery';
     components.galleryItemDialog = mount(GalleryItemDialog, {
       target: galleryItemDialogTarget,
       props: {
-        apiBaseUrl: apiBase
+        apiBaseUrl: apiBase,
+        galleryBaseUrl: galleryBase
       }
     });
   }
@@ -726,7 +729,9 @@ export function initSvelteUI(app) {
                 },
                 onComment: (id) => {
                   // Open gallery in new tab focused on this image
-                  window.open(`/gallery/${encodeURIComponent(id)}`, '_blank');
+                  // In Tauri, relative URLs resolve to tauri://localhost — use absolute URL instead
+                  const galleryBase = isTauriDesktop() ? 'https://ddraw.ca/gallery' : '/gallery';
+                  window.open(`${galleryBase}/${encodeURIComponent(id)}`, '_blank');
                 }
               }
             });
