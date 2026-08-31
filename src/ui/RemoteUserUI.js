@@ -10,6 +10,11 @@ const REMOTE_CURSOR_IDLE_MS = 5000;
 const GROUP_HEADER_REFRESH_MS = 5000;
 const NOTIFY_USER_ACTIVE_THROTTLE_MS = 500;
 const RECENT_ACTIVITY_HIGHLIGHT_MS = 30000;
+// "Recently active" sorting buckets users into 30s activity bands rather than
+// ranking by exact timestamp, and only re-sorts every 15s — otherwise the
+// list reshuffles on every stroke as users trade the #1 spot.
+const ACTIVITY_BUCKET_MS = 30000;
+const ACTIVE_SORT_INTERVAL_MS = 15000;
 const RANK_CLASSES = ['rank-guest', 'rank-user', 'rank-trusted', 'rank-helper', 'rank-mod', 'rank-admin', 'rank-noble', 'rank-holy', 'rank-deity'];
 
 function renderRemotePreviewContent(element, text = '') {
@@ -64,6 +69,8 @@ export class RemoteUserUI {
     this._pendingCursorWrites = new Map(); // userId -> {x, y, size}
     this._cursorFlushScheduled = false;
 
+    this._activeSortIntervalTimer = null;
+
     this._initUserListSortControl();
   }
 
@@ -92,8 +99,29 @@ export class RemoteUserUI {
       } else {
         this.userListSortMode = 'joined';
       }
+      this._syncActiveSortInterval();
       this._applyUserListSort();
     });
+    this._syncActiveSortInterval();
+  }
+
+  /**
+   * "Recently active" sorting only needs to reshuffle every
+   * ACTIVE_SORT_INTERVAL_MS (buckets are coarser than that), so the periodic
+   * re-sort only runs while that mode is selected.
+   */
+  _syncActiveSortInterval() {
+    if (this.userListSortMode === 'active') {
+      if (this._activeSortIntervalTimer) return;
+      this._activeSortIntervalTimer = setInterval(() => {
+        this._applyUserListSort();
+      }, ACTIVE_SORT_INTERVAL_MS);
+      return;
+    }
+    if (this._activeSortIntervalTimer) {
+      clearInterval(this._activeSortIntervalTimer);
+      this._activeSortIntervalTimer = null;
+    }
   }
 
   _markUserJoined(userId, timestamp = Date.now()) {
@@ -155,6 +183,7 @@ export class RemoteUserUI {
     const userList = this.elements?.userList;
     if (!userList) return;
 
+    const now = Date.now();
     const items = this._getSortableUserListChildren();
     items.sort((a, b) => {
       const joinedDiff = Number(b.dataset.joinedAt || 0) - Number(a.dataset.joinedAt || 0);
@@ -162,9 +191,15 @@ export class RemoteUserUI {
       const nameDiff = (a.dataset.sortName || '').localeCompare(b.dataset.sortName || '');
 
       if (this.userListSortMode === 'active') {
-        if (activeDiff !== 0) return activeDiff;
-        if (joinedDiff !== 0) return joinedDiff;
-        return nameDiff;
+        // Bucket into 30s activity bands instead of ranking by exact
+        // timestamp — otherwise two users trading strokes swap places on
+        // every ping. Ties within a band fall back to name so ordering stays
+        // stable between re-sorts rather than drifting with stale timestamps.
+        const bucketA = Math.floor((now - Number(a.dataset.recentActivity || 0)) / ACTIVITY_BUCKET_MS);
+        const bucketB = Math.floor((now - Number(b.dataset.recentActivity || 0)) / ACTIVITY_BUCKET_MS);
+        if (bucketA !== bucketB) return bucketA - bucketB;
+        if (nameDiff !== 0) return nameDiff;
+        return joinedDiff;
       }
 
       if (this.userListSortMode === 'alphabetical') {
@@ -918,9 +953,10 @@ export class RemoteUserUI {
       }
     }
 
-    if (this.userListSortMode === 'active') {
-      this._applyUserListSort();
-    }
+    // Reordering itself is handled by the periodic interval in
+    // _syncActiveSortInterval — sort metadata above is kept fresh so that
+    // pass has accurate data, but resorting here too would reshuffle rows
+    // on every ping.
   }
 
   /**
