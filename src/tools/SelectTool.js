@@ -113,6 +113,7 @@ export class SelectTool extends Tool {
     this.lassoPath = null;
     this.originalSelection = null; // Stores uncropped selection bounds before auto-fit
     this.fitToContent = true; // Toggle: auto-crop selection to content bounds
+    this.exportPadding = 10; // px of transparent breathing room added around the image when saving/exporting a selection
     this.isMaskMode = false; // Mask mode: selection acts as drawing constraint, not pixel move
     this.extendedWarp = false; // Toggle: let folded (concave/crossed) warps spill beyond the selection bounds instead of clipping at the corner bbox
   }
@@ -4232,19 +4233,31 @@ export class SelectTool extends Tool {
   getSelectionExportCanvas() {
     if (!this.selection) return null;
 
+    let canvas;
     if (this.floatingCanvas) {
-      if (this.needsHomographyTransform()) {
-        return this.getTransformedCanvas();
+      canvas = this.needsHomographyTransform() ? this.getTransformedCanvas() : this.floatingCanvas;
+    } else {
+      const s = this.selection;
+      canvas = this._flattenSelectionToCanvas(s);
+      if (this.mode === 'lasso' && this.lassoPath) {
+        this.applyLassoMask(canvas.getContext('2d'), s.x, s.y, this.lassoPath);
       }
-      return this.floatingCanvas;
     }
 
-    const s = this.selection;
-    const canvas = this._flattenSelectionToCanvas(s);
-    if (this.mode === 'lasso' && this.lassoPath) {
-      this.applyLassoMask(canvas.getContext('2d'), s.x, s.y, this.lassoPath);
-    }
-    return canvas;
+    return this._padExportCanvas(canvas);
+  }
+
+  // Adds transparent breathing room around a selection export. Fit-to-content
+  // snaps the selection flush to the exact opaque pixel bounds, so without this
+  // the saved image would touch the edge of the frame with no margin.
+  _padExportCanvas(canvas) {
+    const padding = this.exportPadding;
+    if (!canvas || !padding) return canvas;
+    const out = document.createElement('canvas');
+    out.width = canvas.width + padding * 2;
+    out.height = canvas.height + padding * 2;
+    out.getContext('2d').drawImage(canvas, padding, padding);
+    return out;
   }
 
   /**
