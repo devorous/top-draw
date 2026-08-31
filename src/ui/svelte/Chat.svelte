@@ -39,6 +39,14 @@
   const MENTION_CANDIDATE_RE = /(^|\s)@([A-Za-z0-9_-]*)$/;
   const MENTION_TOKEN_RE = /(^|\s)@([A-Za-z0-9_-]{1,32})\b/g;
   const CHAT_PIN_STORAGE_KEY = 'topdraw-chat-pinned';
+  // The name gutter is a fixed-width CSS grid track (--chat-name-col below) so
+  // every message body lines up on the same x. Truncating the label ourselves
+  // — rather than leaning on CSS text-overflow against a right-aligned box —
+  // keeps the "…" visible: text-overflow only clips at an inline's end edge,
+  // which for right-aligned overflow is the wrong side, so long names were
+  // disappearing behind the box edge with no ellipsis at all.
+  const CHAT_NAME_DISPLAY_MAX = 14;
+  const CHAT_NAME_DISPLAY_MAX_MOBILE = 10;
   /* Peek stack: how long the last lines linger on the canvas after the room
      goes quiet, and how much slack the pointer gets before the window folds
      back down (so clipping a corner doesn't slam it shut mid-read). */
@@ -1311,6 +1319,13 @@
     return user.visibleIp ? `${roleName} | ${user.visibleIp}` : roleName;
   }
 
+  function displayChatName(name) {
+    const value = String(name || '');
+    const max = isMobile() ? CHAT_NAME_DISPLAY_MAX_MOBILE : CHAT_NAME_DISPLAY_MAX;
+    if (value.length <= max) return value;
+    return `${value.slice(0, max - 1)}…`;
+  }
+
   /* The name column truncates, so the tooltip has to carry the full name —
      the moderator meta is appended rather than replacing it. */
   function messageUserTitle(msg) {
@@ -2236,7 +2251,31 @@
       if (event.key !== 'Escape' || (!visible && !isPopout)) return;
       event.preventDefault();
       event.stopPropagation();
-      void closeChatWindow();
+
+      // Popout is a real OS window and mobile has no minimized/peek state to
+      // fold into — Escape just closes there, as before.
+      if (isPopout || isMobile()) {
+        void closeChatWindow();
+        return;
+      }
+
+      // First Escape folds the ambient HUD down to its minimized peek dot;
+      // a second Escape while already minimized closes the chat outright.
+      if (hudPinned || hudOpen) {
+        if (hudPinned) {
+          hudPinned = false;
+          try {
+            localStorage.setItem(CHAT_PIN_STORAGE_KEY, '0');
+          } catch {
+            /* private mode — the pin just won't survive a reload */
+          }
+        }
+        collapseHud({ force: true });
+        composerInputEl?.blur();
+        return;
+      }
+
+      hide();
     };
 
     window.addEventListener('mousemove', onDrag);
@@ -2313,7 +2352,7 @@
          first instead of the follow-ups jumping left into the name's gutter. -->
     {#if msg.type !== 'system'}
       <div class="message-author">
-        <button class={`message-user ${getRoleClass(msg.userId, msg.userRole)}`} oncontextmenu={(event) => openUserContextMenu(event, msg.userId)} title={messageUserTitle(msg)} type="button">{msg.username}</button>
+        <button class={`message-user ${getRoleClass(msg.userId, msg.userRole)}`} oncontextmenu={(event) => openUserContextMenu(event, msg.userId)} title={messageUserTitle(msg)} type="button">{displayChatName(msg.username)}</button>
       </div>
     {/if}
     <div class="message-body">
@@ -2835,9 +2874,12 @@
        token is #f0f2f5 — hue 210 at 20% saturation — which reads violet over a
        warm or busy board. Snow is neutral at full brightness. */
     --chat-ink: #fbfbfb;
-    /* Widths of the message stream's clock and name gutters — see .message-row. */
+    /* Widths of the message stream's clock and name gutters — see .message-row.
+       The name gutter is sized to comfortably hold CHAT_NAME_DISPLAY_MAX
+       (14) characters of the bold 0.9rem name label without triggering the
+       fallback CSS truncation. */
     --chat-time-col: 32px;
-    --chat-name-col: 78px;
+    --chat-name-col: 108px;
     position: fixed;
     right: 18px;
     bottom: 22px;
@@ -2865,9 +2907,10 @@
      chat-open-mobile effect), so the window centers in the full viewport.
      Dragging still wins — inline left/top override these defaults. */
   :global(html[data-mobile='true']) .chat-shell:not(.popout) {
-    /* Narrower gutters — a phone can't spare 110px of the message column. */
+    /* Narrower gutters — a phone can't spare 110px of the message column.
+       Sized for CHAT_NAME_DISPLAY_MAX_MOBILE (10) characters. */
     --chat-time-col: 30px;
-    --chat-name-col: 62px;
+    --chat-name-col: 82px;
     --chat-mobile-w: calc(100vw - 24px);
     --chat-mobile-h: min(540px, calc(100dvh - 170px));
     /* !important: the (max-width: 640px) fallback below forces mini
@@ -4031,6 +4074,17 @@
     grid-column: 1 / 3;
   }
 
+  /* An image among the last few lines shouldn't blow the minimized peek
+     plate up to full message-view size — cap it to a small thumbnail so it
+     stays unobtrusive sitting over the canvas. */
+  .chat-shell.hud.peek .chat-image-card {
+    max-width: 160px;
+  }
+
+  .chat-shell.hud.peek .chat-image {
+    max-height: 72px;
+  }
+
   /* The bar becomes a small solid pill holding the dot and the current channel
      — the one thing that is always on screen, so an empty or silent room still
      has something to see and to aim at. It is shrink-wrapped rather than
@@ -4291,6 +4345,12 @@
   .chat-main {
     display: grid;
     grid-template-rows: minmax(0, 1fr) auto;
+    /* .chat-content is a flex row and .chat-main is its only item — without an
+       explicit grow it sizes to its content's max-content width instead of
+       filling the row, which starves the minmax(0, 1fr) message column and
+       leaves the message section short of the window's right edge. */
+    flex: 1 1 auto;
+    width: 100%;
     min-width: 0;
     min-height: 0;
     background: transparent;
@@ -4600,9 +4660,11 @@
     border-bottom: 0;
   }
 
-  /* System lines have no author — they take the name gutter as well. */
+  /* System lines have no author, but the body still starts in the message
+     column (3) rather than swallowing the name gutter — otherwise "joined" /
+     "left" text would sit to the left of where every other message starts. */
   .message-row.system .message-body {
-    grid-column: 2 / 4;
+    grid-column: 3 / 4;
   }
 
   /* Grouped rows drop the repeated name but keep its cell, so the run stays in
