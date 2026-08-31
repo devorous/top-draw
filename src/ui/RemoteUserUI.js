@@ -239,7 +239,13 @@ export class RemoteUserUI {
 
   _isRemoteTextActive(userId) {
     const user = window.app?.users?.get(Number(userId));
-    return user?.tool === 'text' && typeof user.text === 'string' && user.text.length > 0;
+    if (!user) return false;
+    // An in-progress draft exempts the cursor from idle-hiding so we don't hide
+    // someone mid-sentence — but the exemption had no upper bound, so a draft
+    // that is never finished pins that cursor to the board permanently. AFK is
+    // the bound: five minutes of silence means they are not still typing.
+    if (user.afk) return false;
+    return user.tool === 'text' && typeof user.text === 'string' && user.text.length > 0;
   }
 
   _setCursorLayerVisibility(userId, visible) {
@@ -1275,6 +1281,12 @@ export class RemoteUserUI {
 
     const tool = window.app?.users?.get(Number(userId))?.tool ?? 'brush';
     this.updateRemoteToolIcon(userId, tool);
+
+    // Going AFK dims the cursor but never retired it, and an AFK user sends
+    // nothing further — so no later event would ever arm the idle-hide. Arm it
+    // on the transition itself; markRemoteCursorActivity brings the cursor back
+    // the moment they move again.
+    this._scheduleCursorIdleHide(userId);
   }
 
   /**

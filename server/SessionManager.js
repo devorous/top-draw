@@ -118,6 +118,13 @@ export class SessionManager {
    * @param {number} index - The session index to free.
    */
   freeSessionIndex(index) {
+    // Idempotent. A session can be retired from more than one place — a kick
+    // retires it immediately and the socket's own 'close' arrives afterwards
+    // with the same index, and the orphan sweep can race a close the same way.
+    // Pushing twice puts one index in the pool twice, and it is then handed to
+    // two different users, which is the sessionIndex collision the reuse
+    // predicate in allocateSessionIndex exists to avoid.
+    if (this.freedIndices.includes(index)) return;
     this.freedIndices.push(index);
   }
 

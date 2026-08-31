@@ -1811,6 +1811,9 @@ async function init() {
   console.log('[Server] RoomManager initialized');
   initAsnCheck();
 
+  ghostSweepInterval = setInterval(sweepOrphanedSessions, GHOST_SWEEP_INTERVAL_MS);
+  ghostSweepInterval.unref?.();
+
   // Push supporter status changes from Stripe webhooks to live sessions so
   // gold cosmetics apply/lapse without a re-login.
   setSupporterChangeNotifier((userId, isSupporter) => {
@@ -3092,6 +3095,10 @@ const RECENT_SESSION_TTL_MS = 10 * 60 * 1000;
 
 function recordRecentSession(room, sessionIndex, ws) {
   if (!room || sessionIndex === undefined || !ws) return;
+  // A kick or an orphan sweep may have no socket left to read identity from.
+  // Don't overwrite a good entry (recorded by an earlier close) with an empty
+  // one — the mod-action path reads this back to resolve unban/unmute targets.
+  if (!ws.userId && !ws.username && !ws.clientIp && room._recentSessions?.has(sessionIndex)) return;
   if (!room._recentSessions) room._recentSessions = new Map();
   room._recentSessions.set(sessionIndex, {
     userId: ws.userId || null,
@@ -3115,13 +3122,18 @@ function getRecentSession(room, sessionIndex) {
 
 function finalizeSessionRemoval(room, sessionIndex, ws) {
   if (!room || sessionIndex === undefined) return;
+  // Reachable more than once for the same index: a kick retires the session up
+  // front and the socket's eventual 'close' follows, and the orphan sweep can
+  // race a close. Only the visible half (the LEFT peers prune the cursor on) is
+  // gated on the record still existing; the bookkeeping below is idempotent.
+  const hadUser = !!room.sessionManager.getUser(sessionIndex);
   recordRecentSession(room, sessionIndex, ws);
   room.clearPendingSnapshotRequest?.(sessionIndex);
   room.sessionManager.removeUser(sessionIndex);
   room.sessionManager.freeSessionIndex(sessionIndex);
   // Discard any in-flight stroke geometry the departing user never committed.
   room.strokeTape?.dropUser?.(sessionIndex);
-  if (!ws.isShadowBanned) {
+  if (hadUser && !ws.isShadowBanned) {
     broadcastToRoom(room, { t: T.LEFT, u: sessionIndex });
   }
 
@@ -3138,6 +3150,60 @@ function finalizeSessionRemoval(room, sessionIndex, ws) {
 
   if (room.getClientCount() === 0 && !(room.pendingDisconnects?.size)) {
     roomManager.cleanupEmptyRooms();
+  }
+}
+
+// A user record in a room's SessionManager is only ever removed by its socket's
+// 'close' handler. When that close never fires — a wedged tab whose transport
+// stays half-open past the ping reaper, a socket whose room lookup came back
+// null, a client that vanished mid room-switch — the record outlives the
+// connection with nothing to reconcile the two. Peers keep drawing that cursor
+// forever, the user never goes AFK (checkAfkUsers marks them, but there is
+// no one to stop sending; they simply sit there), and a moderator's kick found
+// no socket to close and did nothing.
+//
+// Two strikes rather than one: a sweep can land in a window where the socket is
+// legitimately not yet OPEN, and 60s of ghost beats reaping a live user.
+const GHOST_SWEEP_INTERVAL_MS = 30_000;
+const GHOST_SWEEP_STRIKES = 2;
+let ghostSweepInterval;
+
+// How long a kicked socket gets to acknowledge its close frame before we drop
+// the transport outright. Long enough for a healthy client to see code 4002 and
+// show "you were kicked", short enough that a wedged one doesn't hold its slot.
+const KICK_TERMINATE_GRACE_MS = 3_000;
+
+function sweepOrphanedSessions() {
+  if (!roomManager?.rooms) return;
+
+  for (const room of roomManager.rooms.values()) {
+    if (!room.sessionManager) continue;
+    const strikes = room._orphanStrikes || (room._orphanStrikes = new Map());
+    const doomed = [];
+
+    room.sessionManager.users.forEach((user, sessionIndex) => {
+      if (hasOpenClientForSession(room, sessionIndex) || isSessionPendingDisconnect(room, sessionIndex)) {
+        strikes.delete(sessionIndex);
+        return;
+      }
+      const count = (strikes.get(sessionIndex) || 0) + 1;
+      strikes.set(sessionIndex, count);
+      if (count >= GHOST_SWEEP_STRIKES) doomed.push(sessionIndex);
+    });
+
+    // Strikes for indices that are no longer users at all (already departed).
+    for (const sessionIndex of [...strikes.keys()]) {
+      if (!room.sessionManager.getUser(sessionIndex)) strikes.delete(sessionIndex);
+    }
+
+    for (const sessionIndex of doomed) {
+      const name = room.sessionManager.getUser(sessionIndex)?.name || '<unnamed>';
+      console.warn(`[WS] Sweeping orphaned session ${sessionIndex} ("${name}") in room "${room.id}" — no open socket`);
+      strikes.delete(sessionIndex);
+      finalizeSessionRemoval(room, sessionIndex, getRoomClientBySessionIndex(room, sessionIndex) || {});
+    }
+
+    if (doomed.length) broadcastUsersForRoom(room);
   }
 }
 
@@ -3995,7 +4061,7 @@ wss.on('connection', async (ws, req) => {
 
             debug(`[Mod] MOD_ACTION received: type=${modActionType}, target=${modTargetIndex}, targetWs=${!!targetWs}`);
             switch (modActionType) {
-              case 0: // Kick
+              case 0: { // Kick
                 if (targetRole > issuerAuthority) {
                   rejectProtectedTarget('Cannot kick a user with a higher role than your own');
                   break;
@@ -4009,14 +4075,43 @@ wss.on('connection', async (ws, req) => {
                   modIssuerName: ws.username || `User ${ws.sessionIndex}`,
                   modReason: modReason
                 });
-                if (targetWs) {
+
+                // A kick has to outlast the reconnect grace window, or the
+                // target's tab replays its resumeKey and walks straight back in
+                // on the same sessionIndex.
+                clearPendingDisconnectsForSession(room, modTargetIndex);
+
+                // targetWs only matches OPEN sockets. The user a moderator
+                // reaches for the kick button for is often precisely the one
+                // whose socket is already CLOSING, or gone entirely with just
+                // the user record (and its cursor) left behind — so fall back to
+                // the room's client for this index, and retire the session
+                // either way instead of leaving the kick a no-op.
+                const kickSocket = targetWs || getRoomClientBySessionIndex(room, modTargetIndex);
+                if (kickSocket) {
                   debug(`[MOD] CLOSING ws for sessionIndex=${modTargetIndex}`);
-                  targetWs.close(4002, 'Kicked');
+                  kickSocket.kicked = true;
+                  try { kickSocket.close(4002, 'Kicked'); } catch (_) {}
+                  // close() only queues a close frame and waits for the peer to
+                  // answer it. A frozen client never answers, and ws then sits
+                  // on its 30s close timeout before emitting 'close'.
+                  const killTimer = setTimeout(() => {
+                    if (kickSocket.readyState !== WebSocket.CLOSED) {
+                      try { kickSocket.terminate(); } catch (_) {}
+                    }
+                  }, KICK_TERMINATE_GRACE_MS);
+                  killTimer.unref?.();
                 } else {
-                  debug(`[MOD] TARGET NOT FOUND for sessionIndex=${modTargetIndex}`);
-                  debug(`[MOD] All client sessionIndexes:`, [...wss.clients].map(c => c.sessionIndex));
+                  debug(`[MOD] No socket for sessionIndex=${modTargetIndex}; retiring ghost session`);
                 }
+                finalizeSessionRemoval(room, modTargetIndex, kickSocket || {});
+                // Detach the index from the socket: a message still in flight
+                // from a wedged client must not act as the kicked user, and the
+                // socket's eventual 'close' must not re-run the departure.
+                if (kickSocket) kickSocket.sessionIndex = undefined;
+                broadcastUsersForRoom(room);
                 break;
+              }
 
               case 1: { // Mute
                 if (targetRole >= Role.MOD) {
@@ -5573,7 +5668,10 @@ wss.on('connection', async (ws, req) => {
     // can see them reappear without allocating a new slot.
     const INTENTIONAL_CLOSE_CODES = new Set([4000, 4001, 4002, 4003, 4009, 4401, 4408]);
     const isIntentionalClose = INTENTIONAL_CLOSE_CODES.has(Number(code));
-    const canResume = !!ws.resumeKey && !ws.isShadowBanned && !isIntentionalClose;
+    // A kicked socket that had to be terminated closes as 1006, not 4002, so the
+    // code alone would read as an accidental drop and hold the slot open for a
+    // resume — handing the kicked user their session back.
+    const canResume = !!ws.resumeKey && !ws.isShadowBanned && !isIntentionalClose && !ws.kicked;
 
     if (canResume) {
       const user = room.sessionManager.getUser(sessionIndex);
@@ -5632,6 +5730,7 @@ function gracefulShutdown(signal) {
   setTimeout(() => {
     metricsTracker.stop?.();
     clearInterval(onlineUsersLogInterval);
+    clearInterval(ghostSweepInterval);
     process.exit(0);
   }, 8000);
 }
