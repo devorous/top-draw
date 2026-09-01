@@ -861,10 +861,31 @@ export class Board {
   }
 
   /**
-   * Toggle a local-only horizontal flip of the viewport.
+   * Toggle a local-only horizontal flip of the viewport, adjusting pan so the
+   * point currently centered in the viewport stays centered after the flip
+   * (mirroring happens around the board's own left edge otherwise, which
+   * jumps the visible content whenever the view is panned or zoomed).
    * @returns {boolean} New flip state
    */
   toggleCanvasFlip() {
+    const width = this.getWidth();
+    const rad = this.rotation * Math.PI / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+
+    const pivotX = this.container.clientWidth / 2;
+    const pivotY = this.container.clientHeight / 2;
+
+    const dx = pivotX - this.panX;
+    const dy = pivotY - this.panY;
+    const fx = (dx * cos + dy * sin) / this.zoom;
+    const fy = (-dx * sin + dy * cos) / this.zoom;
+
+    // Toggling flip mirrors this point across the board's vertical centerline.
+    const fx2 = width - fx;
+    this.panX = pivotX - this.zoom * (fx2 * cos - fy * sin);
+    this.panY = pivotY - this.zoom * (fx2 * sin + fy * cos);
+
     this.canvasFlipped = !this.canvasFlipped;
     this.applyTransform();
     return this.canvasFlipped;
