@@ -1400,6 +1400,22 @@
     syncPinnedState(view, event.currentTarget);
   }
 
+  // A message arriving mid-gesture forces scrollTop back to the bottom before
+  // the scroll event above has a chance to register the user as unpinned —
+  // wheel/touch input never gets far enough past the near-bottom threshold to
+  // escape it. Track "hand is on the scroll" separately so the auto-scroll
+  // effects can back off for the duration of the gesture instead of fighting it.
+  let userScrollActive = $state(false);
+  let userScrollTimer = null;
+
+  function markUserScrollActive() {
+    userScrollActive = true;
+    clearTimeout(userScrollTimer);
+    userScrollTimer = setTimeout(() => {
+      userScrollActive = false;
+    }, 200);
+  }
+
   function jumpToPresent() {
     const view = activeView === 'staff' ? 'staff' : activeView === 'dm' ? 'dm' : 'all';
     const element = view === 'dm' ? dmMessagesEl : publicMessagesEl;
@@ -2093,12 +2109,12 @@
 
   $effect(() => {
     messages.all.length;
-    if (visible && activeView === 'all' && chatPinnedToBottom.all) scrollToBottom(publicMessagesEl);
+    if (visible && activeView === 'all' && chatPinnedToBottom.all && !userScrollActive) scrollToBottom(publicMessagesEl);
   });
 
   $effect(() => {
     messages.staff.length;
-    if (visible && activeView === 'staff' && chatPinnedToBottom.staff) scrollToBottom(publicMessagesEl);
+    if (visible && activeView === 'staff' && chatPinnedToBottom.staff && !userScrollActive) scrollToBottom(publicMessagesEl);
   });
 
   $effect(() => {
@@ -2131,7 +2147,7 @@
     activeDMMessages.length;
     if (visible && activeView === 'dm' && recipient) {
       markThreadRead(recipient.id);
-      if (chatPinnedToBottom.dm) scrollToBottom(dmMessagesEl);
+      if (chatPinnedToBottom.dm && !userScrollActive) scrollToBottom(dmMessagesEl);
     }
   });
 
@@ -2613,7 +2629,7 @@
           </section>
         {:else if activeView === 'dm' && recipient}
           <section class="conversation-view">
-            <div class="message-stream dm-stream" bind:this={dmMessagesEl} onscroll={(event) => handleMessageScroll('dm', event)}>
+            <div class="message-stream dm-stream" bind:this={dmMessagesEl} onscroll={(event) => handleMessageScroll('dm', event)} onwheel={markUserScrollActive} ontouchmove={markUserScrollActive}>
               {#if activeDMMessages.length === 0}
                 <div class="message-empty">This thread is empty. Say hi.</div>
               {:else}
@@ -2630,7 +2646,7 @@
           </section>
         {:else if activeView === 'staff'}
           <section class="conversation-view">
-            <div class="message-stream" bind:this={publicMessagesEl} onscroll={(event) => handleMessageScroll('staff', event)}>
+            <div class="message-stream" bind:this={publicMessagesEl} onscroll={(event) => handleMessageScroll('staff', event)} onwheel={markUserScrollActive} ontouchmove={markUserScrollActive}>
               {#if messages.staff.length > 0}
                 {#each groupedStaffMessages as msg (msg.id)}
                   {@render channelRow(msg)}
@@ -2640,7 +2656,7 @@
           </section>
         {:else}
           <section class="conversation-view">
-            <div class="message-stream" bind:this={publicMessagesEl} onscroll={(event) => handleMessageScroll('all', event)}>
+            <div class="message-stream" bind:this={publicMessagesEl} onscroll={(event) => handleMessageScroll('all', event)} onwheel={markUserScrollActive} ontouchmove={markUserScrollActive}>
               {#if messages.all.length === 0}
                 <div class="message-empty"></div>
               {:else}
