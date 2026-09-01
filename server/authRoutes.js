@@ -350,6 +350,68 @@ export async function handleAuthLogin(req, res) {
 }
 
 /**
+ * Reclaims an admin-reset account: sets a new password on the existing user
+ * document (same _id) and clears the reset flag, rather than creating a new
+ * account under the same username.
+ */
+async function completeAccountReclaim(req, res, db, existing, { username, password, email, secretQuestion, secretAnswer, identity, clientIp, clientSubnet }) {
+  const passwordHash = await hashPassword(password);
+  const secretAnswerHash = secretAnswer ? await hashPassword(secretAnswer.toLowerCase()) : (existing.secretAnswerHash || null);
+  const role = existing.role ?? Role.USER;
+
+  await db.collection('users').updateOne(
+    { _id: existing._id },
+    {
+      $set: {
+        passwordHash,
+        email: email || existing.email || null,
+        secretQuestion: secretQuestion || existing.secretQuestion || null,
+        secretAnswerHash,
+        lastLoginAt: new Date(),
+        lastIp: clientIp,
+        lastSubnet: clientSubnet || null,
+        lastDeviceId: identity.deviceId || null,
+        lastFingerprintId: identity.fingerprintId || null,
+        lastIdentitySummary: identity.identitySummary,
+        ipHistory: mergeHistory(existing.ipHistory, clientIp),
+        subnetHistory: mergeHistory(existing.subnetHistory, clientSubnet),
+        deviceIds: mergeHistory(existing.deviceIds, identity.deviceId),
+        fingerprintIds: mergeHistory(existing.fingerprintIds, identity.fingerprintId),
+      },
+      $unset: { isReset: '', resetAt: '', resetBy: '' },
+    }
+  );
+
+  await recordConnectionEvent(db, {
+    type: 'http_register_reclaim',
+    source: 'http',
+    userId: existing._id.toString(),
+    username,
+    ip: clientIp,
+    subnet: clientSubnet,
+    deviceId: identity.deviceId || null,
+    fingerprintId: identity.fingerprintId || null,
+    identitySummary: identity.identitySummary,
+    userAgent: String(req.headers['user-agent'] || '').slice(0, 512),
+  });
+
+  const token = generateToken({
+    userId: existing._id.toString(),
+    username,
+    role,
+  });
+
+  json(res, 200, {
+    success: true,
+    token,
+    userId: existing._id.toString(),
+    username,
+    role,
+    likedGalleryIds: Array.isArray(existing.likedGalleryIds) ? existing.likedGalleryIds : [],
+  });
+}
+
+/**
  * POST /api/auth/register — create new account
  * Body: { username, password, email?, secretQuestion?, secretAnswer? }
  * Returns: { success, token, username, role } or { success: false, error }
@@ -407,6 +469,13 @@ export async function handleAuthRegister(req, res) {
       { collation: { locale: 'en', strength: 2 } }
     );
     if (existing) {
+      // An admin flagged this account for reset (see the admin panel's "Reset
+      // Account" action) — let the owner reclaim the same username/_id instead
+      // of bouncing them to a "taken" error, so their gallery items, badges,
+      // and achievement stats (all keyed off the user's _id) survive.
+      if (existing.isReset) {
+        return completeAccountReclaim(req, res, db, existing, { username, password, email, secretQuestion, secretAnswer, identity, clientIp, clientSubnet });
+      }
       return json(res, 409, { success: false, error: 'Username already taken' });
     }
 

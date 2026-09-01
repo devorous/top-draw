@@ -144,6 +144,19 @@ const ADMIN_SORT_FIELDS = new Set([
   'views',
   'role'
 ]);
+
+// Per-collection field(s) the admin DB browser's search box matches against
+// (case-insensitive regex, OR'd together). Collections with no plain-text
+// identifying field (favorites, messages) are omitted — search is a no-op there.
+const ADMIN_SEARCH_FIELDS = {
+  users: ['username', 'email'],
+  moderation: ['targetUsername', 'issuedByUsername'],
+  rooms: ['ownerUsername'],
+  gallery: ['author'],
+  comments: ['author'],
+  connection_events: ['username'],
+};
+
 const VERSION_JSON_PATH = pathModule.join(__dirname, '..', 'public', 'version.json');
 const VERSION_POLICY_CACHE_MS = 5000;
 
@@ -1141,12 +1154,30 @@ const server = createServer(async (req, res) => {
     const requestedSortBy = String(url.searchParams.get('sortBy') || '_id');
     const sortBy = ADMIN_SORT_FIELDS.has(requestedSortBy) ? requestedSortBy : '_id';
     const sortDir = String(url.searchParams.get('sortDir') || 'desc').toLowerCase() === 'asc' ? 1 : -1;
+    const search = String(url.searchParams.get('search') || '').trim().slice(0, 100);
+
+    const filter = {};
+    const searchFields = ADMIN_SEARCH_FIELDS[collectionName];
+    if (search && searchFields?.length) {
+      const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      filter.$or = searchFields.map(field => ({ [field]: { $regex: escaped, $options: 'i' } }));
+    }
 
     const collection = db.collection(collectionName);
-    const [documents, total] = await Promise.all([
-      collection.find({}).sort({ [sortBy]: sortDir, _id: sortDir }).skip(skip).limit(limit).toArray(),
-      collection.countDocuments()
+    const [rawDocuments, total] = await Promise.all([
+      collection.find(filter).sort({ [sortBy]: sortDir, _id: sortDir }).skip(skip).limit(limit).toArray(),
+      collection.countDocuments(filter)
     ]);
+
+    // Moderation rows only store raw ids; surface whether the mod/target were
+    // logged-in accounts (vs. guests identified by IP/device) for the panel.
+    const documents = collectionName === 'moderation'
+      ? rawDocuments.map(doc => ({
+        ...doc,
+        issuedByRegistered: !!doc.issuedBy,
+        targetRegistered: !!doc.targetUserId,
+      }))
+      : rawDocuments;
 
     json(res, 200, {
       collection: collectionName,
@@ -1155,8 +1186,54 @@ const server = createServer(async (req, res) => {
       skip,
       sortBy,
       sortDir: sortDir === 1 ? 'asc' : 'desc',
+      search,
       documents: documents.map(sanitizeAdminDoc)
     });
+    return;
+  }
+
+  // Flags an account for password reset: clears its password hash and marks it
+  // `isReset` so the owner can reclaim the same username through the normal
+  // register form (see handleAuthRegister) without losing their gallery items,
+  // badges, or achievement stats, which stay attached to the same _id.
+  const adminUserResetMatch = path.match(/^\/api\/admin\/users\/([a-fA-F0-9]{24})\/reset$/);
+  if (adminUserResetMatch && req.method === 'POST') {
+    const adminUser = await getAdminHttpUser(req);
+    if (!adminUser) {
+      json(res, 403, { error: 'Forbidden' });
+      return;
+    }
+
+    const db = getDB();
+    if (!db) {
+      json(res, 503, { error: 'Database unavailable' });
+      return;
+    }
+
+    try {
+      const result = await db.collection('users').findOneAndUpdate(
+        { _id: new ObjectId(adminUserResetMatch[1]) },
+        {
+          $set: {
+            passwordHash: null,
+            isReset: true,
+            resetAt: new Date(),
+            resetBy: adminUser.username,
+          }
+        },
+        { returnDocument: 'after', projection: { username: 1 } }
+      );
+
+      if (!result) {
+        json(res, 404, { error: 'User not found' });
+        return;
+      }
+
+      json(res, 200, { success: true, username: result.username });
+    } catch (err) {
+      console.error('[Admin] Account reset failed:', err);
+      json(res, 500, { error: 'Reset failed' });
+    }
     return;
   }
 

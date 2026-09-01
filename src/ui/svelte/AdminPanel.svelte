@@ -18,6 +18,14 @@
     'messages'
   ];
   const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
+  const COLLECTION_SEARCH_PLACEHOLDER = {
+    users: 'Search username or email',
+    moderation: 'Search mod or target username',
+    rooms: 'Search owner username',
+    gallery: 'Search author',
+    comments: 'Search author',
+    connection_events: 'Search username'
+  };
   const SORT_OPTIONS = [
     { value: '_id', label: 'Inserted' },
     { value: 'createdAt', label: 'Created' },
@@ -56,6 +64,8 @@
   let collectionLimit = $state(25);
   let collectionSortBy = $state('_id');
   let collectionSortDir = $state('desc');
+  let collectionSearchInput = $state('');
+  let collectionSearch = $state('');
   let collectionData = $state({ documents: [], total: 0, collection: 'users', limit: 25, skip: 0 });
   let expandedDocId = $state('');
   let globalMessage = $state('');
@@ -144,6 +154,38 @@
     return data;
   }
 
+  async function postAdmin(path) {
+    const token = getToken();
+    const res = await fetch(`${API_BASE}${path}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data?.error || 'Request failed');
+    }
+    return data;
+  }
+
+  async function resetUserAccount(doc) {
+    const id = doc?._id;
+    if (!id) return;
+    const username = getDocLabel(doc);
+    if (!confirm(`Reset ${username}'s account? They'll need to re-register with the same username to set a new password. Their gallery items, badges, and stats are kept.`)) {
+      return;
+    }
+
+    error = '';
+    try {
+      await postAdmin(`/api/admin/users/${encodeURIComponent(id)}/reset`);
+      await loadCollection(selectedCollection);
+    } catch (err) {
+      error = err?.message || 'Failed to reset account';
+    }
+  }
+
   async function loadStats() {
     statsLoading = true;
     error = '';
@@ -178,6 +220,7 @@
         sortBy: collectionSortBy,
         sortDir: collectionSortDir
       });
+      if (collectionSearch) params.set('search', collectionSearch);
       collectionData = await fetchAdmin(`/api/admin/collections/${encodeURIComponent(collectionName)}?${params}`);
     } catch (err) {
       error = err?.message || 'Failed to load collection';
@@ -365,8 +408,26 @@
   function chooseCollection(name) {
     selectedCollection = name;
     collectionPage = 0;
+    collectionSearchInput = '';
+    collectionSearch = '';
     expandedDocId = '';
     void loadCollection(name);
+  }
+
+  function applyCollectionSearch() {
+    collectionSearch = collectionSearchInput.trim();
+    collectionPage = 0;
+    expandedDocId = '';
+    void loadCollection(selectedCollection);
+  }
+
+  function clearCollectionSearch() {
+    if (!collectionSearchInput && !collectionSearch) return;
+    collectionSearchInput = '';
+    collectionSearch = '';
+    collectionPage = 0;
+    expandedDocId = '';
+    void loadCollection(selectedCollection);
   }
 
   function setCollectionPage(page) {
@@ -475,8 +536,17 @@
     return doc?.createdAt || doc?.updatedAt || doc?.lastActiveAt || doc?.lastLoginAt || doc?.submittedAt || doc?.timestamp || null;
   }
 
+  function getModerationSummary(doc) {
+    const modStatus = doc.issuedByRegistered === false ? 'guest' : 'registered';
+    const targetStatus = doc.targetRegistered === false ? 'guest' : 'registered';
+    const mod = doc.issuedByUsername || 'Unknown';
+    const target = doc.targetUsername || 'Unknown';
+    return `${doc.type || 'action'} - mod: ${mod} (${modStatus}) - target: ${target} (${targetStatus})`;
+  }
+
   function getDocSummary(doc) {
     if (!doc || typeof doc !== 'object') return '';
+    if (selectedCollection === 'moderation') return getModerationSummary(doc);
     const fields = ['type', 'roomId', 'room_id', 'ownerUsername', 'author', 'targetName', 'issuerName', 'email', 'role', 'likesCount', 'views'];
     return fields
       .filter((field) => doc[field] != null && doc[field] !== '')
@@ -780,6 +850,21 @@
 
           <div class="db-toolbar">
             <div class="db-controls">
+              {#if COLLECTION_SEARCH_PLACEHOLDER[selectedCollection]}
+                <label class="db-search">
+                  <span>Search</span>
+                  <input
+                    type="text"
+                    bind:value={collectionSearchInput}
+                    placeholder={COLLECTION_SEARCH_PLACEHOLDER[selectedCollection]}
+                    onkeydown={(e) => e.key === 'Enter' && applyCollectionSearch()}
+                  >
+                </label>
+                <button class="btn secondary small" type="button" onclick={applyCollectionSearch}>Search</button>
+                {#if collectionSearch}
+                  <button class="btn secondary small" type="button" onclick={clearCollectionSearch}>Clear</button>
+                {/if}
+              {/if}
               <label>
                 <span>Rows</span>
                 <select bind:value={collectionLimit} onchange={(e) => setCollectionLimit(e.currentTarget.value)}>
@@ -838,6 +923,17 @@
                             <span>{doc?._id || ''}</span>
                           {/if}
                         </button>
+                        {#if selectedCollection === 'users'}
+                          <div class="user-row-actions">
+                            {#if doc.isReset}
+                              <span class="reset-pending-badge">Reset pending</span>
+                            {:else}
+                              <button class="btn secondary small" type="button" onclick={() => void resetUserAccount(doc)}>
+                                Reset Account
+                              </button>
+                            {/if}
+                          </div>
+                        {/if}
                       </td>
                       <td>{formatDate(getDocTimestamp(doc))}</td>
                       <td>{getDocSummary(doc) || '-'}</td>
@@ -1462,13 +1558,18 @@
     font-size: 0.78rem;
   }
 
-  .db-controls select {
+  .db-controls select,
+  .db-controls input[type="text"] {
     background: var(--bg-primary);
     color: var(--text-primary);
     border: 1px solid var(--border-subtle);
     border-radius: 6px;
     padding: 0.36rem 0.5rem;
     font: inherit;
+  }
+
+  .db-search input[type="text"] {
+    width: 190px;
   }
 
   .db-table-wrap {
@@ -1534,6 +1635,19 @@
     color: var(--text-muted);
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     font-size: 0.72rem;
+  }
+
+  .user-row-actions {
+    margin-top: 0.35rem;
+  }
+
+  .reset-pending-badge {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.68rem;
+    color: #e0a13a;
+    border: 1px solid #e0a13a;
   }
 
   .doc-json-row pre {
