@@ -18,6 +18,7 @@ import FeedbackWidget from './FeedbackWidget.svelte';
 import FloatingArtManager from './FloatingArtManager.svelte';
 import FloatingPalette from './FloatingPalette.svelte';
 import TutorialOverlay from './TutorialOverlay.svelte';
+import ChangelogOverlay from './ChangelogOverlay.svelte';
 import RanksDialog from './RanksDialog.svelte';
 
 import { appState, showProfile as showProfileFromState, toggleMessenger } from '../../state.svelte.js';
@@ -407,6 +408,17 @@ export function initSvelteUI(app) {
   }
   components.tutorialOverlay = mount(TutorialOverlay, {
     target: tutorialTarget,
+    props: {}
+  });
+
+  let changelogTarget = document.getElementById('changelogOverlayMount');
+  if (!changelogTarget) {
+    changelogTarget = document.createElement('div');
+    changelogTarget.id = 'changelogOverlayMount';
+    document.body.appendChild(changelogTarget);
+  }
+  components.changelogOverlay = mount(ChangelogOverlay, {
+    target: changelogTarget,
     props: {}
   });
 
