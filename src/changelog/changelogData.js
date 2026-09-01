@@ -2,20 +2,23 @@
 
 export const CHANGELOG = [
   {v:'Unreleased', date:'2026-08-31', current:true, items:[
-    ['improved', 'Improved chat layout and collapse as well as limited the preview size of image messages when the chat is minified'],
+    ['improved', 'Offloaded the history/timelapse generation to a new thread to prevent lagging the app out when rendering'],
+    ['improved', 'Improved the performance of the pattern tool as well as blur algorithms. Added a toggle to turn off history/snapshot recording to reduce lag'],
     ['fixed', 'Fixed an issue with pattern tool rendering not masking properly with the user strokes in some circumstances'],
-    ['improved', 'Improved saving from selection by adding a bit of padding to the image'],
     ['fixed', 'Fixed an issue with users uploading with the wrong name to the gallery and allowed upload privilege to unregistered users'],
-    ['improved', 'Some tweaks to the fluid brush type'],
     ['fixed', 'Fixed an issue where you could not kick users that timed out/ghost users'],
-    ['fixed', 'Fixed overlapping UI when pressure is disabled'],
-    ['improved', 'Selection lasso is now hidden while a user is saving via selection'],
+    ['fixed', 'Fixed an issue where chat would expand when hovered over while drawing a stroke'],
+    ['improved', 'Improved the admin UI, added an account reset and search bar'],
+    ['added', 'Implemented changelog overlay that appears with each update'],
   ], more:[
-    ['improved', 'Made the userlist sorting by recently active less jittery'],
+    ['improved', 'Improved chat layout and collapse as well as limited the preview size of image messages when the chat is minified'],
+    ['fixed', 'Fixed an issue with chat scrolling snapping back to the bottom'],
     ['fixed', 'Fixed a minor bug with replays being cut off if the board size is changed mid-replay'],
-    ['fixed', 'Fixed a minor bug with the comment and view in gallery buttons when looking at art on users\' profiles on the app'],
-    ['fixed', 'Fixed a minor bug with room name tag not being updated properly when uploading from different rooms'],
-  ], moreTotal:4},
+    ['added', 'Added ctrl+space as a default colour switch shortcut for the app'],
+    ['improved', 'Improved saving from selection by adding a bit of padding to the image'],
+    ['improved', 'Selection lasso is now hidden while a user is saving via selection'],
+    ['fixed', 'Fixed overlapping UI when pressure is disabled'],
+  ], moreTotal:7},
   {v:'v1.13.2-beta', date:'2026-08-30', items:[
     ['added', 'Added a few new groupings for image brush images and fixed a bug with pattern brush not loading the new images properly'],
     ['improved', 'Improved tool option slider UI'],

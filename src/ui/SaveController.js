@@ -108,7 +108,18 @@ export class SaveController {
     // no author, credited to "Anonymous" in the gallery. Sending an empty
     // Authorization header instead of omitting it would read as a broken
     // session and 401, so the header only goes on when there is a token.
-    const token = localStorage.getItem('topDrawAuthToken');
+    const token = this.app.auth?.getStoredToken() ?? localStorage.getItem('topDrawAuthToken');
+
+    // The app's own session flag (set on login/logout, never touched by
+    // storage) can disagree with the token read above — e.g. the gallery page
+    // logging in elsewhere with "Stay logged in" off clears the shared
+    // topDrawAuthToken key out from under this tab. Treating that silently as
+    // a guest save would misattribute the upload to "Anonymous" for someone
+    // who never signed out, so bail loudly and let them re-authenticate.
+    if (this.app.auth?.isLoggedIn && !token) {
+      this.ui.showToast('Your session was signed out elsewhere — log in again to save to the gallery', 4000, 'error');
+      return;
+    }
 
     const targetCanvas = canvas ?? this.board.mainCanvas;
     const btn = this.ui.elements.saveToGalleryBtn;
