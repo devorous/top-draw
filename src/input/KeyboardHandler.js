@@ -34,7 +34,7 @@ const BLOCKED_BROWSER_BINDINGS = new Set([
   'Mod+Shift+N',
   'Mod+Shift+T',
   'Mod+Shift+W',
-  'Ctrl+Space'
+  'Mod+Space'
 ]);
 
 export class KeyboardHandler {

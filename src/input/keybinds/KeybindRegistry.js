@@ -127,7 +127,8 @@ export const KEYBIND_ACTIONS = [
     label: 'Swap colors',
     description: 'Swap the primary and secondary saved colors.',
     category: 'Tools',
-    defaultBinding: 'X'
+    defaultBinding: 'X',
+    defaultSecondaryBinding: 'Mod+Space'
   },
   {
     id: 'color.slot1',
