@@ -16,6 +16,10 @@ class DrawingState {
   blendMode = $state('source-over');
   blendModeLocked = $state(false);
   blendBakeMode = $state('background');
+  // True for the duration of an actual local stroke (brush/pen/eraser/etc,
+  // not pan/zoom/rotate) — lets hover-driven UI (chat HUD peek) ignore the
+  // pointer while it's mid-stroke instead of popping open under it.
+  isDrawingStroke = $state(false);
 
   // Layer
   activeLayer = $state(2);

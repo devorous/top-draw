@@ -1089,6 +1089,15 @@
     hudOpen = true;
   }
 
+  /* Hover shouldn't summon the window mid-stroke — the pointer is often
+     dragging right across the HUD's screen area while inking, and popping
+     the panel open under it would interrupt the stroke. A click (pointerdown)
+     or keyboard focus is a deliberate ask and still opens it. */
+  function expandHudOnHover() {
+    if (appState.isDrawingStroke) return;
+    expandHud();
+  }
+
   function composerHasDraft() {
     if (messageInput.trim().length > 0) return true;
     return !!composerInputEl && document.activeElement === composerInputEl;
@@ -2448,7 +2457,7 @@
     class:pinned={hudPinned}
     bind:this={chatEl}
     onclick={handleChatLinkClick}
-    onpointerenter={expandHud}
+    onpointerenter={expandHudOnHover}
     onpointerdown={expandHud}
     onpointerleave={() => scheduleCollapseHud()}
     onfocusin={expandHud}

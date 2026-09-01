@@ -2858,6 +2858,7 @@ export class DrawingApp {
 
     this.self.clearLine();
     this.self.mousedown = false;
+    appState.isDrawingStroke = false;
     this.self.panning = false;
     this.self.penPoints = [];
     this.self._inkPoints = [];
@@ -4302,6 +4303,7 @@ export class DrawingApp {
         }
       }
       this.self.mousedown = false;
+      appState.isDrawingStroke = false;
       this._queueStrokeEndBroadcast();
     }
 
@@ -5925,6 +5927,7 @@ export class DrawingApp {
       this.ui.updateSelfCursor(pos.x, pos.y, this.self.size);
     }
     this.self.mousedown = true;
+    appState.isDrawingStroke = true;
     this.self.spaceIndex = 0;
     this.self._mainCtxDrawCount = 0; // Reset draw counter for this stroke
 
@@ -6314,6 +6317,7 @@ export class DrawingApp {
     }
 
     this.self.mousedown = false;
+    appState.isDrawingStroke = false;
     this._queueStrokeEndBroadcast();
 
     // Reset input buffer
@@ -6794,6 +6798,7 @@ export class DrawingApp {
     }
 
     this.self.mousedown = false;
+    appState.isDrawingStroke = false;
 
     // Cancel active stroke in LayerManager (prevent zombie strokes)
     this.board.cancelStroke(this.self);
