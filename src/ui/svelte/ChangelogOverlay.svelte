@@ -3,6 +3,7 @@
   import { CHANGELOG } from '../../changelog/changelogData.js';
 
   const LAST_SEEN_KEY = 'changelog_last_seen_version';
+  const DISABLED_KEY = 'changelog_disabled';
 
   let visible = $state(false);
   let expanded = $state({});
@@ -40,16 +41,16 @@
   // App.js's several join/resync code paths individually.
   function maybeShow() {
     if (visible) return;
+    if (storageGet(DISABLED_KEY) === '1') return;
     const version = currentVersion();
     if (!version) return;
 
+    // Show on any mismatch, including a never-before-seen key (first run on
+    // this profile/device) — that used to silently record a baseline and
+    // skip the popup instead, which meant nobody actually saw it until their
+    // SECOND visit after a version bump. "Don't show again" below is the
+    // opt-out for people who don't want it popping up at all.
     const seen = storageGet(LAST_SEEN_KEY);
-    if (seen === null) {
-      // First-ever visit: nothing to compare against, and a brand new user
-      // doesn't need 30+ releases of history. Just record the baseline.
-      storageSet(LAST_SEEN_KEY, version);
-      return;
-    }
     if (seen === version) return;
 
     const landing = document.getElementById('landingPage');
@@ -62,6 +63,11 @@
 
   function close() {
     visible = false;
+  }
+
+  function dontShowAgain() {
+    storageSet(DISABLED_KEY, '1');
+    close();
   }
 
   function toggleMore(i) {
@@ -139,6 +145,7 @@
         <span><i class="changelogDot type-improved"></i>Improved</span>
         <span><i class="changelogDot type-fixed"></i>Fixed</span>
         <span><i class="changelogDot type-removed"></i>Removed</span>
+        <button class="changelogDontShow" onclick={dontShowAgain}>Don't show again</button>
       </div>
     </div>
   </div>
@@ -382,5 +389,22 @@
 
   .changelogLegend .changelogDot {
     margin-top: 0;
+  }
+
+  .changelogDontShow {
+    margin-left: auto;
+    border: none;
+    background: none;
+    color: var(--text-muted, #6b7280);
+    font-family: inherit;
+    font-size: 11px;
+    cursor: pointer;
+    padding: 2px 0;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .changelogDontShow:hover {
+    color: var(--text-secondary, #a0a8b8);
   }
 </style>

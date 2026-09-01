@@ -1594,7 +1594,11 @@ function getVisibleIpForViewer(viewer, targetUser, room) {
 function isShadowHiddenFromViewer(subjectUser, viewer) {
   if (!subjectUser?.isShadowBanned) return false;
   if (!viewer) return false;
-  return subjectUser.sessionIndex !== viewer.sessionIndex;
+  if (subjectUser.sessionIndex === viewer.sessionIndex) return false;
+  // MOD+ can still see (and act on) a shadow-banned user; only the subject's
+  // peers and the subject's own delusion of normalcy are protected.
+  if ((viewer.userRole || Role.GUEST) >= Role.MOD) return false;
+  return true;
 }
 
 function isCursorEffectivelyHidden(user, now = Date.now()) {
@@ -1647,13 +1651,23 @@ function mapUsersForBroadcast(users, viewer = null, room = null) {
         th: u.thinning,
         sim: u.simulatePressure,
         rn: u.registeredName || '',
-        mt: !!u.isMuted,
+        // A shadow-banned user's own row must never report `mt: true` even if
+        // they're separately muted: shadowban already confines their draws
+        // server-side (handleBroadcast returns before broadcastToRoom), and
+        // the client-side mute gate (App.js) would otherwise block local
+        // drawing and surface a "You are muted" toast, revealing the mod
+        // action and defeating the silent-confinement point of shadowban.
+        mt: (u.isShadowBanned && viewer && u.sessionIndex === viewer.sessionIndex) ? false : !!u.isMuted,
         hdsc: !!u.hasDiscord,
         bdg: u.selectedBadge || '',
         sup: !!u.isSupporter,
         ctry: u.countryCode || '',
         vip: room ? getVisibleIpForViewer(viewer, u, room) : '',
-        fpId: u.fingerprintId || '' // Include fingerprintId for persistent user tracking
+        fpId: u.fingerprintId || '', // Include fingerprintId for persistent user tracking
+        // Only reveal shadowban state to MOD+ viewers, and never on the
+        // subject's own row - the subject must never learn they're banned.
+        sb: (u.isShadowBanned && viewer && (viewer.userRole || Role.GUEST) >= Role.MOD
+          && u.sessionIndex !== viewer.sessionIndex) || false
       };
     });
 }
@@ -4481,6 +4495,13 @@ wss.on('connection', async (ws, req) => {
             modTargetName: targetName,
             modIssuerName: ws.username || `User ${ws.sessionIndex}`
           });
+
+          // The wipe only mutates connected clients' live canvases; the room's
+          // durable snapshot is otherwise on a 15s timer (RoomManager._requestSnapshot).
+          // Force one now so a reload inside that window can't resurrect the
+          // wiped strokes from a stale pre-wipe checkpoint. Same rationale as
+          // the getClientCount()===1 snapshot request on disconnect below.
+          room._requestSnapshot?.();
 
           sendTo(ws, { t: T.MOD_RESULT, a: true });
           break;

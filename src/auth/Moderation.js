@@ -531,15 +531,18 @@ export class Moderation {
         if (user?.isMuted && !ipHash) {
           // Unmute immediately
           if (this.onModAction) this.onModAction(3, sessionIndex, '', 0);
-        } else {
-          // Mute immediately with 1hr default, then offer reason
-          if (isGroup) {
-            if (this.onModGroupAction) this.onModGroupAction('mute', ipHash, '', 60);
-          } else {
-            if (this.onModAction) this.onModAction(1, sessionIndex, '', 60);
-          }
+        } else if (isGroup) {
+          // Group mutes use the legacy instant flow (no per-user duration picker for groups).
+          if (this.onModGroupAction) this.onModGroupAction('mute', ipHash, '', 10);
           this.showWipePromptAfterAction('Muted', targetName, isGroup, sessionIndex, ipHash, targetUsername, anchorRect);
           this.showReasonCard('mute', sessionIndex, targetName, isGroup, ipHash);
+        } else {
+          // Mutes defer until the mod confirms duration + reason in the card.
+          this.showReasonCard('mute', sessionIndex, targetName, false, ipHash, {
+            deferred: true,
+            targetUsername,
+            anchorRect
+          });
         }
         break;
       case 'kick':
@@ -557,7 +560,7 @@ export class Moderation {
         // Bans defer until the mod confirms scope + reason in the card.
         // Group bans use the legacy instant flow (no per-IP scope picker for groups).
         if (isGroup) {
-          if (this.onModGroupAction) this.onModGroupAction('ban', ipHash, '', 0);
+          if (this.onModGroupAction) this.onModGroupAction('ban', ipHash, '', 1440);
           this.showWipePromptAfterAction('Banned', targetName, isGroup, sessionIndex, ipHash, targetUsername, anchorRect);
           this.showReasonCard('ban', sessionIndex, targetName, isGroup, ipHash);
         } else {
@@ -738,23 +741,41 @@ export class Moderation {
     const fallbackLeft = Math.max(margin, window.innerWidth - cardRect.width - margin);
     const fallbackTop = 64;
 
+    let left, top;
     if (!anchorRect) {
-      card.style.left = `${fallbackLeft}px`;
-      card.style.top = `${fallbackTop}px`;
-      return;
+      left = fallbackLeft;
+      top = fallbackTop;
+    } else {
+      left = anchorRect.left;
+      top = anchorRect.bottom + 8;
+
+      if (left + cardRect.width > window.innerWidth - margin) {
+        left = window.innerWidth - cardRect.width - margin;
+      }
+      if (left < margin) left = margin;
+
+      if (top + cardRect.height > window.innerHeight - margin) {
+        const aboveTop = anchorRect.top - cardRect.height - 8;
+        top = aboveTop >= margin ? aboveTop : Math.max(margin, window.innerHeight - cardRect.height - margin);
+      }
     }
 
-    let left = anchorRect.left;
-    let top = anchorRect.bottom + 8;
-
-    if (left + cardRect.width > window.innerWidth - margin) {
-      left = window.innerWidth - cardRect.width - margin;
-    }
-    if (left < margin) left = margin;
-
-    if (top + cardRect.height > window.innerHeight - margin) {
-      const aboveTop = anchorRect.top - cardRect.height - 8;
-      top = aboveTop >= margin ? aboveTop : Math.max(margin, window.innerHeight - cardRect.height - margin);
+    // The reason card (kick/mute) can be showing at the same time, fixed near
+    // top-center, and this prompt renders above it (higher z-index). An
+    // anchor-based position near the top of the screen would otherwise land
+    // right on top of the reason card's input and silently block it — push
+    // this prompt below (or, failing that, above) the reason card instead.
+    const reasonCard = document.getElementById('modReasonCard');
+    if (reasonCard) {
+      const reasonRect = reasonCard.getBoundingClientRect();
+      const overlaps = left < reasonRect.right && left + cardRect.width > reasonRect.left &&
+        top < reasonRect.bottom && top + cardRect.height > reasonRect.top;
+      if (overlaps) {
+        const belowTop = reasonRect.bottom + 8;
+        top = (belowTop + cardRect.height <= window.innerHeight - margin)
+          ? belowTop
+          : Math.max(margin, reasonRect.top - cardRect.height - 8);
+      }
     }
 
     card.style.left = `${left}px`;
@@ -764,15 +785,38 @@ export class Moderation {
   // --- Reason Card (non-blocking, shown after instant action) ---
 
   /**
+   * Duration choices offered for mute/ban/shadowban, in minutes (0 = permanent).
+   */
+  static DURATION_OPTIONS = [
+    { label: '5m', minutes: 5 },
+    { label: '10m', minutes: 10 },
+    { label: '15m', minutes: 15 },
+    { label: '30m', minutes: 30 },
+    { label: '1hr', minutes: 60 },
+    { label: '2hr', minutes: 120 },
+    { label: '4hr', minutes: 240 },
+    { label: '8hr', minutes: 480 },
+    { label: '12hr', minutes: 720 },
+    { label: '24hr', minutes: 1440 },
+    { label: '2d', minutes: 2880 },
+    { label: '5d', minutes: 7200 },
+    { label: '7d', minutes: 10080 },
+    { label: 'Permanent', minutes: 0 }
+  ];
+
+  static DEFAULT_DURATION_MINUTES = { mute: 10, ban: 1440, shadowban: 2880 };
+
+  /**
    * Show a small non-blocking card.
    *
    * Two modes:
-   *  - Default (kick/mute or group ban): the action has already fired; this
+   *  - Default (kick or group mute/ban): the action has already fired; this
    *    card only collects an optional reason and sends a MOD_UPDATE_REASON.
-   *  - Deferred (per-user ban/shadowban): the action has NOT fired yet. The
-   *    card includes an IP-scope dropdown (Subnet / Exact / Wide) and a
-   *    confirm button. Submitting issues the original MOD_ACTION with the
-   *    chosen scope + reason in a single payload.
+   *  - Deferred (per-user mute/ban/shadowban): the action has NOT fired yet.
+   *    The card includes a duration dropdown (ban/mute/shadowban) and, for
+   *    ban/shadowban, an IP-scope dropdown (Subnet / Exact / Wide). Submitting
+   *    issues the original MOD_ACTION with the chosen duration/scope/reason in
+   *    a single payload.
    *
    * @param {string} action - 'kick' | 'mute' | 'ban' | 'shadowban'
    * @param {number|null} sessionIndex
@@ -792,13 +836,26 @@ export class Moderation {
     const actionCode = actionCodes[action];
     const isDanger = action === 'ban' || action === 'shadowban';
     const pastTense = { kick: 'Kicked', mute: 'Muted', ban: 'Banned', shadowban: 'Shadow Banned' };
-    const futureTense = { ban: 'Ban', shadowban: 'Shadow Ban' };
+    const futureTense = { mute: 'Mute', ban: 'Ban', shadowban: 'Shadow Ban' };
     const deferred = !!opts.deferred;
+    const hasDuration = action === 'mute' || action === 'ban' || action === 'shadowban';
+    const hasScope = action === 'ban' || action === 'shadowban';
     const titlePrefix = deferred ? '' : '✓ ';
     const titleVerb = deferred ? (futureTense[action] || action) : (pastTense[action] || action);
     const submitLabel = deferred ? (futureTense[action] || 'Confirm') : 'Add';
+    // Deferred cards give the mod more time to decide than a post-action reason.
+    const AUTO_DISMISS_MS = deferred ? 20000 : 8000;
 
-    const scopePicker = deferred ? `
+    const durationPicker = (deferred && hasDuration) ? `
+      <label class="modReasonCard-scopeRow">
+        <span class="modReasonCard-scopeLabel">Duration</span>
+        <select id="modReasonDuration" class="modReasonCard-scope">
+          ${Moderation.DURATION_OPTIONS.map(o => `<option value="${o.minutes}"${o.minutes === Moderation.DEFAULT_DURATION_MINUTES[action] ? ' selected' : ''}>${o.label}</option>`).join('')}
+        </select>
+      </label>
+    ` : '';
+
+    const scopePicker = (deferred && hasScope) ? `
       <label class="modReasonCard-scopeRow">
         <span class="modReasonCard-scopeLabel">IP scope</span>
         <select id="modReasonScope" class="modReasonCard-scope">
@@ -818,6 +875,7 @@ export class Moderation {
         <button class="modReasonCard-close" id="modReasonClose" title="Dismiss">✕</button>
       </div>
       <div class="modReasonCard-body">
+        ${durationPicker}
         ${scopePicker}
         <input type="text" id="modReasonInput" class="modReasonCard-input" placeholder="${deferred ? 'Reason (optional)' : 'Add a reason... (optional)'}" maxlength="200" autocomplete="off">
         <button class="modReasonCard-submit" id="modReasonSubmit">${submitLabel}</button>
@@ -833,25 +891,61 @@ export class Moderation {
     const closeBtn = card.querySelector('#modReasonClose');
     const timerBar = card.querySelector('#modReasonTimer');
     const scopeSelect = card.querySelector('#modReasonScope');
-
-    input.focus();
+    const durationSelect = card.querySelector('#modReasonDuration');
 
     let dismissed = false;
+    let autoTimeout = null;
+    // Hover, and having the input/dropdowns focused (including a tablet's
+    // on-screen keyboard just sitting open, not only active typing), should
+    // hold the card open instead of letting it time out under the mod's cursor.
+    const activeHolds = new Set();
+
+    const clearAutoTimeout = () => {
+      if (autoTimeout) {
+        clearTimeout(autoTimeout);
+        autoTimeout = null;
+      }
+    };
+
     const dismiss = () => {
       if (dismissed) return;
       dismissed = true;
-      clearTimeout(autoTimeout);
+      clearAutoTimeout();
       card.classList.remove('modReasonCard-visible');
       setTimeout(() => card.remove(), 250);
+    };
+
+    const scheduleAutoDismiss = () => {
+      clearAutoTimeout();
+      timerBar.style.transition = 'none';
+      timerBar.style.width = '100%';
+      autoTimeout = setTimeout(dismiss, AUTO_DISMISS_MS);
+      requestAnimationFrame(() => {
+        timerBar.style.transition = `width ${AUTO_DISMISS_MS}ms linear`;
+        timerBar.style.width = '0%';
+      });
+    };
+
+    const hold = (reason) => {
+      activeHolds.add(reason);
+      clearAutoTimeout();
+      timerBar.style.transition = 'none';
+      timerBar.style.width = '100%';
+    };
+
+    const release = (reason) => {
+      activeHolds.delete(reason);
+      if (activeHolds.size === 0 && !dismissed) scheduleAutoDismiss();
     };
 
     const submit = () => {
       const reason = input.value.trim();
       if (deferred) {
-        const scope = scopeSelect?.value || 'subnet';
-        if (this.onModAction) this.onModAction(actionCode, sessionIndex, reason, 0, scope);
-        if (action === 'ban') {
-          this.showWipePromptAfterAction('Banned', targetName, false, sessionIndex, ipHash, opts.targetUsername, opts.anchorRect);
+        const scope = scopeSelect ? (scopeSelect.value || 'subnet') : undefined;
+        const duration = durationSelect ? (parseInt(durationSelect.value, 10) || 0) : 0;
+        if (this.onModAction) this.onModAction(actionCode, sessionIndex, reason, duration, scope);
+        if (action === 'ban' || action === 'mute') {
+          this.showWipePromptAfterAction(pastTense[action], targetName, false, sessionIndex, ipHash, opts.targetUsername, opts.anchorRect);
         }
       } else if (reason) {
         if (isGroup) {
@@ -869,27 +963,24 @@ export class Moderation {
       if (e.key === 'Enter') { e.preventDefault(); submit(); }
       if (e.key === 'Escape') dismiss();
       e.stopPropagation();
-      // Reset auto-dismiss on typing
-      clearTimeout(autoTimeout);
-      timerBar.style.transition = 'none';
-      timerBar.style.width = '100%';
-      autoTimeout = setTimeout(dismiss, AUTO_DISMISS_MS);
-      requestAnimationFrame(() => {
-        timerBar.style.transition = `width ${AUTO_DISMISS_MS}ms linear`;
-        timerBar.style.width = '0%';
-      });
     });
-    // Changing scope shouldn't trigger the auto-dismiss reset path, but it
-    // also shouldn't bubble up keys when the select is open.
+    // Changing scope/duration shouldn't bubble keys up while the select is open.
     scopeSelect?.addEventListener('keydown', (e) => e.stopPropagation());
+    durationSelect?.addEventListener('keydown', (e) => e.stopPropagation());
 
-    // Deferred bans give the mod more time to decide than a post-action reason.
-    const AUTO_DISMISS_MS = deferred ? 20000 : 8000;
-    requestAnimationFrame(() => {
-      timerBar.style.transition = `width ${AUTO_DISMISS_MS}ms linear`;
-      timerBar.style.width = '0%';
+    card.addEventListener('mouseenter', () => hold('hover'));
+    card.addEventListener('mouseleave', () => release('hover'));
+    [input, scopeSelect, durationSelect].forEach((el) => {
+      if (!el) return;
+      el.addEventListener('focus', () => hold('focus'));
+      el.addEventListener('blur', () => release('focus'));
     });
-    let autoTimeout = setTimeout(dismiss, AUTO_DISMISS_MS);
+
+    // Focus fires the listener above synchronously, which already holds the
+    // timer open (and will schedule it once focus leaves) — only schedule
+    // here if that somehow didn't happen.
+    input.focus();
+    if (activeHolds.size === 0) scheduleAutoDismiss();
   }
 
   // --- Mod Panel ---

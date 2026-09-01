@@ -1085,7 +1085,8 @@ export class WebSocketClient {
           selectedBadge: u.bdg || '',
           isSupporter: !!u.sup,
           countryCode: u.ctry || '',
-          visibleIp: u.vip || ''
+          visibleIp: u.vip || '',
+          isShadowBanned: !!u.sb
         }));
         this.emit('users', { users });
         break;

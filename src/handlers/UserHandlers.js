@@ -341,6 +341,7 @@ export function setupUserHandlers(wsClient, app) {
           globalRole: userData.globalRole || 0,
           roomRole: userData.roomRole || 0,
           isMuted: !!userData.isMuted,
+          isShadowBanned: !!userData.isShadowBanned,
           ipHash: userData.iph || userData.ipHash || '',
           visibleIp: userData.visibleIp || '',
           patternMode: userData.pm || userData.patternMode || false,
@@ -479,12 +480,17 @@ export function setupUserHandlers(wsClient, app) {
           user.isMuted = !!userData.isMuted;
           ui.setRemoteUserMuted?.(userData.sessionIndex, user.isMuted);
         }
+        if (userData.isShadowBanned !== undefined && userData.isShadowBanned !== user.isShadowBanned) {
+          user.isShadowBanned = !!userData.isShadowBanned;
+          ui.setRemoteUserShadowBanned?.(userData.sessionIndex, user.isShadowBanned);
+        }
       }
 
       const isAfk = !!userData.afk;
       user.setAfk?.(isAfk);
       ui.setRemoteUserAfk(userData.sessionIndex, isAfk);
       ui.setRemoteUserMuted?.(userData.sessionIndex, !!userData.isMuted);
+      ui.setRemoteUserShadowBanned?.(userData.sessionIndex, !!userData.isShadowBanned);
       if (pendingJoinAnnouncements.has(userData.sessionIndex)) {
         const pending = pendingJoinAnnouncements.get(userData.sessionIndex);
         announceJoinIfReady(userData.sessionIndex, pending?.queuedAt ?? 0);

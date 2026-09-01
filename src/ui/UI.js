@@ -2851,6 +2851,10 @@ menuBtn: document.getElementById('menuBtn'),
     return this.remoteUserUI.setRemoteUserMuted(userId, muted);
   }
 
+  setRemoteUserShadowBanned(userId, shadowBanned) {
+    return this.remoteUserUI.setRemoteUserShadowBanned(userId, shadowBanned);
+  }
+
   setRemoteUserSupporter(userId, isSupporter) {
     return this.remoteUserUI?.setRemoteUserSupporter(userId, isSupporter);
   }

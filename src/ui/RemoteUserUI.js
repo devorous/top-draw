@@ -406,6 +406,11 @@ export class RemoteUserUI {
     if (userEl) userEl.classList.toggle('muted', !!muted);
   }
 
+  _applyShadowBannedStateToEntry(entry, userEl, shadowBanned) {
+    if (entry) entry.classList.toggle('shadow-banned', !!shadowBanned);
+    if (userEl) userEl.classList.toggle('shadow-banned', !!shadowBanned);
+  }
+
   static applyRankClasses(userEl, entryEl, role) {
     const numericRole = Number(role || 0);
     const roleClass = RemoteUserUI.roleToClass(numericRole);
@@ -1226,6 +1231,21 @@ export class RemoteUserUI {
         const header = group.element.querySelector('.groupHeader');
         this._applyMutedStateToEntry(header, group.headerNameEl, muted);
         this._updateGroupSummary(ipHash);
+        break;
+      }
+    }
+  }
+
+  setRemoteUserShadowBanned(userId, shadowBanned) {
+    const id = `u${userId}`;
+    const entry = document.querySelector(`.userEntry.${id}`);
+    const userEl = document.querySelector(`.listUser.${id}`);
+    this._applyShadowBannedStateToEntry(entry, userEl, shadowBanned);
+
+    for (const [ipHash, group] of this.userGroups.entries()) {
+      if (String(group.displayUserId) === String(userId) && Array.from(group.userIds).some((id) => String(id) === String(userId))) {
+        const header = group.element.querySelector('.groupHeader');
+        this._applyShadowBannedStateToEntry(header, group.headerNameEl, shadowBanned);
         break;
       }
     }

@@ -249,6 +249,7 @@ message Msg {
     string bdg = 37;        // Selected cosmetic badge id (e.g. 'flock', 'pepper')
     bool sup = 38;          // Whether this user is an active supporter (gold cosmetics)
     string ctry = 39;       // ISO 3166-1 alpha-2 country code derived from IP geolocation
+    bool sb = 40;           // Shadow-banned (MOD+ viewers only; never sent true on the subject's own row)
   }
   repeated U us = 17;   // Users array
 
