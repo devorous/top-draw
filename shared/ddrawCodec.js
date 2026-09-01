@@ -73,20 +73,41 @@ async function _nodeZlib() {
   return _zlibPromise;
 }
 
-async function _pipeThroughStream(bytes, stream) {
+/**
+ * Feeds each chunk to the stream as a separate write — CompressionStream
+ * compresses incrementally, so this never needs a single buffer holding
+ * every chunk concatenated (which for a long multi-user recording's blob
+ * section can be the largest allocation in the whole encode and is what
+ * blew the tab's memory budget before this was chunked).
+ */
+async function _pipeThroughStream(chunks, stream) {
   const writer = stream.writable.getWriter();
-  writer.write(bytes);
+  for (const chunk of chunks) writer.write(chunk);
   writer.close();
   const blob = await new Response(stream.readable).blob();
   return new Uint8Array(await blob.arrayBuffer());
 }
 
+function _concatChunks(chunks) {
+  if (chunks.length === 1) return chunks[0];
+  let total = 0;
+  for (const c of chunks) total += c.length;
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const c of chunks) {
+    out.set(c, off);
+    off += c.length;
+  }
+  return out;
+}
+
 /** @returns {Promise<Uint8Array|null>} null when brotli isn't available here. */
-async function _tryBrotliCompress(bytes) {
+async function _tryBrotliCompress(chunks) {
   if (isNode) {
     try {
       const zlib = await _nodeZlib();
-      return new Uint8Array(zlib.brotliCompressSync(Buffer.from(bytes), {
+      const buf = Buffer.concat(chunks.map((c) => Buffer.from(c.buffer, c.byteOffset, c.length)));
+      return new Uint8Array(zlib.brotliCompressSync(buf, {
         params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 9 },
       }));
     } catch {
@@ -95,17 +116,17 @@ async function _tryBrotliCompress(bytes) {
   }
   if (typeof CompressionStream === 'undefined') return null;
   try {
-    return await _pipeThroughStream(bytes, new CompressionStream('brotli'));
+    return await _pipeThroughStream(chunks, new CompressionStream('brotli'));
   } catch {
     return null; // format not supported by this browser
   }
 }
 
 /** @returns {Promise<Uint8Array|null>} null when gzip isn't available here. */
-async function _tryGzipCompress(bytes) {
+async function _tryGzipCompress(chunks) {
   if (typeof CompressionStream !== 'undefined') {
     try {
-      return await _pipeThroughStream(bytes, new CompressionStream('gzip'));
+      return await _pipeThroughStream(chunks, new CompressionStream('gzip'));
     } catch {
       // fall through to Node zlib below
     }
@@ -113,7 +134,8 @@ async function _tryGzipCompress(bytes) {
   if (isNode) {
     try {
       const zlib = await _nodeZlib();
-      return new Uint8Array(zlib.gzipSync(Buffer.from(bytes), { level: 9 }));
+      const buf = Buffer.concat(chunks.map((c) => Buffer.from(c.buffer, c.byteOffset, c.length)));
+      return new Uint8Array(zlib.gzipSync(buf, { level: 9 }));
     } catch {
       return null;
     }
@@ -122,15 +144,17 @@ async function _tryGzipCompress(bytes) {
 }
 
 /**
- * @param {Uint8Array} bytes
+ * @param {Uint8Array|Uint8Array[]} bytesOrChunks - a single buffer, or several
+ *   chunks to be compressed as one stream without pre-concatenating them.
  * @returns {Promise<{ algo: number, data: Uint8Array }>}
  */
-async function _compress(bytes) {
-  const brotli = await _tryBrotliCompress(bytes);
+async function _compress(bytesOrChunks) {
+  const chunks = Array.isArray(bytesOrChunks) ? bytesOrChunks : [bytesOrChunks];
+  const brotli = await _tryBrotliCompress(chunks);
   if (brotli) return { algo: ALGO_BROTLI, data: brotli };
-  const gzip = await _tryGzipCompress(bytes);
+  const gzip = await _tryGzipCompress(chunks);
   if (gzip) return { algo: ALGO_GZIP, data: gzip };
-  return { algo: ALGO_NONE, data: bytes };
+  return { algo: ALGO_NONE, data: _concatChunks(chunks) };
 }
 
 /**
@@ -148,11 +172,11 @@ async function _decompress(algo, bytes) {
     if (typeof DecompressionStream === 'undefined') {
       throw new Error('[ddraw] brotli decompression not supported in this environment');
     }
-    return _pipeThroughStream(bytes, new DecompressionStream('brotli'));
+    return _pipeThroughStream([bytes], new DecompressionStream('brotli'));
   }
   if (algo === ALGO_GZIP) {
     if (typeof DecompressionStream !== 'undefined') {
-      return _pipeThroughStream(bytes, new DecompressionStream('gzip'));
+      return _pipeThroughStream([bytes], new DecompressionStream('gzip'));
     }
     if (isNode) {
       const zlib = await _nodeZlib();
@@ -184,7 +208,7 @@ async function _legacyGunzip(bytes) {
     }
     return bytes;
   }
-  return _pipeThroughStream(bytes, new DecompressionStream('gzip'));
+  return _pipeThroughStream([bytes], new DecompressionStream('gzip'));
 }
 
 function _legacyAttachVisualCheckpointBlobs(recording, blobs) {
@@ -308,15 +332,11 @@ export async function encodeDdraw(recording) {
   let blobAlgo = ALGO_NONE;
 
   if (hasBlobs) {
-    let rawTotal = 0;
-    for (const b of blobs) rawTotal += b.raw.length;
-    const concat = new Uint8Array(rawTotal);
-    let off = 0;
-    for (const b of blobs) {
-      concat.set(b.raw, off);
-      off += b.raw.length;
-    }
-    const compressed = await _compress(concat);
+    // Compressed as one stream of chunks rather than concatenated into a
+    // single buffer first — for a long multi-user recording that buffer
+    // (every checkpoint/layer snapshot for the whole tape, back to back)
+    // can be the single largest allocation in the encode.
+    const compressed = await _compress(blobs.map((b) => b.raw));
     blobAlgo = compressed.algo;
 
     const metaSize = 4 + blobs.length * 5; // u32 count + per-blob (u8 kind, u32 len)

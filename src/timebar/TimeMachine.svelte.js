@@ -8,7 +8,8 @@
 
 import { ReplayEngine } from './ReplayEngine.js';
 import { T } from '../../shared/MessageTypes.js';
-import { encodeDdraw, suggestDdrawFilename } from '../../shared/ddrawCodec.js';
+import { suggestDdrawFilename } from '../../shared/ddrawCodec.js';
+import { DdrawEncodeWorkerClient } from '../replay/DdrawEncodeWorkerClient.js';
 import { TimeLapseExporter, compressedTapeDurationMs, suggestImageSequenceFilename, suggestVideoFilename } from '../replay/TimeLapseExporter.js';
 import { isTauriDesktop, saveBytesViaNativeDialog, revealPathInDir } from '../platform/desktop.js';
 
@@ -188,6 +189,8 @@ class TimeMachineState {
   _source = 'server';
   /** Active local recording (set by loadFromRecording). */
   _localRecording = null;
+  /** Lazily created — offloads .ddraw encode for exportCurrentRecording() to a worker. */
+  _ddrawEncodeWorker = null;
   /** @type {Set<number>} negative IDs of bot cursors created in the UI */
   _botCursorIds = new Set();
   /** @type {Array<{element: HTMLElement|SVGElement, display: string}>} */
@@ -1169,7 +1172,8 @@ class TimeMachineState {
       return false;
     }
     try {
-      const blob = await encodeDdraw(rec);
+      if (!this._ddrawEncodeWorker) this._ddrawEncodeWorker = new DdrawEncodeWorkerClient();
+      const blob = await this._ddrawEncodeWorker.encode(rec);
       return await this._saveExportedFile(blob, suggestDdrawFilename(rec), 'Replay', {
         filterName: 'Ddraw Replay',
         extensions: ['ddraw'],
