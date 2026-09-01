@@ -129,6 +129,32 @@ export function collectCanvasCensus(app) {
       add('tools.offscreen', tool.offscreenCanvas);
       add('tools.offscreen', tool.hardnessCanvas);
       add('tools.offscreen', tool.floatingCanvas);
+      // PatternTool keeps board-sized stroke masks per remote user, plus a
+      // composite surface per in-flight stroke and a short free-list of those.
+      // All are full-board and none are reachable from anything above.
+      for (const off of tool.remoteOffscreens?.values?.() || []) {
+        add('tools.patternMask', off?.canvas);
+      }
+      for (const surface of tool._compositeSurfaces?.values?.() || []) {
+        add('tools.patternComposite', surface?.canvas);
+      }
+      for (const surface of tool._compositePool || []) {
+        add('tools.patternCompositePool', surface?.canvas);
+      }
+      // The blur family freezes a board-sized snapshot per in-flight stroke and
+      // keeps a small free-list of them (SnapshotCanvasPool). Both are
+      // full-board and neither is reachable from anything above.
+      for (const canvas of tool.snapshotCanvases?.values?.() || []) {
+        add('tools.blurSnapshot', canvas);
+      }
+      for (const canvas of tool._snapshotCanvases?.values?.() || []) {
+        add('tools.blurSnapshot', canvas);
+      }
+      for (const canvas of tool._snapshotPool?._free || []) {
+        add('tools.blurSnapshotPool', canvas);
+      }
+      add('tools.blurScratch', tool._blurScratch?.canvas);
+      add('tools.glitchCropScratch', tool._cropScratch?.canvas);
     }
   }
 

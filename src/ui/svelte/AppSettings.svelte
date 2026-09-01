@@ -123,6 +123,27 @@
       : `detected: normal (score ${detection.score})`;
   }
 
+  function isReduceBackgroundWork() {
+    return !!appPreferences?.general?.reduceBackgroundWork;
+  }
+
+  function updateReduceBackgroundWork(enabled) {
+    const nextPreferences = {
+      ...appPreferences,
+      general: {
+        ...(appPreferences?.general ?? {}),
+        reduceBackgroundWork: enabled
+      }
+    };
+
+    updatePreferences(
+      nextPreferences,
+      enabled
+        ? 'Background capture paused (Recent replay, time-lapse, parity)'
+        : 'Background capture resumed'
+    );
+  }
+
   function isScrollToZoom() {
     return !!appPreferences?.general?.scrollToZoom;
   }
@@ -800,6 +821,26 @@ function getChatOpacity() {
                   ]}
                 />
               </div>
+              <div class="settings-slider-card">
+                <div class="settings-slider-label">
+                  <span class="settings-slider-title">Reduce Background Work</span>
+                  <span class="settings-slider-value">Smoother, fewer features</span>
+                </div>
+                <div class="settings-toggles-row settings-toggles-row-tight">
+                  <label
+                    class="settings-toggle-compact"
+                    title="Stops the always-on capture systems: the 2-minute Recent replay tape, gallery time-lapse stills and the sync parity heartbeat. Manual recordings and History snapshots still work."
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isReduceBackgroundWork()}
+                      onchange={(event) => updateReduceBackgroundWork(event.currentTarget.checked)}
+                    />
+                    <span>Pause Recent replay, time-lapse &amp; parity checks</span>
+                  </label>
+                </div>
+              </div>
+
               <div class="settings-slider-card">
                 <label class="settings-slider-label" for="sfx-volume">
                   <span class="settings-slider-title">SFX Volume</span>

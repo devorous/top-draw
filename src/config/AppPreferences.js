@@ -40,6 +40,11 @@ export function createDefaultAppPreferences() {
       showRawPixelsAtHighZoom: true,
       useDesynchronizedBoardContexts: false,
       lowPowerMode: 'auto',
+      // Master kill-switch for the always-on background capture systems (rolling
+      // DVR tape, gallery time-lapse stills, parity heartbeat). None of them are
+      // needed to draw; on a weak machine their periodic full-board work is felt
+      // as a stutter, so this lets a user trade the features away for smoothness.
+      reduceBackgroundWork: false,
       scrollToZoom: false,
       showFloatingArt: true,
       galleryTimelapseEnabled: true,
@@ -272,6 +277,7 @@ function sanitizePreferences(rawPreferences) {
       showRawPixelsAtHighZoom: migratedShowRawPixelsAtHighZoom,
       useDesynchronizedBoardContexts: migratedUseDesynchronizedBoardContexts,
       lowPowerMode: migratedLowPowerMode,
+      reduceBackgroundWork: !!parsed.general?.reduceBackgroundWork,
       scrollToZoom: migratedScrollToZoom,
       showFloatingArt: migratedShowFloatingArt,
       galleryTimelapseEnabled: parsed.general?.galleryTimelapseEnabled !== undefined

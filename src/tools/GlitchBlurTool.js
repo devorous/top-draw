@@ -5,22 +5,85 @@
 
 import * as wasm from '../wasm/ddraw_wasm.js';
 import { Tool } from './BaseTool.js';
+import { SnapshotCanvasPool } from '../utils/snapshotCanvasPool.js';
 
 export class GlitchBlurTool extends Tool {
   constructor(board) {
     super('glitchBlur', board);
     this.lastStampPos = new Map();
     this.strokePoints = new Map(); // userId -> [{x, y}, ...]
-    this.snapshotCanvases = new Map(); // userId -> canvas
+    this.snapshotCanvases = new Map(); // userId:layer -> canvas
+    this._snapshotPool = new SnapshotCanvasPool();
+    // CPU-side copy of each snapshot, read back ONCE per stroke. See
+    // _cropSnapshotRegion for why this exists.
+    this.snapshotPixels = new Map();  // userId:layer -> ImageData
+    this._cropScratch = null;         // reused canvas for the blurred stamp
     this.deferredJobs = new Map();    // userId -> [job, ...] (fast-preview worker queue)
+    // Layers this user's in-flight stroke actually operates on, decided once at
+    // pointerDown. See _getTargetLayers.
+    this.strokeLayersByUser = new Map(); // userId -> number[]
     this._prevGlitchSetting = false;
   }
 
   activate() {}
 
-  _getTargetLayers() {
+  /**
+   * Layers this glitch stroke operates on.
+   *
+   * Once a stroke is open the answer is frozen (`strokeLayersByUser`): begin,
+   * stamp, dirty-marking, image capture and commit MUST all agree, or a stroke
+   * opened on one layer gets committed on three.
+   *
+   * @param {Object} [user] - Stroke owner; omit for the unfiltered list.
+   * @returns {number[]}
+   */
+  _getTargetLayers(user) {
+    if (user) {
+      const cached = this.strokeLayersByUser.get(user.id ?? this.board.app?.self?.id ?? 0);
+      if (cached) return cached;
+    }
     const count = this.board.layerManager?.getLayerCount?.() ?? 0;
     return Array.from({ length: Math.min(3, count) }, (_, layerIdx) => layerIdx);
+  }
+
+  /**
+   * Decide, once per stroke, which of the three candidate layers are worth
+   * glitching — and cache it.
+   *
+   * Glitch was the only tool stamping ALL three layers unconditionally (blur and
+   * circleBlur take `user.activeLayer` alone), so on the usual board — content on
+   * layer 0, nothing above — two thirds of every stroke's work was provably
+   * wasted: a full-board snapshot canvas plus a `compositeLayerRange` at
+   * pointerDown, then a crop canvas + `getImageData` readback + WASM blur +
+   * `putImageData` upload per stamp point, per empty layer.
+   *
+   * Skipping them is behaviour-preserving, not an approximation. For layers 1+
+   * `captureSnapshot` passes a null background, so an empty layer's snapshot is
+   * fully transparent; blurring transparent yields transparent, the stamp
+   * deposits nothing, `_captureLocalStrokeImages` finds no content bounds and
+   * `_endTargetLayerStrokes` already cancels that layer's stroke. Same end
+   * state, none of the work.
+   *
+   * Layer 0 is always kept: its snapshot composites the board background in, so
+   * it has content whether or not anyone has drawn.
+   *
+   * MUST run before `beginUserStroke` — `rangeHasRenderableContent` counts an
+   * active stroke as content, so a set computed afterwards would include every
+   * layer again.
+   *
+   * @param {Object} user
+   * @param {number|string} userId
+   * @returns {number[]}
+   * @private
+   */
+  _computeStrokeLayers(user, userId) {
+    const lm = this.board.layerManager;
+    const all = this._getTargetLayers();
+    const layers = lm?.rangeHasRenderableContent
+      ? all.filter((idx) => idx === 0 || lm.rangeHasRenderableContent(idx, idx + 1))
+      : all;
+    this.strokeLayersByUser.set(userId, layers);
+    return layers;
   }
 
   _getSnapshotKey(userId, layerIdx) {
@@ -28,7 +91,7 @@ export class GlitchBlurTool extends Tool {
   }
 
   _beginTargetLayerStrokes(user, userId) {
-    for (const layerIdx of this._getTargetLayers()) {
+    for (const layerIdx of this._computeStrokeLayers(user, userId)) {
       this.captureSnapshot(userId, layerIdx);
       // The snapshot the glitch samples is the DISPLAYED appearance (blend
       // already resolved against the background — see captureSnapshot). So the
@@ -49,7 +112,7 @@ export class GlitchBlurTool extends Tool {
     // seq). Tag so the MU reconciler skips it; the glitch_result self branch
     // assigns the authoritative per-layer seq. See DrawingHandlers 'glitch_result'.
     const tagGlitch = user === this.board.app?.self && !!this.board.app?.connected;
-    for (const layerIdx of this._getTargetLayers()) {
+    for (const layerIdx of this._getTargetLayers(user)) {
       this.board.releaseSelectionMaskClipForStroke?.(layerIdx, userId);
 
       // A glitch stroke begins on every target layer, but layers with nothing
@@ -82,7 +145,7 @@ export class GlitchBlurTool extends Tool {
       }
     };
 
-    for (const layerIdx of this._getTargetLayers()) {
+    for (const layerIdx of this._getTargetLayers(user)) {
       collect(layerIdx, points);
       this.board.forEachMirrorRegion({ points }, (region) => {
         collect(layerIdx, this.board.mirrorPointsToRegion(points, region));
@@ -99,6 +162,9 @@ export class GlitchBlurTool extends Tool {
     }
     this.lastStampPos.clear();
     this.snapshotCanvases.clear();
+    this.snapshotPixels.clear();
+    this.strokeLayersByUser.clear();
+    this._snapshotPool.dispose();
     this._cancelAllDeferredJobs();
     // Clear any lingering preview
     if (this.board.topCtx) {
@@ -121,14 +187,20 @@ export class GlitchBlurTool extends Tool {
 
   captureSnapshot(userId, layerIdx) {
     const key = this._getSnapshotKey(userId, layerIdx);
+    const w = this.board.getWidth();
+    const h = this.board.getHeight();
     let canvas = this.snapshotCanvases.get(key);
-    if (!canvas) {
-      canvas = document.createElement('canvas');
+    // Pooled, not reallocated. Assigning canvas.width drops and recreates the
+    // backing store, so the old "cached" path still paid a full-board
+    // allocation on every stroke — see SnapshotCanvasPool.
+    if (!canvas || canvas.width !== w || canvas.height !== h) {
+      if (canvas) this._snapshotPool.release(canvas);
+      canvas = this._snapshotPool.acquire(w, h);
       this.snapshotCanvases.set(key, canvas);
     }
-    canvas.width = this.board.getWidth();
-    canvas.height = this.board.getHeight();
-    const ctx = canvas.getContext('2d');
+    // willReadFrequently: this canvas exists only to be read back, and the
+    // readback below is the single most expensive thing the tool did.
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     // The glitch algorithm smears whatever is in this snapshot, so it must see
@@ -144,12 +216,68 @@ export class GlitchBlurTool extends Tool {
       ? (this.board.getCompositeBackgroundColor?.() ?? this.board.backgroundColor ?? null)
       : null;
     this.board.layerManager.compositeLayerRange(ctx, layerIdx, layerIdx + 1, bgColor);
+
+    // One readback per stroke instead of one per stamp. The snapshot is frozen
+    // for the whole stroke by design, so this is the same pixels the old
+    // per-stamp `drawImage` + `getImageData` pair produced.
+    this.snapshotPixels.set(key, ctx.getImageData(0, 0, canvas.width, canvas.height));
   }
 
-  clearSnapshot(userId) {
-    for (const layerIdx of this._getTargetLayers()) {
-      this.snapshotCanvases.delete(this._getSnapshotKey(userId, layerIdx));
+  /**
+   * Scratch canvas the blurred stamp is written to before being drawn onto the
+   * layer. Grows to the largest crop seen and is never shrunk; a glitch stamp is
+   * bounded by (size + 2 x blurRadius) x 2, so this stays small.
+   *
+   * @param {number} w
+   * @param {number} h
+   * @returns {{canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D}}
+   * @private
+   */
+  _getCropScratch(w, h) {
+    let scratch = this._cropScratch;
+    if (!scratch || scratch.canvas.width < w || scratch.canvas.height < h) {
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(w, scratch?.canvas.width ?? 0);
+      canvas.height = Math.max(h, scratch?.canvas.height ?? 0);
+      scratch = { canvas, ctx: canvas.getContext('2d', { willReadFrequently: true }) };
+      this._cropScratch = scratch;
     }
+    return scratch;
+  }
+
+  /**
+   * Copy a rect out of a cached full-board ImageData into a fresh crop-sized
+   * ImageData. Row-wise `set` on typed arrays — no canvas, no readback.
+   *
+   * @param {ImageData} src
+   * @param {number} x
+   * @param {number} y
+   * @param {number} w
+   * @param {number} h
+   * @returns {ImageData}
+   * @private
+   */
+  _cropPixels(src, x, y, w, h) {
+    const out = new ImageData(w, h);
+    const srcData = src.data;
+    const dstData = out.data;
+    const srcStride = src.width * 4;
+    const rowBytes = w * 4;
+    for (let row = 0; row < h; row++) {
+      const srcStart = (y + row) * srcStride + x * 4;
+      dstData.set(srcData.subarray(srcStart, srcStart + rowBytes), row * rowBytes);
+    }
+    return out;
+  }
+
+  clearSnapshot(userId, user = null) {
+    for (const layerIdx of this._getTargetLayers(user)) {
+      const key = this._getSnapshotKey(userId, layerIdx);
+      this._snapshotPool.release(this.snapshotCanvases.get(key));
+      this.snapshotCanvases.delete(key);
+      this.snapshotPixels.delete(key);
+    }
+    this.strokeLayersByUser.delete(userId);
   }
 
   onPointerDown(user, pos) {
@@ -271,7 +399,9 @@ export class GlitchBlurTool extends Tool {
     this._broadcastLocalStrokeImages(strokeImages);
 
     this.lastStampPos.delete(userId);
-    this.clearSnapshot(userId);
+    // Last, and with the user: it drops the frozen layer set every step above
+    // reads, so nothing that needs the stroke's layers may run after it.
+    this.clearSnapshot(userId, user);
     delete user.blurBounds;
 
     // Clear preview
@@ -286,7 +416,7 @@ export class GlitchBlurTool extends Tool {
     if (user !== this.board.app?.self) return [];
 
     const strokeImages = [];
-    for (const layerIdx of this._getTargetLayers()) {
+    for (const layerIdx of this._getTargetLayers(user)) {
       const active = this.board.layerManager?.getActiveStroke(layerIdx, userId);
       const sourceCanvas = active?.canvas;
       if (!sourceCanvas) continue;
@@ -443,16 +573,39 @@ export class GlitchBlurTool extends Tool {
 
     if (cropW <= 0 || cropH <= 0) return null;
 
-    const canvas = document.createElement('canvas');
-    canvas.width = cropW;
-    canvas.height = cropH;
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    ctx.drawImage(sourceCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+    // MEASURED: this used to allocate a crop-sized canvas, `drawImage` the
+    // region out of the full-board snapshot and `getImageData` it back — per
+    // stamp point, per layer. At 365 stamps a stroke that was 74.6 % of wall at
+    // 6.3 ms a call for a ~40x40 crop, while the WASM blur it feeds was 4.8 %.
+    // The area was never the problem (2.34 Mpx total); the cost was a GPU->CPU
+    // readback each time, forced by drawing a GPU-resident canvas into a
+    // willReadFrequently one and immediately reading it.
+    //
+    // The snapshot is frozen for the whole stroke, so it is read back ONCE in
+    // captureSnapshot and cropped here with a row-wise typed-array copy.
+    const cached = this.snapshotPixels.get(this._getSnapshotKey(userId, layerIdx));
+    const scratch = this._getCropScratch(cropW, cropH);
+
+    if (cached && cached.width === sourceCanvas.width && cached.height === sourceCanvas.height) {
+      return {
+        canvas: scratch.canvas,
+        ctx: scratch.ctx,
+        imageData: this._cropPixels(cached, cropX, cropY, cropW, cropH),
+        cropX, cropY, cropW, cropH,
+        blurRadius: Math.max(1, Math.round(blurRadius))
+      };
+    }
+
+    // Fallback: no cached pixels (the mainCanvas path, or a snapshot captured
+    // before this stroke's board resize). Same shape as before, on the shared
+    // scratch rather than a fresh canvas.
+    scratch.ctx.clearRect(0, 0, cropW, cropH);
+    scratch.ctx.drawImage(sourceCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
 
     return {
-      canvas,
-      ctx,
-      imageData: ctx.getImageData(0, 0, cropW, cropH),
+      canvas: scratch.canvas,
+      ctx: scratch.ctx,
+      imageData: scratch.ctx.getImageData(0, 0, cropW, cropH),
       cropX, cropY, cropW, cropH,
       blurRadius: Math.max(1, Math.round(blurRadius))
     };
@@ -474,7 +627,11 @@ export class GlitchBlurTool extends Tool {
       console.warn('Glitch blur WASM failed:', err);
     }
 
-    return { stampCanvas: crop.canvas, cropX: crop.cropX, cropY: crop.cropY };
+    return {
+      stampCanvas: crop.canvas,
+      cropX: crop.cropX, cropY: crop.cropY,
+      cropW: crop.cropW, cropH: crop.cropH
+    };
   }
 
   _applyStampToCtx(ctx, stamp, x, y, radius, intensity) {
@@ -486,7 +643,15 @@ export class GlitchBlurTool extends Tool {
     ctx.beginPath();
     ctx.rect(x - radius, y - radius, radius * 2, radius * 2);
     ctx.clip();
-    ctx.drawImage(stamp.stampCanvas, stamp.cropX, stamp.cropY);
+    // The scratch canvas is shared and sized to the LARGEST crop seen, so only
+    // the (0,0,cropW,cropH) corner is this stamp's; drawing the whole canvas
+    // would smear the previous, bigger stamp's leftovers.
+    if (stamp.cropW && stamp.cropH) {
+      ctx.drawImage(stamp.stampCanvas, 0, 0, stamp.cropW, stamp.cropH,
+        stamp.cropX, stamp.cropY, stamp.cropW, stamp.cropH);
+    } else {
+      ctx.drawImage(stamp.stampCanvas, stamp.cropX, stamp.cropY);
+    }
     ctx.restore();
   }
 
@@ -520,7 +685,7 @@ export class GlitchBlurTool extends Tool {
    */
   _stampGlitchAtPoint(user, x, y) {
     let stamped = false;
-    for (const layerIdx of this._getTargetLayers()) {
+    for (const layerIdx of this._getTargetLayers(user)) {
       if (this._stampGlitchAtPointLayer(user, x, y, layerIdx)) stamped = true;
     }
     return stamped;
@@ -573,7 +738,7 @@ export class GlitchBlurTool extends Tool {
 
     const alpha = this._getStampAlpha(user);
 
-    for (const layerIdx of this._getTargetLayers()) {
+    for (const layerIdx of this._getTargetLayers(user)) {
       const crop = this._cropSnapshotRegion(x, y, user.size, user, layerIdx);
       if (!crop) continue;
 

@@ -4,6 +4,7 @@
  */
 
 import { Tool } from './BaseTool.js';
+import { SnapshotCanvasPool } from '../utils/snapshotCanvasPool.js';
 
 /**
  * Circle Blur tool - samples pixels and stamps averaged color circles.
@@ -18,7 +19,8 @@ export class CircleBlurTool extends Tool {
     this.lastStampPos = new Map(); // userId -> {x, y, radius}
     this.stampBuffer = []; // [x, y, radius, x, y, radius, ...] for broadcast
     this.strokePoints = new Map(); // userId -> [{x, y}, ...]
-    this._snapshotCanvases = new Map(); // userId -> canvas with snapshot of mainCtx at stroke start
+    this._snapshotCanvases = new Map();
+    this._snapshotPool = new SnapshotCanvasPool(); // userId -> canvas with snapshot of mainCtx at stroke start
   }
 
   /**
@@ -28,14 +30,19 @@ export class CircleBlurTool extends Tool {
    * @param {number} userId
    */
   beginSnapshot(userId) {
+    const w = this.board.mainCanvas.width;
+    const h = this.board.mainCanvas.height;
     let canvas = this._snapshotCanvases.get(userId);
-    if (!canvas) {
-      canvas = document.createElement('canvas');
+    // Pooled, not reallocated. Assigning canvas.width drops and recreates the
+    // backing store, so the old "cached" path still paid a full-board
+    // allocation on every stroke — see SnapshotCanvasPool.
+    if (!canvas || canvas.width !== w || canvas.height !== h) {
+      if (canvas) this._snapshotPool.release(canvas);
+      canvas = this._snapshotPool.acquire(w, h);
       this._snapshotCanvases.set(userId, canvas);
     }
-    canvas.width = this.board.mainCanvas.width;
-    canvas.height = this.board.mainCanvas.height;
     const ctx = canvas.getContext('2d');
+    // drawImage covers the whole surface, so no clear is needed.
     ctx.drawImage(this.board.mainCanvas, 0, 0);
   }
 
@@ -44,7 +51,9 @@ export class CircleBlurTool extends Tool {
    * @param {number} userId
    */
   clearSnapshot(userId) {
+    const canvas = this._snapshotCanvases.get(userId);
     this._snapshotCanvases.delete(userId);
+    this._snapshotPool.release(canvas);
   }
 
   /**

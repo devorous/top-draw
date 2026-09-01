@@ -596,7 +596,7 @@ export class DrawingApp {
       // and holds no board, so its stroke log is empty and every heartbeat
       // reports a false desync. (banner/lobby are real drawing rooms — kept on.)
       shouldPause: () => !this.wsClient?.connected || !!this.self?.afk || document.hidden
-        || this.currentRoomId === '_discovery',
+        || this.currentRoomId === '_discovery' || this.isBackgroundWorkReduced(),
       onMismatch: (diff) => this._handleParityMismatch(diff),
       onOk: () => { this._lastParityOkAt = Date.now(); },
       getPixelProbe: () => this.snapshotManager?.buildPixelParityProbe?.(),
@@ -2610,7 +2610,7 @@ export class DrawingApp {
     this.timelapseCapturer = new TimelapseCapturer(this.board, {
       shouldCapture: () => this.canUseGalleryTimelapse(),
     });
-    this.timelapseCapturer.start();
+    if (!this.isBackgroundWorkReduced()) this.timelapseCapturer.start();
 
     // Preferences were applied before the chunk landed, so re-apply them onto
     // the now-real recorders, then refresh the button that reflects tape state.
@@ -3920,6 +3920,31 @@ export class DrawingApp {
     }
   }
 
+  /**
+   * True when the user has traded the always-on background capture systems away
+   * for frame-time smoothness (Settings -> Reduce Background Work). Read live
+   * rather than cached: the parity client's `shouldPause` closure consults it on
+   * every heartbeat, so flipping the toggle takes effect without a reconnect.
+   * @returns {boolean}
+   */
+  isBackgroundWorkReduced() {
+    return !!this.appPreferences?.general?.reduceBackgroundWork;
+  }
+
+  /**
+   * Starts or stops the periodic gallery time-lapse capture to match the
+   * preference. The rolling tape and parity heartbeat are handled by
+   * `_applyReplayPreferences()` and the parity `shouldPause` closure.
+   */
+  _applyBackgroundWorkPreference() {
+    if (!this.timelapseCapturer) return;
+    if (this.isBackgroundWorkReduced()) {
+      this.timelapseCapturer.stop();
+    } else {
+      this.timelapseCapturer.start();
+    }
+  }
+
   _applyReplayPreferences() {
     const replay = this.appPreferences?.general?.replay ?? {};
     this.recorder?.configure?.({
@@ -3927,7 +3952,7 @@ export class DrawingApp {
       maxLengthMs: replay.manualMaxLengthMs
     });
 
-    const rollingEnabled = replay.rollingEnabled !== false;
+    const rollingEnabled = replay.rollingEnabled !== false && !this.isBackgroundWorkReduced();
     this.rollingTapeRecorder?.configure?.({
       enabled: rollingEnabled,
       windowMs: replay.rollingWindowMs
@@ -3961,6 +3986,7 @@ export class DrawingApp {
       this.ui?.showToast?.('Low-latency canvas setting will apply after refresh', 3500);
     }
     this._applyLowPowerPreference();
+    this._applyBackgroundWorkPreference();
     this._applyReplayPreferences();
     appState.appPreferences = this.appPreferences;
     return this.appPreferences;

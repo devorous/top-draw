@@ -2512,6 +2512,9 @@ export class Board {
         if (!qoi || qoi.length === 0) continue;
         const pixels = wasm.qoi_decode(qoi);
         if (!pixels || pixels.length === 0) continue;
+        // A layer that was empty before the resize must stay structurally empty
+        // after it — see _snapshotLayerHasPixels.
+        if (!this._snapshotLayerHasPixels(pixels)) continue;
         const imageData = new ImageData(new Uint8ClampedArray(pixels.buffer), oldW, oldH);
         this.layerManager.addToBaseBin(i, this._createCanvasFromImageData(imageData), 0, 0);
       }
@@ -3831,6 +3834,38 @@ export class Board {
    * Captures each layer as a separate QOI-encoded image.
    * @returns {Uint8Array[]|null} Array of QOI blobs, one per layer
    */
+  /**
+   * True if decoded RGBA pixels contain a single non-transparent texel.
+   *
+   * Restoring a fully transparent layer is not free and not harmless: it
+   * allocates a board-sized canvas and pushes a `bakedSequences` entry, and
+   * `LayerManager.rangeHasRenderableContent` — which is structural, not
+   * pixel-based — then reports that layer as OCCUPIED for the rest of the
+   * session. Every optimisation keyed on that predicate silently stops firing:
+   * the eraser's upper-layer composite skip, the glitch tool's per-stroke layer
+   * filter. Since a QOI-encoded transparent layer is small but never
+   * zero-length, the existing `qoi.length === 0` guard never catches this, so
+   * EVERY joiner and every board resize was defeating them.
+   *
+   * Scans alpha only, 32 bits at a time where alignment allows.
+   *
+   * @param {Uint8Array} pixels - Decoded RGBA bytes.
+   * @returns {boolean}
+   * @private
+   */
+  _snapshotLayerHasPixels(pixels) {
+    if (!pixels || pixels.length === 0) return false;
+    if (pixels.byteOffset % 4 === 0 && pixels.length % 4 === 0) {
+      const words = new Uint32Array(pixels.buffer, pixels.byteOffset, pixels.length >> 2);
+      // Little-endian RGBA puts alpha in the high byte; every platform this
+      // runs on is little-endian, and the byte fallback below is exact anyway.
+      for (let i = 0; i < words.length; i++) if (words[i] & 0xff000000) return true;
+      return false;
+    }
+    for (let i = 3; i < pixels.length; i += 4) if (pixels[i] !== 0) return true;
+    return false;
+  }
+
   getSnapshot() {
     if (!this.layerManager) return null;
     const [height, width] = this.dimensions;
@@ -3984,6 +4019,10 @@ export class Board {
 
       const pixels = wasm.qoi_decode(qoi);
       if (!pixels || pixels.length === 0) continue;
+      // Transparent layers are skipped rather than baked — see
+      // _snapshotLayerHasPixels. This is the join/sync path, so without it every
+      // joiner started with all three layers marked occupied.
+      if (!this._snapshotLayerHasPixels(pixels)) continue;
 
       const dimensions = readQoiDimensions(qoi) || snapshotDimensions;
       if (!dimensions || pixels.length !== dimensions.width * dimensions.height * 4) continue;

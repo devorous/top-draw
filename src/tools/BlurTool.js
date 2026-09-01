@@ -3,6 +3,7 @@
  */
 
 import { Tool } from './BaseTool.js';
+import { SnapshotCanvasPool } from '../utils/snapshotCanvasPool.js';
 
 /**
  * Blur tool that behaves like an image brush: each stamp samples from a
@@ -17,7 +18,8 @@ export class BlurTool extends Tool {
     super('blur', board);
     this.lastStampPos = new Map(); // userId -> {x, y}
     this.strokePoints = new Map(); // userId -> [{x, y}, ...]
-    this.snapshotCanvases = new Map(); // userId -> canvas
+    this.snapshotCanvases = new Map();
+    this._snapshotPool = new SnapshotCanvasPool(); // userId -> canvas
   }
 
   /**
@@ -44,15 +46,36 @@ export class BlurTool extends Tool {
     return user?.activeLayer ?? this.board.app?.self?.activeLayer ?? 0;
   }
 
+  /**
+   * Borrow a board-sized snapshot canvas. See {@link SnapshotCanvasPool} for why
+   * this is pooled rather than allocated per stroke.
+   * @param {number} w
+   * @param {number} h
+   * @returns {HTMLCanvasElement}
+   * @private
+   */
+  _acquireSnapshotCanvas(w, h) {
+    return this._snapshotPool.acquire(w, h);
+  }
+
+  /** Return a snapshot canvas to the free-list at stroke end. */
+  _releaseSnapshotCanvas(canvas) {
+    this._snapshotPool.release(canvas);
+  }
+
   captureSnapshot(userId, layerIdx) {
+    const w = this.board.getWidth();
+    const h = this.board.getHeight();
     let canvas = this.snapshotCanvases.get(userId);
-    if (!canvas) {
-      canvas = document.createElement('canvas');
+    if (!canvas || canvas.width !== w || canvas.height !== h) {
+      if (canvas) this._releaseSnapshotCanvas(canvas);
+      canvas = this._acquireSnapshotCanvas(w, h);
       this.snapshotCanvases.set(userId, canvas);
     }
-    canvas.width = this.board.getWidth();
-    canvas.height = this.board.getHeight();
     const ctx = canvas.getContext('2d');
+    // clearRect, not a width reassignment: the latter drops and reallocates the
+    // backing store, which is the whole cost being avoided here.
+    ctx.clearRect(0, 0, w, h);
 
     // Include the room background in the blur source so transparent layer
     // pixels blur against the same color the room actually displays.
@@ -63,7 +86,37 @@ export class BlurTool extends Tool {
   }
 
   clearSnapshot(userId) {
+    const canvas = this.snapshotCanvases.get(userId);
     this.snapshotCanvases.delete(userId);
+    this._releaseSnapshotCanvas(canvas);
+  }
+
+  /**
+   * Scratch canvas the per-stamp blur is built on.
+   *
+   * `paintMask` used to `document.createElement('canvas')` on EVERY stamp point
+   * — hundreds per stroke — which is the single most expensive canvas operation
+   * there is and is invisible to JS timers. Same shape as the fixes in
+   * [[pattern_composite_bounds_clipping]] and the glitch crop path.
+   *
+   * Grows to the largest crop seen and is never shrunk; a blur stamp is bounded
+   * by (size + 2 x blurRadius) x 2, so this stays small.
+   *
+   * @param {number} w
+   * @param {number} h
+   * @returns {{canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D}}
+   * @private
+   */
+  _getBlurScratch(w, h) {
+    let scratch = this._blurScratch;
+    if (!scratch || scratch.canvas.width < w || scratch.canvas.height < h) {
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(w, scratch?.canvas.width ?? 0);
+      canvas.height = Math.max(h, scratch?.canvas.height ?? 0);
+      scratch = { canvas, ctx: canvas.getContext('2d') };
+      this._blurScratch = scratch;
+    }
+    return scratch;
   }
 
   /**
@@ -223,11 +276,15 @@ export class BlurTool extends Tool {
       const cropH = Math.min(sourceCanvas.height - cropY, Math.ceil((radius + margin) * 2));
 
       if (cropW > 0 && cropH > 0) {
-        const blurCanvas = document.createElement('canvas');
-        blurCanvas.width = cropW;
-        blurCanvas.height = cropH;
-        const blurCtx = blurCanvas.getContext('2d');
+        const { canvas: blurCanvas, ctx: blurCtx } = this._getBlurScratch(cropW, cropH);
 
+        // The scratch is shared and sized to the LARGEST crop seen, so clear it
+        // WHOLE, not just the crop rect: the filtered self-draw below reads the
+        // entire canvas, and leftovers from a bigger previous stamp would blur
+        // into this one. Clearing all of it also keeps the edge behaviour
+        // identical to the old exactly-sized canvas, where everything outside
+        // the crop was transparent.
+        blurCtx.clearRect(0, 0, blurCanvas.width, blurCanvas.height);
         blurCtx.drawImage(sourceCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
 
         // Apply blur to the intermediate canvas

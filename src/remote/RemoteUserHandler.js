@@ -1808,6 +1808,7 @@ export class RemoteUserHandler {
     if (glitchBlurTool) {
       glitchBlurTool.lastStampPos?.clear?.();
       glitchBlurTool.strokePoints?.clear?.();
+      glitchBlurTool.strokeLayersByUser?.clear?.();
       glitchBlurTool._activeUser = null;
     }
 
@@ -1844,6 +1845,17 @@ export class RemoteUserHandler {
       patternTool.offscreenCanvas = null;
       patternTool.offscreenCtx = null;
       patternTool.dirtyBounds = null;
+      // Board-sized pattern composite surfaces, live and pooled. Same reason
+      // the mask offscreens above are disposed: they are full-board backing
+      // stores and nothing else will free them.
+      for (const surface of patternTool._compositeSurfaces?.values?.() || []) {
+        this._disposeCanvasElement(surface?.canvas);
+      }
+      patternTool._compositeSurfaces?.clear?.();
+      for (const surface of patternTool._compositePool || []) {
+        this._disposeCanvasElement(surface?.canvas);
+      }
+      if (patternTool._compositePool) patternTool._compositePool.length = 0;
     }
 
     const pixelTool = this.toolManager.getTool('pixel');
@@ -1972,6 +1984,7 @@ export class RemoteUserHandler {
     if (glitchBlurTool) {
       glitchBlurTool.lastStampPos.delete(user.id);
       glitchBlurTool.strokePoints.delete(user.id);
+      glitchBlurTool.strokeLayersByUser?.delete?.(user.id);
     }
 
     const imageBrushTool = this.toolManager.getTool('imageBrush');
@@ -1995,6 +2008,7 @@ export class RemoteUserHandler {
         offscreen.ctx = null;
       }
       patternTool.remoteOffscreens.delete(user.id);
+      patternTool._releaseCompositeSurface?.(user.id);
     }
 
     const pixelTool = this.toolManager.getTool('pixel');
