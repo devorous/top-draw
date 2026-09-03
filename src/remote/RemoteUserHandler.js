@@ -71,16 +71,20 @@ export class RemoteUserHandler {
   /**
    * Resolve the board-space region a remote user's in-progress stroke occupies.
    *
-   * Two sources, because the tools do not agree on where preview-time bounds
-   * live:
+   * Three sources unioned, because the tools do not agree on where preview-time
+   * bounds live:
    *
-   * - Most tools (pen, brush, line, rectangle, circle) call
-   *   `Board.expandDirtyRect` as they go, which grows `active.dirtyRect`.
-   * - **Ink does not.** `RemoteInkHandler` only calls `expandDirtyRect` in
-   *   `handleInkUp`, at commit — during the stroke its live bounds are in
-   *   `user._inkDirtyBounds`, updated per point. Reading only `active.dirtyRect`
-   *   therefore returns null for the whole stroke on the app's default tool,
-   *   which is exactly how the first version of this silently did nothing.
+   * - `user._previewDirtyBounds` — the swept cursor path, accumulated in
+   *   handleMouseMove. This is the one that covers brush/pen/pixel/pattern/
+   *   line/rectangle/circle, every one of which expands `active.dirtyRect`
+   *   only at COMMIT (handleMouseUp / handlePenUp), not during the stroke.
+   * - `user._inkDirtyBounds` — ink's own per-point bounds; `RemoteInkHandler`
+   *   likewise only calls `expandDirtyRect` in `handleInkUp`.
+   * - `active.dirtyRect` — populated at commit, and by paths that expand it
+   *   directly (selection commit/stamp/fill).
+   *
+   * Reading only `active.dirtyRect` returns null for the whole of every ordinary
+   * stroke, which is exactly how the first version of this silently did nothing.
    *
    * Cumulative rather than per-batch on purpose: the ink preview clears and
    * redraws the WHOLE stroke on each render, so the region that changed is the
@@ -102,7 +106,13 @@ export class RemoteUserHandler {
     // a full board anyway. Not worth the complexity for the gain.
     if (this.board.mirror || this.board.mirrorRegions?.length) return null;
 
-    let minX, minY, maxX, maxY;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    const union = (x0, y0, x1, y1) => {
+      if (x0 < minX) minX = x0;
+      if (y0 < minY) minY = y0;
+      if (x1 > maxX) maxX = x1;
+      if (y1 > maxY) maxY = y1;
+    };
 
     const ink = user?._inkDirtyBounds;
     if (ink && Number.isFinite(ink.minX) && ink.maxX >= ink.minX) {
@@ -111,12 +121,17 @@ export class RemoteUserHandler {
       const size = user._inkSize || user.size || 0;
       const hardness = user._inkHardness !== undefined ? user._inkHardness : 1.0;
       const margin = (1 - hardness) * (20 + size * 0.2) + size * 0.5 + 2;
-      minX = ink.minX - margin; minY = ink.minY - margin;
-      maxX = ink.maxX + margin; maxY = ink.maxY + margin;
-    } else {
-      const dr = this.board.layerManager?.getActiveStroke?.(layerIndex, user?.id)?.dirtyRect;
-      if (!dr || dr.maxX === -1) return null;
-      minX = dr.minX; minY = dr.minY; maxX = dr.maxX; maxY = dr.maxY;
+      union(ink.minX - margin, ink.minY - margin, ink.maxX + margin, ink.maxY + margin);
+    }
+
+    const pv = user?._previewDirtyBounds;
+    if (pv && Number.isFinite(pv.minX) && pv.maxX >= pv.minX) {
+      union(pv.minX, pv.minY, pv.maxX, pv.maxY);
+    }
+
+    const dr = this.board.layerManager?.getActiveStroke?.(layerIndex, user?.id)?.dirtyRect;
+    if (dr && dr.maxX !== -1) {
+      union(dr.minX, dr.minY, dr.maxX, dr.maxY);
     }
 
     if (![minX, minY, maxX, maxY].every(Number.isFinite)) return null;
@@ -270,6 +285,15 @@ export class RemoteUserHandler {
       user.smoothBuffer.x = smoothedPoints[smoothedPoints.length - 2];
       user.smoothBuffer.y = smoothedPoints[smoothedPoints.length - 1];
       user.smoothBuffer.isFirst = false;
+    }
+
+    // Every preview branch below paints inside the swept cursor path, so record
+    // it once here rather than in each of them. Without this the preview rect
+    // resolver has nothing to read mid-stroke for anything but ink, and every
+    // arriving batch falls back to a full-board composite. See
+    // _activeStrokeDirtyRect.
+    if (user.mousedown && !user.panning) {
+      this._expandPreviewBounds(user, smoothedPoints, this._maxBrushMargin(user));
     }
 
     const radii = data.rs;
@@ -646,6 +670,13 @@ export class RemoteUserHandler {
       this.selectionHandler?.drawStaticMaskOutline(user, user.maskSelection, false);
     }
 
+    // The shape tools are not bounded by the cursor path handleMouseMove
+    // records: they draw between startPos (which never arrives as a move point)
+    // and pos, and in 'center' mode extend the same distance the other side of
+    // startPos again. Take the bounds from the tools' own geometry, the way
+    // handleMouseUp does when it expands the committed dirty rect.
+    this._expandShapePreviewBounds(user, pos);
+
     this._syncLayeredRemotePreview(user);
   }
 
@@ -676,6 +707,9 @@ export class RemoteUserHandler {
       this.toolManager.getTool('confetti')?.applyNetworkSettings?.(user, data.confettiData);
     }
     user.clearLine();
+    // Bounds are per stroke; carrying the last one over would grow the preview
+    // rect monotonically for as long as the user keeps drawing.
+    user._previewDirtyBounds = null;
 
     resetSmoothingBuffer(user.smoothBuffer);
     user.remoteTarget = null;
@@ -697,6 +731,10 @@ export class RemoteUserHandler {
     user.startPos = pos;
     user.setPosition(pos.x, pos.y);
     user._strokeLayer = user.activeLayer ?? 0;
+    // Seed the preview bounds with the down point. The tools that render a
+    // preview from here (pen, ink) sync before any move has arrived, and empty
+    // bounds there cost one full-board composite per stroke.
+    if (!user.panning) this._expandPreviewBounds(user, [pos], this._maxBrushMargin(user));
 
     if (!user.panning) {
       if (user.tool === 'erase' && user.eraseAllLayers) {
@@ -2031,6 +2069,8 @@ export class RemoteUserHandler {
     user._penOffscreen = null;
     user._penOffscreenCtx = null;
 
+    user._previewDirtyBounds = null;
+
     user._inkPoints = [];
     user._inkStrokeActive = false;
     user._inkStrokeColor = null;
@@ -2285,6 +2325,96 @@ export class RemoteUserHandler {
    * @param {User} user - The remote user.
    * @returns {number}
    */
+  /**
+   * Pressure-independent upper bound on _brushMargin. Preview bounds are
+   * accumulated from cursor points before the per-point radii are applied, and
+   * pressure only ever shrinks the radius, so assuming full pressure keeps the
+   * rect conservative — the safe direction, since a too-small rect leaves a
+   * remote stroke visibly torn while a too-large one only costs time.
+   *
+   * @private
+   * @param {User} user - The remote user.
+   * @returns {number}
+   */
+  _maxBrushMargin(user) {
+    const radius = user.size || 0;
+    const hardnessFloat = (user.hardness !== undefined ? user.hardness : 100) / 100;
+    const blurAmount = hardnessFloat < 1 ? (1 - hardnessFloat) * (20 + (user.size || 0) * 0.2) : 0;
+    return radius + blurAmount + radius * 0.25 + 2;
+  }
+
+  /**
+   * Accumulate the region a remote user's in-progress preview occupies.
+   *
+   * Cumulative for the whole stroke, not per batch: every preview path clears
+   * the user's whole preview canvas and redraws from scratch (see
+   * renderRemotePreview), so the region that changes on each render is
+   * everything the stroke has covered so far — and for line/rectangle/circle
+   * the previous frame's shape has to be repainted as well as the new one.
+   *
+   * @private
+   * @param {User} user - The remote user.
+   * @param {number[]|Array<{x:number,y:number}>} points - Flat [x,y,...] or point objects.
+   * @param {number} margin - Half-extent of the paint around each point.
+   * @returns {void}
+   */
+  _expandPreviewBounds(user, points, margin) {
+    if (!user || !points || !points.length) return;
+    let b = user._previewDirtyBounds;
+    if (!b) {
+      b = user._previewDirtyBounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+    }
+    const add = (x, y) => {
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+      if (x - margin < b.minX) b.minX = x - margin;
+      if (y - margin < b.minY) b.minY = y - margin;
+      if (x + margin > b.maxX) b.maxX = x + margin;
+      if (y + margin > b.maxY) b.maxY = y + margin;
+    };
+    if (typeof points[0] === 'number') {
+      for (let i = 0; i + 1 < points.length; i += 2) add(points[i], points[i + 1]);
+    } else {
+      for (const p of points) add(p?.x, p?.y);
+    }
+  }
+
+  /**
+   * Fold a shape tool's live preview geometry into the user's preview bounds.
+   * No-op for every other tool.
+   *
+   * @private
+   * @param {User} user - The remote user.
+   * @param {{x:number,y:number}} pos - Current remote cursor position.
+   * @returns {void}
+   */
+  _expandShapePreviewBounds(user, pos) {
+    if (!user?.startPos || !pos) return;
+    const margin = this._maxBrushMargin(user);
+    if (user.tool === 'line') {
+      this._expandPreviewBounds(user, [user.startPos, pos], margin);
+      return;
+    }
+    if (user.tool === 'rectangle') {
+      const b = this.toolManager.getTool('rectangle')
+        ?.getRectBounds?.(user.startPos, pos, false, user.shapeDrawMode);
+      if (b) {
+        this._expandPreviewBounds(user, [{ x: b.x, y: b.y }, { x: b.x + b.w, y: b.y + b.h }], margin);
+      }
+      return;
+    }
+    if (user.tool === 'circle') {
+      const e = this.toolManager.getTool('circle')
+        ?.getEllipseParams?.(user.startPos, pos, false, user.shapeDrawMode);
+      if (e) {
+        this._expandPreviewBounds(
+          user,
+          [{ x: e.cx - e.rx, y: e.cy - e.ry }, { x: e.cx + e.rx, y: e.cy + e.ry }],
+          margin
+        );
+      }
+    }
+  }
+
   _brushMargin(user) {
     const radius = user.pressure * user.size;
     const hardnessFloat = (user.hardness !== undefined ? user.hardness : 100) / 100;
@@ -2345,6 +2475,7 @@ export class RemoteUserHandler {
     }
 
     user.clearLine();
+    user._previewDirtyBounds = null;
     user.addToLine(lastDrawnPos);
     this.board.compositeAllLayers();
   }

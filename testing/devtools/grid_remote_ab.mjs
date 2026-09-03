@@ -40,6 +40,12 @@ await page.evaluate(() => {
 });
 await page.waitForFunction(() => window.app?.connected && window.app.board?.mainCanvas, { timeout: 90000 });
 await sleep(4000);
+// `/go/` picks a room for you, so two clients silently land in DIFFERENT rooms
+// while both look healthy. Join an explicit one on both sides.
+const ROOM = process.env.ROOM || 'perfroom';
+await page.evaluate(r => window.app.handleRoomSelected(r), ROOM);
+await page.waitForFunction(r => window.app?.connected && window.app.currentRoomId === r, { timeout: 60000 }, ROOM);
+await sleep(4000);
 
 const env = await page.evaluate(async () => {
   let wake = 'unavailable';
