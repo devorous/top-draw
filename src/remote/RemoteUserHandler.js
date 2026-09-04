@@ -15,6 +15,23 @@ import { releaseRemoteScratch } from './remoteScratchReclaim.js';
 import { normalizeBlendBakeMode } from '../../shared/blendBakeMode.js';
 
 /**
+ * Above this fraction of the board, a mirror-expanded preview rect is worth less
+ * than one full composite: `_applyCompositeClip` pays per rect in the clip path
+ * and the tile grid saves nothing once most tiles are dirty anyway. Radial and
+ * fibonacci regions are the ones that reach it — a 16-slice radial turns one
+ * stroke rect into 16 rotated AABBs whose union approaches the whole region.
+ */
+const MIRROR_RECT_FULL_BOARD_FRACTION = 0.5;
+
+/**
+ * Most preview rects a mirrored stroke may scope to before collapsing them into
+ * one bounding rect. Matches `CompositeTileGrid.consumeDirtyRects`'s own cap,
+ * which collapses above 8 for the same reason: compositing cost is dominated by
+ * rect count, not area.
+ */
+const MIRROR_MAX_PREVIEW_RECTS = 8;
+
+/**
  * RemoteUserHandler coordinates the rendering of remote users' drawing events.
  * It manages tool-specific handlers and ensures visual parity between clients.
  */
@@ -90,9 +107,11 @@ export class RemoteUserHandler {
    * redraws the WHOLE stroke on each render, so the region that changed is the
    * whole stroke, not just the newest segment.
    *
-   * Returns null (meaning "caller should fall back to a full composite")
-   * whenever bounds are unknown or mirroring is active — a too-large rect only
-   * costs time, while a too-small one leaves a remote stroke visibly torn.
+   * This is the stroke's OWN rect only. Mirrors reflect those pixels elsewhere
+   * too; `_previewDirtyRects` wraps this and adds a rect per mirror image, and
+   * that is what callers should use. Returns null (meaning "fall back to a full
+   * composite") when bounds are unknown — a too-large rect only costs time,
+   * while a too-small one leaves a remote stroke visibly torn.
    *
    * @param {Object} user - Remote user model.
    * @param {number} layerIndex - Layer the stroke was begun on.
@@ -100,12 +119,6 @@ export class RemoteUserHandler {
    * @private
    */
   _activeStrokeDirtyRect(user, layerIndex) {
-    // Mirroring reflects preview pixels far outside the stroke's own bounds.
-    // The reflected regions could be unioned in, but the global mirror is
-    // itself modelled as a board-sized region, so the common case collapses to
-    // a full board anyway. Not worth the complexity for the gain.
-    if (this.board.mirror || this.board.mirrorRegions?.length) return null;
-
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     const union = (x0, y0, x1, y1) => {
       if (x0 < minX) minX = x0;
@@ -143,6 +156,96 @@ export class RemoteUserHandler {
     return { x, y, width, height };
   }
 
+  /**
+   * Every area of the board a remote user's live preview currently occupies:
+   * the stroke's own rect, plus one per place an active mirror reflects it to.
+   *
+   * A mirrored stroke paints into the remote user's canvas two or more times —
+   * once at the cursor, once per mirror image — so a rect covering only the
+   * cursor path under-covers `setUserPreviewStroke`, and `_copyPreviewSource`
+   * then clears and redraws less than the stroke occupies. That does not merely
+   * leave a stale composite: it leaves the mirrored copy visibly torn. Fail
+   * toward too large.
+   *
+   * A LIST rather than a bounding union, which is what this originally returned.
+   * The union of a stroke and its reflection across a board-length centerline is
+   * a band spanning nearly the whole board width, and almost all of it is the
+   * empty gap between the two copies — 7% of the board where the copies
+   * themselves are 0.4%. Measured on an N4500 observing one remote brush drawer
+   * at 1080p, that band cost MORE than the full-board composite it replaced
+   * (5-7% dropped frames against 1-2%, consistent across six ABBA pairs), while
+   * the stroke rect alone matched the full-board arm. Rect count is what the
+   * clip path and the per-layer drawImage pay for; empty area between rects is
+   * pure waste. See `testing/devtools/grid_mirror_ab.mjs`.
+   *
+   * The geometry is already solved — `getSelectionMirrorTargets` expands quad
+   * into 3 pseudo-regions, radial into one per slice and fib into one per depth
+   * level, and models the global `board.mirror` as a board-sized vertical
+   * region, so this needs no per-mode math. What it must NOT do is what the
+   * pre-fix code assumed: conflate the size of the REGION with the size of the
+   * REFLECTED RECT. Reflecting a 60x40 rect across a board-length centerline
+   * gives another 60x40 rect on the far side, not a board-sized one.
+   *
+   * @param {Object} user - Remote user model.
+   * @param {number} layerIndex - Layer the stroke was begun on.
+   * @returns {Array<{x:number,y:number,width:number,height:number}>|null} null
+   *   means "composite the whole board".
+   * @private
+   */
+  _previewDirtyRects(user, layerIndex) {
+    const base = this._activeStrokeDirtyRect(user, layerIndex);
+    if (!base) return null;
+
+    const board = this.board;
+    if (!board?.hasMirrors?.()) return [base];
+
+    const targets = board.getSelectionMirrorTargets?.(base);
+    if (!targets?.length) return [base];
+
+    // Fibonacci is the one mode whose painted area is NOT the union of the
+    // per-step transforms of the stroke rect, so a rect list under-covers it and
+    // the spiral tears mid-stroke. Measured with
+    // `testing/devtools/mirror_rect_exactness.mjs`: global, quad, rotational and
+    // radial all match a full composite exactly; fib missed up to 1130px per
+    // sample in 8 of 8. Full composite until that geometry is worked out —
+    // slower, but a slow board beats a broken one.
+    for (const { region } of targets) {
+      if ((region?.transform || region?.mode || region?.axis) === 'fibStep') return null;
+    }
+
+    let rects = [base];
+    for (const { bounds } of targets) {
+      if (bounds && bounds.width > 0 && bounds.height > 0) rects.push(bounds);
+    }
+
+    // Past this many, the clip path costs more than the pixels saved, and the
+    // tile grid would collapse them itself (CompositeTileGrid.consumeDirtyRects
+    // caps at 8). Collapse first, then let the coverage test below decide
+    // whether what is left is still worth scoping — for a radial region the
+    // union of its slices is the region, which can be far smaller than the board.
+    if (rects.length > MIRROR_MAX_PREVIEW_RECTS) {
+      rects = [board.unionWithMirrorTargets(base, targets)];
+    }
+
+    const boardWidth = board.getWidth();
+    const boardHeight = board.getHeight();
+    const boardArea = boardWidth * boardHeight;
+    const clamped = [];
+    let covered = 0;
+    for (const r of rects) {
+      const x = Math.max(0, Math.floor(r.x));
+      const y = Math.max(0, Math.floor(r.y));
+      const w = Math.min(boardWidth, Math.ceil(r.x + r.width)) - x;
+      const h = Math.min(boardHeight, Math.ceil(r.y + r.height)) - y;
+      if (w <= 0 || h <= 0) continue;
+      covered += w * h;
+      clamped.push({ x, y, width: w, height: h });
+    }
+    if (clamped.length === 0) return [base];
+    if (boardArea > 0 && covered / boardArea > MIRROR_RECT_FULL_BOARD_FRACTION) return null;
+    return clamped;
+  }
+
   _syncLayeredRemotePreview(user, dirtyRect = null) {
     if (!this._usesLayeredRemotePreview(user) || !user?.context?.canvas) return;
 
@@ -166,24 +269,28 @@ export class RemoteUserHandler {
     // scoped rect. Falls back to the old behaviour when bounds are unknown,
     // which is the fail-safe direction — a too-large rect costs time, a
     // too-small one leaves a remote stroke visibly torn.
-    const rect = dirtyRect || this._activeStrokeDirtyRect(user, layerIndex);
+    const rects = dirtyRect
+      ? (Array.isArray(dirtyRect) ? dirtyRect : [dirtyRect])
+      : this._previewDirtyRects(user, layerIndex);
 
     const blendMode = this.board.layerManager.getLayerAllowComplexBlendModes(layerIndex)
       ? (user.blendMode || 'source-over')
       : 'source-over';
-    this.board.layerManager.setUserPreviewStroke(layerIndex, user.id, user.context.canvas, blendMode, rect);
+    this.board.layerManager.setUserPreviewStroke(layerIndex, user.id, user.context.canvas, blendMode, rects);
     user._layeredPreviewActive = true;
     if (user.board) user.board.style.opacity = '0';
     this._syncUserLayerDisplay(user);
 
-    if (rect) {
-      this.board.compositeTileGrid?.markRect(rect.x, rect.y, rect.width, rect.height);
-      // Remember it: tearing the preview down has to repaint wherever it was,
+    if (rects?.length) {
+      for (const rect of rects) {
+        this.board.compositeTileGrid?.markRect(rect.x, rect.y, rect.width, rect.height);
+      }
+      // Remember them: tearing the preview down has to repaint wherever it was,
       // and by then the active stroke (and its dirtyRect) is already gone.
-      user._lastPreviewRect = rect;
+      user._lastPreviewRects = rects;
     } else {
       this.board.markCompositeFull?.();
-      user._lastPreviewRect = null;
+      user._lastPreviewRects = null;
     }
     this.board.requestUpdate?.();
   }
@@ -202,15 +309,17 @@ export class RemoteUserHandler {
     // This used to be covered incidentally by the markCompositeFull above; now
     // that the sync path marks a scoped rect, the teardown has to mark its own.
     if (hadPreview) {
-      const last = user._lastPreviewRect;
-      if (last) {
-        this.board.compositeTileGrid?.markRect(last.x, last.y, last.width, last.height);
+      const last = user._lastPreviewRects;
+      if (last?.length) {
+        for (const rect of last) {
+          this.board.compositeTileGrid?.markRect(rect.x, rect.y, rect.width, rect.height);
+        }
       } else {
         this.board.markCompositeFull?.();
       }
       this.board.requestUpdate?.();
     }
-    user._lastPreviewRect = null;
+    user._lastPreviewRects = null;
   }
 
   /**

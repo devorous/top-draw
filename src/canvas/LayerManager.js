@@ -615,7 +615,10 @@ export class LayerManager {
    * @param {number} userId - User ID
    * @param {HTMLCanvasElement} sourceCanvas - Full-size preview canvas
    * @param {string} [blendMode='source-over'] - Blend mode for compositing
-   * @param {{x:number,y:number,width:number,height:number}|null} [dirtyRect=null] - Optional changed region
+   * @param {{x:number,y:number,width:number,height:number}|Array<Object>|null} [dirtyRect=null] -
+   *   Optional changed region, or a list of them. A mirrored stroke changes two
+   *   or more disjoint areas, and their bounding box is mostly the empty gap
+   *   between them — measurably worse than the full-board copy it replaces.
    */
   setUserPreviewStroke(groupIdx, userId, sourceCanvas, blendMode = 'source-over', dirtyRect = null) {
     const group = this.layerGroups[groupIdx];
@@ -664,29 +667,35 @@ export class LayerManager {
     targetCtx.globalCompositeOperation = 'source-over';
     targetCtx.globalAlpha = 1;
 
-    const rect = dirtyRect && Number.isFinite(dirtyRect.x) && Number.isFinite(dirtyRect.y) && dirtyRect.width > 0 && dirtyRect.height > 0
-      ? {
-          x: Math.max(0, Math.floor(dirtyRect.x)),
-          y: Math.max(0, Math.floor(dirtyRect.y)),
-          width: Math.ceil(dirtyRect.width),
-          height: Math.ceil(dirtyRect.height)
-        }
-      : null;
+    const normalize = (r) => (
+      r && Number.isFinite(r.x) && Number.isFinite(r.y) && r.width > 0 && r.height > 0
+        ? {
+            x: Math.max(0, Math.floor(r.x)),
+            y: Math.max(0, Math.floor(r.y)),
+            width: Math.ceil(r.width),
+            height: Math.ceil(r.height)
+          }
+        : null
+    );
 
-    if (!rect) {
+    const rects = (Array.isArray(dirtyRect) ? dirtyRect : [dirtyRect]).map(normalize).filter(Boolean);
+
+    if (rects.length === 0) {
       targetCtx.clearRect(0, 0, this.width, this.height);
       targetCtx.drawImage(sourceCanvas, 0, 0);
       return;
     }
 
-    const right = Math.min(this.width, rect.x + rect.width, sourceCanvas.width);
-    const bottom = Math.min(this.height, rect.y + rect.height, sourceCanvas.height);
-    if (right <= rect.x || bottom <= rect.y) return;
+    for (const rect of rects) {
+      const right = Math.min(this.width, rect.x + rect.width, sourceCanvas.width);
+      const bottom = Math.min(this.height, rect.y + rect.height, sourceCanvas.height);
+      if (right <= rect.x || bottom <= rect.y) continue;
 
-    const width = right - rect.x;
-    const height = bottom - rect.y;
-    targetCtx.clearRect(rect.x, rect.y, width, height);
-    targetCtx.drawImage(sourceCanvas, rect.x, rect.y, width, height, rect.x, rect.y, width, height);
+      const width = right - rect.x;
+      const height = bottom - rect.y;
+      targetCtx.clearRect(rect.x, rect.y, width, height);
+      targetCtx.drawImage(sourceCanvas, rect.x, rect.y, width, height, rect.x, rect.y, width, height);
+    }
   }
 
   _deleteUserPreviewFromGroup(group, userId) {
