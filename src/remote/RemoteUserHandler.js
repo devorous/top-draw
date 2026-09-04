@@ -836,9 +836,19 @@ export class RemoteUserHandler {
         // local reconstruction from cursor motion.
         break;
 
-      case 'erase':
-        this.toolManager.getTool('erase')?.drawPreview(user, user.context);
+      case 'erase': {
+        // drawPreview's `rect?.drawImage` shim treats a bare context as "no
+        // rect" and draws the whole board — the local path avoids this by
+        // always computing getPreviewDirtyRect() first (see onPointerDown/
+        // onPointerMove) and skipping the call entirely when it's `false`
+        // (nothing new since the last preview), but this call site never
+        // did either, so every remote MM paid a full-board maskCanvas copy
+        // where a clipped (or skipped) one would do.
+        const eraserTool = this.toolManager.getTool('erase');
+        const dirtyRect = eraserTool?.getPreviewDirtyRect(user);
+        if (dirtyRect !== false) eraserTool?.drawPreview(user, dirtyRect, user.context);
         break;
+      }
 
     }
 

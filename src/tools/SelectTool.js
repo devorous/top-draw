@@ -3165,32 +3165,48 @@ export class SelectTool extends Tool {
   _flattenLayerRangeToSelectionCanvas(startIdx, endIdx, s) {
     const lm = this.board.layerManager;
     const selCanvas = document.createElement('canvas');
-    selCanvas.width = s.width;
-    selCanvas.height = s.height;
+    selCanvas.width = Math.ceil(s.width);
+    selCanvas.height = Math.ceil(s.height);
     const selCtx = selCanvas.getContext('2d');
 
-    const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = lm.width;
-    tempCanvas.height = lm.height;
-    const tempCtx = tempCanvas.getContext('2d');
+    // Composite DIRECTLY onto the selection-sized canvas instead of a
+    // full-board temp canvas cropped down afterward — compositeLayerRange's
+    // `dirtyRects` param already clips + positions correctly under a
+    // translated ctx (same mechanism the LayerManager active-stroke
+    // windowing work uses: stroke.x/y are board-absolute, so the CTM
+    // remaps them onto the smaller canvas). Avoids a `lm.width x lm.height`
+    // allocation (and a second one when `needsBakeBg`) per call — this runs
+    // once per target layer group for multi-layer select operations.
+    const originX = Math.floor(s.x);
+    const originY = Math.floor(s.y);
+    const rect = { x: originX, y: originY, width: selCanvas.width, height: selCanvas.height };
 
     const needsBakeBg = this._rangeNeedsBackgroundBlendBake(startIdx, endIdx, s);
     const bgColor = needsBakeBg
       ? (this.board.getCompositeBackgroundColor?.() || this.board.backgroundColor || [255, 255, 255, 1])
       : null;
-    lm.compositeLayerRange(tempCtx, startIdx, endIdx, bgColor);
+
+    selCtx.save();
+    selCtx.translate(-originX, -originY);
+    lm.compositeLayerRange(selCtx, startIdx, endIdx, bgColor, [rect]);
+    selCtx.restore();
 
     if (needsBakeBg) {
       const maskCanvas = document.createElement('canvas');
-      maskCanvas.width = lm.width;
-      maskCanvas.height = lm.height;
+      maskCanvas.width = selCanvas.width;
+      maskCanvas.height = selCanvas.height;
       const maskCtx = maskCanvas.getContext('2d');
-      lm.compositeLayerRange(maskCtx, startIdx, endIdx, null);
+      maskCtx.save();
+      maskCtx.translate(-originX, -originY);
+      lm.compositeLayerRange(maskCtx, startIdx, endIdx, null, [rect]);
+      maskCtx.restore();
 
-      this._convertBakedBackgroundToMaskedSource(tempCtx, maskCtx, bgColor, s);
+      // selCtx/maskCtx are already selection-sized, so the "rect to process"
+      // is the whole canvas at its own local (0,0), not a sub-region within
+      // a bigger one as the old full-board version needed.
+      this._convertBakedBackgroundToMaskedSource(selCtx, maskCtx, bgColor, { x: 0, y: 0, width: rect.width, height: rect.height });
     }
 
-    selCtx.drawImage(tempCanvas, -s.x, -s.y);
     return selCanvas;
   }
 

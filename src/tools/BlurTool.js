@@ -134,9 +134,22 @@ export class BlurTool extends Tool {
     user.blurRadius = Math.max(1, Math.min(10, Number.isFinite(rawBlurRadius) ? rawBlurRadius : 10));
 
     this.captureSnapshot(userId, activeLayerIdx);
-    this.board.beginStroke(user);
 
-    const maskCtx = this.board.layerManager?.getUserStrokeContext(activeLayerIdx, userId);
+    // NOT this.board.beginStroke(user) — that wrapper calls
+    // LayerManager.beginUserStroke with no `bounds`, which would create the
+    // active stroke full-board immediately; by the time the windowed
+    // getUserStrokeContext call below ran, `active` would already exist
+    // (origin null) and never grow. Replicate beginStroke's other effects
+    // (blend mode resolution, mask clip, requestUpdate) with bounds instead —
+    // same reason EraserTool._beginStroke bypasses it too.
+    const bounds = this._canWindowActiveStroke(user)
+      ? this._foldMirrorBounds(this._stampBounds(pos.x, pos.y, user.size, this._stampMargin(user)))
+      : null;
+    const blendMode = user?.blendMode ?? 'source-over';
+    this.board.layerManager?.beginUserStroke(activeLayerIdx, userId, blendMode, user?.blendBakeMode, bounds);
+    this.board.applySelectionMaskClipForStroke(activeLayerIdx, userId);
+
+    const maskCtx = this.board.layerManager?.getUserStrokeContext(activeLayerIdx, userId, undefined, undefined, bounds);
     if (!maskCtx) {
       console.warn('BlurTool: No stroke context available');
       return;
@@ -153,17 +166,91 @@ export class BlurTool extends Tool {
     this.lastStampPos.set(userId, { x: pos.x, y: pos.y });
     this.strokePoints.set(userId, [{ x: pos.x, y: pos.y }]);
 
-    // Paint the first mask stamp
-    this.paintMask(pos.x, pos.y, user.size, user, maskCtx);
+    // The active stroke canvas may now be windowed (see docs/
+    // scope_layermanager_active_stroke_windowing_RESULT.md) — paintMask's
+    // clip/drawImage calls use board-absolute coordinates, so the ctx needs
+    // translating by -origin to land on the (small) canvas's own pixel
+    // space, same fix shape as brush/eraser.
+    const active = this.board.layerManager.getActiveStroke(activeLayerIdx, userId);
+    const ox = active?.origin?.x ?? 0;
+    const oy = active?.origin?.y ?? 0;
+    if (ox || oy) maskCtx.save();
+    try {
+      if (ox || oy) maskCtx.translate(-ox, -oy);
 
-    this.board.forEachMirrorRegion({ point: pos }, (region) => {
-      const mirrored = this.board.mirrorPointToRegion(pos, region);
-      this.board.withMirrorRegionClip(maskCtx, region, () => {
-        this.paintMask(mirrored.x, mirrored.y, user.size, user, maskCtx);
+      // Paint the first mask stamp
+      this.paintMask(pos.x, pos.y, user.size, user, maskCtx);
+
+      this.board.forEachMirrorRegion({ point: pos }, (region) => {
+        const mirrored = this.board.mirrorPointToRegion(pos, region);
+        this.board.withMirrorRegionClip(maskCtx, region, () => {
+          this.paintMask(mirrored.x, mirrored.y, user.size, user, maskCtx);
+        });
       });
-    });
+    } finally {
+      if (ox || oy) maskCtx.restore();
+    }
 
     this.board.requestUpdate();
+  }
+
+  /**
+   * Whether this tool's active stroke canvas may be windowed rather than
+   * full-board — see docs/scope_layermanager_active_stroke_windowing_RESULT.md.
+   * Unlike eraser, blur has no all-layers variant and always targets exactly
+   * one layer, so this is unconditionally true.
+   * @private
+   */
+  _canWindowActiveStroke() {
+    return true;
+  }
+
+  /** Board-absolute margin a stamp's blur can bleed into, in px. @private */
+  _stampMargin(user) {
+    return Math.ceil((user.blurRadius || 10) * 2);
+  }
+
+  /**
+   * Board-absolute bounds a single stamp at (x, y) touches, matching
+   * `paintMask`'s own dirty-rect expansion math exactly.
+   * @private
+   */
+  _stampBounds(x, y, size, margin) {
+    const radius = size;
+    return {
+      x: x - radius - margin,
+      y: y - radius - margin,
+      width: (radius + margin) * 2,
+      height: (radius + margin) * 2
+    };
+  }
+
+  /**
+   * Expand a board-absolute box to also cover every active mirror region's
+   * transformed copy — same "single bounding box, not a rect list"
+   * simplification the brush/eraser windowing already uses.
+   * @private
+   */
+  _foldMirrorBounds(bounds) {
+    const regions = this.board.getActiveMirrorRegions?.() || [];
+    if (!regions.length) return bounds;
+    let minX = bounds.x, minY = bounds.y;
+    let maxX = bounds.x + bounds.width, maxY = bounds.y + bounds.height;
+    const corners = [
+      { x: minX, y: minY }, { x: maxX, y: minY },
+      { x: minX, y: maxY }, { x: maxX, y: maxY }
+    ];
+    for (const region of regions) {
+      const mirrored = this.board.mirrorPointsToRegion(corners, region);
+      for (const p of mirrored) {
+        if (!Number.isFinite(p?.x) || !Number.isFinite(p?.y)) continue;
+        if (p.x < minX) minX = p.x;
+        if (p.x > maxX) maxX = p.x;
+        if (p.y < minY) minY = p.y;
+        if (p.y > maxY) maxY = p.y;
+      }
+    }
+    return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
   }
 
   /**
@@ -186,44 +273,66 @@ export class BlurTool extends Tool {
 
     const activeLayerIdx = this._getTargetLayer(user);
     const userId = user.id ?? this.board.app?.self?.id ?? 0;
-    const maskCtx = this.board.layerManager?.getUserStrokeContext(activeLayerIdx, userId);
-    if (!maskCtx) return;
 
     const prevStamp = this.lastStampPos.get(userId);
-    if (prevStamp) {
-      const dx = pos.x - prevStamp.x;
-      const dy = pos.y - prevStamp.y;
-      const distance = Math.sqrt(dx * dx + dy * dy);
-
-      const spacingPercent = user.spacing === 0 ? 0.1 : (user.spacing * 0.05);
-      const minSpacing = Math.max(user.size * spacingPercent, 5); // Min 5px spacing
-
-      if (distance >= minSpacing) {
-        const points = this.strokePoints.get(userId);
-        const steps = Math.max(1, Math.ceil(distance / minSpacing));
-
-        for (let i = 1; i <= steps; i++) {
-          const t = i / steps;
-          const stampX = prevStamp.x + dx * t;
-          const stampY = prevStamp.y + dy * t;
-          this.paintMask(stampX, stampY, user.size, user, maskCtx);
-
-          this.board.forEachMirrorRegion({ point: { x: stampX, y: stampY } }, (region) => {
-            const mirrored = this.board.mirrorPointToRegion({ x: stampX, y: stampY }, region);
-            this.board.withMirrorRegionClip(maskCtx, region, () => {
-              this.paintMask(mirrored.x, mirrored.y, user.size, user, maskCtx);
-            });
-          });
-
-          if (points) points.push({ x: stampX, y: stampY });
-        }
-
-        this.lastStampPos.set(userId, { x: pos.x, y: pos.y });
-        if (shouldRequestUpdate) this.board.requestUpdate();
-      }
-    } else {
+    if (!prevStamp) {
       this.lastStampPos.set(userId, { x: pos.x, y: pos.y });
+      return;
     }
+
+    const dx = pos.x - prevStamp.x;
+    const dy = pos.y - prevStamp.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+
+    const spacingPercent = user.spacing === 0 ? 0.1 : (user.spacing * 0.05);
+    const minSpacing = Math.max(user.size * spacingPercent, 5); // Min 5px spacing
+    if (distance < minSpacing) return;
+
+    // Bounds hint covers the WHOLE segment's stamps, not just one — grown
+    // once per tick rather than per stamp (segments between ticks are short,
+    // so this stays tight without the overhead of growing N times).
+    const margin = this._stampMargin(user);
+    const segBounds = this._canWindowActiveStroke(user) ? this._foldMirrorBounds({
+      x: Math.min(prevStamp.x, pos.x) - user.size - margin,
+      y: Math.min(prevStamp.y, pos.y) - user.size - margin,
+      width: Math.abs(dx) + (user.size + margin) * 2,
+      height: Math.abs(dy) + (user.size + margin) * 2
+    }) : null;
+    const maskCtx = this.board.layerManager?.getUserStrokeContext(activeLayerIdx, userId, undefined, undefined, segBounds);
+    if (!maskCtx) return;
+
+    const active = this.board.layerManager.getActiveStroke(activeLayerIdx, userId);
+    const ox = active?.origin?.x ?? 0;
+    const oy = active?.origin?.y ?? 0;
+
+    const points = this.strokePoints.get(userId);
+    const steps = Math.max(1, Math.ceil(distance / minSpacing));
+
+    if (ox || oy) maskCtx.save();
+    try {
+      if (ox || oy) maskCtx.translate(-ox, -oy);
+
+      for (let i = 1; i <= steps; i++) {
+        const t = i / steps;
+        const stampX = prevStamp.x + dx * t;
+        const stampY = prevStamp.y + dy * t;
+        this.paintMask(stampX, stampY, user.size, user, maskCtx);
+
+        this.board.forEachMirrorRegion({ point: { x: stampX, y: stampY } }, (region) => {
+          const mirrored = this.board.mirrorPointToRegion({ x: stampX, y: stampY }, region);
+          this.board.withMirrorRegionClip(maskCtx, region, () => {
+            this.paintMask(mirrored.x, mirrored.y, user.size, user, maskCtx);
+          });
+        });
+
+        if (points) points.push({ x: stampX, y: stampY });
+      }
+    } finally {
+      if (ox || oy) maskCtx.restore();
+    }
+
+    this.lastStampPos.set(userId, { x: pos.x, y: pos.y });
+    if (shouldRequestUpdate) this.board.requestUpdate();
   }
 
   /**

@@ -90,7 +90,17 @@ export class GlitchBlurTool extends Tool {
     return `${userId}:${layerIdx}`;
   }
 
-  _beginTargetLayerStrokes(user, userId) {
+  _beginTargetLayerStrokes(user, userId, pos = null) {
+    // Same windowing mechanism as brush/eraser/BlurTool — see
+    // docs/scope_layermanager_active_stroke_windowing_RESULT.md and
+    // [[blur_active_stroke_windowing]]. Gated off for fast-preview (deferred
+    // worker) strokes: _compositeDeferredJob's async completion doesn't grow
+    // the window itself, so a stamp landing after the worker resolves could
+    // fall outside an already-shrunk-relative-to-full window. Fast preview
+    // defaults off, so this only affects users who've opted in.
+    const bounds = (this._canWindowActiveStroke(user) && pos)
+      ? this._foldMirrorBounds(this._stampBounds(pos.x, pos.y, user.size, this._stampMargin(user)))
+      : null;
     for (const layerIdx of this._computeStrokeLayers(user, userId)) {
       this.captureSnapshot(userId, layerIdx);
       // The snapshot the glitch samples is the DISPLAYED appearance (blend
@@ -98,9 +108,61 @@ export class GlitchBlurTool extends Tool {
       // glitch result must be deposited source-over: re-applying the live blend
       // here would composite the already-blended colour a second time (e.g.
       // white 'difference' over white → black) and undo the whole point.
-      this.board.layerManager?.beginUserStroke(layerIdx, userId, 'source-over', 'background');
+      this.board.layerManager?.beginUserStroke(layerIdx, userId, 'source-over', 'background', bounds);
       this.board.applySelectionMaskClipForStroke?.(layerIdx, userId);
     }
+  }
+
+  /**
+   * Whether this stroke's active canvases may be windowed rather than
+   * full-board. False for fast-preview (deferred worker) strokes — see the
+   * note in `_beginTargetLayerStrokes`.
+   * @private
+   */
+  _canWindowActiveStroke(user) {
+    return !this._isDeferRender(user);
+  }
+
+  /** Board-absolute margin a stamp's glitch can bleed into, in px. @private */
+  _stampMargin(user) {
+    return Math.ceil((user.blurRadius || 10) * 2);
+  }
+
+  /** Board-absolute bounds a single stamp at (x, y) touches. @private */
+  _stampBounds(x, y, size, margin) {
+    return {
+      x: x - size - margin,
+      y: y - size - margin,
+      width: (size + margin) * 2,
+      height: (size + margin) * 2
+    };
+  }
+
+  /**
+   * Expand a board-absolute box to also cover every active mirror region's
+   * transformed copy — same simplification brush/eraser/BlurTool use.
+   * @private
+   */
+  _foldMirrorBounds(bounds) {
+    const regions = this.board.getActiveMirrorRegions?.() || [];
+    if (!regions.length) return bounds;
+    let minX = bounds.x, minY = bounds.y;
+    let maxX = bounds.x + bounds.width, maxY = bounds.y + bounds.height;
+    const corners = [
+      { x: minX, y: minY }, { x: maxX, y: minY },
+      { x: minX, y: maxY }, { x: maxX, y: maxY }
+    ];
+    for (const region of regions) {
+      const mirrored = this.board.mirrorPointsToRegion(corners, region);
+      for (const p of mirrored) {
+        if (!Number.isFinite(p?.x) || !Number.isFinite(p?.y)) continue;
+        if (p.x < minX) minX = p.x;
+        if (p.x > maxX) maxX = p.x;
+        if (p.y < minY) minY = p.y;
+        if (p.y > maxY) maxY = p.y;
+      }
+    }
+    return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
   }
 
   _endTargetLayerStrokes(user, userId, contentLayers = null) {
@@ -286,7 +348,7 @@ export class GlitchBlurTool extends Tool {
     const rawBlurRadius = Number(user.blurRadius);
     user.blurRadius = Math.max(1, Math.min(25, Number.isFinite(rawBlurRadius) ? rawBlurRadius : 10));
 
-    this._beginTargetLayerStrokes(user, userId);
+    this._beginTargetLayerStrokes(user, userId, pos);
 
     user.blurBounds = {
       minX: Infinity, minY: Infinity,
@@ -426,15 +488,18 @@ export class GlitchBlurTool extends Tool {
       // empty here truly produced nothing. (Previously a user.blurBounds fallback
       // captured these empty overlay layers too, which broadcast blank images and
       // — paired with the commit of every layer — created phantom undo steps.)
-      const bounds = this._findStrokeContentBounds(sourceCanvas, active.dirtyRect);
+      const bounds = this._findStrokeContentBounds(sourceCanvas, active.dirtyRect, active.origin);
       if (!bounds) continue;
 
       const cropCanvas = document.createElement('canvas');
       cropCanvas.width = bounds.width;
       cropCanvas.height = bounds.height;
+      // localX/localY (canvas-local, origin-relative) address sourceCanvas's own
+      // pixel space; bounds.x/y stay board-absolute for the broadcast/placement
+      // payload below — the two diverge once sourceCanvas is windowed.
       cropCanvas
         .getContext('2d')
-        .drawImage(sourceCanvas, bounds.x, bounds.y, bounds.width, bounds.height, 0, 0, bounds.width, bounds.height);
+        .drawImage(sourceCanvas, bounds.localX, bounds.localY, bounds.width, bounds.height, 0, 0, bounds.width, bounds.height);
 
       // The captured pixels are the already-displayed (blend-resolved) glitch
       // result, so they travel and commit as source-over on every peer and in
@@ -443,7 +508,7 @@ export class GlitchBlurTool extends Tool {
       // longer carries a live blend mode because it bakes the appearance in.)
       strokeImages.push({
         layerIdx,
-        bounds,
+        bounds: { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height },
         cropCanvas,
         blendMode: 'source-over',
         blendBakeMode: 'background'
@@ -453,18 +518,33 @@ export class GlitchBlurTool extends Tool {
     return strokeImages;
   }
 
-  _findStrokeContentBounds(canvas, dirtyRect = null) {
+  /**
+   * @param {HTMLCanvasElement} canvas
+   * @param {Object|null} dirtyRect - Board-absolute.
+   * @param {{x:number,y:number}|null} [origin] - Set when `canvas` is a
+   *   windowed active-stroke canvas (see docs/
+   *   scope_layermanager_active_stroke_windowing_RESULT.md); `dirtyRect`
+   *   stays board-absolute regardless, so it needs offsetting by `-origin`
+   *   before indexing into `canvas`'s own (origin-relative) pixel space.
+   * @returns {{x:number,y:number,localX:number,localY:number,width:number,height:number}|null}
+   *   `x`/`y` are board-absolute (for placement); `localX`/`localY` address
+   *   `canvas`'s own pixel space (for cropping FROM it) — identical when
+   *   `origin` is omitted/zero, diverge once windowed.
+   */
+  _findStrokeContentBounds(canvas, dirtyRect = null, origin = null) {
     if (!canvas) return null;
+    const ox = origin?.x ?? 0;
+    const oy = origin?.y ?? 0;
     let x = 0;
     let y = 0;
     let width = canvas.width;
     let height = canvas.height;
 
     if (dirtyRect && dirtyRect.maxX !== -1) {
-      x = Math.floor(Math.max(0, dirtyRect.minX));
-      y = Math.floor(Math.max(0, dirtyRect.minY));
-      width = Math.ceil(Math.min(canvas.width, dirtyRect.maxX + 1)) - x;
-      height = Math.ceil(Math.min(canvas.height, dirtyRect.maxY + 1)) - y;
+      x = Math.floor(Math.max(0, dirtyRect.minX - ox));
+      y = Math.floor(Math.max(0, dirtyRect.minY - oy));
+      width = Math.ceil(Math.min(canvas.width, dirtyRect.maxX + 1 - ox)) - x;
+      height = Math.ceil(Math.min(canvas.height, dirtyRect.maxY + 1 - oy)) - y;
     }
     if (width <= 0 || height <= 0) return null;
 
@@ -489,8 +569,10 @@ export class GlitchBlurTool extends Tool {
 
     if (maxX < 0) return null;
     return {
-      x: x + minX,
-      y: y + minY,
+      x: x + minX + ox,
+      y: y + minY + oy,
+      localX: x + minX,
+      localY: y + minY,
       width: maxX - minX + 1,
       height: maxY - minY + 1
     };
@@ -698,10 +780,27 @@ export class GlitchBlurTool extends Tool {
   _stampGlitchAtPointLayer(user, x, y, layerIdx) {
     const userId = user.id ?? this.board.app?.self?.id ?? 0;
     const alpha = this._getStampAlpha(user);
-    const maskCtx = this.board.layerManager?.getUserStrokeContext(layerIdx, userId);
+    const bounds = this._canWindowActiveStroke(user)
+      ? this._foldMirrorBounds(this._stampBounds(x, y, user.size, this._stampMargin(user)))
+      : null;
+    const maskCtx = this.board.layerManager?.getUserStrokeContext(layerIdx, userId, undefined, undefined, bounds);
     const stamp = this._computeGlitchStamp(x, y, user.size, user, layerIdx);
     if (!maskCtx || !stamp) return false;
-    this._compositeStampWithMirrors(user, maskCtx, stamp, x, y, alpha);
+
+    // Active canvas may be windowed (see docs/
+    // scope_layermanager_active_stroke_windowing_RESULT.md) — the stamp's
+    // clip/drawImage calls use board-absolute coordinates, so translate by
+    // -origin first, same fix shape as brush/eraser/BlurTool.
+    const active = this.board.layerManager.getActiveStroke(layerIdx, userId);
+    const ox = active?.origin?.x ?? 0;
+    const oy = active?.origin?.y ?? 0;
+    if (ox || oy) maskCtx.save();
+    try {
+      if (ox || oy) maskCtx.translate(-ox, -oy);
+      this._compositeStampWithMirrors(user, maskCtx, stamp, x, y, alpha);
+    } finally {
+      if (ox || oy) maskCtx.restore();
+    }
     return true;
   }
 

@@ -209,6 +209,26 @@ const TEST_CASES = [
       await drawPath(page, [{ x: 400, y: 450 }, { x: 1400, y: 450 }]);
     },
   },
+  // Covers eraser active-stroke windowing on a bakedSequences layer (groupIdx
+  // 1, no flatCanvas — see docs/scope_eraser_active_stroke_windowing.md's
+  // layer-1-vs-2/3 distinction). eraser_over_strokes only exercises groupIdx
+  // 0 (flatCanvas); this is the other code path in `_bakeStrokeToBin`.
+  {
+    name: 'eraser_over_strokes_layer2',
+    action: async (page) => {
+      await selectTool(page, 'brush');
+      await setToolSettings(page, { size: 40, color: [60, 160, 220, 1], hardness: 100 });
+      await drawPath(page, [{ x: 300, y: 400 }, { x: 1200, y: 400 }]);
+      await page.evaluate(() => window.app.handleLayerSelect(1));
+      await sleep(200);
+      await setToolSettings(page, { size: 40, color: [220, 160, 60, 1], hardness: 100 });
+      await drawPath(page, [{ x: 300, y: 550 }, { x: 1200, y: 550 }]);
+      await selectTool(page, 'erase');
+      await setToolSettings(page, { size: 50 });
+      // Segmented so the window grows more than once mid-gesture.
+      await drawPath(page, [{ x: 400, y: 500 }, { x: 700, y: 600 }, { x: 1100, y: 500 }]);
+    },
+  },
   // The mask armed BEFORE the tape opens. No SEL_MASK ever lands on the tape,
   // so the only way the replay can learn about it is the opening snapshot —
   // making this the checkpoint-rebuild case in miniature. It is also the COMMON

@@ -58,7 +58,7 @@ export class EraserTool extends Tool {
     this.lastPos.set(this._getUserId(user), { x: pos.x, y: pos.y });
     user.clearLine();
     user._strokeLayer = user.activeLayer ?? 0;
-    this._beginStroke(user);
+    this._beginStroke(user, pos);
     this._resetStrokeState(user);
 
     // Decide the preview path up front so the surface starts out with the right
@@ -296,7 +296,7 @@ export class EraserTool extends Tool {
     return erasedTiles;
   }
 
-  _beginStroke(user) {
+  _beginStroke(user, pos = null) {
     if (!this.board.layerManager || user?.panning) return;
 
     if (this._shouldEraseAllLayers(user)) {
@@ -308,24 +308,109 @@ export class EraserTool extends Tool {
       return;
     }
 
+    const bounds = (this._canWindowActiveStroke(user) && pos) ? this._seedWindowBounds(user, pos) : null;
     const strokeLayer = this._getStrokeLayer(user);
-    this.board.layerManager.beginUserStroke(strokeLayer, user.id, 'destination-out');
+    this.board.layerManager.beginUserStroke(strokeLayer, user.id, 'destination-out', undefined, bounds);
     this.board.applySelectionMaskClipForStroke(strokeLayer, user.id);
+  }
+
+  /**
+   * Whether this user's eraser gesture may use a windowed (non-full-board)
+   * LayerManager active-stroke canvas instead of a full-board one — see
+   * docs/scope_layermanager_active_stroke_windowing_RESULT.md, extended per
+   * docs/scope_eraser_active_stroke_windowing.md. Reuses the SAME mechanism
+   * brush already proved out (`bounds` param, `_growActiveStrokeWindow`,
+   * `Board.applySelectionMaskClipForStroke`'s origin-aware clip + reapply
+   * hook, `commitUserStroke`'s origin-aware crop, `_bakeStrokeToBin`'s
+   * generic `stroke.x/y` reads for BOTH the flatCanvas layer and the
+   * bakedSequences bins) — none of that is eraser-specific, so eraser
+   * doesn't need its own version of any of it.
+   *
+   * Excluded: erase-all-layers, which drives N simultaneous active strokes
+   * (one per group) off one shared board region — windowing that well needs
+   * its own design, out of scope here (matches brush's own first-pass
+   * mirror-region caution: land the common single-layer case first).
+   * @private
+   * @param {Object} user
+   * @returns {boolean}
+   */
+  _canWindowActiveStroke(user) {
+    return !this._shouldEraseAllLayers(user);
+  }
+
+  /**
+   * Board-absolute bounds hint for `beginUserStroke` at the very start of a
+   * gesture, before any stamp has been made — seeded from the down point
+   * plus its stamp radius (mirroring brush's `_expandPreviewBounds` seed at
+   * MD), folded with any active mirror regions.
+   * @private
+   */
+  _seedWindowBounds(user, pos) {
+    const radius = Math.max(0.5, (user.pressure ?? 1) * (user.size ?? this.userSize));
+    return this._foldMirrorBounds(pos.x - radius, pos.y - radius, pos.x + radius, pos.y + radius);
+  }
+
+  /**
+   * Board-absolute bounds hint for growing an already-windowed active stroke
+   * at commit time, derived from `state.dirtyBounds` — the region stamped
+   * since the last commit (mirrors RemoteUserHandler's
+   * `_activeStrokeWindowBounds`, which reads the analogous
+   * `user._previewDirtyBounds`).
+   * @private
+   */
+  _commitWindowBounds(state) {
+    const b = state?.dirtyBounds;
+    if (!b || !Number.isFinite(b.minX) || !Number.isFinite(b.maxX) || b.maxX < b.minX || b.maxY < b.minY) {
+      return null;
+    }
+    return this._foldMirrorBounds(b.minX, b.minY, b.maxX, b.maxY);
+  }
+
+  /**
+   * Expand a board-absolute box to also cover every active mirror region's
+   * transformed copy — a single bounding box around every copy, not a rect
+   * list (see mirror_preview_rect_list memory), matching brush's own
+   * windowing scope exactly.
+   * @private
+   */
+  _foldMirrorBounds(minX, minY, maxX, maxY) {
+    const regions = this.board.getActiveMirrorRegions?.() || [];
+    if (regions.length) {
+      const corners = [
+        { x: minX, y: minY }, { x: maxX, y: minY },
+        { x: minX, y: maxY }, { x: maxX, y: maxY }
+      ];
+      for (const region of regions) {
+        const mirrored = this.board.mirrorPointsToRegion(corners, region);
+        for (const p of mirrored) {
+          if (!Number.isFinite(p?.x) || !Number.isFinite(p?.y)) continue;
+          if (p.x < minX) minX = p.x;
+          if (p.x > maxX) maxX = p.x;
+          if (p.y < minY) minY = p.y;
+          if (p.y > maxY) maxY = p.y;
+        }
+      }
+    }
+    return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
   }
 
   _commitBufferedPath(user, points, state) {
     if (!points || points.length === 0 || !state || !this._hasDirtyBounds(state)) return false;
 
     let committed = false;
-    const groups = this._getTargetGroups(user);
-    if (groups.length === 0) return false;
+    const groupIndices = this._getTargetGroupIndices(user);
+    if (groupIndices.length === 0) return false;
     const opacity = state.opacity ?? points[0]?.opacity ?? 1;
     if (opacity <= 0) return false;
 
-    for (const group of groups) {
-      this.eraseMaskOnGroup(group, state, opacity, user.id);
+    const windowBounds = this._canWindowActiveStroke(user) ? this._commitWindowBounds(state) : null;
+
+    for (const groupIdx of groupIndices) {
+      const group = this.board.layerManager.getLayerGroup(groupIdx);
+      if (!group) continue;
+      this.eraseMaskOnGroup(groupIdx, group, state, opacity, user.id, null, windowBounds);
       this.board.forEachMirrorRegion({ rect: this._boundsToRect(state.dirtyBounds) }, (region) => {
-        this.eraseMaskOnGroup(group, state, opacity, user.id, region);
+        this.eraseMaskOnGroup(groupIdx, group, state, opacity, user.id, region, windowBounds);
       });
       committed = true;
     }
@@ -356,6 +441,27 @@ export class EraserTool extends Tool {
 
     const group = this.board.layerManager.getLayerGroup(this._getStrokeLayer(user));
     return group ? [group] : [];
+  }
+
+  /**
+   * Same targeting as `_getTargetGroups`, but returns group indices — needed
+   * by the windowing path, which must call `LayerManager.getUserStrokeContext`
+   * (to grow an already-windowed active canvas) rather than read
+   * `group.activeStrokeByUser` directly, and that call takes a groupIdx, not
+   * a group object.
+   * @private
+   */
+  _getTargetGroupIndices(user) {
+    if (!this.board.layerManager) return [];
+
+    if (this._shouldEraseAllLayers(user)) {
+      const count = this.board.layerManager.getLayerCount();
+      const indices = [];
+      for (let i = 0; i < count; i++) indices.push(i);
+      return indices;
+    }
+
+    return [this._getStrokeLayer(user)];
   }
 
   _getStrokeLayer(user) {
@@ -485,26 +591,45 @@ export class EraserTool extends Tool {
 
   /**
    * Draw an eraser path into a user's active stroke group.
+   * @param {number} groupIdx - Index of the layer group (needed to grow an
+   *   already-windowed active canvas via `getUserStrokeContext`).
    * @param {Object} group - The layer group.
    * @param {Object} state - Per-user eraser state (buffered points, size, last position).
    * @param {number} opacity - Eraser opacity.
    * @param {string} userId - ID of the user erasing.
    * @param {Object|null} [mirrorRegion=null] - Mirror region to reflect the stroke into, if any.
+   * @param {{x:number,y:number,width:number,height:number}|null} [bounds=null] -
+   *   Windowing bounds hint, same contract as `LayerManager.getUserStrokeContext`.
+   *   Only meaningful (and only passed) when the caller has already gated via
+   *   `_canWindowActiveStroke`; null takes today's unwindowed direct-lookup path.
    */
-  eraseMaskOnGroup(group, state, opacity, userId, mirrorRegion = null) {
-    const active = group.activeStrokeByUser?.get(userId);
-    if (active?.ctx) {
-      active.opacity = opacity;
-      active.ctx.save();
-      active.ctx.globalCompositeOperation = 'source-over';
-      active.ctx.globalAlpha = opacity;
-      if (mirrorRegion) {
-        this.board.drawMirroredCanvas(active.ctx, state.maskCanvas, mirrorRegion, 0, 0);
-      } else {
-        active.ctx.drawImage(state.maskCanvas, 0, 0);
-      }
-      active.ctx.restore();
+  eraseMaskOnGroup(groupIdx, group, state, opacity, userId, mirrorRegion = null, bounds = null) {
+    const lm = this.board.layerManager;
+    const ctx = bounds
+      ? lm?.getUserStrokeContext(groupIdx, userId, undefined, undefined, bounds)
+      : group.activeStrokeByUser?.get(userId)?.ctx;
+    if (!ctx) return;
+
+    const active = lm?.getActiveStroke(groupIdx, userId);
+    if (active) active.opacity = opacity;
+    // state.maskCanvas is always full-board (board-local (0,0) == board
+    // (0,0)); when the active canvas is windowed, its own local (0,0) is
+    // offset by active.origin, so every draw below needs the ctx translated
+    // to compensate — same fix shape as RemoteUserHandler.commitLine's brush
+    // path, see docs/scope_layermanager_active_stroke_windowing_RESULT.md.
+    const ox = active?.origin?.x ?? 0;
+    const oy = active?.origin?.y ?? 0;
+
+    ctx.save();
+    if (ox || oy) ctx.translate(-ox, -oy);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = opacity;
+    if (mirrorRegion) {
+      this.board.drawMirroredCanvas(ctx, state.maskCanvas, mirrorRegion, 0, 0);
+    } else {
+      ctx.drawImage(state.maskCanvas, 0, 0);
     }
+    ctx.restore();
   }
 
   _ensureStrokeState(user) {
