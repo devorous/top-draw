@@ -96,9 +96,64 @@ class ShapeTool extends Tool {
    */
   onPointerDown(user, pos) {
     this._activeUser = user;
-    this.board.beginStroke(user);
+    this._beginStrokeWindowed(user, pos);
     this.startPos = { x: pos.x, y: pos.y };
     this._onShapeStart(user, pos);
+  }
+
+  /**
+   * Begin this user's active stroke windowed to a seed point instead of via
+   * `Board.beginStroke` — that shared wrapper calls `LayerManager.beginUserStroke`
+   * with no `bounds`, allocating full-board immediately; the windowed
+   * `getUserStrokeContext` call in `onPointerUp` would then find `active`
+   * already exists with `origin: null` and never grow. Same trap already
+   * found and fixed in EraserTool/BlurTool/GlitchBlurTool/ConfettiTool/
+   * ImageBrushTool. Replicates `beginStroke`'s other effects (mask clip,
+   * requestUpdate) directly. Only a SEED — shapes never touch the active
+   * stroke again until onPointerUp draws the whole thing at once with the
+   * real final bounds, which grows this window to fit exactly.
+   * @private
+   */
+  _beginStrokeWindowed(user, pos) {
+    if (user?.panning) return;
+    const activeLayer = user?.activeLayer ?? this.board.app?.self?.activeLayer ?? 0;
+    const userId = user?.id ?? this.board.app?.self?.id ?? 0;
+    const blendMode = user?.blendMode ?? 'source-over';
+    const margin = this._computeMargin(user);
+    const bounds = this._foldMirrorBounds({
+      x: pos.x - margin, y: pos.y - margin, width: margin * 2, height: margin * 2
+    });
+    this.board.layerManager?.beginUserStroke(activeLayer, userId, blendMode, user?.blendBakeMode, bounds);
+    this.board.applySelectionMaskClipForStroke(activeLayer, userId);
+    this.board.requestUpdate();
+  }
+
+  /**
+   * Expand a board-absolute box to also cover every active mirror region's
+   * transformed copy — same simplification the rest of this windowing
+   * campaign uses (brush/eraser/blur/glitchBlur/confetti/imageBrush).
+   * @private
+   */
+  _foldMirrorBounds(bounds) {
+    const regions = this.board.getActiveMirrorRegions?.() || [];
+    if (!regions.length) return bounds;
+    let minX = bounds.x, minY = bounds.y;
+    let maxX = bounds.x + bounds.width, maxY = bounds.y + bounds.height;
+    const corners = [
+      { x: minX, y: minY }, { x: maxX, y: minY },
+      { x: minX, y: maxY }, { x: maxX, y: maxY }
+    ];
+    for (const region of regions) {
+      const mirrored = this.board.mirrorPointsToRegion(corners, region);
+      for (const p of mirrored) {
+        if (!Number.isFinite(p?.x) || !Number.isFinite(p?.y)) continue;
+        if (p.x < minX) minX = p.x;
+        if (p.x > maxX) maxX = p.x;
+        if (p.y < minY) minY = p.y;
+        if (p.y > maxY) maxY = p.y;
+      }
+    }
+    return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
   }
 
   /**
@@ -133,23 +188,50 @@ class ShapeTool extends Tool {
 
     const start = this.startPos;
     const constrain = this._constrainFor(user);
-    const layerCtx = this.board.getActiveLayerContext();
+    const activeLayer = user?.activeLayer ?? this.board.app?.self?.activeLayer ?? 0;
+    const userId = user?.id ?? this.board.app?.self?.id ?? 0;
 
-    this.drawShape(layerCtx, user, start, pos);
-
-    this.board.forEachMirrorRegion({ points: [start, pos] }, (region) => {
-      this.board.withMirrorRegionClip(layerCtx, region, () => {
-        this.drawShape(
-          layerCtx,
-          user,
-          this.board.mirrorPointToRegion(start, region),
-          this.board.mirrorPointToRegion(pos, region)
-        );
-      });
-    });
-
+    // The shape's real, final extent is already known here (unlike a stamped
+    // tool, this is drawn exactly once) — reuse the same margin/box already
+    // computed below for expandDirtyRect as the window bounds too, folded
+    // through mirrors since those draw onto the same canvas.
     const margin = this._computeMargin(user);
     const rect = this._marginRect(this._getCoverBox(start, pos, constrain, user), margin);
+    const windowBounds = this._foldMirrorBounds(rect);
+    const layerCtx = this.board.layerManager?.getUserStrokeContext(
+      activeLayer, userId, undefined, undefined, windowBounds
+    );
+
+    if (layerCtx) {
+      // Active canvas may be windowed (see docs/
+      // scope_layermanager_active_stroke_windowing_RESULT.md) — drawShape and
+      // the mirror clip both operate in board-absolute coordinates, so
+      // translate by -origin first, same fix shape as every other tool in
+      // this campaign.
+      const active = this.board.layerManager.getActiveStroke(activeLayer, userId);
+      const ox = active?.origin?.x ?? 0;
+      const oy = active?.origin?.y ?? 0;
+      if (ox || oy) layerCtx.save();
+      try {
+        if (ox || oy) layerCtx.translate(-ox, -oy);
+
+        this.drawShape(layerCtx, user, start, pos);
+
+        this.board.forEachMirrorRegion({ points: [start, pos] }, (region) => {
+          this.board.withMirrorRegionClip(layerCtx, region, () => {
+            this.drawShape(
+              layerCtx,
+              user,
+              this.board.mirrorPointToRegion(start, region),
+              this.board.mirrorPointToRegion(pos, region)
+            );
+          });
+        });
+      } finally {
+        if (ox || oy) layerCtx.restore();
+      }
+    }
+
     this.board.expandDirtyRect(user, rect.x, rect.y, rect.width, rect.height);
 
     this.board.forEachMirrorRegion({ rect }, (region) => {

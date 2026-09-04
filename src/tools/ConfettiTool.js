@@ -49,11 +49,63 @@ export class ConfettiTool extends Tool {
     this._activeUser = null;
   }
 
+  /**
+   * Begin this user's active stroke windowed to a seed point instead of via
+   * `Board.beginStroke` — that shared wrapper calls `LayerManager.beginUserStroke`
+   * with no `bounds`, allocating full-board immediately; a later windowed
+   * `getUserStrokeContext` call would then find `active` already exists with
+   * `origin: null` and never grow (same trap `_beginStrokeWindowed`'s
+   * siblings in EraserTool/BlurTool/GlitchBlurTool hit and fixed). Replicates
+   * `beginStroke`'s other effects (mask clip, requestUpdate) directly.
+   * @private
+   */
+  _beginStrokeWindowed(user, pos) {
+    if (user?.panning) return;
+    const strokeLayer = user?.activeLayer ?? this.board.app?.self?.activeLayer ?? 0;
+    const userId = user?.id ?? this.board.app?.self?.id ?? 0;
+    const blendMode = user?.blendMode ?? 'source-over';
+    const radius = (user.size ?? 10) + this.getMaxParticleRadius(user);
+    const bounds = this._foldMirrorBounds({
+      x: pos.x - radius, y: pos.y - radius, width: radius * 2, height: radius * 2
+    });
+    this.board.layerManager?.beginUserStroke(strokeLayer, userId, blendMode, user?.blendBakeMode, bounds);
+    this.board.applySelectionMaskClipForStroke(strokeLayer, userId);
+    this.board.requestUpdate();
+  }
+
+  /**
+   * Expand a board-absolute box to also cover every active mirror region's
+   * transformed copy — same "single bounding box, not a rect list"
+   * simplification brush/eraser/blur/glitch's windowing already uses.
+   * @private
+   */
+  _foldMirrorBounds(bounds) {
+    const regions = this.board.getActiveMirrorRegions?.() || [];
+    if (!regions.length) return bounds;
+    let minX = bounds.x, minY = bounds.y;
+    let maxX = bounds.x + bounds.width, maxY = bounds.y + bounds.height;
+    const corners = [
+      { x: minX, y: minY }, { x: maxX, y: minY },
+      { x: minX, y: maxY }, { x: maxX, y: maxY }
+    ];
+    for (const region of regions) {
+      const mirrored = this.board.mirrorPointsToRegion(corners, region);
+      for (const p of mirrored) {
+        if (!Number.isFinite(p?.x) || !Number.isFinite(p?.y)) continue;
+        if (p.x < minX) minX = p.x;
+        if (p.x > maxX) maxX = p.x;
+        if (p.y < minY) minY = p.y;
+        if (p.y > maxY) maxY = p.y;
+      }
+    }
+    return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+  }
+
   onPointerDown(user, pos) {
     this._activeUser = user;
     this._strokeSeed = Number(user._confettiStrokeSeed ?? this.seedFromPos(pos.x, pos.y)) & CONFETTI_SEED_MAX;
     this._emissionIndex = 0;
-    this.board.beginStroke(user);
+    this._beginStrokeWindowed(user, pos);
     user._confettiDirtyBounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
     user._confettiStrokePoints = [{ x: pos.x, y: pos.y }];
     this.emit(user, pos, 0, this._strokeSeed);
@@ -167,7 +219,7 @@ export class ConfettiTool extends Tool {
     if (!user || user.id == null) return;
     const strokeLayer = user._strokeLayer ?? user.activeLayer ?? 0;
     const hasActiveStroke = this.board.layerManager?.getActiveStroke(strokeLayer, user.id);
-    if (!hasActiveStroke) this.board.beginStroke(user);
+    if (!hasActiveStroke && ps.length >= 2) this._beginStrokeWindowed(user, { x: ps[0], y: ps[1] });
 
     const points = [];
     const strokePoints = this._getStrokePoints(user);
@@ -234,12 +286,7 @@ export class ConfettiTool extends Tool {
 
   drawParticle(user, particle) {
     const strokeLayer = user._strokeLayer ?? user.activeLayer ?? 0;
-    const ctx = this.board.layerManager.getUserStrokeContext(strokeLayer, user.id);
-    if (!ctx) return;
-
-    const draw = (targetCtx, item) => this.drawParticleToContext(targetCtx, item);
-
-    draw(ctx, particle);
+    const userId = user.id;
 
     const rect = {
       x: particle.x - particle.size,
@@ -247,20 +294,42 @@ export class ConfettiTool extends Tool {
       width: particle.size * 2,
       height: particle.size * 2
     };
+    const bounds = this._foldMirrorBounds(rect);
+    const ctx = this.board.layerManager.getUserStrokeContext(strokeLayer, userId, undefined, undefined, bounds);
+    if (!ctx) return;
 
-    this.board.forEachMirrorRegion({ rect }, (region) => {
-      this.board.withMirroredRegionTransform(ctx, region, () => draw(ctx, particle));
-      // Mark the mirrored area dirty too so the reflected particle composites to
-      // screen live during the stroke (not just on pointer-up). Mirrors the
-      // two-corner approach used in onPointerUp's dirty-bounds expansion.
-      const p1 = this.board.mirrorPointToRegion({ x: rect.x, y: rect.y }, region);
-      const p2 = this.board.mirrorPointToRegion({ x: rect.x + rect.width, y: rect.y + rect.height }, region);
-      const mx = Math.floor(Math.min(p1.x, p2.x));
-      const my = Math.floor(Math.min(p1.y, p2.y));
-      const mw = Math.ceil(Math.abs(p2.x - p1.x));
-      const mh = Math.ceil(Math.abs(p2.y - p1.y));
-      this.board.expandDirtyRect(user, mx, my, mw, mh);
-    });
+    // Active canvas may be windowed (see docs/
+    // scope_layermanager_active_stroke_windowing_RESULT.md) — drawParticleToContext
+    // and the mirror transform both operate in board-absolute coordinates, so
+    // translate by -origin first, same fix shape as the other stamped tools.
+    const active = this.board.layerManager.getActiveStroke(strokeLayer, userId);
+    const ox = active?.origin?.x ?? 0;
+    const oy = active?.origin?.y ?? 0;
+
+    const draw = (targetCtx, item) => this.drawParticleToContext(targetCtx, item);
+
+    if (ox || oy) ctx.save();
+    try {
+      if (ox || oy) ctx.translate(-ox, -oy);
+
+      draw(ctx, particle);
+
+      this.board.forEachMirrorRegion({ rect }, (region) => {
+        this.board.withMirroredRegionTransform(ctx, region, () => draw(ctx, particle));
+        // Mark the mirrored area dirty too so the reflected particle composites to
+        // screen live during the stroke (not just on pointer-up). Mirrors the
+        // two-corner approach used in onPointerUp's dirty-bounds expansion.
+        const p1 = this.board.mirrorPointToRegion({ x: rect.x, y: rect.y }, region);
+        const p2 = this.board.mirrorPointToRegion({ x: rect.x + rect.width, y: rect.y + rect.height }, region);
+        const mx = Math.floor(Math.min(p1.x, p2.x));
+        const my = Math.floor(Math.min(p1.y, p2.y));
+        const mw = Math.ceil(Math.abs(p2.x - p1.x));
+        const mh = Math.ceil(Math.abs(p2.y - p1.y));
+        this.board.expandDirtyRect(user, mx, my, mw, mh);
+      });
+    } finally {
+      if (ox || oy) ctx.restore();
+    }
 
     this.expandDirtyBounds(user, rect);
     this.board.expandDirtyRect(user, Math.floor(rect.x), Math.floor(rect.y), Math.ceil(rect.width), Math.ceil(rect.height));

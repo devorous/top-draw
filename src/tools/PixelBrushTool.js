@@ -3,7 +3,6 @@ import {
   drawPreviewStrokeGuide,
   prepareStrokePreviewCanvas
 } from '../ui/StrokePreviewRenderer.js';
-import { clampRectToCanvas } from '../utils/drawing.js';
 
 /**
  * @fileoverview Pixel brush tool - draws filled square stamps
@@ -21,6 +20,7 @@ export class PixelBrushTool {
     this.board = board;
     this.lastStampPos = new Map(); // userId -> {x, y}
     this.tempCanvases = new Map(); // userId -> temp canvas for opacity handling
+    this.tempOrigins = new Map(); // userId -> {x, y} board-absolute origin of tempCanvases' (0,0)
     this.stampBuffer = []; // [x, y, x, y, ...] accumulated stamp positions for broadcast
   }
 
@@ -33,6 +33,7 @@ export class PixelBrushTool {
     }
     this.lastStampPos.clear();
     this.tempCanvases.clear();
+    this.tempOrigins.clear();
     this._activeUser = null;
   }
 
@@ -46,11 +47,15 @@ export class PixelBrushTool {
     this._activeUser = user;
     this.board.beginStroke(user);
 
-    // Create temp canvas for this stroke (prevents opacity stacking)
-    const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = this.board.getWidth();
-    tempCanvas.height = this.board.getHeight();
-    this.tempCanvases.set(user.id, tempCanvas);
+    // Temp canvas for this stroke (prevents opacity stacking) is windowed to
+    // the stroke's own bounds, not full-board — same idea as ink/pen's own
+    // offscreen scratch (RemoteInkHandler.ensureInkOffscreen), just for a
+    // private per-tool canvas rather than the LayerManager active stroke.
+    // Reset first so a finished stroke's window doesn't linger into the next.
+    this.tempCanvases.delete(user.id);
+    this.tempOrigins.delete(user.id);
+    const size = Math.max(1, Math.round((user.size || 5) * 2));
+    this._growTempCanvas(user, this._stampBounds(pos.x, pos.y, size));
 
     user._pixelStrokePoints = [{ x: pos.x, y: pos.y }];
     user._pixelPreviewDirtyBounds = null;
@@ -221,12 +226,14 @@ export class PixelBrushTool {
   clearStroke(user) {
     if (user) {
       this.tempCanvases.delete(user.id);
+      this.tempOrigins.delete(user.id);
       this.lastStampPos.delete(user.id);
       user._pixelStrokePoints = [];
       user._pixelPreviewDirtyBounds = null;
       this._clearPreview(user);
     } else {
       this.tempCanvases.clear();
+      this.tempOrigins.clear();
       this.lastStampPos.clear();
       this.board.clearTop();
     }
@@ -247,23 +254,25 @@ export class PixelBrushTool {
     if (tempCanvas) {
       const ctx = this.board.layerManager.getUserStrokeContext(user.activeLayer, user.id);
       if (ctx) {
+        const origin = this.tempOrigins.get(user.id) || { x: 0, y: 0 };
         const opacitySlider = user.opacity !== undefined ? user.opacity : 1;
         const finalAlpha = opacitySlider;
 
         ctx.globalAlpha = finalAlpha;
-        ctx.drawImage(tempCanvas, 0, 0);
+        ctx.drawImage(tempCanvas, origin.x, origin.y);
         ctx.globalAlpha = 1.0;
 
         // Mirror mode
         this.board.forEachMirrorRegion({ points: this._getStrokePoints(user) }, (region) => {
           ctx.save();
           ctx.globalAlpha = finalAlpha;
-          this.board.drawMirroredCanvas(ctx, tempCanvas, region, 0, 0);
+          this.board.drawMirroredCanvas(ctx, tempCanvas, region, origin.x, origin.y);
           ctx.globalAlpha = 1.0;
           ctx.restore();
         });
       }
       this.tempCanvases.delete(user.id);
+      this.tempOrigins.delete(user.id);
     }
 
     // Track tile ownership
@@ -291,6 +300,7 @@ export class PixelBrushTool {
   drawPreview(user, rect = null) {
     const tempCanvas = this.tempCanvases.get(user.id);
     if (!tempCanvas) return;
+    const origin = this.tempOrigins.get(user.id) || { x: 0, y: 0 };
 
     const opacitySlider = user.opacity !== undefined ? user.opacity : 1;
     const finalAlpha = opacitySlider;
@@ -301,29 +311,30 @@ export class PixelBrushTool {
     ctx.globalAlpha = finalAlpha;
     this.board.withSelectionMaskClip(ctx, user.id, () => {
       if (rect) {
-        const sourceRect = clampRectToCanvas(rect, tempCanvas);
-        if (sourceRect) {
-          ctx.drawImage(
-            tempCanvas,
-            sourceRect.x,
-            sourceRect.y,
-            sourceRect.width,
-            sourceRect.height,
-            sourceRect.x,
-            sourceRect.y,
-            sourceRect.width,
-            sourceRect.height
-          );
+        // rect is board-absolute; tempCanvas is windowed, so intersect with
+        // ITS OWN board-absolute footprint (origin.x/y .. +width/height)
+        // rather than assuming tempCanvas covers (0,0)-sized-to-board like
+        // clampRectToCanvas would.
+        const left = Math.max(rect.x, origin.x);
+        const top = Math.max(rect.y, origin.y);
+        const right = Math.min(rect.x + rect.width, origin.x + tempCanvas.width);
+        const bottom = Math.min(rect.y + rect.height, origin.y + tempCanvas.height);
+        if (right > left && bottom > top) {
+          const sx = left - origin.x;
+          const sy = top - origin.y;
+          const w = right - left;
+          const h = bottom - top;
+          ctx.drawImage(tempCanvas, sx, sy, w, h, left, top, w, h);
         }
       } else {
-        ctx.drawImage(tempCanvas, 0, 0);
+        ctx.drawImage(tempCanvas, origin.x, origin.y);
       }
 
       // Mirror mode
       this.board.forEachMirrorRegion({ points: this._getStrokePoints(user) }, (region) => {
         ctx.save();
         ctx.globalAlpha = finalAlpha;
-        this.board.drawMirroredCanvas(ctx, tempCanvas, region, 0, 0);
+        this.board.drawMirroredCanvas(ctx, tempCanvas, region, origin.x, origin.y);
         ctx.globalAlpha = 1.0;
         ctx.restore();
       });
@@ -375,10 +386,21 @@ export class PixelBrushTool {
 
     // Get context - either temp canvas (full opacity) or stroke canvas (with opacity)
     let ctx;
+    let ox = 0, oy = 0;
     if (useTemp) {
+      // tempCanvas is windowed to the stroke's own bounds (see onPointerDown/
+      // _growTempCanvas) — grow it to cover this stamp before drawing. No
+      // mirror folding needed here: unlike brush/eraser/blur, this tool never
+      // draws mirrored copies per-stamp — onPointerUp mirrors the WHOLE
+      // finished tempCanvas onto the real active stroke in one shot, which
+      // works the same whether tempCanvas is windowed or full-board.
+      this._growTempCanvas(user, this._stampBounds(pos.x, pos.y, size));
       const tempCanvas = this.tempCanvases.get(user.id);
       if (!tempCanvas) return;
       ctx = tempCanvas.getContext('2d');
+      const origin = this.tempOrigins.get(user.id);
+      ox = origin?.x ?? 0;
+      oy = origin?.y ?? 0;
     } else {
       ctx = this.board.layerManager.getUserStrokeContext(user.activeLayer, user.id);
       if (!ctx) return;
@@ -392,7 +414,14 @@ export class PixelBrushTool {
     // Draw at full opacity to temp canvas (opacity applied once when compositing)
     const color = user.color.slice(0, 3);
     ctx.fillStyle = `rgb(${color.join(',')})`;
-    ctx.fillRect(x, y, size, size);
+    if (ox || oy) {
+      ctx.save();
+      ctx.translate(-ox, -oy);
+      ctx.fillRect(x, y, size, size);
+      ctx.restore();
+    } else {
+      ctx.fillRect(x, y, size, size);
+    }
 
     if (useTemp) {
       this._expandPreviewDirtyBounds(user, x - 1, y - 1, x + size + 1, y + size + 1);
@@ -400,6 +429,57 @@ export class PixelBrushTool {
 
     // Expand dirty rect (don't expand for mirror - handled in preview/composite)
     this.board.expandDirtyRect(user, x - 1, y - 1, size + 2, size + 2);
+  }
+
+  /** Board-absolute bounds one stamp at (x,y) touches, matching drawSquare's own margin. @private */
+  _stampBounds(x, y, size) {
+    const halfSize = Math.floor(size / 2);
+    return { x: x - halfSize - 1, y: y - halfSize - 1, width: size + 2, height: size + 2 };
+  }
+
+  /**
+   * Grow (or create) this user's windowed temp canvas to cover `bounds`,
+   * preserving existing content — union with the current window, not a fresh
+   * one around just the new bounds (a stamp already drawn near one edge of
+   * the old window must survive a later stamp far away growing it). Same
+   * union + blit-forward rule as `LayerManager._growActiveStrokeWindow`;
+   * unlike `RemoteInkHandler.ensureInkOffscreen`, content here is NOT
+   * disposable — each stamp draws once and is never redrawn from history.
+   * @private
+   * @returns {HTMLCanvasElement}
+   */
+  _growTempCanvas(user, bounds) {
+    const need = bounds || { x: 0, y: 0, width: 1, height: 1 };
+    const ox = Math.floor(need.x);
+    const oy = Math.floor(need.y);
+    const ow = Math.max(1, Math.ceil(need.width));
+    const oh = Math.max(1, Math.ceil(need.height));
+
+    const canvas = this.tempCanvases.get(user.id);
+    const origin = this.tempOrigins.get(user.id);
+    const fits = canvas && origin &&
+      ox >= origin.x && oy >= origin.y &&
+      (ox + ow) <= (origin.x + canvas.width) &&
+      (oy + oh) <= (origin.y + canvas.height);
+    if (fits) return canvas;
+
+    let newOx = ox, newOy = oy, newMaxX = ox + ow, newMaxY = oy + oh;
+    if (canvas && origin) {
+      newOx = Math.min(newOx, origin.x);
+      newOy = Math.min(newOy, origin.y);
+      newMaxX = Math.max(newMaxX, origin.x + canvas.width);
+      newMaxY = Math.max(newMaxY, origin.y + canvas.height);
+    }
+    const newCanvas = document.createElement('canvas');
+    newCanvas.width = newMaxX - newOx;
+    newCanvas.height = newMaxY - newOy;
+    const newCtx = newCanvas.getContext('2d');
+    if (canvas && origin) {
+      newCtx.drawImage(canvas, origin.x - newOx, origin.y - newOy);
+    }
+    this.tempCanvases.set(user.id, newCanvas);
+    this.tempOrigins.set(user.id, { x: newOx, y: newOy });
+    return newCanvas;
   }
 
   getPreviewDirtyRect(user = this._activeUser) {
@@ -469,5 +549,6 @@ export class PixelBrushTool {
   clearUserState(userId) {
     this.lastStampPos.delete(userId);
     this.tempCanvases.delete(userId);
+    this.tempOrigins.delete(userId);
   }
 }

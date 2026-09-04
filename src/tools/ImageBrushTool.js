@@ -80,6 +80,62 @@ export class ImageBrushTool extends Tool {
   }
 
   /**
+   * Begin this user's active stroke windowed to a seed point instead of via
+   * `Board.beginStroke` — that shared wrapper calls `LayerManager.beginUserStroke`
+   * with no `bounds`, allocating full-board immediately; a later windowed
+   * `getUserStrokeContext` call would then find `active` already exists with
+   * `origin: null` and never grow. Same trap already found and fixed in
+   * EraserTool/BlurTool/GlitchBlurTool/ConfettiTool. Replicates `beginStroke`'s
+   * other effects (mask clip, requestUpdate) directly.
+   * @private
+   */
+  _beginStrokeWindowed(user, pos) {
+    if (user?.panning) return;
+    const strokeLayer = user?.activeLayer ?? this.board.app?.self?.activeLayer ?? 0;
+    const userId = user?.id ?? this.board.app?.self?.id ?? 0;
+    const blendMode = user?.blendMode ?? 'source-over';
+    // Stamp footprint is size-dependent (scaledSize * aspect ratio, computed
+    // in drawStamp) and unknown here until a brush image loads — use a
+    // generous multiple of size as the seed; drawStamp's own per-stamp
+    // growth call corrects it to the exact footprint on the first real draw.
+    const margin = Math.max(1, (user?.size ?? 10)) * 2;
+    const bounds = this._foldMirrorBounds({
+      x: pos.x - margin, y: pos.y - margin, width: margin * 2, height: margin * 2
+    });
+    this.board.layerManager?.beginUserStroke(strokeLayer, userId, blendMode, user?.blendBakeMode, bounds);
+    this.board.applySelectionMaskClipForStroke(strokeLayer, userId);
+    this.board.requestUpdate();
+  }
+
+  /**
+   * Expand a board-absolute box to also cover every active mirror region's
+   * transformed copy — same simplification the rest of this windowing
+   * campaign uses (brush/eraser/blur/glitchBlur/confetti).
+   * @private
+   */
+  _foldMirrorBounds(bounds) {
+    const regions = this.board.getActiveMirrorRegions?.() || [];
+    if (!regions.length) return bounds;
+    let minX = bounds.x, minY = bounds.y;
+    let maxX = bounds.x + bounds.width, maxY = bounds.y + bounds.height;
+    const corners = [
+      { x: minX, y: minY }, { x: maxX, y: minY },
+      { x: minX, y: maxY }, { x: maxX, y: maxY }
+    ];
+    for (const region of regions) {
+      const mirrored = this.board.mirrorPointsToRegion(corners, region);
+      for (const p of mirrored) {
+        if (!Number.isFinite(p?.x) || !Number.isFinite(p?.y)) continue;
+        if (p.x < minX) minX = p.x;
+        if (p.x > maxX) maxX = p.x;
+        if (p.y < minY) minY = p.y;
+        if (p.y > maxY) maxY = p.y;
+      }
+    }
+    return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+  }
+
+  /**
    * Handles pointer down event.
    * @param {Object} user - The user performing the action.
    * @param {Object} pos - The current pointer position.
@@ -87,7 +143,7 @@ export class ImageBrushTool extends Tool {
   onPointerDown(user, pos) {
     if (user.imageBrush) {
       this._activeUser = user;
-      this.board.beginStroke(user);
+      this._beginStrokeWindowed(user, pos);
       user._imageBrushLastPos = { x: pos.x, y: pos.y };
       user._imageBrushLastTime = performance.now();
       if (user.imageBrush.type === 'gih' && user.imageBrush.reset) {
@@ -224,9 +280,9 @@ export class ImageBrushTool extends Tool {
     // Check if there is already an active stroke for this user on that layer.
     const hasActiveStroke = this.board.layerManager?.getActiveStroke(strokeLayer, user.id);
 
-    if (!hasActiveStroke) {
+    if (!hasActiveStroke && ps.length >= 2) {
         debug.warn(`ImageBrushTool: User ${user.id} has no active stroke on layer ${strokeLayer}. Initiating new stroke.`);
-        this.board.beginStroke(user); 
+        this._beginStrokeWindowed(user, { x: ps[0], y: ps[1] });
     }
     
     // After ensuring activeLayer is set, proceed with drawing.
@@ -262,10 +318,18 @@ export class ImageBrushTool extends Tool {
     const previewCtx = this.board.topCtx;
     if (!strokeCtx || !previewCtx || !strokeCtx.canvas) return;
 
+    // strokeCtx.canvas may now be windowed (see docs/
+    // scope_layermanager_active_stroke_windowing_RESULT.md) — its own local
+    // (0,0) is board position `origin`, not board (0,0), so drawMirroredCanvas
+    // must draw it there instead of at a hardcoded (0,0).
+    const active = this.board.layerManager.getActiveStroke(user.activeLayer, user.id);
+    const ox = active?.origin?.x ?? 0;
+    const oy = active?.origin?.y ?? 0;
+
     previewCtx.globalAlpha = user.opacity !== undefined ? user.opacity : 1;
     this.board.withSelectionMaskClip(previewCtx, user.id, () => {
       this.board.forEachMirrorRegion({ points: this._getStrokePoints(user) }, (region) => {
-        this.board.drawMirroredCanvas(previewCtx, strokeCtx.canvas, region, 0, 0);
+        this.board.drawMirroredCanvas(previewCtx, strokeCtx.canvas, region, ox, oy);
       });
     });
     previewCtx.globalAlpha = 1.0;
@@ -374,11 +438,6 @@ export class ImageBrushTool extends Tool {
     const scaledSize = size * pressure;
 
     const strokeLayer = user._strokeLayer ?? user.activeLayer ?? 0;
-    const ctx = this.board.layerManager.getUserStrokeContext(strokeLayer, user.id);
-    if (!ctx) {
-      console.error(`ImageBrushTool: Failed to get active layer context for user ${user.id}. Layer:`, strokeLayer);
-      return;
-    }
 
     let height, width, image;
 
@@ -420,16 +479,31 @@ export class ImageBrushTool extends Tool {
     if (width > height) ratioX = 1;
     if (height > width) ratioY = 1;
 
+    const stampX = pos.x - scaledSize * ratioX;
+    const stampY = pos.y - scaledSize * ratioY;
+    const stampW = scaledSize * 2 * ratioX;
+    const stampH = scaledSize * 2 * ratioY;
+
+    const bounds = this._foldMirrorBounds({ x: stampX, y: stampY, width: stampW, height: stampH });
+    const ctx = this.board.layerManager.getUserStrokeContext(strokeLayer, user.id, undefined, undefined, bounds);
+    if (!ctx) {
+      console.error(`ImageBrushTool: Failed to get active layer context for user ${user.id}. Layer:`, strokeLayer);
+      return;
+    }
+
+    // Active canvas may be windowed (see docs/
+    // scope_layermanager_active_stroke_windowing_RESULT.md) — stampX/Y and the
+    // mirror transform both operate in board-absolute coordinates, so
+    // translate by -origin first, same fix shape as the other stamped tools.
+    const active = this.board.layerManager.getActiveStroke(strokeLayer, user.id);
+    const ox = active?.origin?.x ?? 0;
+    const oy = active?.origin?.y ?? 0;
+
     const opacity = user.opacity !== undefined ? user.opacity : 1;
     ctx.globalAlpha = opacity;
     ctx.beginPath(); // Start a new path for this stamp
     ctx.fillStyle = user.getColorString();
 
-    const stampX = pos.x - scaledSize * ratioX;
-    const stampY = pos.y - scaledSize * ratioY;
-    const stampW = scaledSize * 2 * ratioX;
-    const stampH = scaledSize * 2 * ratioY;
-    
     const drawStampImage = (targetCtx) => {
       const prevSmoothing = targetCtx.imageSmoothingEnabled;
       if (brush.type === 'svg') {
@@ -439,24 +513,31 @@ export class ImageBrushTool extends Tool {
       targetCtx.imageSmoothingEnabled = prevSmoothing;
     };
 
-    // Draw the main stamp
-    drawStampImage(ctx);
+    if (ox || oy) ctx.save();
+    try {
+      if (ox || oy) ctx.translate(-ox, -oy);
 
-    // Save context state before mirroring operations to ensure it's restored correctly.
-    // This is a defensive measure in case board.withMirroredRegionTransform does not fully restore state.
-    ctx.save(); 
-    
-    this.board.forEachMirrorRegion({ rect: { x: stampX, y: stampY, width: stampW, height: stampH } }, (region) => {
-      this.board.withMirroredRegionTransform(ctx, region, () => {
-        drawStampImage(ctx); // Draw mirrored stamp
+      // Draw the main stamp
+      drawStampImage(ctx);
+
+      // Save context state before mirroring operations to ensure it's restored correctly.
+      // This is a defensive measure in case board.withMirroredRegionTransform does not fully restore state.
+      ctx.save();
+
+      this.board.forEachMirrorRegion({ rect: { x: stampX, y: stampY, width: stampW, height: stampH } }, (region) => {
+        this.board.withMirroredRegionTransform(ctx, region, () => {
+          drawStampImage(ctx); // Draw mirrored stamp
+        });
       });
-    });
 
-    // Restore context state after mirroring operations
-    ctx.restore();
+      // Restore context state after mirroring operations
+      ctx.restore();
 
-    ctx.stroke(); // Apply the path (all draws since beginPath)
-    ctx.globalAlpha = 1.0;
+      ctx.stroke(); // Apply the path (all draws since beginPath)
+      ctx.globalAlpha = 1.0;
+    } finally {
+      if (ox || oy) ctx.restore();
+    }
 
     if (user._imageBrushDirtyBounds) {
       user._imageBrushDirtyBounds.minX = Math.min(user._imageBrushDirtyBounds.minX, stampX);

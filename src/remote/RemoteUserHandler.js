@@ -1203,11 +1203,23 @@ export class RemoteUserHandler {
 
       case 'line':
         if (activeStrokeCtx) {
-          // drawPreviewOnContext already draws the mirrored copies internally
-          // (unlike drawRect/drawEllipse below) — wrapping it in another
-          // forEachMirrorRegion pass drew every line twice on both sides of
-          // the mirror (mirror-of-mirror lands back on the original).
-          this.toolManager.getTool('line').drawPreviewOnContext(activeStrokeCtx, user, user.startPos, pos);
+          // Active canvas may be windowed (see docs/
+          // scope_layermanager_active_stroke_windowing_RESULT.md) — same
+          // translate fix shape as the 'brush' case above.
+          const active = this.board.layerManager.getActiveStroke(strokeLayer, user.id);
+          const ox = active?.origin?.x ?? 0;
+          const oy = active?.origin?.y ?? 0;
+          if (ox || oy) activeStrokeCtx.save();
+          try {
+            if (ox || oy) activeStrokeCtx.translate(-ox, -oy);
+            // drawPreviewOnContext already draws the mirrored copies internally
+            // (unlike drawRect/drawEllipse below) — wrapping it in another
+            // forEachMirrorRegion pass drew every line twice on both sides of
+            // the mirror (mirror-of-mirror lands back on the original).
+            this.toolManager.getTool('line').drawPreviewOnContext(activeStrokeCtx, user, user.startPos, pos);
+          } finally {
+            if (ox || oy) activeStrokeCtx.restore();
+          }
           // Mirror LineTool.onPointerUp margin so the hardness blur halo is
           // included in the dirtyRect, otherwise commitUserStroke crops the
           // halo off and observers' committed stroke disagrees with drawer's.
@@ -1221,18 +1233,27 @@ export class RemoteUserHandler {
 
       case 'rectangle':
         if (activeStrokeCtx) {
+          const active = this.board.layerManager.getActiveStroke(strokeLayer, user.id);
+          const ox = active?.origin?.x ?? 0;
+          const oy = active?.origin?.y ?? 0;
           const rectangleTool = this.toolManager.getTool('rectangle');
-          rectangleTool.drawRect(activeStrokeCtx, user, user.startPos, pos);
-          this.board.forEachMirrorRegion({ points: [user.startPos, pos] }, (region) => {
-            this.board.withMirrorRegionClip(activeStrokeCtx, region, () => {
-              rectangleTool.drawRect(
-                activeStrokeCtx,
-                user,
-                this.board.mirrorPointToRegion(user.startPos, region),
-                this.board.mirrorPointToRegion(pos, region)
-              );
+          if (ox || oy) activeStrokeCtx.save();
+          try {
+            if (ox || oy) activeStrokeCtx.translate(-ox, -oy);
+            rectangleTool.drawRect(activeStrokeCtx, user, user.startPos, pos);
+            this.board.forEachMirrorRegion({ points: [user.startPos, pos] }, (region) => {
+              this.board.withMirrorRegionClip(activeStrokeCtx, region, () => {
+                rectangleTool.drawRect(
+                  activeStrokeCtx,
+                  user,
+                  this.board.mirrorPointToRegion(user.startPos, region),
+                  this.board.mirrorPointToRegion(pos, region)
+                );
+              });
             });
-          });
+          } finally {
+            if (ox || oy) activeStrokeCtx.restore();
+          }
           const rectMargin = this._brushMargin(user);
           // Same mode the paint above resolved from the user, or the dirty rect
           // crops the committed record to different bounds than were drawn.
@@ -1245,18 +1266,27 @@ export class RemoteUserHandler {
 
       case 'circle':
         if (activeStrokeCtx) {
+          const active = this.board.layerManager.getActiveStroke(strokeLayer, user.id);
+          const ox = active?.origin?.x ?? 0;
+          const oy = active?.origin?.y ?? 0;
           const circleTool = this.toolManager.getTool('circle');
-          circleTool.drawEllipse(activeStrokeCtx, user, user.startPos, pos);
-          this.board.forEachMirrorRegion({ points: [user.startPos, pos] }, (region) => {
-            this.board.withMirrorRegionClip(activeStrokeCtx, region, () => {
-              circleTool.drawEllipse(
-                activeStrokeCtx,
-                user,
-                this.board.mirrorPointToRegion(user.startPos, region),
-                this.board.mirrorPointToRegion(pos, region)
-              );
+          if (ox || oy) activeStrokeCtx.save();
+          try {
+            if (ox || oy) activeStrokeCtx.translate(-ox, -oy);
+            circleTool.drawEllipse(activeStrokeCtx, user, user.startPos, pos);
+            this.board.forEachMirrorRegion({ points: [user.startPos, pos] }, (region) => {
+              this.board.withMirrorRegionClip(activeStrokeCtx, region, () => {
+                circleTool.drawEllipse(
+                  activeStrokeCtx,
+                  user,
+                  this.board.mirrorPointToRegion(user.startPos, region),
+                  this.board.mirrorPointToRegion(pos, region)
+                );
+              });
             });
-          });
+          } finally {
+            if (ox || oy) activeStrokeCtx.restore();
+          }
           const circleMargin = this._brushMargin(user);
           const ellipse = circleTool.getEllipseParams(
             user.startPos, pos, false, user.shapeDrawMode
@@ -2635,11 +2665,11 @@ export class RemoteUserHandler {
   /**
    * Whether this user's in-progress stroke may use a windowed (non-full-board)
    * LayerManager active-stroke canvas — see
-   * docs/scope_layermanager_active_stroke_windowing_RESULT.md. Brush only:
-   * the confirmed incremental-draw, no-existing-scratch case; ink/pen already
-   * have their own windowed offscreen canvases and don't go through this
-   * path. Both of the original exclusions are now handled rather than
-   * avoided:
+   * docs/scope_layermanager_active_stroke_windowing_RESULT.md. Brush plus the
+   * one-shot shape tools (line/rectangle/circle, added later — see
+   * [[shape_tool_active_stroke_windowing]]): ink/pen already have their own
+   * windowed offscreen canvases and don't go through this path. Both of the
+   * original exclusions are now handled rather than avoided:
    *   - mirror regions: `_activeStrokeWindowBounds` folds each active
    *     region's transformed bounds into the window request.
    *   - selection mask: `Board.applySelectionMaskClipForStroke` bakes the
@@ -2647,12 +2677,21 @@ export class RemoteUserHandler {
    *     `_reapplyMaskClip` hook that `LayerManager._growActiveStrokeWindow`
    *     calls after any canvas swap, so the clip survives the window
    *     growing mid-drag.
+   *
+   * Shapes reuse this SAFELY with zero shape-specific bounds logic: MD/MM
+   * already unconditionally call `_expandShapePreviewBounds` (via
+   * `_expandPreviewBounds`) using `_maxBrushMargin` (worst-case, no pressure
+   * factor) for every tool including shapes, feeding the same
+   * `user._previewDirtyBounds` this reads. Commit's own margin (`_brushMargin`,
+   * WITH pressure) is always <= `_maxBrushMargin`'s, so the window this
+   * produces is always at least as large as what commit actually draws —
+   * no clipping risk from reusing brush's bounds machinery unchanged.
    * @private
    * @param {User} user
    * @returns {boolean}
    */
   _canWindowActiveStroke(user) {
-    return user.tool === 'brush';
+    return user.tool === 'brush' || user.tool === 'line' || user.tool === 'rectangle' || user.tool === 'circle';
   }
 
   /**
