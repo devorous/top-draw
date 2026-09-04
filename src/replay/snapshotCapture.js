@@ -95,6 +95,11 @@ function captureUserTransientState(user, selectionMask = null) {
   const pen = user._penOffscreen
     ? {
         penOffscreenData:  user._penOffscreen.toDataURL('image/png'),
+        // Offscreen is windowed to the stroke's own bounds, not the full
+        // board (see lag_measured_1440p_realistic_load) — origin says where
+        // its local (0,0) sits in board space. Restore reads the image's own
+        // pixel dimensions, so this is the only extra field needed.
+        penOffscreenOrigin: user._penOrigin ? { x: user._penOrigin.x, y: user._penOrigin.y } : { x: 0, y: 0 },
         penStrokeActive:   !!user._penStrokeActive,
         penStrokeColor:    user._penStrokeColor ?? null,
         penAlpha:          user._penAlpha ?? null,
@@ -107,6 +112,8 @@ function captureUserTransientState(user, selectionMask = null) {
   const ink = user._inkOffscreen
     ? {
         inkOffscreenData: user._inkOffscreen.toDataURL('image/png'),
+        // See penOffscreenOrigin above.
+        inkOffscreenOrigin: user._inkOrigin ? { x: user._inkOrigin.x, y: user._inkOrigin.y } : { x: 0, y: 0 },
         inkStrokeActive:  !!user._inkStrokeActive,
         inkStrokeColor:   user._inkStrokeColor ?? null,
         inkAlpha:         user._inkAlpha ?? null,

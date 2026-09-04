@@ -1759,16 +1759,65 @@ export class Board {
     ctx.clip();
   }
 
+  /**
+   * NOTE for LayerManager active-stroke windowing (see
+   * docs/scope_layermanager_active_stroke_windowing_RESULT.md): mask points
+   * from `_applyMaskClipToCtx` are board-absolute, so a windowed active
+   * canvas (canvas-local (0,0) != board (0,0)) needs the ctx translated by
+   * `-origin` before `clip()` — see `_applyMaskClipAtOrigin`. `clip()` bakes
+   * the resulting region into the ctx's CURRENT device/pixel space, so the
+   * translate is undone again right after: every draw call site onto this
+   * canvas (RemoteUserHandler's commitLine/handleMouseUp) applies its OWN
+   * `-origin` translate independently around each draw, assuming the ctx
+   * starts at identity transform — leaving the mask's translate in place
+   * here would double it. The clip does NOT survive
+   * `_growActiveStrokeWindow`'s canvas swap on its own (a fresh ctx starts
+   * unclipped) — `_registerMaskClipReapply` hands LayerManager a hook that
+   * redoes this against the NEW origin when the window grows.
+   */
   applySelectionMaskClipForStroke(layerIndex, userId) {
     if (!this._getSelectionMaskForUser(userId) || !this.layerManager) return false;
     const key = `${layerIndex}_${userId}`;
     if (this._maskClippedStrokes.has(key)) return true;
     const ctx = this.layerManager.getUserStrokeContext(layerIndex, userId);
     if (!ctx) return false;
+    const active = this.layerManager.getActiveStroke(layerIndex, userId);
     ctx.save();
-    this._applyMaskClipToCtx(ctx, userId);
+    this._applyMaskClipAtOrigin(ctx, userId, active?.origin);
     this._maskClippedStrokes.add(key);
+    this._registerMaskClipReapply(layerIndex, userId);
     return true;
+  }
+
+  /**
+   * Clip `ctx` to this user's selection mask, translating by `-origin` first
+   * (windowed active canvas) and resetting the transform back to identity
+   * afterward so the baked clip region stays fixed in this canvas's own
+   * pixel space regardless of what draws onto it next.
+   * @private
+   */
+  _applyMaskClipAtOrigin(ctx, userId, origin) {
+    const ox = origin?.x ?? 0;
+    const oy = origin?.y ?? 0;
+    if (ox || oy) ctx.translate(-ox, -oy);
+    this._applyMaskClipToCtx(ctx, userId);
+    if (ox || oy) ctx.setTransform(1, 0, 0, 1, 0, 0);
+  }
+
+  /**
+   * Give the active stroke a hook LayerManager._growActiveStrokeWindow can
+   * call after swapping in a new (unclipped) canvas, so a mask clip survives
+   * a windowed stroke's canvas growing mid-drag. No-op for a full-board
+   * active stroke (it never grows, so the hook is simply never invoked).
+   * @private
+   */
+  _registerMaskClipReapply(layerIndex, userId) {
+    const active = this.layerManager?.getActiveStroke?.(layerIndex, userId);
+    if (!active) return;
+    active._reapplyMaskClip = (newCtx, newOrigin) => {
+      newCtx.save();
+      this._applyMaskClipAtOrigin(newCtx, userId, newOrigin);
+    };
   }
 
   withSelectionMaskClip(ctx, userId, drawFn) {

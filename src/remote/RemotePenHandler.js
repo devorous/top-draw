@@ -23,20 +23,52 @@ export class RemotePenHandler {
   }
 
   /**
-   * Ensures the user has a valid offscreen canvas for pen rendering.
+   * Ensures the user has an offscreen canvas covering `rect` (board-space),
+   * windowed to the stroke's own growing bounds — see
+   * RemoteInkHandler.ensureInkOffscreen for the full rationale
+   * (lag_measured_1440p_realistic_load).
+   *
+   * Unlike ink, pen stamps are drawn INCREMENTALLY (each stamp interpolates
+   * from `_penLastStampPos`, not replayed from full point history), so a
+   * mid-stroke resize cannot just clear-and-redraw: it must carry the already
+   * -drawn pixels forward into the new, bigger canvas at the shifted offset.
+   *
    * @param {User} user - The remote user object.
+   * @param {{x:number,y:number,width:number,height:number}|null} rect
    */
-  ensurePenOffscreen(user) {
+  ensurePenOffscreen(user, rect) {
     // See ensureInkOffscreen — same idle-reclaim clock, shared per user.
     touchRemoteScratch(user);
-    const width = this.board.getWidth();
-    const height = this.board.getHeight();
-    if (!user._penOffscreen || user._penOffscreen.width !== width || user._penOffscreen.height !== height) {
-      user._penOffscreen = document.createElement('canvas');
-      user._penOffscreen.width = width;
-      user._penOffscreen.height = height;
-      user._penOffscreenCtx = user._penOffscreen.getContext('2d');
+
+    const need = rect || { x: 0, y: 0, width: 1, height: 1 };
+    const ox = Math.floor(need.x);
+    const oy = Math.floor(need.y);
+    const ow = Math.max(1, Math.ceil(need.width));
+    const oh = Math.max(1, Math.ceil(need.height));
+
+    const origin = user._penOrigin || (user._penOrigin = { x: 0, y: 0 });
+    const oldCanvas = user._penOffscreen;
+    const fits = oldCanvas &&
+      ox >= origin.x && oy >= origin.y &&
+      (ox + ow) <= (origin.x + oldCanvas.width) &&
+      (oy + oh) <= (origin.y + oldCanvas.height);
+    if (fits) return;
+
+    const newCanvas = document.createElement('canvas');
+    newCanvas.width = ow;
+    newCanvas.height = oh;
+    const newCtx = newCanvas.getContext('2d');
+    if (oldCanvas) {
+      // Carry forward what's already drawn: old canvas's local (0,0) was at
+      // board position `origin` (pre-update); place it at the same board
+      // position within the new, larger window.
+      newCtx.drawImage(oldCanvas, origin.x - ox, origin.y - oy);
     }
+
+    origin.x = ox;
+    origin.y = oy;
+    user._penOffscreen = newCanvas;
+    user._penOffscreenCtx = newCtx;
   }
 
   /**
@@ -45,12 +77,22 @@ export class RemotePenHandler {
    * @param {Object} pos - The starting coordinates {x, y}.
    */
   handlePenDown(user, pos) {
-    this.ensurePenOffscreen(user);
-
-    user._penOffscreenCtx.clearRect(0, 0, user._penOffscreen.width, user._penOffscreen.height);
+    // Release the previous stroke's window rather than growing it forever —
+    // see RemoteInkHandler.handleInkDown for why (reusing a spatially
+    // overlapping old window would carry that stroke's stale pixels forward).
+    user._penOffscreen = null;
+    user._penOffscreenCtx = null;
+    user._penOrigin = null;
+    user._penDirtyBounds = null;
 
     const pressure = Math.round(user.pressure * 255) / 255;
     const radius = pressure * user.size;
+
+    this.expandPenWindowBounds(user, pos.x - radius, pos.y - radius, pos.x + radius, pos.y + radius);
+    this.ensurePenOffscreen(user, this.getPenWindowRect(user));
+    const origin = user._penOrigin;
+
+    user._penOffscreenCtx.clearRect(0, 0, user._penOffscreen.width, user._penOffscreen.height);
 
     const color = user.color.slice(0, 3);
     user._penStrokeColor = `rgb(${color.join(',')})`;
@@ -61,9 +103,12 @@ export class RemotePenHandler {
     user._penHardness = user.hardness !== undefined ? user.hardness / 100 : 1.0;
 
     const ctx = user._penOffscreenCtx;
+    ctx.save();
+    ctx.translate(-origin.x, -origin.y);
     ctx.beginPath();
     ctx.arc(pos.x, pos.y, Math.max(0.5, radius), 0, Math.PI * 2);
     ctx.fill();
+    ctx.restore();
 
     user._penLastStampPos = { x: pos.x, y: pos.y, radius };
     user._penStrokeActive = true;
@@ -95,45 +140,65 @@ export class RemotePenHandler {
       startRi = 1;
     }
 
-    const ctx = user._penOffscreenCtx;
-    ctx.fillStyle = user._penStrokeColor;
-
+    // Pre-scan the batch's bounds with no canvas writes, so the window can be
+    // grown ONCE for the whole batch before any drawing. Resizing mid-loop
+    // would leave a `ctx` reference captured before the loop pointing at a
+    // canvas ensurePenOffscreen has already replaced.
     let bMinX = Infinity, bMinY = Infinity, bMaxX = -Infinity, bMaxY = -Infinity;
-
+    let prevRadius = user._penLastStampPos?.radius;
     for (let i = startIndex, ri = startRi; i < points.length; i += 2, ri++) {
       const x = points[i];
       const y = points[i + 1];
-      const pressure = radii[ri] / 255;
-      const r = pressure * user.size;
-
-      if (user._penLastStampPos) {
-        // Interpolate circles for smooth coverage from the last point
-        this._interpolateStrokeRemote(
-          ctx,
-          user._penLastStampPos.x,
-          user._penLastStampPos.y,
-          user._penLastStampPos.radius,
-          x,
-          y,
-          r
-        );
-      } else {
-        // Fallback for first point if handlePenDown wasn't called (shouldn't happen)
-        ctx.beginPath();
-        ctx.arc(x, y, Math.max(0.5, r), 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      const maxR = Math.max(user._penLastStampPos?.radius ?? r, r);
+      const r = (radii[ri] / 255) * user.size;
+      const maxR = Math.max(prevRadius ?? r, r);
       bMinX = Math.min(bMinX, x - maxR);
       bMinY = Math.min(bMinY, y - maxR);
       bMaxX = Math.max(bMaxX, x + maxR);
       bMaxY = Math.max(bMaxY, y + maxR);
+      prevRadius = r;
+    }
+    if (bMinX <= bMaxX) {
+      this.expandPenWindowBounds(user, bMinX, bMinY, bMaxX, bMaxY);
+      this.ensurePenOffscreen(user, this.getPenWindowRect(user));
+    }
 
-      user._penLastStampPos = { x, y, radius: r };
-      if (user.penPoints) {
-        user.penPoints.push({ x, y, radius: r });
+    const ctx = user._penOffscreenCtx;
+    const origin = user._penOrigin;
+    ctx.fillStyle = user._penStrokeColor;
+    ctx.save();
+    ctx.translate(-origin.x, -origin.y);
+    try {
+      for (let i = startIndex, ri = startRi; i < points.length; i += 2, ri++) {
+        const x = points[i];
+        const y = points[i + 1];
+        const pressure = radii[ri] / 255;
+        const r = pressure * user.size;
+
+        if (user._penLastStampPos) {
+          // Interpolate circles for smooth coverage from the last point
+          this._interpolateStrokeRemote(
+            ctx,
+            user._penLastStampPos.x,
+            user._penLastStampPos.y,
+            user._penLastStampPos.radius,
+            x,
+            y,
+            r
+          );
+        } else {
+          // Fallback for first point if handlePenDown wasn't called (shouldn't happen)
+          ctx.beginPath();
+          ctx.arc(x, y, Math.max(0.5, r), 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        user._penLastStampPos = { x, y, radius: r };
+        if (user.penPoints) {
+          user.penPoints.push({ x, y, radius: r });
+        }
       }
+    } finally {
+      ctx.restore();
     }
 
     const lastPtIdx = points.length - 2;
@@ -158,9 +223,21 @@ export class RemotePenHandler {
     const distance = Math.sqrt(dx * dx + dy * dy);
 
     if (distance > 0.5) {
-      const ctx = user._penOffscreenCtx;
-      ctx.fillStyle = user._penStrokeColor;
+      const maxR = Math.max(user._penLastStampPos.radius, radius);
+      const moveRect = {
+        minX: Math.min(user._penLastStampPos.x, pos.x) - maxR,
+        minY: Math.min(user._penLastStampPos.y, pos.y) - maxR,
+        maxX: Math.max(user._penLastStampPos.x, pos.x) + maxR,
+        maxY: Math.max(user._penLastStampPos.y, pos.y) + maxR
+      };
+      this.expandPenWindowBounds(user, moveRect.minX, moveRect.minY, moveRect.maxX, moveRect.maxY);
+      this.ensurePenOffscreen(user, this.getPenWindowRect(user));
 
+      const ctx = user._penOffscreenCtx;
+      const origin = user._penOrigin;
+      ctx.fillStyle = user._penStrokeColor;
+      ctx.save();
+      ctx.translate(-origin.x, -origin.y);
       // Interpolate circles for smooth coverage
       this._interpolateStrokeRemote(
         ctx,
@@ -171,14 +248,7 @@ export class RemotePenHandler {
         pos.y,
         radius
       );
-
-      const maxR = Math.max(user._penLastStampPos.radius, radius);
-      const moveRect = {
-        minX: Math.min(user._penLastStampPos.x, pos.x) - maxR,
-        minY: Math.min(user._penLastStampPos.y, pos.y) - maxR,
-        maxX: Math.max(user._penLastStampPos.x, pos.x) + maxR,
-        maxY: Math.max(user._penLastStampPos.y, pos.y) + maxR
-      };
+      ctx.restore();
 
       user._penLastStampPos = { x: pos.x, y: pos.y, radius };
       if (user.penPoints) {
@@ -281,12 +351,13 @@ export class RemotePenHandler {
       layerCtx.globalCompositeOperation = 'source-over';
       layerCtx.globalAlpha = user._penAlpha;
 
-      this.compositeWithHardness(layerCtx, user._penOffscreen, user.size, user._penHardness, user._penStrokeColor, 0, 0);
+      const origin = user._penOrigin || { x: 0, y: 0 };
+      this.compositeWithHardness(layerCtx, user._penOffscreen, user.size, user._penHardness, user._penStrokeColor, origin.x, origin.y);
 
       this.board.forEachMirrorRegion({ points: user.penPoints }, (region) => {
         layerCtx.save();
         layerCtx.globalCompositeOperation = 'source-over';
-        this.board.drawMirroredCanvas(layerCtx, user._penOffscreen, region, 0, 0);
+        this.board.drawMirroredCanvas(layerCtx, user._penOffscreen, region, origin.x, origin.y);
         layerCtx.restore();
       });
 
@@ -421,11 +492,12 @@ export class RemotePenHandler {
       ctx.clip();
     }
 
+    const origin = user._penOrigin || { x: 0, y: 0 };
     this.board.withSelectionMaskClip(ctx, user.id, () => {
-      this.compositeWithHardness(ctx, user._penOffscreen, user.size, user._penHardness, user._penStrokeColor, 0, 0);
+      this.compositeWithHardness(ctx, user._penOffscreen, user.size, user._penHardness, user._penStrokeColor, origin.x, origin.y);
 
       this.board.forEachMirrorRegion({ points: user.penPoints }, (region) => {
-        this.board.drawMirroredCanvas(ctx, user._penOffscreen, region, 0, 0);
+        this.board.drawMirroredCanvas(ctx, user._penOffscreen, region, origin.x, origin.y);
       });
     });
 
@@ -460,5 +532,42 @@ export class RemotePenHandler {
     } else {
       ctx.drawImage(sourceCanvas, x, y);
     }
+  }
+
+  /**
+   * Cumulative bounding box (blob-inclusive: already padded by each stamp's
+   * own radius) of everything drawn into the current stroke's offscreen so
+   * far. Drives the windowed canvas's size — separate from the batch-local
+   * dirty rect used to clip `updatePenPreview`'s redraw.
+   */
+  expandPenWindowBounds(user, minX, minY, maxX, maxY) {
+    const b = user._penDirtyBounds;
+    if (!b) {
+      user._penDirtyBounds = { minX, minY, maxX, maxY };
+      return;
+    }
+    b.minX = Math.min(b.minX, minX);
+    b.minY = Math.min(b.minY, minY);
+    b.maxX = Math.max(b.maxX, maxX);
+    b.maxY = Math.max(b.maxY, maxY);
+  }
+
+  getPenWindowRect(user) {
+    const b = user._penDirtyBounds;
+    if (!b) return null;
+    // Stamp radius is already folded into b (unlike ink's raw point bounds).
+    // Margin still needs to cover the shadow-blur trick's spread in
+    // compositeWithHardness — same formula as RemoteInkHandler.getPreviewDirtyRect,
+    // whose 2.5x factor and +15 constant were tuned for that same shadowBlur call.
+    const size = user.size || 0;
+    const hardness = user._penHardness !== undefined ? user._penHardness : 1.0;
+    const blurAmount = (1 - hardness) * (20 + size * 0.2);
+    const margin = (blurAmount * 2.5) + size * 0.5 + 15;
+    return {
+      x: Math.floor(b.minX - margin),
+      y: Math.floor(b.minY - margin),
+      width: Math.ceil(b.maxX - b.minX + margin * 2),
+      height: Math.ceil(b.maxY - b.minY + margin * 2)
+    };
   }
 }

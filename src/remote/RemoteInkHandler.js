@@ -43,26 +43,51 @@ export class RemoteInkHandler {
    */
   constructor(board) {
     this.board = board;
-    this.hardnessCanvas = null;
-    this.hardnessCtx = null;
   }
 
   /**
-   * Ensures the user has a valid offscreen canvas for ink rendering.
+   * Ensures the user has an offscreen canvas covering `rect` (board-space).
+   *
+   * Windowed to the stroke's own growing bounds instead of the full board —
+   * see [[lag_measured_1440p_realistic_load]]. `user._inkOrigin` is the board
+   * position of the canvas's local (0,0). Grow-only within a stroke: every
+   * render redraws the WHOLE stroke from `user._inkPoints` (see
+   * renderInkStroke), so a resize never needs to preserve old pixels, and
+   * reallocating on every point would thrash the GPU texture the way blur's
+   * per-stamp canvas.createElement did (see blur_per_stamp_canvas_alloc) — so
+   * this only reallocates when `rect` no longer fits what's already there.
+   * Reset to null at the start of every new stroke (handleInkDown) so a
+   * finished stroke's window doesn't linger and outgrow what the next one
+   * needs.
+   *
    * @param {User} user - The remote user object.
+   * @param {{x:number,y:number,width:number,height:number}|null} rect
    */
-  ensureInkOffscreen(user) {
+  ensureInkOffscreen(user, rect) {
     // Restart the idle-reclaim clock on every use, so a user who keeps drawing
     // never has this canvas taken away and one who stops gets it reclaimed.
     touchRemoteScratch(user);
-    const width = this.board.getWidth();
-    const height = this.board.getHeight();
-    if (!user._inkOffscreen || user._inkOffscreen.width !== width || user._inkOffscreen.height !== height) {
-      user._inkOffscreen = document.createElement('canvas');
-      user._inkOffscreen.width = width;
-      user._inkOffscreen.height = height;
-      user._inkCtx = user._inkOffscreen.getContext('2d');
-    }
+
+    const need = rect || { x: 0, y: 0, width: 1, height: 1 };
+    const ox = Math.floor(need.x);
+    const oy = Math.floor(need.y);
+    const ow = Math.max(1, Math.ceil(need.width));
+    const oh = Math.max(1, Math.ceil(need.height));
+
+    const origin = user._inkOrigin || (user._inkOrigin = { x: 0, y: 0 });
+    const canvas = user._inkOffscreen;
+    const fits = canvas &&
+      ox >= origin.x && oy >= origin.y &&
+      (ox + ow) <= (origin.x + canvas.width) &&
+      (oy + oh) <= (origin.y + canvas.height);
+    if (fits) return;
+
+    origin.x = ox;
+    origin.y = oy;
+    user._inkOffscreen = document.createElement('canvas');
+    user._inkOffscreen.width = ow;
+    user._inkOffscreen.height = oh;
+    user._inkCtx = user._inkOffscreen.getContext('2d');
   }
 
   /**
@@ -71,9 +96,19 @@ export class RemoteInkHandler {
    * @param {Object} pos - The starting coordinates {x, y}.
    */
   handleInkDown(user, pos) {
-    this.ensureInkOffscreen(user);
+    // Release the previous stroke's window rather than growing it forever —
+    // ensureInkOffscreen reallocates fresh, small, on the next real render.
+    user._inkOffscreen = null;
+    user._inkCtx = null;
+    user._inkOrigin = null;
 
-    user._inkCtx.clearRect(0, 0, user._inkOffscreen.width, user._inkOffscreen.height);
+    // With a full-board offscreen, updateInkPreview's blank-canvas draw used
+    // to double as "erase the previous stroke's preview". Windowed, the next
+    // updateInkPreview only clears the NEW stroke's (much smaller) region, so
+    // do the previous stroke's preview erase explicitly here instead.
+    if (user.context) {
+      user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+    }
 
     const color = user.color.slice(0, 3);
     user._inkStrokeColor = `rgb(${color.join(',')})`;
@@ -202,7 +237,18 @@ export class RemoteInkHandler {
    * @param {User} user - The remote user object.
    */
   handleInkUp(user) {
-    if (!user._inkStrokeActive || !user._inkOffscreen) return;
+    // NOT `|| !user._inkOffscreen`: that guard was safe when handleInkDown
+    // created the offscreen unconditionally, but it's now lazily allocated
+    // inside renderInkStroke (called right below), sized to the stroke's own
+    // bounds. Under normal (throttled, real-time) arrival that render has
+    // always fired at least once before mouse-up — but under a fast/synchronous
+    // driver (ReplayEngine feeding a tape with no real elapsed time between
+    // messages), _requestPreviewRender's 33ms throttle can defer the FIRST
+    // render past the point mouse-up already arrived, leaving _inkOffscreen
+    // still null here and silently dropping the whole stroke. Found via
+    // replay_parity_suite's ink_step_1: live matched 100%, replay came back
+    // with zero strokes on the layer.
+    if (!user._inkStrokeActive) return;
 
     // Drop any deferred preview first: the synchronous render below supersedes
     // it, and letting it fire afterwards would redraw a preview for a stroke
@@ -258,17 +304,23 @@ export class RemoteInkHandler {
     const allowComplex = this.board.layerManager.getLayerAllowComplexBlendModes(strokeLayer);
     const strokeBlend = allowComplex ? (user.blendMode || 'source-over') : 'source-over';
     const layerCtx = this.board.layerManager.getUserStrokeContext(strokeLayer, user.id, strokeBlend, { blendBakeMode: user.blendBakeMode });
-    if (layerCtx) {
+    // A stroke with zero recorded points (MD immediately followed by MU, no
+    // MM at all) never reaches ensureInkOffscreen — renderInkStroke's own
+    // top-of-function guard returns before it gets there. Old code always had
+    // an offscreen (created unconditionally at handleInkDown) so this couldn't
+    // happen; skip the composite rather than crash on a null source.
+    if (layerCtx && user._inkOffscreen) {
       layerCtx.globalCompositeOperation = 'source-over';
       layerCtx.globalAlpha = user._inkAlpha;
 
-      const hardnessCanvas = this.getHardnessCanvas(user._inkOffscreen, user._inkSize || user.size, user._inkHardness, user._inkStrokeColor);
-      layerCtx.drawImage(hardnessCanvas, 0, 0);
+      const origin = user._inkOrigin || { x: 0, y: 0 };
+      const hardnessCanvas = this.getHardnessCanvas(user, user._inkSize || user.size, user._inkHardness, user._inkStrokeColor);
+      layerCtx.drawImage(hardnessCanvas, origin.x, origin.y);
 
       this.board.forEachMirrorRegion({ points }, (region) => {
         layerCtx.save();
         layerCtx.globalCompositeOperation = 'source-over';
-        this.board.drawMirroredCanvas(layerCtx, hardnessCanvas, region, 0, 0);
+        this.board.drawMirroredCanvas(layerCtx, hardnessCanvas, region, origin.x, origin.y);
         layerCtx.restore();
       });
 
@@ -291,83 +343,90 @@ export class RemoteInkHandler {
   renderInkStroke(user, last) {
     if (!user._inkPoints || user._inkPoints.length < 1) return;
 
+    // Windowed to the stroke's own bounds (see ensureInkOffscreen), so every
+    // render redraws the WHOLE stroke from user._inkPoints rather than
+    // incrementally — there is no old content in a smaller window worth
+    // preserving, and it is what makes grow-on-demand safe.
+    const rect = this.getPreviewDirtyRect(user);
+    this.ensureInkOffscreen(user, rect);
     const ctx = user._inkCtx;
-    const previewRect = this.getPreviewDirtyRect(user);
-    const clearRect = previewRect ? this._clampRectToCanvas(previewRect, user._inkOffscreen) : null;
-    if (clearRect) {
-      ctx.clearRect(clearRect.x, clearRect.y, clearRect.width, clearRect.height);
-    } else {
-      ctx.clearRect(0, 0, user._inkOffscreen.width, user._inkOffscreen.height);
-    }
+    const origin = user._inkOrigin;
+    ctx.clearRect(0, 0, user._inkOffscreen.width, user._inkOffscreen.height);
 
     const simulatePressure = user.simulatePressure !== undefined ? user.simulatePressure : true;
     const inkSize = user._inkSize || user.size;
     const rawThinning = user.thinning !== undefined ? user.thinning : 0.5;
     const thinning = !simulatePressure ? 0.95 : Math.min(0.99, rawThinning * Math.max(1, inkSize / 10));
 
-    // Single point: render as a dot
-    if (user._inkPoints.length === 1) {
-      if (!last) return;
+    ctx.save();
+    ctx.translate(-origin.x, -origin.y);
+    try {
+      // Single point: render as a dot
+      if (user._inkPoints.length === 1) {
+        if (!last) return;
 
-      const [x, y, pressure] = user._inkPoints[0];
-      const dotPressure = pressure !== undefined ? pressure : 1;
+        const [x, y, pressure] = user._inkPoints[0];
+        const dotPressure = pressure !== undefined ? pressure : 1;
+        ctx.fillStyle = user._inkStrokeColor;
+        ctx.beginPath();
+        ctx.arc(x, y, inkSize * dotPressure, 0, Math.PI * 2);
+        ctx.fill();
+        return;
+      }
+
+      // Very short strokes can arrive in tiny remote batches. Perfect-freehand
+      // can collapse these into an unstable preview, so draw a simple segment
+      // instead of clearing to blank between network updates.
+      if (user._inkPoints.length === 2) {
+        const [x0, y0, pressure0] = user._inkPoints[0];
+        const [x1, y1, pressure1] = user._inkPoints[1];
+        const averagePressure = ((pressure0 ?? 1) + (pressure1 ?? 1)) / 2;
+        const width = Math.max(0.5, inkSize * averagePressure);
+        ctx.fillStyle = user._inkStrokeColor;
+        ctx.strokeStyle = user._inkStrokeColor;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.lineWidth = width;
+        ctx.beginPath();
+        ctx.moveTo(x0, y0);
+        ctx.lineTo(x1, y1);
+        ctx.stroke();
+        return;
+      }
+
+      // Match local ink preview behavior: wait for enough points to form a real
+      // stroke shape before drawing the preview, avoiding oversized start blobs.
+      if (!last && user._inkPoints.length < 3) return;
+
+      const userSmoothing = user.smoothing !== undefined ? user.smoothing / 50 : 0.5;
+      // We use a baseline streamline even at 0 smoothing to stabilize velocity calculation in perfect-freehand
+      const streamline = 0.3 + (userSmoothing * 0.7); // Scale 0.3 to 1.0
+
+      const options = {
+        size: Math.max(0.1, (inkSize * 2) / (1 + rawThinning)),
+        thinning: thinning,
+        smoothing: userSmoothing,
+        streamline: streamline,
+        simulatePressure: simulatePressure,
+        last
+      };
+
+      // Use pressure values directly without squaring
+      const strokePoints = user._inkPoints;
+
+      const outlinePoints = getStroke(strokePoints, options);
+
+      if (outlinePoints.length < 3) return;
+
+      const pathData = getSvgPathFromStroke(outlinePoints);
+      if (!pathData) return;
+
+      const path = new Path2D(pathData);
       ctx.fillStyle = user._inkStrokeColor;
-      ctx.beginPath();
-      ctx.arc(x, y, inkSize * dotPressure, 0, Math.PI * 2);
-      ctx.fill();
-      return;
+      ctx.fill(path);
+    } finally {
+      ctx.restore();
     }
-
-    // Very short strokes can arrive in tiny remote batches. Perfect-freehand
-    // can collapse these into an unstable preview, so draw a simple segment
-    // instead of clearing to blank between network updates.
-    if (user._inkPoints.length === 2) {
-      const [x0, y0, pressure0] = user._inkPoints[0];
-      const [x1, y1, pressure1] = user._inkPoints[1];
-      const averagePressure = ((pressure0 ?? 1) + (pressure1 ?? 1)) / 2;
-      const width = Math.max(0.5, inkSize * averagePressure);
-      ctx.fillStyle = user._inkStrokeColor;
-      ctx.strokeStyle = user._inkStrokeColor;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      ctx.lineWidth = width;
-      ctx.beginPath();
-      ctx.moveTo(x0, y0);
-      ctx.lineTo(x1, y1);
-      ctx.stroke();
-      return;
-    }
-
-    // Match local ink preview behavior: wait for enough points to form a real
-    // stroke shape before drawing the preview, avoiding oversized start blobs.
-    if (!last && user._inkPoints.length < 3) return;
-
-    const userSmoothing = user.smoothing !== undefined ? user.smoothing / 50 : 0.5;
-    // We use a baseline streamline even at 0 smoothing to stabilize velocity calculation in perfect-freehand
-    const streamline = 0.3 + (userSmoothing * 0.7); // Scale 0.3 to 1.0
-
-    const options = {
-      size: Math.max(0.1, (inkSize * 2) / (1 + rawThinning)),
-      thinning: thinning,
-      smoothing: userSmoothing,
-      streamline: streamline,
-      simulatePressure: simulatePressure,
-      last
-    };
-
-    // Use pressure values directly without squaring
-    const strokePoints = user._inkPoints;
-
-    const outlinePoints = getStroke(strokePoints, options);
-
-    if (outlinePoints.length < 3) return;
-
-    const pathData = getSvgPathFromStroke(outlinePoints);
-    if (!pathData) return;
-
-    const path = new Path2D(pathData);
-    ctx.fillStyle = user._inkStrokeColor;
-    ctx.fill(path);
   }
 
   /**
@@ -378,7 +437,12 @@ export class RemoteInkHandler {
     if (!user._inkOffscreen) return;
     setUserLayerContent(user, true);
 
+    const origin = user._inkOrigin || { x: 0, y: 0 };
+    // previewRect is board-space (used to clear user.context, which stays
+    // full-board); localRect is the same rect in inkOffscreen's own local
+    // space, for reading out of the windowed source canvas.
     const previewRect = this.board.hasMirrors?.() ? null : this.getPreviewDirtyRect(user);
+    const localRect = previewRect ? { x: previewRect.x - origin.x, y: previewRect.y - origin.y, width: previewRect.width, height: previewRect.height } : null;
     const clearRect = previewRect ? this._clampRectToCanvas(previewRect, user.context.canvas) : null;
     if (clearRect) {
       user.context.clearRect(clearRect.x, clearRect.y, clearRect.width, clearRect.height);
@@ -388,13 +452,13 @@ export class RemoteInkHandler {
     user.context.globalAlpha = user._inkAlpha;
 
     const hardnessCanvas = this.getHardnessCanvas(
-      user._inkOffscreen,
+      user,
       user._inkSize || user.size,
       user._inkHardness,
       user._inkStrokeColor,
-      previewRect
+      localRect
     );
-    const sourceRect = previewRect ? this._clampRectToCanvas(previewRect, hardnessCanvas) : null;
+    const sourceRect = localRect ? this._clampRectToCanvas(localRect, hardnessCanvas) : null;
     this.board.withSelectionMaskClip(user.context, user.id, () => {
       if (sourceRect) {
         user.context.drawImage(
@@ -403,17 +467,17 @@ export class RemoteInkHandler {
           sourceRect.y,
           sourceRect.width,
           sourceRect.height,
-          sourceRect.x,
-          sourceRect.y,
+          sourceRect.x + origin.x,
+          sourceRect.y + origin.y,
           sourceRect.width,
           sourceRect.height
         );
       } else {
-        user.context.drawImage(hardnessCanvas, 0, 0);
+        user.context.drawImage(hardnessCanvas, origin.x, origin.y);
       }
 
       this.board.forEachMirrorRegion({ points: user._inkPoints?.map(pt => ({ x: pt[0], y: pt[1] })) || [] }, (region) => {
-        this.board.drawMirroredCanvas(user.context, hardnessCanvas, region, 0, 0);
+        this.board.drawMirroredCanvas(user.context, hardnessCanvas, region, origin.x, origin.y);
       });
     });
 
@@ -476,24 +540,37 @@ export class RemoteInkHandler {
     }
   }
 
-  getHardnessCanvas(sourceCanvas, size, hardness, strokeColor, rect = null) {
-    if (!this.hardnessCanvas ||
-        this.hardnessCanvas.width !== sourceCanvas.width ||
-        this.hardnessCanvas.height !== sourceCanvas.height) {
-      this.hardnessCanvas = document.createElement('canvas');
-      this.hardnessCanvas.width = sourceCanvas.width;
-      this.hardnessCanvas.height = sourceCanvas.height;
-      this.hardnessCtx = this.hardnessCanvas.getContext('2d');
+  /**
+   * @param {User} user - Owns both the source (`_inkOffscreen`) and the
+   *   pre-filtered result (`_inkHardnessCanvas`). Per-user, not shared on
+   *   `this`: sharing one instance canvas across users made sense when it was
+   *   always full-board (same size for everyone), but windowed sources differ
+   *   in size per user/stroke, and a shared canvas would reallocate on every
+   *   user switch — see lag_measured_1440p_realistic_load / blur_per_stamp_canvas_alloc
+   *   on why per-switch reallocation is exactly the cost this change targets.
+   * @param {{x:number,y:number,width:number,height:number}|null} rect - LOCAL
+   *   to the (equally windowed) source/hardness canvases, not board space.
+   */
+  getHardnessCanvas(user, size, hardness, strokeColor, rect = null) {
+    const sourceCanvas = user._inkOffscreen;
+    if (!user._inkHardnessCanvas ||
+        user._inkHardnessCanvas.width !== sourceCanvas.width ||
+        user._inkHardnessCanvas.height !== sourceCanvas.height) {
+      user._inkHardnessCanvas = document.createElement('canvas');
+      user._inkHardnessCanvas.width = sourceCanvas.width;
+      user._inkHardnessCanvas.height = sourceCanvas.height;
+      user._inkHardnessCtx = user._inkHardnessCanvas.getContext('2d');
     }
+    const hctx = user._inkHardnessCtx;
 
-    const clearRect = rect ? this._clampRectToCanvas(rect, this.hardnessCanvas) : null;
+    const clearRect = rect ? this._clampRectToCanvas(rect, user._inkHardnessCanvas) : null;
     if (clearRect) {
-      this.hardnessCtx.clearRect(clearRect.x, clearRect.y, clearRect.width, clearRect.height);
+      hctx.clearRect(clearRect.x, clearRect.y, clearRect.width, clearRect.height);
     } else {
-      this.hardnessCtx.clearRect(0, 0, this.hardnessCanvas.width, this.hardnessCanvas.height);
+      hctx.clearRect(0, 0, user._inkHardnessCanvas.width, user._inkHardnessCanvas.height);
     }
-    this.compositeWithHardness(this.hardnessCtx, sourceCanvas, size, hardness, strokeColor, 0, 0, rect);
-    return this.hardnessCanvas;
+    this.compositeWithHardness(hctx, sourceCanvas, size, hardness, strokeColor, 0, 0, rect);
+    return user._inkHardnessCanvas;
   }
 
   expandInkDirtyBounds(user, x, y) {
@@ -509,7 +586,10 @@ export class RemoteInkHandler {
 
   getPreviewDirtyRect(user) {
     const bounds = user._inkDirtyBounds;
-    if (!bounds || bounds.maxX <= bounds.minX || bounds.maxY <= bounds.minY) return null;
+    // Only bail when there is no stroke at all. A single point (maxX===minX)
+    // still needs a rect — margin below is always > 0 — and ensureInkOffscreen
+    // needs SOME rect to size the window from on every real call.
+    if (!bounds) return null;
 
     const size = user._inkSize || user.size;
     const hardness = user._inkHardness !== undefined ? user._inkHardness : 1.0;

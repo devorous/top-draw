@@ -163,15 +163,102 @@ export class LayerManager {
    * @returns {Object} {canvas, ctx}
    * @private
    */
-  _createCanvas() {
+  _createCanvas(width = this.width, height = this.height) {
     const canvas = document.createElement('canvas');
-    canvas.width = this.width;
-    canvas.height = this.height;
+    canvas.width = width;
+    canvas.height = height;
     const ctx = canvas.getContext('2d');
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.imageSmoothingQuality = 'high';
     return { canvas, ctx };
+  }
+
+  /**
+   * Pad and clamp a caller-supplied board-absolute bounds rect to an integer
+   * window suitable for a windowed active-stroke canvas. Padding gives brush's
+   * incremental draws (which extend a little past the exact bounds passed in,
+   * e.g. line caps/margins) room before a `_growActiveStrokeWindow` blit is
+   * needed on the very next tick. Clamped to the board so windowed canvases
+   * never exceed full-board size (at which point they buy nothing).
+   * @param {{x:number,y:number,width:number,height:number}} bounds
+   * @param {number} [pad=32]
+   * @private
+   */
+  _computeWindowedBounds(bounds, pad = 32) {
+    const x = Math.max(0, Math.floor(bounds.x - pad));
+    const y = Math.max(0, Math.floor(bounds.y - pad));
+    const right = Math.min(this.width, Math.ceil(bounds.x + bounds.width + pad));
+    const bottom = Math.min(this.height, Math.ceil(bounds.y + bounds.height + pad));
+    return {
+      x,
+      y,
+      width: Math.max(1, right - x),
+      height: Math.max(1, bottom - y)
+    };
+  }
+
+  /**
+   * Grow (never shrink) a windowed active stroke's canvas so it covers `bounds`,
+   * carrying forward whatever was already drawn — the same blit-forward
+   * technique as RemotePenHandler.ensurePenOffscreen, needed here because brush
+   * (unlike ink) draws incrementally into this canvas across the stroke's
+   * lifetime rather than replaying full history on every call.
+   * @param {Object} active - Active stroke record; must have `.origin` set
+   *   (a full-board active stroke has no `.origin` and never reaches this).
+   * @param {{x:number,y:number,width:number,height:number}} bounds
+   * @private
+   */
+  _growActiveStrokeWindow(active, bounds) {
+    const origin = active.origin;
+
+    // Cheap path: the request already fits inside the current window (the
+    // common case — most segments are close to the last one) — no realloc.
+    const requestFits = origin &&
+      bounds.x >= origin.x && bounds.y >= origin.y &&
+      (bounds.x + bounds.width) <= (origin.x + active.canvas.width) &&
+      (bounds.y + bounds.height) <= (origin.y + active.canvas.height);
+    if (requestFits) return;
+
+    // Grow to the UNION of the current window and the new request, not just
+    // a fresh window around the request alone. Padding/clamping `bounds` in
+    // isolation would re-center the canvas on only the newest segment,
+    // silently losing whatever was drawn outside that new (smaller) window —
+    // the old content still gets blitted forward below, but to a position
+    // that can land entirely off the new canvas. This bites any stroke where
+    // a later commitLine/getUserStrokeContext bounds request (built from
+    // `user._previewDirtyBounds`, which RESETS after every commitLine — see
+    // RemoteUserHandler) covers ground far from the existing window, which
+    // real pressure-sensitive input can trigger often (CP fires per pressure
+    // sample, each commitLine call only carrying the segment since the last
+    // one). Reproduced and confirmed via a real pixel-sampling check, not
+    // just canvas-census byte counts — see
+    // docs/scope_layermanager_active_stroke_windowing_RESULT.md.
+    const unionBounds = origin
+      ? {
+          x: Math.min(bounds.x, origin.x),
+          y: Math.min(bounds.y, origin.y),
+          width: Math.max(bounds.x + bounds.width, origin.x + active.canvas.width) - Math.min(bounds.x, origin.x),
+          height: Math.max(bounds.y + bounds.height, origin.y + active.canvas.height) - Math.min(bounds.y, origin.y)
+        }
+      : bounds;
+    const win = this._computeWindowedBounds(unionBounds);
+
+    const oldCanvas = active.canvas;
+    const oldOrigin = { x: origin.x, y: origin.y };
+    const { canvas: newCanvas, ctx: newCtx } = this._createCanvas(win.width, win.height);
+    newCtx.drawImage(oldCanvas, oldOrigin.x - win.x, oldOrigin.y - win.y);
+    active.canvas = newCanvas;
+    active.ctx = newCtx;
+    active.origin = { x: win.x, y: win.y };
+    active.x = win.x;
+    active.y = win.y;
+    if (active.maskCanvas === oldCanvas) active.maskCanvas = newCanvas;
+    // A ctx.save()+clip() (Board.applySelectionMaskClipForStroke) does NOT
+    // survive the swap above on its own — the new ctx starts unclipped.
+    // Board registers this hook (when it applies the clip) to redo it
+    // against the new canvas/origin.
+    active._reapplyMaskClip?.(newCtx, active.origin);
   }
 
   /**
@@ -270,6 +357,15 @@ export class LayerManager {
    */
   _releaseCanvas(canvasObj) {
     if (!canvasObj) return;
+    // A windowed canvas (active.origin set, smaller than full-board) must
+    // never enter the pool: _acquireCanvas hands out whatever it pops
+    // unconditionally, and every other pool consumer assumes full-board
+    // dimensions. Pooling one here would corrupt a later, unrelated stroke
+    // that draws on it expecting the whole board. Let it be GC'd instead.
+    if (canvasObj.canvas &&
+        (canvasObj.canvas.width !== this.width || canvasObj.canvas.height !== this.height)) {
+      return;
+    }
     if (this._canvasPool.length < this.CANVAS_POOL_MAX) {
       // Not cleared here: _acquireCanvas guarantees a clean canvas before any
       // caller can draw on it, and nothing reads a pooled canvas in between
@@ -350,8 +446,15 @@ export class LayerManager {
    * @param {number} groupIdx - Layer index
    * @param {number} userId - User ID
    * @param {string} [blendMode='source-over'] - Blend mode
+   * @param {string} [blendBakeMode='background']
+   * @param {{x:number,y:number,width:number,height:number}|null} [bounds=null] -
+   *   Optional board-absolute bounds hint. When given, allocates a windowed
+   *   canvas sized to (a padded) `bounds` instead of the full board, tracked
+   *   via `active.origin`. Omitted (the default, and every pre-existing call
+   *   site) keeps today's full-board pooled-canvas behavior exactly. See
+   *   docs/scope_layermanager_active_stroke_windowing_RESULT.md.
    */
-  beginUserStroke(groupIdx, userId, blendMode = 'source-over', blendBakeMode = 'background') {
+  beginUserStroke(groupIdx, userId, blendMode = 'source-over', blendBakeMode = 'background', bounds = null) {
     const group = this.layerGroups[groupIdx];
     if (!group) return;
 
@@ -359,10 +462,25 @@ export class LayerManager {
     // protected by the normal undo window instead of being drained.
     this._drainableUsers.delete(userId);
 
-    const { canvas, ctx } = this._acquireCanvas();
+    let canvas, ctx, origin = null;
+    if (bounds) {
+      const win = this._computeWindowedBounds(bounds);
+      ({ canvas, ctx } = this._createCanvas(win.width, win.height));
+      origin = { x: win.x, y: win.y };
+    } else {
+      ({ canvas, ctx } = this._acquireCanvas());
+    }
     group.activeStrokeByUser.set(userId, {
       canvas,
       ctx,
+      origin,
+      // Mirror origin as .x/.y so every existing `stroke.x ?? 0` composite read
+      // (_compositeStroke, _compositeStrokeSequential, etc. — the same fields
+      // committed StrokeRecords already carry) picks up a windowed canvas's
+      // board position with no separate code path. 0/0 for a full-board stroke,
+      // matching today's behavior exactly.
+      x: origin?.x ?? 0,
+      y: origin?.y ?? 0,
       blendMode,
       blendBakeMode: normalizeBlendBakeMode(blendBakeMode),
       dirtyRect: { minX: this.width, minY: this.height, maxX: -1, maxY: -1 },
@@ -378,18 +496,36 @@ export class LayerManager {
    * @param {number} userId - User ID
    * @param {string} [createBlendMode='source-over'] - Blend mode if creating new stroke
    * @param {Object} [metadata={}] - Optional metadata (e.g., filterType, blurRadius)
+   * @param {{x:number,y:number,width:number,height:number}|null} [bounds=null] -
+   *   Optional board-absolute bounds hint, same contract as `beginUserStroke`'s
+   *   `bounds`. Only meaningful the FIRST time it establishes the active
+   *   stroke, or to grow an already-windowed one; a stroke already windowed by
+   *   `beginUserStroke` grows to cover `bounds` here. A stroke that started
+   *   full-board (no `bounds` at `beginUserStroke`/first call) stays full-board
+   *   for its whole lifetime — `active.origin` is the source of truth, not
+   *   whether this call happens to pass `bounds`.
    * @returns {CanvasRenderingContext2D|undefined}
    */
-  getUserStrokeContext(groupIdx, userId, createBlendMode = 'source-over', metadata = {}) {
+  getUserStrokeContext(groupIdx, userId, createBlendMode = 'source-over', metadata = {}, bounds = null) {
     const group = this.layerGroups[groupIdx];
     if (!group) return undefined;
 
     let active = group.activeStrokeByUser.get(userId);
     if (!active) {
-      const { canvas, ctx } = this._acquireCanvas();
+      let canvas, ctx, origin = null;
+      if (bounds) {
+        const win = this._computeWindowedBounds(bounds);
+        ({ canvas, ctx } = this._createCanvas(win.width, win.height));
+        origin = { x: win.x, y: win.y };
+      } else {
+        ({ canvas, ctx } = this._acquireCanvas());
+      }
       active = {
         canvas,
         ctx,
+        origin,
+        x: origin?.x ?? 0,
+        y: origin?.y ?? 0,
         blendMode: createBlendMode,
         blendBakeMode: normalizeBlendBakeMode(metadata.blendBakeMode),
         dirtyRect: { minX: this.width, minY: this.height, maxX: -1, maxY: -1 },
@@ -401,6 +537,9 @@ export class LayerManager {
       group.activeStrokeByUser.set(userId, active);
     } else if (createBlendMode !== 'source-over' && active.blendMode !== createBlendMode) {
       active.blendMode = createBlendMode;
+    }
+    if (bounds && active.origin) {
+      this._growActiveStrokeWindow(active, bounds);
     }
     if (metadata.blendBakeMode) {
       active.blendBakeMode = normalizeBlendBakeMode(metadata.blendBakeMode);
@@ -473,18 +612,28 @@ export class LayerManager {
       return;
     }
 
-    // Regular stroke handling
+    // Regular stroke handling. dirtyRect is always board-absolute; active.canvas's
+    // own pixel space is board-absolute too UNLESS active.origin is set (a
+    // windowed canvas from beginUserStroke/getUserStrokeContext's `bounds`
+    // param), in which case canvas-local (0,0) is board position `origin`.
+    const originX = active.origin?.x ?? 0;
+    const originY = active.origin?.y ?? 0;
+    const canvasMaxX = originX + active.canvas.width;
+    const canvasMaxY = originY + active.canvas.height;
     const dr = active.dirtyRect;
     let bounds;
     if (dr && dr.maxX !== -1) {
-      const bx = Math.floor(Math.max(0, dr.minX));
-      const by = Math.floor(Math.max(0, dr.minY));
-      const bw = Math.ceil(Math.min(active.canvas.width, dr.maxX + 1)) - bx;
-      const bh = Math.ceil(Math.min(active.canvas.height, dr.maxY + 1)) - by;
+      const bx = Math.floor(Math.max(originX, dr.minX));
+      const by = Math.floor(Math.max(originY, dr.minY));
+      const bw = Math.ceil(Math.min(canvasMaxX, dr.maxX + 1)) - bx;
+      const bh = Math.ceil(Math.min(canvasMaxY, dr.maxY + 1)) - by;
       if (bw > 0 && bh > 0) {
         bounds = { x: bx, y: by, width: bw, height: bh };
       } else {
         bounds = this._findContentBoundsLegacy(active.canvas);
+        if (bounds && active.origin) {
+          bounds = { x: bounds.x + originX, y: bounds.y + originY, width: bounds.width, height: bounds.height };
+        }
       }
     } else {
       this._noteEmptyCommit(userId, groupIdx, 'no-dirty-rect');
@@ -503,7 +652,7 @@ export class LayerManager {
     croppedCanvas.width = width;
     croppedCanvas.height = height;
     let croppedCtx = croppedCanvas.getContext('2d');
-    croppedCtx.drawImage(active.canvas, x, y, width, height, 0, 0, width, height);
+    croppedCtx.drawImage(active.canvas, x - originX, y - originY, width, height, 0, 0, width, height);
 
     this._releaseCanvas(active);
 
@@ -2833,7 +2982,10 @@ export class LayerManager {
     for (const active of activeStrokes) {
       if (!isBlendStroke(active)) continue;
       bufferCtx.globalCompositeOperation = active.blendMode;
-      this._drawCanvasRegion(bufferCtx, active.canvas, dirtyRects);
+      // active.x/.y (0/0 for a full-board stroke) place a windowed canvas at
+      // its board position — this branch bypasses _compositeStroke, which
+      // reads the same fields, so it needs the offset explicitly.
+      this._drawCanvasRegion(bufferCtx, active.canvas, dirtyRects, active.x ?? 0, active.y ?? 0);
       bufferCtx.globalCompositeOperation = 'source-over';
     }
 
@@ -3237,6 +3389,14 @@ export class LayerManager {
       }
 
       for (const [, active] of group.activeStrokeByUser) {
+        // A windowed active canvas (active.origin set) is sized to its own
+        // stroke bounds, not the board — its board position doesn't change
+        // just because the board resized around it, so leave it alone. Force
+        // -resizing it to the new full-board dimensions here would both
+        // discard the windowing and mis-place its content (this loop always
+        // redraws at local (0,0), which is only board (0,0) for a full-board
+        // canvas).
+        if (active.origin) continue;
         const temp2 = document.createElement('canvas');
         temp2.width = active.canvas.width;
         temp2.height = active.canvas.height;

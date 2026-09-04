@@ -99,6 +99,22 @@ const TEST_CASES = [
       }
     },
   },
+  // Covers LayerManager active-stroke windowing's mirror-bounds extension
+  // (docs/scope_layermanager_active_stroke_windowing_RESULT.md) specifically
+  // through the REPLAY path — ReplayEngine keeps its OWN separate
+  // mirrorPointToRegion/mirrorPointsToRegion (not shared with Board, only
+  // _mirrorRegionMatrix is), so a live-only check cannot rule out drift here.
+  // A short, localized brush stroke near one edge, mirrored vertically —
+  // small enough that the window actually stays smaller than full-board.
+  {
+    name: 'brush_mirror_windowed',
+    action: async (page) => {
+      await armMirrorRegion(page, 'vertical');
+      await selectTool(page, 'brush');
+      await setToolSettings(page, { size: 30, color: [200, 40, 160, 1], hardness: 100 });
+      await drawPath(page, [{ x: 250, y: 300 }, { x: 350, y: 340 }, { x: 300, y: 400 }]);
+    },
+  },
   {
     name: 'ink_step_1',
     action: async (page) => {
@@ -272,6 +288,26 @@ async function armSelectMode(page, mode) {
   await sleep(200);
 }
 
+/**
+ * Add a mirror region and broadcast it (MIRROR_REGION on the wire), same
+ * pattern as selection_parity_suite.mjs's addMirrorRegion. Needed (rather
+ * than just mutating board.mirrorRegions) so the region actually lands on
+ * the recorded tape and the replay side learns about it too.
+ */
+async function armMirrorRegion(page, mode = 'vertical') {
+  await page.evaluate((m) => {
+    const app = window.app;
+    const region = {
+      id: 'mr_parity_fixture',
+      x: 0, y: 0, width: app.board.getWidth(), height: app.board.getHeight(),
+      mode: m, axis: m, showLine: true, owner: app.self?.id ?? null,
+    };
+    app.board.setMirrorRegions([...(app.board.mirrorRegions || []), region]);
+    app.wsClient.broadcastMirrorRegion({ action: 'create', region });
+  }, mode);
+  await sleep(250);
+}
+
 /** Turn the current selection into a mask (SEL_MASK on the wire). */
 async function enableSelectionMask(page) {
   await sleep(250);
@@ -358,6 +394,16 @@ async function resetToolState(page) {
       board.selectionMask = null;
       board.selectionMasksByUser?.clear?.();
       board.resetSelectionMaskClipTracking?.();
+
+      // Same failure mode as the mask above, for mirror regions: board.clear()
+      // does not touch board.mirrorRegions, so a region a case armed via
+      // armMirrorRegion() would otherwise silently mirror every later case's
+      // strokes too. Broadcast the removal so the observer/replayer clear
+      // theirs as well, not just the drawer's own board.
+      for (const region of (board.mirrorRegions || [])) {
+        app?.wsClient?.broadcastMirrorRegion?.({ action: 'remove', region });
+      }
+      board.setMirrorRegions?.([]);
     }
   });
 }

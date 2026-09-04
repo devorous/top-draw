@@ -818,9 +818,20 @@ export class SyncClient {
     const existing = group.activeStrokeByUser.get(record.userId);
     if (existing?.canvas) return;
 
+    // record.canvas is cropped to record.x/y/width/height, NOT full-board —
+    // same shape as a committed StrokeRecord. Track that as `origin`/`x`/`y`
+    // (the same fields LayerManager's own windowed active strokes use — see
+    // docs/scope_layermanager_active_stroke_windowing_RESULT.md) so any
+    // further draw into this stroke (a CP/CS/MU arriving after this sync
+    // snapshot) offsets correctly instead of assuming board-absolute (0,0).
+    const isFullBoard = record.width === lm.width && record.height === lm.height
+      && record.x === 0 && record.y === 0;
     group.activeStrokeByUser.set(record.userId, {
       canvas: record.canvas,
       ctx: record.ctx,
+      origin: isFullBoard ? null : { x: record.x, y: record.y },
+      x: isFullBoard ? 0 : record.x,
+      y: isFullBoard ? 0 : record.y,
       blendMode: record.blendMode || 'source-over',
       blendBakeMode: normalizeBlendBakeMode(record.blendBakeMode),
       dirtyRect: {

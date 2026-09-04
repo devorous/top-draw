@@ -32,6 +32,22 @@ const MIRROR_RECT_FULL_BOARD_FRACTION = 0.5;
 const MIRROR_MAX_PREVIEW_RECTS = 8;
 
 /**
+ * Throttle interval for brush/line/rectangle/circle/erase's remote preview
+ * render, matching RemoteInkHandler.INK_PREVIEW_INTERVAL_MS /
+ * RemotePenHandler.PEN_PREVIEW_INTERVAL_MS (30 FPS, the catchup loop's own
+ * cadence). ink/pen/pattern already coalesce to this; renderRemotePreview did
+ * not — it ran once per ARRIVING BATCH, unthrottled, and unconditionally does
+ * a full-board `user.context.clearRect` before redrawing (see
+ * renderRemotePreview's `needsClear` list). _syncLayeredRemotePreview's
+ * composite-into-the-board step is already rect-scoped (see
+ * composite_tile_grid_live_but_bypassed), but that scoping does nothing for
+ * THIS full-board clear, which ran at the same per-batch cadence regardless.
+ * With N concurrently drawing users each sending ~60 batches/sec, that is N
+ * full-board clears/sec that no prior fix touched.
+ */
+const REMOTE_PREVIEW_INTERVAL_MS = 33;
+
+/**
  * RemoteUserHandler coordinates the rendering of remote users' drawing events.
  * It manages tool-specific handlers and ensures visual parity between clients.
  */
@@ -297,6 +313,11 @@ export class RemoteUserHandler {
 
   _clearLayeredRemotePreview(user) {
     if (!user) return;
+    // A pending throttled render (see _requestRemotePreviewRender) targets a
+    // preview that is about to be torn down; letting it fire afterwards would
+    // repaint stale points onto a canvas nothing is reading from anymore.
+    this._cancelRemotePreviewRender(user);
+
     const hadPreview = user._layeredPreviewActive;
     this.board.layerManager?.clearUserPreviewStroke?.(user.id);
     if (user._layeredPreviewActive && user.board) {
@@ -320,6 +341,58 @@ export class RemoteUserHandler {
       this.board.requestUpdate?.();
     }
     user._lastPreviewRects = null;
+  }
+
+  /**
+   * Throttled entry point for brush/line/rectangle/circle/erase's remote
+   * preview render (`renderRemotePreview`), which itself unconditionally does
+   * a full-board `clearRect` on `user.context` — see REMOTE_PREVIEW_INTERVAL_MS.
+   * Mirrors RemoteInkHandler._requestPreviewRender / RemotePenHandler's
+   * equivalent: only the RENDER is deferred, never the state used to produce
+   * it (`user.currentLine` etc. are already fully updated by the time this is
+   * called, via renderRemoteMove earlier in the same handleMouseMove batch),
+   * so a trailing-edge render always catches up and pixels committed at
+   * mouse-up (read from `user.currentLine` / `activeStrokeCtx` directly, not
+   * from this preview) are unaffected either way.
+   *
+   * @param {User} user
+   * @param {{x:number,y:number}} pos
+   */
+  _requestRemotePreviewRender(user, pos) {
+    const fire = (p) => {
+      this.renderRemotePreview(user, p);
+      // Previously ran unconditionally on every batch, alongside the direct
+      // renderRemotePreview call this replaces — moved here so they only fire
+      // on the same cadence as the render they accompany, not every batch.
+      this.app.boardViewer?.requestLiveRender?.();
+      if (user.tool === 'brush') this.board.requestUpdate();
+    };
+
+    const now = performance.now();
+    const elapsed = now - (user._remotePreviewRenderAt || 0);
+    if (elapsed >= REMOTE_PREVIEW_INTERVAL_MS) {
+      user._remotePreviewRenderAt = now;
+      fire(pos);
+      return;
+    }
+    user._remotePreviewPendingPos = pos;
+    if (user._remotePreviewTimer) return;
+    user._remotePreviewTimer = setTimeout(() => {
+      user._remotePreviewTimer = null;
+      user._remotePreviewRenderAt = performance.now();
+      // The stroke may have ended (and torn down its preview) while this was
+      // pending — mousedown is the same gate renderRemotePreview's callers
+      // already check before calling it directly.
+      if (!user.mousedown || user.panning) return;
+      fire(user._remotePreviewPendingPos ?? pos);
+    }, REMOTE_PREVIEW_INTERVAL_MS - elapsed);
+  }
+
+  /** @private */
+  _cancelRemotePreviewRender(user) {
+    if (!user?._remotePreviewTimer) return;
+    clearTimeout(user._remotePreviewTimer);
+    user._remotePreviewTimer = null;
   }
 
   /**
@@ -499,11 +572,7 @@ export class RemoteUserHandler {
     this.ui.updateRemoteCursor(user.id, finalX, finalY, user.size);
 
     if (!user.panning && user.mousedown) {
-      this.renderRemotePreview(user, { x: finalX, y: finalY });
-      this.app.boardViewer?.requestLiveRender?.();
-      if (user.tool === 'brush') {
-        this.board.requestUpdate();
-      }
+      this._requestRemotePreviewRender(user, { x: finalX, y: finalY });
     }
 
     // Keep canvas text preview in sync with cursor position when blend mode is active
@@ -853,7 +922,8 @@ export class RemoteUserHandler {
         // Fill tool manages its own stroke lifecycle via the dedicated FILL message handler
         const blendMode = user.tool === 'erase' ? 'destination-out' : (user.blendMode || 'source-over');
         const strokeLayer = this.getStrokeLayer(user);
-        this.board.layerManager.beginUserStroke(strokeLayer, user.id, blendMode, user.blendBakeMode);
+        const strokeBounds = this._canWindowActiveStroke(user) ? this._activeStrokeWindowBounds(user) : null;
+        this.board.layerManager.beginUserStroke(strokeLayer, user.id, blendMode, user.blendBakeMode, strokeBounds);
         this.board.applySelectionMaskClipForStroke(strokeLayer, user.id);
       }
     }
@@ -1077,7 +1147,10 @@ export class RemoteUserHandler {
       this._invalidateFillPreview(user);
     }
 
-    const activeStrokeCtx = this.board.layerManager.getUserStrokeContext(strokeLayer, user.id);
+    const muStrokeBounds = this._canWindowActiveStroke(user) ? this._activeStrokeWindowBounds(user) : null;
+    const activeStrokeCtx = this.board.layerManager.getUserStrokeContext(
+      strokeLayer, user.id, undefined, undefined, muStrokeBounds
+    );
 
     const hadPenStroke = user._penStrokeActive;
     if (hadPenStroke) {
@@ -1094,13 +1167,26 @@ export class RemoteUserHandler {
     } else switch (user.tool) {
       case 'brush':
         if (activeStrokeCtx && user.currentLine.length >= 2) {
-          drawLineArray(user.currentLine, activeStrokeCtx, user);
-          this.board.forEachMirrorRegion({ points: user.currentLine }, (region) => {
-            const mirroredLine = this.board.mirrorPointsToRegion(user.currentLine, region);
-            this.board.withMirrorRegionClip(activeStrokeCtx, region, () => {
-              drawLineArray(mirroredLine, activeStrokeCtx, user);
+          // Same board-absolute-vs-canvas-local translation commitLine needs
+          // — see the comment there. A windowed active canvas's origin is
+          // non-zero here whenever this MU is closing a stroke that was
+          // windowed throughout (the common case: no CP/CS happened first).
+          const active = this.board.layerManager.getActiveStroke(strokeLayer, user.id);
+          const ox = active?.origin?.x ?? 0;
+          const oy = active?.origin?.y ?? 0;
+          if (ox || oy) activeStrokeCtx.save();
+          try {
+            if (ox || oy) activeStrokeCtx.translate(-ox, -oy);
+            drawLineArray(user.currentLine, activeStrokeCtx, user);
+            this.board.forEachMirrorRegion({ points: user.currentLine }, (region) => {
+              const mirroredLine = this.board.mirrorPointsToRegion(user.currentLine, region);
+              this.board.withMirrorRegionClip(activeStrokeCtx, region, () => {
+                drawLineArray(mirroredLine, activeStrokeCtx, user);
+              });
             });
-          });
+          } finally {
+            if (ox || oy) activeStrokeCtx.restore();
+          }
           this._expandDirtyRectFromPoints(user, user.currentLine, this._brushMargin(user));
         }
         break;
@@ -2177,6 +2263,7 @@ export class RemoteUserHandler {
     this._disposeCanvasElement(user._penOffscreen);
     user._penOffscreen = null;
     user._penOffscreenCtx = null;
+    user._penOrigin = null;
 
     user._previewDirtyBounds = null;
 
@@ -2191,6 +2278,10 @@ export class RemoteUserHandler {
     this._disposeCanvasElement(user._inkOffscreen);
     user._inkOffscreen = null;
     user._inkCtx = null;
+    this._disposeCanvasElement(user._inkHardnessCanvas);
+    user._inkHardnessCanvas = null;
+    user._inkHardnessCtx = null;
+    user._inkOrigin = null;
 
     delete user.blurBounds;
     delete user.glitchStamps;
@@ -2532,6 +2623,79 @@ export class RemoteUserHandler {
   }
 
   /**
+   * Whether this user's in-progress stroke may use a windowed (non-full-board)
+   * LayerManager active-stroke canvas — see
+   * docs/scope_layermanager_active_stroke_windowing_RESULT.md. Brush only:
+   * the confirmed incremental-draw, no-existing-scratch case; ink/pen already
+   * have their own windowed offscreen canvases and don't go through this
+   * path. Both of the original exclusions are now handled rather than
+   * avoided:
+   *   - mirror regions: `_activeStrokeWindowBounds` folds each active
+   *     region's transformed bounds into the window request.
+   *   - selection mask: `Board.applySelectionMaskClipForStroke` bakes the
+   *     clip into the active canvas's own pixel space and registers a
+   *     `_reapplyMaskClip` hook that `LayerManager._growActiveStrokeWindow`
+   *     calls after any canvas swap, so the clip survives the window
+   *     growing mid-drag.
+   * @private
+   * @param {User} user
+   * @returns {boolean}
+   */
+  _canWindowActiveStroke(user) {
+    return user.tool === 'brush';
+  }
+
+  /**
+   * Board-absolute bounds hint for `beginUserStroke`/`getUserStrokeContext`'s
+   * `bounds` param, derived from the same cumulative-since-last-reset dirty
+   * region `_expandPreviewBounds` already tracks in `user._previewDirtyBounds`
+   * (reset to null after every commit, so this naturally covers "what's new
+   * since the active canvas last saw bounds" rather than the whole stroke —
+   * exactly what `_growActiveStrokeWindow`'s grow-only, blit-forward window
+   * needs: each call only has to cover the newest content, and the window's
+   * own history keeps whatever it already covered).
+   * @private
+   * @param {User} user
+   * @returns {{x:number,y:number,width:number,height:number}|null}
+   */
+  _activeStrokeWindowBounds(user) {
+    const b = user._previewDirtyBounds;
+    if (!b || !Number.isFinite(b.minX) || !Number.isFinite(b.maxX) || b.maxX < b.minX || b.maxY < b.minY) {
+      return null;
+    }
+    let minX = b.minX, minY = b.minY, maxX = b.maxX, maxY = b.maxY;
+
+    // A mirrored stroke also paints into each active mirror region's
+    // transformed copy (see commitLine/handleMouseUp's forEachMirrorRegion
+    // blocks) — fold each region's transformed corners into the window
+    // request so the mirrored copy isn't drawn outside the (windowed)
+    // canvas. This is a single bounding box around every copy, not a rect
+    // list (see mirror_preview_rect_list memory for why that's a separate,
+    // harder problem for PREVIEWS) — for a stroke near one edge mirrored
+    // across a far axis this can grow the window close to full-board, which
+    // is a correct, if unexciting, degradation rather than a bug.
+    const regions = this.board.getActiveMirrorRegions?.() || [];
+    if (regions.length) {
+      const corners = [
+        { x: b.minX, y: b.minY }, { x: b.maxX, y: b.minY },
+        { x: b.minX, y: b.maxY }, { x: b.maxX, y: b.maxY }
+      ];
+      for (const region of regions) {
+        const mirrored = this.board.mirrorPointsToRegion(corners, region);
+        for (const p of mirrored) {
+          if (!Number.isFinite(p?.x) || !Number.isFinite(p?.y)) continue;
+          if (p.x < minX) minX = p.x;
+          if (p.x > maxX) maxX = p.x;
+          if (p.y < minY) minY = p.y;
+          if (p.y > maxY) maxY = p.y;
+        }
+      }
+    }
+
+    return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+  }
+
+  /**
    * Commits the current line segment to the history and prepares for the next.
    * Used when remote brush parameters change mid-stroke.
    *
@@ -2552,34 +2716,54 @@ export class RemoteUserHandler {
     const oldRadius = user.pressure * user.size;
     const newRadius = (newPressure ?? user.pressure) * (newSize ?? user.size);
 
-    const activeStrokeCtx = this.board.layerManager.getUserStrokeContext(this.getStrokeLayer(user), user.id);
+    const commitLineBounds = this._canWindowActiveStroke(user) ? this._activeStrokeWindowBounds(user) : null;
+    const activeStrokeCtx = this.board.layerManager.getUserStrokeContext(
+      this.getStrokeLayer(user), user.id, undefined, undefined, commitLineBounds
+    );
     if (activeStrokeCtx) {
-      if (user.tool === 'brush' && user.currentLine.length >= 2) {
-        drawLineArray(user.currentLine, activeStrokeCtx, user);
-        this.board.forEachMirrorRegion({ points: user.currentLine }, (region) => {
-          const mirroredLine = this.board.mirrorPointsToRegion(user.currentLine, region);
-          this.board.withMirrorRegionClip(activeStrokeCtx, region, () => {
-            drawLineArray(mirroredLine, activeStrokeCtx, user);
-          });
-        });
-        this._expandDirtyRectFromPoints(user, user.currentLine, this._brushMargin(user));
-      }
+      // drawLineArray/bridgeGap paint at board-absolute point coordinates.
+      // That's identity for a full-board canvas (canvas-local (0,0) IS board
+      // (0,0)), but a windowed active canvas (active.origin set — see
+      // docs/scope_layermanager_active_stroke_windowing_RESULT.md) has its
+      // local origin offset from the board, so every draw below needs the
+      // canvas translated to compensate, or the path lands outside the
+      // (small) canvas entirely and paints nothing.
+      const active = this.board.layerManager.getActiveStroke(this.getStrokeLayer(user), user.id);
+      const ox = active?.origin?.x ?? 0;
+      const oy = active?.origin?.y ?? 0;
+      if (ox || oy) activeStrokeCtx.save();
+      try {
+        if (ox || oy) activeStrokeCtx.translate(-ox, -oy);
 
-      if (user.currentLine.length > 0 && oldRadius !== newRadius) {
-        const from = lastDrawnPos;
-        bridgeGap(activeStrokeCtx, from, lastDrawnPos, oldRadius, newRadius, user);
-        this.board.forEachMirrorRegion({ points: [from, lastDrawnPos] }, (region) => {
-          this.board.withMirrorRegionClip(activeStrokeCtx, region, () => {
-            bridgeGap(
-              activeStrokeCtx,
-              this.board.mirrorPointToRegion(from, region),
-              this.board.mirrorPointToRegion(lastDrawnPos, region),
-              oldRadius,
-              newRadius,
-              user
-            );
+        if (user.tool === 'brush' && user.currentLine.length >= 2) {
+          drawLineArray(user.currentLine, activeStrokeCtx, user);
+          this.board.forEachMirrorRegion({ points: user.currentLine }, (region) => {
+            const mirroredLine = this.board.mirrorPointsToRegion(user.currentLine, region);
+            this.board.withMirrorRegionClip(activeStrokeCtx, region, () => {
+              drawLineArray(mirroredLine, activeStrokeCtx, user);
+            });
           });
-        });
+          this._expandDirtyRectFromPoints(user, user.currentLine, this._brushMargin(user));
+        }
+
+        if (user.currentLine.length > 0 && oldRadius !== newRadius) {
+          const from = lastDrawnPos;
+          bridgeGap(activeStrokeCtx, from, lastDrawnPos, oldRadius, newRadius, user);
+          this.board.forEachMirrorRegion({ points: [from, lastDrawnPos] }, (region) => {
+            this.board.withMirrorRegionClip(activeStrokeCtx, region, () => {
+              bridgeGap(
+                activeStrokeCtx,
+                this.board.mirrorPointToRegion(from, region),
+                this.board.mirrorPointToRegion(lastDrawnPos, region),
+                oldRadius,
+                newRadius,
+                user
+              );
+            });
+          });
+        }
+      } finally {
+        if (ox || oy) activeStrokeCtx.restore();
       }
     }
 

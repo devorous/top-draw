@@ -170,6 +170,7 @@ export function collectCanvasCensus(app) {
   if (users?.values) {
     for (const user of users.values()) {
       add('user.inkOffscreen', user?._inkOffscreen);
+      add('user.inkHardness', user?._inkHardnessCanvas);
       add('user.penOffscreen', user?._penOffscreen);
       add('user.selectionCache', user?._cachedPreviewCanvas);
       add('user.floating', user?.floatingCanvas);

@@ -130,10 +130,16 @@ function serializeActiveStroke(userId, active, width, height) {
   const h = Math.min(height, Math.ceil(dr.maxY)) - y;
   if (w <= 0 || h <= 0) return null;
 
+  // active.canvas's own pixel space is board-absolute UNLESS `origin` is set
+  // (a windowed active-stroke canvas — see
+  // docs/scope_layermanager_active_stroke_windowing_RESULT.md), in which case
+  // canvas-local (0,0) is board position `origin`, not board (0,0).
+  const originX = active.origin?.x ?? 0;
+  const originY = active.origin?.y ?? 0;
   const crop = document.createElement('canvas');
   crop.width = w;
   crop.height = h;
-  crop.getContext('2d').drawImage(active.canvas, x, y, w, h, 0, 0, w, h);
+  crop.getContext('2d').drawImage(active.canvas, x - originX, y - originY, w, h, 0, 0, w, h);
   const qoi = canvasToQoi(crop);
   if (!qoi) return null;
 
@@ -149,6 +155,17 @@ function serializeActiveStroke(userId, active, width, height) {
     filterType: active.filterType,
     blurRadius: active.blurRadius,
   };
+  // A windowed active-stroke canvas (active.origin set — see
+  // docs/scope_layermanager_active_stroke_windowing_RESULT.md) is smaller than
+  // the board. Serialize its actual window so restore can reallocate the same
+  // size/position instead of always falling back to full-board — omitted
+  // (undefined) for a full-board stroke, so older/other readers that don't
+  // know this field still restore full-board exactly as before.
+  if (active.origin) {
+    out.canvasOrigin = { x: active.origin.x, y: active.origin.y };
+    out.canvasWidth = active.canvas.width;
+    out.canvasHeight = active.canvas.height;
+  }
   if (active.filterType && active.maskCanvas && active.maskCanvas !== active.canvas) {
     out.maskQoi = canvasToQoi(active.maskCanvas);
   }

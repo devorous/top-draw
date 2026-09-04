@@ -192,16 +192,42 @@ class ReplayBoard {
     Board.clipToMaskAndMirrors(ctx, mask, this);
   }
 
+  // Mirrors Board.applySelectionMaskClipForStroke's windowing-aware fix
+  // (docs/scope_layermanager_active_stroke_windowing_RESULT.md) — this is a
+  // SEPARATE copy for the replay board (see the class-level note near
+  // _getSelectionMaskForUser), so the fix has to be applied here too or a
+  // windowed masked stroke replays unclipped. Confirmed via test:parity:
+  // selection_mask_brush/lasso/preexisting failed (~54% replay match, ink
+  // bbox ~2x too wide) before this was added here.
   applySelectionMaskClipForStroke(layerIndex, userId) {
     if (!this._getSelectionMaskForUser(userId) || !this.layerManager) return false;
     const key = `${layerIndex}_${userId}`;
     if (this._maskClippedStrokes.has(key)) return true;
     const ctx = this.layerManager.getUserStrokeContext(layerIndex, userId);
     if (!ctx) return false;
+    const active = this.layerManager.getActiveStroke(layerIndex, userId);
     ctx.save();
-    this._applyMaskClipToCtx(ctx, userId);
+    this._applyMaskClipAtOrigin(ctx, userId, active?.origin);
     this._maskClippedStrokes.add(key);
+    this._registerMaskClipReapply(layerIndex, userId);
     return true;
+  }
+
+  _applyMaskClipAtOrigin(ctx, userId, origin) {
+    const ox = origin?.x ?? 0;
+    const oy = origin?.y ?? 0;
+    if (ox || oy) ctx.translate(-ox, -oy);
+    this._applyMaskClipToCtx(ctx, userId);
+    if (ox || oy) ctx.setTransform(1, 0, 0, 1, 0, 0);
+  }
+
+  _registerMaskClipReapply(layerIndex, userId) {
+    const active = this.layerManager?.getActiveStroke?.(layerIndex, userId);
+    if (!active) return;
+    active._reapplyMaskClip = (newCtx, newOrigin) => {
+      newCtx.save();
+      this._applyMaskClipAtOrigin(newCtx, userId, newOrigin);
+    };
   }
 
   releaseSelectionMaskClipForStroke(layerIndex, userId) {
@@ -1875,6 +1901,42 @@ export class ReplayEngine {
   }
 
   /**
+   * Like _loadImageToCanvas, but creates the canvas sized to the loaded
+   * image's own pixel dimensions instead of an already-sized one handed in.
+   * For windowed per-user offscreens (ink/pen — see
+   * lag_measured_1440p_realistic_load) the saved PNG's size IS the window,
+   * so this is the only way to reconstruct it without also serializing width
+   * /height separately.
+   * @private
+   */
+  _loadImageAsSizedCanvas(dataUrl) {
+    return new Promise((resolve) => {
+      const src = this._resolveImageSource(dataUrl);
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      if (!src) {
+        canvas.width = 1;
+        canvas.height = 1;
+        resolve({ canvas, ctx });
+        return;
+      }
+      const img = new Image();
+      img.onload = () => {
+        canvas.width = img.naturalWidth || 1;
+        canvas.height = img.naturalHeight || 1;
+        ctx.drawImage(img, 0, 0);
+        resolve({ canvas, ctx });
+      };
+      img.onerror = () => {
+        canvas.width = 1;
+        canvas.height = 1;
+        resolve({ canvas, ctx });
+      };
+      img.src = src;
+    });
+  }
+
+  /**
    * Load an image into a new canvas and return it.
    * @private
    */
@@ -2486,13 +2548,16 @@ export class ReplayEngine {
     this._syncReplayTextPreview(bot);
 
     if (state.penOffscreenData) {
-      const canvas = document.createElement('canvas');
-      canvas.width = this.width;
-      canvas.height = this.height;
-      const ctx = canvas.getContext('2d');
-      await this._loadImageToCanvas(ctx, state.penOffscreenData);
+      // Size the canvas from the SAVED image, not the board: this offscreen
+      // is windowed to the stroke's bounds (lag_measured_1440p_realistic_load),
+      // and a full-board allocation here would silently misplace the content
+      // on drawImage(img, 0, 0) once penOffscreenOrigin isn't {0,0}. Old
+      // snapshots (pre-windowing, no origin field) still round-trip: their
+      // saved image IS full-board, and origin defaults to {0,0}.
+      const { canvas, ctx } = await this._loadImageAsSizedCanvas(state.penOffscreenData);
       bot._penOffscreen = canvas;
       bot._penOffscreenCtx = ctx;
+      bot._penOrigin = state.penOffscreenOrigin ? { ...state.penOffscreenOrigin } : { x: 0, y: 0 };
       bot._penStrokeActive = !!state.penStrokeActive;
       bot._penStrokeColor = state.penStrokeColor ?? null;
       bot._penAlpha = state.penAlpha ?? null;
@@ -2502,13 +2567,11 @@ export class ReplayEngine {
     }
 
     if (state.inkOffscreenData) {
-      const canvas = document.createElement('canvas');
-      canvas.width = this.width;
-      canvas.height = this.height;
-      const ctx = canvas.getContext('2d');
-      await this._loadImageToCanvas(ctx, state.inkOffscreenData);
+      // See the penOffscreenData branch above — same windowed-canvas fix.
+      const { canvas, ctx } = await this._loadImageAsSizedCanvas(state.inkOffscreenData);
       bot._inkOffscreen = canvas;
       bot._inkCtx = ctx;
+      bot._inkOrigin = state.inkOffscreenOrigin ? { ...state.inkOffscreenOrigin } : { x: 0, y: 0 };
       bot._inkStrokeActive = !!state.inkStrokeActive;
       bot._inkStrokeColor = state.inkStrokeColor ?? null;
       bot._inkAlpha = state.inkAlpha ?? null;
@@ -2684,16 +2747,27 @@ export class ReplayEngine {
       if (!group) continue;
 
       for (const strokeData of activeStrokeGroups[groupIdx] || []) {
+        // A checkpoint saved from a windowed active-stroke canvas (see
+        // docs/scope_layermanager_active_stroke_windowing_RESULT.md) carries
+        // canvasOrigin/canvasWidth/canvasHeight — allocate the SAME window
+        // instead of defaulting to full-board, so a checkpoint round-trip
+        // doesn't silently un-window (and re-inflate memory) every restore.
+        // Undefined for a full-board stroke or an older checkpoint predating
+        // this field, which keeps today's full-board allocation exactly.
+        const windowed = !!strokeData.canvasOrigin;
         const canvas = document.createElement('canvas');
-        canvas.width = this.width;
-        canvas.height = this.height;
+        canvas.width = windowed ? strokeData.canvasWidth : this.width;
+        canvas.height = windowed ? strokeData.canvasHeight : this.height;
         const ctx = canvas.getContext('2d');
+        const originX = windowed ? strokeData.canvasOrigin.x : 0;
+        const originY = windowed ? strokeData.canvasOrigin.y : 0;
         // QOI form (layerStateCodec) is cropped to its dirty rect and drawn at
-        // (x, y) onto the full-size active canvas; the legacy form is a full-size
-        // dataURL drawn at the origin.
+        // (x, y) onto the active canvas — board-absolute for a full-board
+        // canvas, canvas-local (offset by origin) for a windowed one; the
+        // legacy form is a full-size dataURL drawn at the origin.
         if (strokeData.qoi) {
           const cropped = qoiToCanvas(strokeData.qoi);
-          if (cropped) ctx.drawImage(cropped, strokeData.x ?? 0, strokeData.y ?? 0);
+          if (cropped) ctx.drawImage(cropped, (strokeData.x ?? 0) - originX, (strokeData.y ?? 0) - originY);
         } else {
           await this._loadImageToCanvas(ctx, strokeData.canvasData);
         }
@@ -2701,6 +2775,9 @@ export class ReplayEngine {
         const active = {
           canvas,
           ctx,
+          origin: windowed ? { x: originX, y: originY } : null,
+          x: originX,
+          y: originY,
           blendMode: strokeData.blendMode ?? 'source-over',
           blendBakeMode: normalizeBlendBakeMode(strokeData.blendBakeMode),
           dirtyRect: strokeData.dirtyRect

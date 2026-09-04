@@ -2824,6 +2824,21 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
 }
 
 const BATCH_INTERVAL_MS = 16;
+// Weak clients get a coarser flush cadence: fewer, larger batched frames
+// instead of one every 16ms. This does not change wire ORDERING (the outbox
+// is still strict FIFO, concatenated in arrival order) — only how often a
+// given client's queue is flushed. Matches the client's own already-proven
+// 33ms remote-preview render coalescing (see
+// brush_remote_preview_unthrottled_fixed / remote_preview_render_coalescing);
+// this is the same idea applied one hop earlier, at message DELIVERY rather
+// than at render, so a weak client also pays fewer parse/dispatch calls, not
+// just fewer renders. `ws.lowPowerMode` is an existing signal (client
+// self-reports via T.PONG, see providerScoring.js's uploader-election use of
+// the same field) — no new detection, no client-side change: the client
+// already parses an arbitrary-size concatenated batch (WebSocketClient.js
+// _processMessageQueue), so widening the interval for one client changes
+// nothing it needs to know about.
+const LOW_POWER_BATCH_INTERVAL_MS = 33;
 const clientOutbox = new Map();
 let currentOutboxQueuedBytes = 0;
 let batchTimerRunning = false;
@@ -3015,9 +3030,25 @@ function flushClientOutbox(ws) {
 
 /**
  * Flushes all client outboxes, sending concatenated binary frames.
+ *
+ * Runs every BATCH_INTERVAL_MS (the scheduling granularity), but a client
+ * flagged `lowPowerMode` is only actually flushed every
+ * LOW_POWER_BATCH_INTERVAL_MS / BATCH_INTERVAL_MS-th tick — its messages sit
+ * in the outbox a little longer and go out as fewer, larger frames. This is
+ * the periodic path only; `flushClientOutbox` is still called directly
+ * (bypassing this gate) wherever an ordered/sequenced send needs the outbox
+ * drained immediately first — see its own call sites.
  */
 function flushAllOutboxes() {
+  const now = Date.now();
   for (const ws of clientOutbox.keys()) {
+    if (ws.lowPowerMode) {
+      const dueAt = ws._nextLowPowerFlushAt || 0;
+      if (now < dueAt) continue;
+      ws._nextLowPowerFlushAt = now + LOW_POWER_BATCH_INTERVAL_MS;
+    } else {
+      ws._nextLowPowerFlushAt = 0;
+    }
     flushClientOutbox(ws);
   }
 }

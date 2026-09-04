@@ -1,8 +1,12 @@
 /**
- * @fileoverview Idle reclaim for remote users' full-board scratch canvases.
+ * @fileoverview Idle reclaim for remote users' stroke scratch canvases.
  *
- * `RemoteInkHandler` and `RemotePenHandler` each give a drawing user a
- * board-sized offscreen canvas to accumulate a stroke into. They are disposed
+ * `RemoteInkHandler` and `RemotePenHandler` each give a drawing user an
+ * offscreen canvas to accumulate a stroke into, windowed to the stroke's own
+ * growing bounds rather than the full board (see
+ * lag_measured_1440p_realistic_load) — so the reclaim below matters much less
+ * than it used to, but is kept: a user who draws once and sits idle still
+ * holds whatever the largest stroke they made needed. They are disposed
  * by `RemoteUserHandler._cleanupTransientUserState`, which runs on departure
  * and on going AFK — so the case they accumulate in is a user who is present,
  * has drawn at least once, and is now sitting idle without being idle long
@@ -92,7 +96,12 @@ export function releaseRemoteScratch(user) {
   shrink(user._inkOffscreen);
   user._inkOffscreen = null;
   user._inkCtx = null;
+  shrink(user._inkHardnessCanvas);
+  user._inkHardnessCanvas = null;
+  user._inkHardnessCtx = null;
+  user._inkOrigin = null;
   shrink(user._penOffscreen);
   user._penOffscreen = null;
   user._penOffscreenCtx = null;
+  user._penOrigin = null;
 }
