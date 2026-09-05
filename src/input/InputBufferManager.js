@@ -539,7 +539,6 @@ export class InputBufferManager {
           }
 
           app.self._mainCtxDrawCount++;
-          app.debugOverlay.addStrokePoint(app.self.id, currentX, currentY, 'tick');
         }
 
         if (isBatchRenderable) {
@@ -729,8 +728,6 @@ export class InputBufferManager {
     if (!this._isStampTool(app.self.tool)) {
       this.pendingBroadcastPoints.push(...smoothedPoints);
     }
-
-    app.debugOverlay.addStrokePoint(app.self.id, targetPos.x, targetPos.y, 'catchup');
   }
 
   /**

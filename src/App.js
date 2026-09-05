@@ -40,7 +40,7 @@ import { KeyboardHandler } from './input/KeyboardHandler.js';
 import { BrushModeManager } from './tools/BrushModeManager.js';
 import { BlendModeManager } from './canvas/BlendModeManager.js';
 // import { StrokeHistoryPanel } from './ui/StrokeHistoryPanel.js'; // Hidden - stroke history panel disabled
-import { PerformanceDebugPanel } from './ui/PerformanceDebugPanel.js';
+import { DebugPanel } from './ui/DebugPanel.js';
 import { decodeDdraw, isDdrawFile } from '../shared/ddrawCodec.js';
 import { highlight } from './ui/Highlight.js';
 import { deferredReplay, preloadRoomModules, preloadAdminModules } from './platform/deferredModules.js';
@@ -330,7 +330,8 @@ export class DrawingApp {
     this._rotatePivotClientY = 0;
     this._rotatePrevAngle = null;    // previous angle from pivot to pointer
 
-    // Stroke history panel (dev mode) - DISABLED
+    // Stroke history panel - DISABLED (never part of Debug mode; LayerManager,
+    // SyncClient and Board all call into it, so the stub stays)
     // this.strokeHistoryPanel = new StrokeHistoryPanel();
     this.strokeHistoryPanel = {
       init: () => {},
@@ -341,8 +342,8 @@ export class DrawingApp {
       queueUpdate: () => {}
     }; // Stub for compatibility
 
-    // Performance debug panel
-    this.performanceDebugPanel = new PerformanceDebugPanel(this.inputBufferManager, this);
+    // Debug mode panel (device/TPS/canvas census/tiled backing store)
+    this.debugPanel = new DebugPanel(this.inputBufferManager, this);
 
     // Save mode (initialized in init() after board is ready)
     this.saveMode = null;
@@ -672,15 +673,15 @@ export class DrawingApp {
     this.debugOverlay = new DebugOverlay();
     const debugCanvas = document.getElementById('debugOverlay');
     this.debugOverlay.init(debugCanvas, this.board.getWidth(), this.board.getHeight());
+    this.debugOverlay.setApp(this);
     this.debugOverlay.setBoard(this.board);
-    this.debugOverlay.setInputBufferManager(this.inputBufferManager);
-    this.debugOverlay.setTileTracker(this.board.tileTracker);
 
     this.strokeHistoryPanel.init();
     this._bindLayerManagerDependencies();
     this.updateUndoRedoHud();
 
-    this.performanceDebugPanel.init();
+    this.debugPanel.init();
+    this.refreshDebugButton();
 
     this.ui.setupLayerPreviewListeners(this.board.layerManager);
     this.ui.attachFontChangeListener(this); // Attach font change listener
@@ -789,7 +790,6 @@ export class DrawingApp {
     };
 
     this.moderation.onClear = () => this.handleClear();
-    this.moderation.onToggleDevMode = () => this.handleToggleDevMode();
     this.moderation.onRoomRoleSet = (targetSessionIndex, role) => {
       this.wsClient.sendRoomRoleSet(targetSessionIndex, role);
     };
@@ -2647,7 +2647,6 @@ export class DrawingApp {
     this.board.layerManager.strokeHistoryPanel = this.strokeHistoryPanel;
     this.board.layerManager.onHistoryChange = () => this.updateUndoRedoHud();
     this.board.layerManager.localUserId = this.self?.id ?? null;
-    this.debugOverlay?.setPixelsWorker?.(this.board.layerManager._pixelsWorker);
   }
 
   hasRemoteUsers() {
@@ -2703,7 +2702,6 @@ export class DrawingApp {
     this.remoteUserHandler?.resetTransientState?.();
     this.toolManager.getTool('fill')?.compactMemory?.({ recycleWorker: true });
     this.board.layerManager.compactTransientState?.({ recycleWorker: true, clearReplayCaches: true });
-    this.debugOverlay?.setPixelsWorker?.(this.board.layerManager._pixelsWorker);
     this.board.requestUpdate();
     this.updateCleanupDebugStats();
     console.log('[Memory] Compacted renderer state:', options.reason || 'manual');
@@ -2901,7 +2899,6 @@ export class DrawingApp {
 
     this.board.cancelStroke(this.self);
     this.board.clearTop();
-    this.debugOverlay?.cancelDrawing?.(this.self.id);
   }
 
   getCleanupDebugStats() {
@@ -3991,6 +3988,7 @@ export class DrawingApp {
     this._applyLowPowerPreference();
     this._applyBackgroundWorkPreference();
     this._applyReplayPreferences();
+    this.refreshDebugButton();
     appState.appPreferences = this.appPreferences;
     return this.appPreferences;
   }
@@ -4894,17 +4892,88 @@ export class DrawingApp {
   }
 
   /**
-   * Toggles development mode overlays and panels.
+   * Toggles Debug mode: the board overlay and the diagnostics panel together.
+   *
+   * One switch on purpose — the panel and the overlay describe the same state
+   * from two angles, and having them toggle independently produced two
+   * overlapping debug UIs that could disagree. Both are inert while off: no
+   * intervals, no rAF loop, no sampling.
    */
-  handleToggleDevMode() {
+  handleToggleDebugMode() {
     const enabled = this.debugOverlay.toggle();
-    this.ui.updateDevModeDisplay(enabled);
-    this.strokeHistoryPanel.setEnabled(enabled);
-    // Also show performance debug panel when dev mode is enabled
-    if (enabled && this.performanceDebugPanel && !this.performanceDebugPanel.enabled) {
-      this.performanceDebugPanel.toggle();
-      this.performanceDebugPanel.update();
+    this.ui.updateDebugModeDisplay(enabled);
+    this.debugPanel?.setEnabled(enabled);
+    return enabled;
+  }
+
+  /**
+   * Whether the Debug button belongs in the toolbar.
+   *
+   * Moderators keep it by role, as they always have; everyone else opts in
+   * through the "Show Debug Button" setting. The two are OR'd rather than the
+   * setting being authoritative, so a moderator who never opens settings does
+   * not silently lose a button they have always had.
+   *
+   * @returns {boolean}
+   */
+  shouldShowDebugButton() {
+    return !!this.moderation?.isMod?.() || !!this.appPreferences?.general?.showDebugButton;
+  }
+
+  /**
+   * Create or remove the Debug button to match `shouldShowDebugButton()`.
+   *
+   * Lives here rather than in Moderation._injectModUI() because it is no longer
+   * a moderation control: that injector only runs for mods, and its `.modOnly`
+   * class is driven by role, so a settings-enabled button could never appear
+   * through it. Safe to call repeatedly — it is the single reconciler, invoked
+   * on init, on a preferences change, and on a role change.
+   */
+  refreshDebugButton() {
+    const collapsible = document.getElementById('collapsibleBtns');
+    if (!collapsible) return;
+
+    const existing = document.getElementById('debugBtn');
+    if (!this.shouldShowDebugButton()) {
+      // Shift+P still toggles Debug mode, so an overlay left running is never
+      // stranded without the button — no need to force the mode off here.
+      existing?.remove();
+      if (this.ui?.elements) {
+        this.ui.elements.debugBtn = null;
+        this.ui.elements.debugText = null;
+      }
+      this.scheduleTopbarCollapseUpdate?.();
+      return;
     }
+    if (existing) return;
+
+    const debugBtn = document.createElement('a');
+    debugBtn.className = 'btn';
+    debugBtn.id = 'debugBtn';
+    // The label keeps "Debug" alongside the state: updateDebugModeDisplay only
+    // rewrites the .devOption span, so replacing the whole label with ON/OFF
+    // would leave the button unnamed once it has been toggled.
+    debugBtn.innerHTML = 'Debug <span class="devOption">OFF</span>';
+    debugBtn.addEventListener('click', () => this.handleToggleDebugMode());
+
+    // Sit after Clear when a moderator has one, so the toolbar order is the
+    // same whichever of the two injectors ran first.
+    const clearWrap = collapsible.querySelector('.clearConfirmWrap');
+    if (clearWrap) {
+      clearWrap.after(debugBtn);
+    } else {
+      collapsible.insertBefore(debugBtn, collapsible.firstChild);
+    }
+
+    if (this.ui?.elements) {
+      this.ui.elements.debugBtn = debugBtn;
+      this.ui.elements.debugText = debugBtn.querySelector('.devOption');
+    }
+    // A button appearing mid-session changes the toolbar width.
+    this.scheduleTopbarCollapseUpdate?.();
+    // Keep the label honest if the mode is already on (Shift+P, or a role change
+    // that re-created the button while Debug mode was running).
+    this.ui?.updateDebugModeDisplay?.(this.debugOverlay?.isEnabled?.() ?? false);
   }
 
   /**
@@ -5653,9 +5722,6 @@ export class DrawingApp {
           if (this.self.tool === 'ink' && tool.drainPointBuffer) {
             tool.drainPointBuffer();
           }
-
-          this.debugOverlay.startStrokeTracking(this.self.id, true);
-          this.debugOverlay.addStrokePoint(this.self.id, pending.pos.x, pending.pos.y, 'pointerDown');
         }
       } else if (pressure !== this.inputBufferManager.inputBuffer.pressure) {
         // Brush still commits per segment before updating pressure.
@@ -5704,12 +5770,6 @@ export class DrawingApp {
 
     this.inputBufferManager.inputBuffer.pointerType = lastBufferedSample?.pointerType || e.pointerType;
     this.inputBufferManager.requestLocalFrame();
-
-    // Track drawing for debug overlay (pass brush size and user info)
-    if (this.self.mousedown && !this.self.panning) {
-      const debugPoint = lastBufferedSample || { x, y };
-      this.debugOverlay.addDrawingPoint(debugPoint.x, debugPoint.y, this.self.size, this.self.id);
-    }
   }
 
   handlePointerDown(e) {
@@ -5998,10 +6058,6 @@ export class DrawingApp {
             tool.drainPointBuffer();
           }
 
-          // Debug: Start tracking stroke points for local user
-          this.debugOverlay.startStrokeTracking(this.self.id, true);
-          this.debugOverlay.addStrokePoint(this.self.id, pos.x, pos.y, 'pointerDown');
-
           // If text tool was used to commit text, update UI to clear the text display
           if (this.self.tool === 'text') {
             this.ui.updateSelfTextInput(this.self.text);
@@ -6014,9 +6070,6 @@ export class DrawingApp {
       if (Array.isArray(this.self.color) && !colorlessRecentTools.has(this.self.tool)) {
         addRecentColor(this.self.color);
       }
-
-      // Start tracking for debug overlay (pass tool type, brush size, and user info)
-      this.debugOverlay.startDrawing(pos.x, pos.y, this.self.tool, this.self.size, this.self.id, this.self.username);
     }
   }
 
@@ -6309,13 +6362,6 @@ export class DrawingApp {
           }
         }
       }
-
-      // End tracking for debug overlay
-      this.debugOverlay.endDrawing(this.self.id);
-
-      // Debug: End stroke tracking for local user
-      this.debugOverlay.endStrokeTracking(this.self.id);
-
     }
 
     this.self.mousedown = false;
@@ -6808,9 +6854,6 @@ export class DrawingApp {
     // Clear the top canvas AFTER all tool state is reset
     // This ensures no residual preview remains
     this.board.clearTop();
-
-    // Cancel debug overlay tracking
-    this.debugOverlay.cancelDrawing(this.self.id);
 
     // CANCEL closes the stroke on observers, so the paired MU must not follow it.
     this._strokeMdBroadcast = false;

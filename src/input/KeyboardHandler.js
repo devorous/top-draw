@@ -185,10 +185,9 @@ export class KeyboardHandler {
         app.handleAppSettings();
         return true;
 
-      case 'panel.performanceDebug':
-        if (!app.performanceDebugPanel) return false;
-        app.performanceDebugPanel.toggle();
-        app.performanceDebugPanel.update();
+      case 'panel.debugMode':
+        if (typeof app.handleToggleDebugMode !== 'function') return false;
+        app.handleToggleDebugMode();
         return true;
 
       case 'canvas.temporaryPan':
@@ -433,7 +432,7 @@ export class KeyboardHandler {
     const action = actionId ? KEYBIND_ACTIONS.find((candidate) => candidate.id === actionId) : null;
     if (!actionId) return false;
 
-    if (actionId !== 'app.openSettings' && actionId !== 'panel.performanceDebug' && !app.inputBufferManager.tickTimer) {
+    if (actionId !== 'app.openSettings' && actionId !== 'panel.debugMode' && !app.inputBufferManager.tickTimer) {
       return false;
     }
 
@@ -528,7 +527,7 @@ export class KeyboardHandler {
     const actionId = this.getActionForEvent(e);
     const action = actionId ? KEYBIND_ACTIONS.find((candidate) => candidate.id === actionId) : null;
 
-    if (actionId === 'app.openSettings' || actionId === 'panel.performanceDebug') {
+    if (actionId === 'app.openSettings' || actionId === 'panel.debugMode') {
       if (this.dispatchAction(actionId, e)) {
         return;
       }

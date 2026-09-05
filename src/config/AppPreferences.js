@@ -46,6 +46,10 @@ export function createDefaultAppPreferences() {
       // as a stutter, so this lets a user trade the features away for smoothness.
       reduceBackgroundWork: false,
       scrollToZoom: false,
+      // Puts the Debug button in the toolbar for a non-moderator. Moderators
+      // always get it regardless of this flag, so turning it off never takes
+      // the button away from someone who had it by role.
+      showDebugButton: false,
       showFloatingArt: true,
       galleryTimelapseEnabled: true,
       chatOpacity: 0.95,
@@ -279,6 +283,7 @@ function sanitizePreferences(rawPreferences) {
       lowPowerMode: migratedLowPowerMode,
       reduceBackgroundWork: !!parsed.general?.reduceBackgroundWork,
       scrollToZoom: migratedScrollToZoom,
+      showDebugButton: !!parsed.general?.showDebugButton,
       showFloatingArt: migratedShowFloatingArt,
       galleryTimelapseEnabled: parsed.general?.galleryTimelapseEnabled !== undefined
         ? !!parsed.general.galleryTimelapseEnabled

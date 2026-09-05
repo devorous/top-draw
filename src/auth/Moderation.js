@@ -39,7 +39,6 @@ export class Moderation {
     this.onRevokeEntry = null;       // (entryId, type)
     this.onModWipe = null;           // (sessionIndex, targetName)
     this.onClear = null;             // ()
-    this.onToggleDevMode = null;     // ()
     this.onRoomRoleSet = null;       // (targetUserId, role)
     this.onGlobalRoleSet = null;     // (targetUsername, newGlobalRole)
     this._wipePromptDismiss = null;
@@ -201,6 +200,10 @@ export class Moderation {
       }
     });
 
+    // The Debug button is not .modOnly — a non-mod can enable it in settings —
+    // so App owns it, but a role change still has to re-evaluate it.
+    window.app?.refreshDebugButton?.();
+
     // Clearing is authorized separately from general mod powers, so keep the
     // button in step with the server rather than with isMod() — otherwise it
     // is offered to someone whose clear the server will reject.
@@ -240,7 +243,7 @@ export class Moderation {
       return;
     }
 
-    // --- Left-side toolbar buttons (Clear / Dev) ---
+    // --- Left-side toolbar buttons (Clear) ---
     const collapsible = document.getElementById('collapsibleBtns');
     if (collapsible && !document.getElementById('clearBtn')) {
       const fragment = document.createDocumentFragment();
@@ -259,14 +262,6 @@ export class Moderation {
       });
       clearWrap.appendChild(clearBtn);
       fragment.appendChild(clearWrap);
-
-      // Dev button (toggles debug overlay)
-      const devBtn = document.createElement('a');
-      devBtn.className = 'btn modOnly';
-      devBtn.id = 'devBtn';
-      devBtn.innerHTML = '<span class="devOption">Dev</span>';
-      devBtn.addEventListener('click', () => { if (this.onToggleDevMode) this.onToggleDevMode(); });
-      fragment.appendChild(devBtn);
 
       // Insert before the first child so Clear appears first
       collapsible.insertBefore(fragment, collapsible.firstChild);

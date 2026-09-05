@@ -8,6 +8,8 @@ export const BOARD_SIZE_PRESETS = {
   '720p': [720, 1280],
   '1080p': [1080, 1920],
   '1440p': [1440, 2560],
+  // Legacy: no longer offered in room settings, kept so rooms already set to it
+  // still resolve instead of falling back to 1080p and clearing the canvas.
   'big': [1800, 3200],
   // Stress-test sizes. Not offered in the normal room settings dropdown — they
   // exist so board-area-scaling costs can be amplified until they are visible
@@ -26,7 +28,7 @@ export const BOARD_SIZE_PRESETS = {
  * room would cost far more in storage and encode time than the drawing is
  * worth. They stay reachable for testing via `isStressBoardSize`.
  */
-export const STRESS_BOARD_SIZES = new Set(['4k', '8k', '12k']);
+export const STRESS_BOARD_SIZES = new Set(['8k', '12k']);
 
 export function isStressBoardSize(boardSize) {
   return STRESS_BOARD_SIZES.has(boardSize);

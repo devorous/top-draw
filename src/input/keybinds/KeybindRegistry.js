@@ -291,9 +291,9 @@ export const KEYBIND_ACTIONS = [
     isHoldAction: true
   },
   {
-    id: 'panel.performanceDebug',
-    label: 'Performance panel',
-    description: 'Toggle the performance debug panel.',
+    id: 'panel.debugMode',
+    label: 'Debug mode',
+    description: 'Toggle Debug mode: the board overlay and the diagnostics panel.',
     category: 'Panels and Dialogs',
     defaultBinding: 'Shift+P'
   },

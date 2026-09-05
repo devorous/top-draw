@@ -11,8 +11,14 @@ import { TiledLayerCanvas } from './TiledLayerCanvas.js';
 // Composite operations whose result depends on destination pixels *outside*
 // the source rect, so compositing them tile-by-tile is not equivalent to
 // compositing them onto one full-board canvas. See _flatWindowWriteBack.
+// `source-atop` is deliberately absent: it keeps the destination's alpha, so a
+// tile that the source rect does not reach is left untouched either way, and
+// per-tile compositing is equivalent. `source-out` is deliberately present: it
+// clears destination pixels the source does *not* cover, which reaches outside
+// the source rect. Both verified against a plain-canvas reference over a
+// 23-operator matrix (docs/tiled-canvas-test-report.md section 3).
 const TILED_UNSAFE_COMPOSITE_OPS = new Set([
-  'copy', 'source-in', 'source-atop', 'destination-in', 'destination-atop'
+  'copy', 'source-in', 'source-out', 'destination-in', 'destination-atop'
 ]);
 
 /**
@@ -133,8 +139,14 @@ export class LayerManager {
     // tiling is scoped to that layer; layers 1-2 (bakedSequences) are
     // unaffected regardless of this flag.
     this.tiledBackingStore = false;
-    /** Grid granularity in px, set by setTiledBackingStore. */
-    this.tiledTileSize = TiledLayerCanvas.DEFAULT_TILE_SIZE;
+    /**
+     * Grid granularity in px. Null means "derive from the board" — the normal
+     * case, see TiledLayerCanvas.tileSizeForBoard. Only an explicit tileSize
+     * passed to setTiledBackingStore (the sweep harness) pins it to a number,
+     * which is why this must not be seeded with a constant: a pinned value
+     * would survive a board resize and silently mis-tile the new size.
+     */
+    this.tiledTileSize = null;
 
     this.initLayerGroups(3);
   }
@@ -146,27 +158,39 @@ export class LayerManager {
    * one-time reshape per client — no server round-trip needed beyond the
    * room-setting broadcast that calls this.
    * @param {boolean} enabled
-   * @param {number} [tileSize] - Grid granularity. Smaller tiles skip more
-   *   blank area but cost more per-tile draw calls on every composite, so this
-   *   is a real trade rather than "smaller is better". Omit to keep the
-   *   current size (or TiledLayerCanvas.DEFAULT_TILE_SIZE on first enable).
+   * @param {number} [tileSize] - Grid granularity override. Smaller tiles skip
+   *   more blank area but cost more per-tile draw calls on every composite, so
+   *   this is a real trade rather than "smaller is better". Omit for the normal
+   *   case: the size is then derived from the board every time it is needed
+   *   (TiledLayerCanvas.tileSizeForBoard) so it stays correct across resizes.
+   *   Passing a value pins it until the LayerManager is rebuilt — that is for
+   *   the sweep harness, not for production paths.
    */
   setTiledBackingStore(enabled, tileSize) {
     enabled = !!enabled;
-    const nextSize = tileSize || this.tiledTileSize || TiledLayerCanvas.DEFAULT_TILE_SIZE;
-    // Re-tiling at a different granularity is a real state change even though
-    // `enabled` did not move, so it must not hit the no-op guard below.
-    const resizingGrid = enabled && this.tiledBackingStore && nextSize !== this.tiledTileSize;
-    if (enabled === this.tiledBackingStore && !resizingGrid) return;
+    // Only an explicit argument pins the size. Storing a derived value here
+    // would turn "derive from the board" into "whatever the board was when
+    // tiling was first switched on", which resizeBoard would then carry
+    // forward onto a board of a completely different size.
+    if (tileSize) this.tiledTileSize = tileSize;
+    const nextSize = this.tiledTileSize
+      || TiledLayerCanvas.tileSizeForBoard(this.width, this.height);
 
     const group = this.layerGroups[0];
+    // Compare against the grid that actually exists rather than a remembered
+    // number, so this stays honest whichever way the size was arrived at.
+    const currentSize = group?.tiled ? group.flatCanvas?.tileSize : null;
+    // Re-tiling at a different granularity is a real state change even though
+    // `enabled` did not move, so it must not hit the no-op guard below.
+    const resizingGrid = enabled && this.tiledBackingStore && nextSize !== currentSize;
+    if (enabled === this.tiledBackingStore && !resizingGrid) return;
+
     // Nothing baked yet. Bail *before* recording the new mode, so
     // this.tiledBackingStore can never claim a state group.tiled doesn't have
     // — applyRoomTiledCanvas short-circuits on equality and would never
     // retry, leaving the room untiled while reporting itself tiled.
     if (!group || !group.flatCanvas) return;
     this.tiledBackingStore = enabled;
-    this.tiledTileSize = nextSize;
 
     if (enabled) {
       // Re-tiling in place: stitch the existing grid out to a full raster
@@ -293,7 +317,7 @@ export class LayerManager {
     if (group.tiled) {
       // Per-tile compositing only equals whole-canvas compositing for
       // operators that leave the destination alone where the source is
-      // transparent. The destination-clearing ones (copy/source-in/
+      // transparent. The destination-clearing ones (copy/source-in/source-out/
       // destination-in/destination-atop) would clear the rest of each *tile*
       // instead of the rest of the board — and they also break the
       // skip-blank-source optimisation below. Nothing routes them here today
@@ -671,7 +695,11 @@ export class LayerManager {
 
       if (i === 0) {
         if (this.tiledBackingStore) {
-          group.flatCanvas = new TiledLayerCanvas(this.width, this.height);
+          group.flatCanvas = new TiledLayerCanvas(
+            this.width,
+            this.height,
+            this.tiledTileSize || TiledLayerCanvas.tileSizeForBoard(this.width, this.height)
+          );
           group.flatCtx = null;
           group.tiled = true;
         } else {
@@ -3710,9 +3738,14 @@ export class LayerManager {
       if (group.flatCanvas) {
         if (group.tiled) {
           const full = group.flatCanvas.toFullCanvas();
-          const oldTileSize = group.flatCanvas.tileSize;
           group.flatCanvas.dispose();
-          group.flatCanvas = new TiledLayerCanvas(width, height, oldTileSize);
+          // Re-derive rather than carrying the old tile size across: the size
+          // is a function of the board, so keeping 1080p's 120px grid on a 4k
+          // board would quadruple the tile count and leave ragged edges.
+          // An explicitly pinned tiledTileSize (sweep harness) still wins.
+          const nextTileSize = this.tiledTileSize
+            || TiledLayerCanvas.tileSizeForBoard(width, height);
+          group.flatCanvas = new TiledLayerCanvas(width, height, nextTileSize);
           // fromFullCanvas crops from `full` using the NEW grid's tile rects;
           // any rect beyond `full`'s old bounds draws nothing (drawImage clips
           // an out-of-range source rect to what's available), which is the

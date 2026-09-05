@@ -194,6 +194,28 @@
     updatePreferences(nextPreferences, messages[mode] ?? messages.auto);
   }
 
+  // Moderators get the Debug button by role regardless of this toggle, so the
+  // label says "Show" rather than "Enable" — it adds the button, it does not
+  // gate Debug mode itself (Shift+P works either way).
+  function isShowDebugButton() {
+    return !!appPreferences?.general?.showDebugButton;
+  }
+
+  function updateShowDebugButton(enabled) {
+    const nextPreferences = {
+      ...appPreferences,
+      general: {
+        ...(appPreferences?.general ?? {}),
+        showDebugButton: enabled
+      }
+    };
+
+    updatePreferences(
+      nextPreferences,
+      enabled ? 'Debug button shown in the toolbar' : 'Debug button hidden'
+    );
+  }
+
   function isShowFloatingArt() {
     return appPreferences?.general?.showFloatingArt !== false;
   }
@@ -800,6 +822,14 @@ function getChatOpacity() {
                   <span>Enable Board View</span>
                 </label>
               {/if}
+              <label class="settings-toggle-compact">
+                <input
+                  type="checkbox"
+                  checked={isShowDebugButton()}
+                  onchange={(event) => updateShowDebugButton(event.currentTarget.checked)}
+                />
+                <span>Show Debug Button</span>
+              </label>
             </div>
 
             <div class="settings-slider-stack">

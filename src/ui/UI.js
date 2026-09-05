@@ -953,8 +953,8 @@ menuBtn: document.getElementById('menuBtn'),
       sideMenu: document.getElementById('sideMenu'),
       toolOptions: document.getElementById('toolOptions'),
 
-      devBtn: null, // injected dynamically by Moderation._injectModUI()
-      devText: null, // injected dynamically
+      debugBtn: null, // injected dynamically by App.refreshDebugButton()
+      debugText: null, // injected dynamically
       debugOverlay: document.getElementById('debugOverlay'),
       perfSettingsBtn: null, // injected dynamically by Moderation._injectModUI(),
 
@@ -2184,16 +2184,16 @@ menuBtn: document.getElementById('menuBtn'),
   }
 
   /**
-   * Updates the dev mode toggle display.
-   * @param {boolean} enabled - Whether dev mode is enabled
+   * Updates the Debug mode toggle display.
+   * @param {boolean} enabled - Whether Debug mode is enabled
    */
-  updateDevModeDisplay(enabled) {
-    // devText is injected dynamically; re-query in case it was added after init
-    const devText = this.elements.devText || document.querySelector('.devOption');
-    if (devText) {
-      this.elements.devText = devText;
-      devText.textContent = enabled ? 'ON' : 'OFF';
-      devText.classList.toggle('active', enabled);
+  updateDebugModeDisplay(enabled) {
+    // debugText is injected dynamically; re-query in case it was added after init
+    const debugText = this.elements.debugText || document.querySelector('.devOption');
+    if (debugText) {
+      this.elements.debugText = debugText;
+      debugText.textContent = enabled ? 'ON' : 'OFF';
+      debugText.classList.toggle('active', enabled);
     }
   }
 

@@ -1,11 +1,21 @@
 /**
- * DebugOverlay - visualizes composite tile-grid dirty rects.
+ * DebugOverlay - board-aligned visualisation for Debug mode.
  *
- * Hooks Board.onCompositeDirtyRects to capture each set of rects (or full
- * redraw events) and renders them on a dedicated canvas above the board with
- * a short fade-out so quick updates remain visible. Also paints a faint tile
- * grid so the 32px partitioning is easy to see while debugging.
+ * Two independent layers, each toggleable from the debug panel:
+ *
+ *  - Dirty rects: hooks Board.onCompositeDirtyRects to capture each set of rects
+ *    (or full redraw events) and paints them with a short fade-out so quick
+ *    updates stay visible, over a faint grid at CompositeTileGrid's granularity.
+ *  - Tile occupancy: outlines layer 0's tiled backing store, filling the tiles
+ *    that actually hold a canvas and flashing the ones allocated or freed in the
+ *    last second. This is the direct, per-tile view of whether lazy allocation
+ *    is working — an aggregate byte count can look right while the grid is wrong.
+ *
+ * The overlay owns its own canvas above the board and never touches layer 0 or
+ * the composite path, so nothing here can affect what gets rendered.
  */
+
+import { collectTileStats, TileChurnTracker } from '../utils/tileStats.js';
 
 const RECT_LIFETIME_MS = 600;
 const FULL_LIFETIME_MS = 350;
@@ -22,12 +32,15 @@ export class DebugOverlay {
     this.enabled = false;
     this.canvas = null;
     this.ctx = null;
+    this.app = null;
     this.board = null;
-    this.inputBufferManager = null;
     this.tileSize = 32;
     this.entries = [];
     this.fullEvents = [];
     this.entryColorIndex = 0;
+    this.showDirtyRects = true;
+    this.showTiles = true;
+    this.tileChurn = new TileChurnTracker();
     this._rafId = 0;
     this._renderLoop = this._renderLoop.bind(this);
     this._dirtyRectsHandler = (rects, isFull) => this._captureRects(rects, isFull);
@@ -54,12 +67,19 @@ export class DebugOverlay {
     this.canvas.style.display = 'none';
   }
 
+  setApp(app) {
+    this.app = app || null;
+  }
+
   setBoard(board) {
     if (this.board === board) return;
     if (this.board?.onCompositeDirtyRects === this._dirtyRectsHandler) {
       this.board.onCompositeDirtyRects = null;
     }
     this.board = board;
+    // A new board means a new LayerManager and possibly a new grid shape, so any
+    // churn history is about tiles that no longer exist.
+    this.tileChurn.reset();
     if (board) {
       this.tileSize = board.compositeTileGrid?.tileSize ?? 32;
       if (this.canvas) {
@@ -76,17 +96,17 @@ export class DebugOverlay {
     }
   }
 
-  setInputBufferManager(inputBufferManager) {
-    this.inputBufferManager = inputBufferManager || null;
+  toggleDirtyRects() {
+    this.showDirtyRects = !this.showDirtyRects;
+    if (!this.showDirtyRects) this.clear();
+    return this.showDirtyRects;
   }
 
-  // Compatibility shims for older callers — no-ops now.
-  setPixelsWorker() {}
-  setTileTracker() {}
-  toggleOccupied() { return false; }
-  toggleOwnership() { return false; }
-  toggleDirtyTiles() { return this.enabled; }
-  toggleGridLines() {}
+  toggleTiles() {
+    this.showTiles = !this.showTiles;
+    if (!this.showTiles) this.tileChurn.reset();
+    return this.showTiles;
+  }
 
   toggle() {
     if (this.enabled) {
@@ -106,6 +126,9 @@ export class DebugOverlay {
     this.enabled = true;
     if (this.canvas) this.canvas.style.display = 'block';
     if (this.board) this.board.onCompositeDirtyRects = this._dirtyRectsHandler;
+    // Nothing was sampled while off, so the first frame would otherwise report
+    // the entire allocated grid as freshly churned.
+    this.tileChurn.reset();
     if (!this._rafId) {
       this._rafId = requestAnimationFrame(this._renderLoop);
     }
@@ -124,6 +147,7 @@ export class DebugOverlay {
     }
     this.entries.length = 0;
     this.fullEvents.length = 0;
+    this.tileChurn.reset();
     if (this.ctx) {
       this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     }
@@ -145,11 +169,12 @@ export class DebugOverlay {
     this.disable();
     this.canvas = null;
     this.ctx = null;
+    this.app = null;
     this.board = null;
   }
 
   _captureRects(rects, isFull) {
-    if (!this.enabled) return;
+    if (!this.enabled || !this.showDirtyRects) return;
     const now = performance.now();
     if (isFull) {
       this.fullEvents.push({ time: now });
@@ -188,10 +213,44 @@ export class DebugOverlay {
     const h = this.canvas.height;
     ctx.clearRect(0, 0, w, h);
 
-    this._drawTileGrid(ctx, w, h);
-
     const now = performance.now();
 
+    // Sampled every frame because it is only property reads over a few dozen
+    // array slots — no pixel readback, so the per-frame budget is negligible.
+    const tileStats = this.showTiles ? collectTileStats(this.app) : null;
+    this.tileChurn.update(tileStats?.occupancy ?? null, now);
+
+    if (this.showDirtyRects) {
+      this._drawTileGrid(ctx, w, h);
+      this._drawDirtyRects(ctx, w, h, now);
+    }
+    if (tileStats?.tiled) {
+      this._drawTileOccupancy(ctx, tileStats, now);
+    }
+  }
+
+  /**
+   * Live dirty-rect counts, for the debug panel to render.
+   *
+   * The overlay used to paint these itself as a box in the board's top-left
+   * corner. That put a second debug readout on screen in a place the user could
+   * not move, repainting at a different cadence than the panel and duplicating
+   * the panel's tile line — so the numbers live in one place now and the
+   * overlay draws only what has to be board-aligned.
+   *
+   * Null rather than zeroes when nothing is being tracked: a zero here would
+   * read as "the board is not redrawing", which is a very different claim.
+   *
+   * @returns {{liveRects: number, fullRedraws: number}|null}
+   */
+  getRectStats() {
+    if (!this.enabled || !this.showDirtyRects) return null;
+    let liveRects = 0;
+    for (const entry of this.entries) liveRects += entry.rects.length;
+    return { liveRects, fullRedraws: this.fullEvents.length };
+  }
+
+  _drawDirtyRects(ctx, w, h, now) {
     // Drop expired entries.
     while (this.entries.length && now - this.entries[0].time > RECT_LIFETIME_MS) {
       this.entries.shift();
@@ -226,25 +285,54 @@ export class DebugOverlay {
         ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.width - 1, r.height - 1);
       }
     }
+  }
 
-    // HUD: counts.
-    const liveRects = this.entries.reduce((sum, e) => sum + e.rects.length, 0);
-    ctx.font = '14px monospace';
-    ctx.textBaseline = 'top';
-    const pointTelemetry = this.inputBufferManager?.getPointTelemetry?.();
-    const pointLabel = pointTelemetry
-      ? `   in: ${Math.round(pointTelemetry.bufferedPerSec)}/s out: ${Math.round(pointTelemetry.outgoingPerSec)}/s red: ${Math.round(pointTelemetry.reductionPercent)}%`
-      : '';
-    const label = `dirty rects: ${liveRects}   full redraws (recent): ${this.fullEvents.length}${pointLabel}`;
-    const padX = 6;
-    const padY = 4;
-    const metrics = ctx.measureText(label);
-    const boxW = metrics.width + padX * 2;
-    const boxH = 18 + padY * 2 - 4;
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
-    ctx.fillRect(8, 8, boxW, boxH);
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-    ctx.fillText(label, 8 + padX, 8 + padY);
+  /**
+   * Paint layer 0's tile grid: every cell outlined, allocated cells filled, and
+   * cells that changed state in the last second flashed green (allocated) or
+   * orange (freed).
+   * @private
+   */
+  _drawTileOccupancy(ctx, stats, now) {
+    const { cols, rows, tileSize, occupancy } = stats;
+    const boardW = this.canvas.width;
+    const boardH = this.canvas.height;
+
+    ctx.save();
+    ctx.lineWidth = 1;
+
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        const index = row * cols + col;
+        const x = col * tileSize;
+        const y = row * tileSize;
+        // Edge tiles are cropped to the board, matching TiledLayerCanvas.
+        const width = Math.min(tileSize, boardW - x);
+        const height = Math.min(tileSize, boardH - y);
+        if (width <= 0 || height <= 0) continue;
+
+        const allocated = occupancy[index] === 1;
+        const churn = this.tileChurn.get(index, now);
+
+        if (allocated) {
+          ctx.fillStyle = 'rgba(80, 200, 255, 0.10)';
+          ctx.fillRect(x, y, width, height);
+        }
+        if (churn) {
+          const color = churn.allocated ? '90, 255, 140' : '255, 150, 60';
+          ctx.fillStyle = `rgba(${color}, ${0.35 * churn.fade})`;
+          ctx.fillRect(x, y, width, height);
+          ctx.strokeStyle = `rgba(${color}, ${0.95 * churn.fade})`;
+          ctx.lineWidth = 2;
+          ctx.strokeRect(x + 1, y + 1, width - 2, height - 2);
+          ctx.lineWidth = 1;
+        }
+        ctx.strokeStyle = allocated ? 'rgba(80, 200, 255, 0.55)' : 'rgba(255, 255, 255, 0.14)';
+        ctx.strokeRect(x + 0.5, y + 0.5, width - 1, height - 1);
+      }
+    }
+
+    ctx.restore();
   }
 
   _drawTileGrid(ctx, w, h) {
@@ -263,21 +351,4 @@ export class DebugOverlay {
     }
     ctx.stroke();
   }
-
-  // Stroke/region tracking shims — no-ops now (the old region system is gone).
-  captureDirtyTiles() {}
-  captureDirtyRects() {}
-  expandUserRegion() {}
-  clearUserRegion() {}
-  startStrokeTracking() {}
-  addStrokePoint() {}
-  endStrokeTracking() {}
-  startDrawing() {}
-  addDrawingPoint() {}
-  endDrawing() {}
-  cancelDrawing() {}
-  addRegion() {}
-  toggleDirtyRects() { return this.enabled; }
-  toggleRegions() {}
-  toggleStrokePoints() {}
 }

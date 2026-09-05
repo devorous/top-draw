@@ -1412,7 +1412,6 @@ export class ReplayEngine {
       // RemoteUserHandler calls this unconditionally on MD/MM/MU, so a missing
       // method throws and the switch's catch swallows every stroke in the tape.
       isSelfEcho: () => false,
-      debugOverlay: null,
       self: null,
       blendModeManager: {
         toCSSBlendMode: (bm) => bm || 'normal'

@@ -40,9 +40,12 @@
     { value: '720p',  label: '720p  (1280 × 720)' },
     { value: '1080p', label: '1080p (1920 × 1080)' },
     { value: '1440p', label: '1440p (2560 × 1440)' },
-    { value: 'big',   label: 'Big   (3200 × 1800)' },
+    { value: '4k',    label: '4k    (3840 × 2160)' },
+    // 'big' (3200 × 1800) is no longer offered, but stays in BOARD_SIZE_PRESETS
+    // so rooms already set to it keep resolving — dropping the preset would
+    // silently fall them back to 1080p and clear the canvas.
     ...(stressBoardSizesEnabled ? [
-      { value: '4k',  label: '4k    (3840 × 2160) — stress' },
+      { value: 'big', label: 'Big   (3200 × 1800) — legacy' },
       { value: '8k',  label: '8k    (7680 × 4320) — stress' },
       { value: '12k', label: '12k   (11520 × 6480) — stress' }
     ] : [])

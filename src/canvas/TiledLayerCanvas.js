@@ -48,6 +48,8 @@ function regionIsBlank(ctx, x, y, width, height) {
 
 export class TiledLayerCanvas {
   /**
+   * Used only for boards the 16:9 rule below cannot tile exactly.
+   *
    * Measured, not assumed. Swept 256/512/1024 at 1440p against memory and
    * composite-submission cost (testing/devtools/tile_size_sweep.mjs):
    *
@@ -61,14 +63,62 @@ export class TiledLayerCanvas {
    * it buys nothing there, since a full board saves no memory at any
    * granularity.
    */
-  static DEFAULT_TILE_SIZE = 256;
+  static FALLBACK_TILE_SIZE = 256;
+
+  /**
+   * The tile size to use for a board of `width` x `height`.
+   *
+   * Every board preset is exactly 16:9, and for a 16:9 board the largest square
+   * tile that divides *both* axes is `gcd(w, h) == w/16 == h/9`. That yields a
+   * uniform 16x9 = 144-tile grid at every preset (720p 80px, 1080p 120px,
+   * 1440p 160px, 4k 240px) with no partial edge tiles anywhere.
+   *
+   * No single fixed size can do this: the widths share 640 (2^7*5) and the
+   * heights share 360 (2^3*3^2*5), so the largest constant dividing every
+   * preset on both axes is 40 — which is 5184 tiles at 4k. Deriving from the
+   * board is the only way to get exact division at a usable granularity.
+   *
+   * 144 is also the *coarsest* exact square tiling of a 16:9 board: the next
+   * step up needs h/(w/8) = 4.5, so every other exact option is finer.
+   *
+   * Measured against the previous fixed 256 (tile_size_sweep.mjs, sparse
+   * content, 5 interleaved reps, medians):
+   *
+   *   1440p   untiled 14.06MB  5us  |  160px 1.76MB 25us  |  256px 3.00MB 15us
+   *   720p    untiled  3.52MB 10us  |   80px 1.10MB 45us  |  256px 2.41MB 15us
+   *
+   * The finer grid roughly halves resident memory (1440p 87.5% saved vs 78.7%;
+   * 720p 68.8% vs 31.5% — a 15-tile grid is far too coarse to skip much of a
+   * small board) and pays tens of microseconds per composite for it. Even the
+   * 720p worst case, 45us, is 0.27% of one second's main thread at 60fps, so
+   * this is a memory win bought with time that does not show up in frame rate.
+   * The per-tile canvas overhead feared at 80px did not materialize.
+   *
+   * Only sparse content was swept. A dense board saves nothing at any
+   * granularity (every tile is occupied, so it is the full-board figure either
+   * way) and composite cost tracks allocated tile count at ~0.6us per extra
+   * drawImage, so a fully-painted 144-tile grid should land near 90us.
+   *
+   * A board that is not 16:9 (or would not give an integer tile) falls back to
+   * the fixed size; `_tileRectAt` already clamps edge tiles, so an inexact grid
+   * is correct, just ragged.
+   *
+   * @param {number} width
+   * @param {number} height
+   * @returns {number}
+   */
+  static tileSizeForBoard(width, height) {
+    const tile = width / 16;
+    if (Number.isInteger(tile) && tile > 0 && height === tile * 9) return tile;
+    return TiledLayerCanvas.FALLBACK_TILE_SIZE;
+  }
 
   /**
    * @param {number} width - Full board width
    * @param {number} height - Full board height
-   * @param {number} [tileSize]
+   * @param {number} [tileSize] - Defaults to `tileSizeForBoard(width, height)`.
    */
-  constructor(width, height, tileSize = TiledLayerCanvas.DEFAULT_TILE_SIZE) {
+  constructor(width, height, tileSize = TiledLayerCanvas.tileSizeForBoard(width, height)) {
     this.width = width;
     this.height = height;
     this.tileSize = tileSize;
@@ -310,8 +360,9 @@ export class TiledLayerCanvas {
    * through: source-over and the separable blend modes all leave the
    * destination untouched where source alpha is zero, and so does
    * destination-out. (The destination-clearing operators — copy, source-in,
-   * destination-in, destination-atop — are NOT per-tile safe in the first
-   * place and must never reach a tiled layer.)
+   * source-out, destination-in, destination-atop — are NOT per-tile safe in the
+   * first place and must never reach a tiled layer; LayerManager's
+   * TILED_UNSAFE_COMPOSITE_OPS is the gate that keeps them out.)
    *
    * @param {{x:number,y:number,width:number,height:number}} bounds
    * @param {HTMLCanvasElement|ImageBitmap} source

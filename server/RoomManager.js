@@ -74,7 +74,13 @@ export class Room {
       // hand-pick the prod trial cohort. Also gated by the
       // ENABLE_TILED_CANVAS_BACKING_STORE env var kill switch, see
       // server/replayConfig.js-style pattern in server/index.js.
-      tiledCanvasBackingStore: false
+      //
+      // TILED_CANVAS_DEFAULT flips the default for *newly minted* rooms, which
+      // is what lets the sync suites (selparity, concurrent, k6edge, undosnap,
+      // parity) exercise the tiled path at all — they each mint a fresh
+      // timestamped room, so with a hard-coded false they only ever measured
+      // the untiled path. Unset in production.
+      tiledCanvasBackingStore: process.env.TILED_CANVAS_DEFAULT === 'true'
     };
 
     this.description = '';

@@ -82,7 +82,6 @@ export class RemoteUserHandler {
   get ui() { return this.app.ui; }
   get users() { return this.app.users; }
   get sessionIndex() { return this.app.sessionIndex; }
-  get debugOverlay() { return this.app.debugOverlay; }
 
   getStrokeLayer(user) {
     return user?._strokeLayer ?? user?.activeLayer ?? 0;
@@ -554,11 +553,6 @@ export class RemoteUserHandler {
       user.setPosition(x, y);
       const pos = { x: user.x, y: user.y };
 
-      if (!user.panning && user.mousedown && this.debugOverlay) {
-        this.debugOverlay.addDrawingPoint(pos.x, pos.y, user.size, user.id);
-        this.debugOverlay.addStrokePoint(user.id, pos.x, pos.y, 'mouseMove');
-      }
-
       if (!user.panning && user.mousedown) {
         this.renderRemoteMove(user, pos, lastPos);
       }
@@ -936,12 +930,6 @@ export class RemoteUserHandler {
         this.board.layerManager.beginUserStroke(strokeLayer, user.id, blendMode, user.blendBakeMode, strokeBounds);
         this.board.applySelectionMaskClipForStroke(strokeLayer, user.id);
       }
-    }
-
-    if (!user.panning && this.debugOverlay) {
-      this.debugOverlay.startDrawing(pos.x, pos.y, user.tool, user.size, user.id, user.username);
-      this.debugOverlay.startStrokeTracking(user.id, false);
-      this.debugOverlay.addStrokePoint(user.id, pos.x, pos.y, 'mouseDown');
     }
 
     switch (user.tool) {
@@ -1346,11 +1334,6 @@ export class RemoteUserHandler {
           if (patternTool) patternTool.remoteEndStroke(user, seq);
         }
         break;
-    }
-
-    if (this.debugOverlay) {
-      this.debugOverlay.endDrawing(user.id);
-      this.debugOverlay.endStrokeTracking(user.id);
     }
 
     // Remove the transient layered preview before committing/compositing the
@@ -2260,12 +2243,6 @@ export class RemoteUserHandler {
   }
 
   _cleanupTransientUserState(user) {
-    if (this.debugOverlay) {
-      this.debugOverlay.cancelDrawing(user.id);
-      this.debugOverlay.endDrawing?.(user.id);
-      this.debugOverlay.endStrokeTracking?.(user.id);
-    }
-
     this._clearLayeredRemotePreview(user);
     this._invalidateFillPreview(user);
     this.selectionHandler?._cleanupUserSelection?.(user);
