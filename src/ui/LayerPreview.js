@@ -49,7 +49,7 @@ export class LayerPreview {
 
     if (group.flatCanvas) {
       targetCtx.globalCompositeOperation = 'source-over';
-      targetCtx.drawImage(group.flatCanvas, 0, 0);
+      layerManager._drawCanvasRegion(targetCtx, group.flatCanvas);
     }
 
     for (const item of group.bakedSequences) {

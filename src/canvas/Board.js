@@ -450,6 +450,16 @@ export class Board {
       }
     }
 
+    // Carry the room's tiled backing-store setting across the swap. resizeBoard
+    // throws the whole LayerManager away and nothing re-applies the room
+    // setting afterwards (applyRoomTiledCanvas only runs on connect and on a
+    // ROOM_UPDATE that carries the field), so without this a board-size change
+    // — or any room update that reasserts the current size — silently drops
+    // tiling for the rest of the session. Falls back to the outgoing manager
+    // because resizeBoard calls this with no explicit previous.
+    const prior = previousLayerManager || this.layerManager;
+    if (prior?.tiledBackingStore) layerManager.setTiledBackingStore(true);
+
     this.layerManager = layerManager;
     return layerManager;
   }
@@ -4106,7 +4116,7 @@ export class Board {
       const sourceCanvas = this._createCanvasFromImageData(imageData);
 
       if (group.flatCanvas) {
-        group.flatCtx.drawImage(sourceCanvas, 0, 0);
+        this.layerManager.restoreLayerFromSnapshot(i, sourceCanvas);
       } else {
         this.layerManager.addToBaseBin(i, sourceCanvas, 0, 0);
       }
@@ -4128,7 +4138,7 @@ export class Board {
     group.activeStrokeByUser.clear();
 
     if (group.flatCanvas) {
-      group.flatCtx.clearRect(x, y, width, height);
+      this.layerManager.clearLayerFlatRect(groupIdx, x, y, width, height);
       return;
     }
 

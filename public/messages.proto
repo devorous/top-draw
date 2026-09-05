@@ -465,6 +465,7 @@ message Msg {
   string room_board_size = 150; // ROOM_UPDATE/SETTINGS: board size preset (720p|1080p|1440p|big)
   string room_floating_gallery_voronoi_json = 151; // SETTINGS: precomputed floating gallery Voronoi geometry
   string room_creator_device_id = 152; // ROOM_UPDATE: local creator device id for unowned room setup
+  bool room_tiled_canvas = 209; // ROOM_UPDATE/SETTINGS: opt-in tiled canvas backing store (perf experiment)
 
   message CheckpointMeta {
     string id = 1;

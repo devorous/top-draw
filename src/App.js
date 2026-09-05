@@ -51,6 +51,7 @@ import { SnapshotManager } from './remote/SnapshotManager.js';
 import { readQoiDimensions } from '../shared/qoi.js';
 import { loadAppPreferences, saveAppPreferences, THEME_BASE_COLORS } from './config/AppPreferences.js';
 import { applyRoomBoardSize } from './config/BoardSizes.js';
+import { applyRoomTiledCanvas } from './config/TiledCanvasSetting.js';
 import {
   getDefaultRightClickAction,
   getRightClickActionsForTool,
@@ -2985,6 +2986,7 @@ export class DrawingApp {
       }
       appState.currentRoomData = { ...this.currentRoomData };
     }
+    applyRoomTiledCanvas(this, connectData?.roomTiledCanvas);
 
     if (role !== undefined) {
       this.selfRole = role;

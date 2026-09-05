@@ -35,6 +35,7 @@ import { T, Tool, ToolNames, ToolToEnum } from '../shared/MessageTypes.js';
 import { isCommitType, COMMIT_KIND } from '../shared/StrokeFingerprint.js';
 import { packColor, unpackColor } from '../shared/ColorUtils.js';
 import { BOARD_SIZE_PRESETS, isValidBoardSize } from '../shared/boardSizes.js';
+import { ENABLE_TILED_CANVAS_BACKING_STORE } from './tiledCanvasConfig.js';
 import { SessionManager, Role, RoleNames } from './SessionManager.js';
 import { SyncCoordinator } from './SyncCoordinator.js';
 import { RoomManager } from './RoomManager.js';
@@ -2224,7 +2225,11 @@ function buildSettingsPayload(room) {
     ownerId: room.ownerId || '',
     ownerUsername: room.ownerUsername || '',
     electedUploader: room._electedUploader || '',
-    roomBoardSize: room.settings.boardSize
+    roomBoardSize: room.settings.boardSize,
+    // Kill-switch gated: even a room with the flag set behaves as untiled if
+    // the feature is globally disabled, so it can be killed instantly without
+    // touching per-room state.
+    roomTiledCanvas: ENABLE_TILED_CANVAS_BACKING_STORE && !!room.settings.tiledCanvasBackingStore
   };
 }
 
@@ -3861,7 +3866,8 @@ wss.on('connection', async (ws, req) => {
             roomFloatingGalleryVoronoiJson: getFloatingGalleryVoronoiJson(
               room.settings.floatingGalleryVoronoi || generateFloatingGalleryVoronoi(room.settings.floatingGallerySeed)
             ),
-            roomBoardSize: room.settings.boardSize
+            roomBoardSize: room.settings.boardSize,
+            roomTiledCanvas: ENABLE_TILED_CANVAS_BACKING_STORE && !!room.settings.tiledCanvasBackingStore
           });
 
           const allUsers = getVisibleJoinedUsers(room);
@@ -4684,6 +4690,9 @@ wss.on('connection', async (ws, req) => {
               if (isValidBoardSize(data.roomBoardSize)) {
                 room.settings.boardSize = data.roomBoardSize;
               }
+            }
+            if (ENABLE_TILED_CANVAS_BACKING_STORE && data.roomTiledCanvas !== undefined) {
+              room.settings.tiledCanvasBackingStore = !!data.roomTiledCanvas;
             }
             room.settings.floatingGalleryIncludeIds = [...new Set(room.settings.floatingGalleryIncludeIds)];
             room.settings.floatingGalleryExcludeIds = [...new Set(room.settings.floatingGalleryExcludeIds)];

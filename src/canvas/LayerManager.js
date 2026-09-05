@@ -5,6 +5,15 @@
 import { PixelsWorkerClient } from '../workers/PixelsWorkerClient.js';
 import { blurImageData, getStackblurSync } from '../utils/blurUtils.js';
 import { normalizeBlendBakeMode } from '../../shared/blendBakeMode.js';
+import { debug } from '../utils/debug.js';
+import { TiledLayerCanvas } from './TiledLayerCanvas.js';
+
+// Composite operations whose result depends on destination pixels *outside*
+// the source rect, so compositing them tile-by-tile is not equivalent to
+// compositing them onto one full-board canvas. See _flatWindowWriteBack.
+const TILED_UNSAFE_COMPOSITE_OPS = new Set([
+  'copy', 'source-in', 'source-atop', 'destination-in', 'destination-atop'
+]);
 
 /**
  * Manages multiple layer groups, each containing baked sequences, a stroke stack,
@@ -117,7 +126,74 @@ export class LayerManager {
     // (AFK is reversible; departure is not, but the id simply never returns).
     this._drainableUsers = new Set();
 
+    // Opt-in per-room experiment: when true, layer 0's flatCanvas is backed
+    // by a TiledLayerCanvas (grid of lazily-allocated tile canvases) instead
+    // of one full-board canvas. See docs plan "Tiled Canvas Backing Store".
+    // Only layer 0 ever gets a flatCanvas at all (see initLayerGroups), so
+    // tiling is scoped to that layer; layers 1-2 (bakedSequences) are
+    // unaffected regardless of this flag.
+    this.tiledBackingStore = false;
+    /** Grid granularity in px, set by setTiledBackingStore. */
+    this.tiledTileSize = TiledLayerCanvas.DEFAULT_TILE_SIZE;
+
     this.initLayerGroups(3);
+  }
+
+  /**
+   * Toggle tiled backing storage for layer 0 live, mid-room. Baked content is
+   * the only thing that needs reshaping (active strokes are already windowed
+   * to their own bounds and untouched by this flag), so this is a local,
+   * one-time reshape per client — no server round-trip needed beyond the
+   * room-setting broadcast that calls this.
+   * @param {boolean} enabled
+   * @param {number} [tileSize] - Grid granularity. Smaller tiles skip more
+   *   blank area but cost more per-tile draw calls on every composite, so this
+   *   is a real trade rather than "smaller is better". Omit to keep the
+   *   current size (or TiledLayerCanvas.DEFAULT_TILE_SIZE on first enable).
+   */
+  setTiledBackingStore(enabled, tileSize) {
+    enabled = !!enabled;
+    const nextSize = tileSize || this.tiledTileSize || TiledLayerCanvas.DEFAULT_TILE_SIZE;
+    // Re-tiling at a different granularity is a real state change even though
+    // `enabled` did not move, so it must not hit the no-op guard below.
+    const resizingGrid = enabled && this.tiledBackingStore && nextSize !== this.tiledTileSize;
+    if (enabled === this.tiledBackingStore && !resizingGrid) return;
+
+    const group = this.layerGroups[0];
+    // Nothing baked yet. Bail *before* recording the new mode, so
+    // this.tiledBackingStore can never claim a state group.tiled doesn't have
+    // — applyRoomTiledCanvas short-circuits on equality and would never
+    // retry, leaving the room untiled while reporting itself tiled.
+    if (!group || !group.flatCanvas) return;
+    this.tiledBackingStore = enabled;
+    this.tiledTileSize = nextSize;
+
+    if (enabled) {
+      // Re-tiling in place: stitch the existing grid out to a full raster
+      // first, then re-slice it at the new granularity.
+      const full = resizingGrid ? group.flatCanvas.toFullCanvas() : group.flatCanvas;
+      if (resizingGrid) group.flatCanvas.dispose();
+      const tiled = new TiledLayerCanvas(this.width, this.height, nextSize);
+      const allocated = tiled.fromFullCanvas(full);
+      group.flatCanvas = tiled;
+      group.flatCtx = null;
+      group.tiled = true;
+      this._disposeCanvasElement(full);
+      debug(
+        `[LayerManager] tiled backing store on @${nextSize}px: ${allocated}/${tiled.cols * tiled.rows} tiles allocated ` +
+        `(${(tiled.allocatedBytes / (1024 * 1024)).toFixed(1)}MB of ` +
+        `${((this.width * this.height * 4) / (1024 * 1024)).toFixed(1)}MB full-board)`
+      );
+    } else {
+      const tiled = group.flatCanvas;
+      const { canvas, ctx } = this._createCanvas();
+      ctx.drawImage(tiled.toFullCanvas(), 0, 0);
+      group.flatCanvas = canvas;
+      group.flatCtx = ctx;
+      group.tiled = false;
+      tiled.dispose();
+    }
+    this.needsComposite = true;
   }
 
   recycleWorkerClient() {
@@ -130,7 +206,11 @@ export class LayerManager {
     this._pixelsWorker?.destroy?.();
     this._pixelsWorker = null;
     for (const group of this.layerGroups) {
-      this._disposeCanvasElement(group.flatCanvas);
+      if (group.flatCanvas instanceof TiledLayerCanvas) {
+        group.flatCanvas.dispose();
+      } else {
+        this._disposeCanvasElement(group.flatCanvas);
+      }
       group.flatCanvas = null;
       group.flatCtx = null;
     }
@@ -172,6 +252,183 @@ export class LayerManager {
     ctx.lineJoin = 'round';
     ctx.imageSmoothingQuality = 'high';
     return { canvas, ctx };
+  }
+
+  /**
+   * Composite a board-absolute region of `group.flatCanvas` onto `destCtx` at
+   * local (0,0) — i.e. read `(x,y,width,height)` as a crop. Works identically
+   * whether the group is tiled or a single canvas; every "read flatCanvas as
+   * a drawImage source" call site should go through this instead of touching
+   * `group.flatCanvas` directly, since a TiledLayerCanvas isn't a valid
+   * drawImage source on its own.
+   * @param {Object} group
+   * @param {CanvasRenderingContext2D} destCtx
+   * @param {number} x
+   * @param {number} y
+   * @param {number} width
+   * @param {number} height
+   * @private
+   */
+  _flatReadInto(group, destCtx, x, y, width, height) {
+    if (group.tiled) {
+      group.flatCanvas.compositeInto(destCtx, [{ x, y, width, height }], -x, -y);
+    } else {
+      destCtx.drawImage(group.flatCanvas, x, y, width, height, 0, 0, width, height);
+    }
+  }
+
+  /**
+   * Draw `sourceCanvas` onto `group.flatCanvas` at board position
+   * `(bounds.x, bounds.y)` with the given composite operation, then restore
+   * `source-over`. The tiled-mode equivalent of
+   * `group.flatCtx.drawImage(sourceCanvas, bounds.x, bounds.y)` bracketed by
+   * a `globalCompositeOperation` set/reset.
+   * @param {Object} group
+   * @param {{x:number,y:number,width:number,height:number}} bounds
+   * @param {HTMLCanvasElement|ImageBitmap} sourceCanvas
+   * @param {string} [compositeOp='source-over']
+   * @private
+   */
+  _flatWindowWriteBack(group, bounds, sourceCanvas, compositeOp = 'source-over') {
+    if (group.tiled) {
+      // Per-tile compositing only equals whole-canvas compositing for
+      // operators that leave the destination alone where the source is
+      // transparent. The destination-clearing ones (copy/source-in/
+      // destination-in/destination-atop) would clear the rest of each *tile*
+      // instead of the rest of the board — and they also break the
+      // skip-blank-source optimisation below. Nothing routes them here today
+      // (_bakeStrokeToBin diverts every complex blend to
+      // _bakeFlatComplexBlendStroke), but importSequence/addToBaseBin take a
+      // caller-supplied mode, so fail loudly rather than diverge silently.
+      if (TILED_UNSAFE_COMPOSITE_OPS.has(compositeOp)) {
+        console.error(`[LayerManager] composite op "${compositeOp}" is not tile-safe; falling back to source-over`);
+        compositeOp = 'source-over';
+      }
+      // destination-out can only remove alpha: an unallocated tile is already
+      // transparent, so there is nothing to erase there and allocating one
+      // would be pure waste. It can, though, empty a tile it fully covers —
+      // hence pruneCovered.
+      const erasing = compositeOp === 'destination-out';
+      group.flatCanvas.paintImage(bounds, sourceCanvas, compositeOp, {
+        create: !erasing,
+        pruneCovered: erasing
+      });
+      return;
+    }
+    group.flatCtx.globalCompositeOperation = compositeOp;
+    group.flatCtx.drawImage(sourceCanvas, bounds.x, bounds.y);
+    group.flatCtx.globalCompositeOperation = 'source-over';
+  }
+
+  /**
+   * Escape hatch for the handful of rare, non-hot-path call sites (replay
+   * region-restore, remote selection paste, snapshot/timemachine restore,
+   * layer thumbnails) that need arbitrary canvas-2D operations — save/clip/
+   * transform sequences a per-tile paint callback can't safely replicate —
+   * against layer 0's flatCanvas. Non-tiled: runs `fn` directly against the
+   * real ctx, byte-identical to before. Tiled: materializes a full-board
+   * view, runs `fn` unchanged against that, and re-slices the result back
+   * into tiles. Every one of these call sites fires at most once per user
+   * action, never per-frame, so the one-time full-board stitch cost is an
+   * acceptable trade for reusing the existing, already-correct drawing code.
+   * @param {number} groupIdx
+   * @param {(ctx: CanvasRenderingContext2D) => void} fn
+   */
+  withFlatCanvasContext(groupIdx, fn) {
+    const group = this.layerGroups[groupIdx];
+    if (!group?.flatCanvas) return;
+    if (!group.tiled) {
+      fn(group.flatCtx);
+      return;
+    }
+    const full = group.flatCanvas.toFullCanvas();
+    fn(full.getContext('2d'));
+    group.flatCanvas.fromFullCanvas(full);
+  }
+
+  /**
+   * Public wrapper around `_flatWindowWriteBack` for other modules (selection
+   * restore, etc.) that need to draw a cropped canvas back onto layer 0's
+   * flatCanvas at a board position, without knowing whether it's tiled.
+   * @param {number} groupIdx
+   * @param {HTMLCanvasElement} sourceCanvas
+   * @param {number} x
+   * @param {number} y
+   * @param {string} [compositeOp='source-over']
+   */
+  writeToFlatCanvas(groupIdx, sourceCanvas, x, y, compositeOp = 'source-over') {
+    const group = this.layerGroups[groupIdx];
+    if (!group?.flatCanvas) return;
+    this._flatWindowWriteBack(group, { x, y, width: sourceCanvas.width, height: sourceCanvas.height }, sourceCanvas, compositeOp);
+  }
+
+  /**
+   * Draw a full-board-sized source (e.g. a decoded snapshot/checkpoint image)
+   * onto layer 0's flatCanvas at (0,0), source-over. Used by Board's
+   * snapshot-restore path so it doesn't need to know whether the layer is
+   * tiled.
+   * @param {number} groupIdx
+   * @param {HTMLCanvasElement} sourceCanvas
+   */
+  restoreLayerFromSnapshot(groupIdx, sourceCanvas) {
+    const group = this.layerGroups[groupIdx];
+    if (!group?.flatCanvas) return;
+    this._flatWindowWriteBack(group, { x: 0, y: 0, width: this.width, height: this.height }, sourceCanvas, 'source-over');
+  }
+
+  /**
+   * Clear a board-absolute rect of layer `groupIdx`'s flatCanvas, tiled or not.
+   * @param {number} groupIdx
+   * @param {number} x
+   * @param {number} y
+   * @param {number} width
+   * @param {number} height
+   */
+  clearLayerFlatRect(groupIdx, x, y, width, height) {
+    const group = this.layerGroups[groupIdx];
+    if (!group?.flatCanvas) return;
+    if (group.tiled) {
+      // A clear can only remove content: never allocate for it, and drop any
+      // tile the rect fully covers outright — that one is guaranteed blank, so
+      // it needs neither a draw nor a readback. Partially-cleared tiles stay
+      // allocated until a compact().
+      group.flatCanvas.paintInto({ x, y, width, height }, (ctx, offX, offY) => {
+        ctx.clearRect(x + offX, y + offY, width, height);
+      }, { create: false, dropCovered: true });
+      return;
+    }
+    group.flatCtx.clearRect(x, y, width, height);
+  }
+
+  /**
+   * Bake a resolved raster (blur/glitchBlur result) into `group.flatCanvas` at
+   * `(x,y)`, including any mirror-region copies. Mirror copies
+   * (`Board.drawMirroredCanvas`) can land anywhere on the board using
+   * arbitrary transforms, which a per-tile paint call can't safely replicate,
+   * so the tiled path materializes a full-board view, reuses the existing
+   * mirror-draw code completely unchanged, and re-slices the result — a rare,
+   * already-expensive path (glitchBlur bake only), so the one-time full-board
+   * stitch is an acceptable trade against the memory win elsewhere.
+   * @param {Object} group
+   * @param {Object} stroke
+   * @param {HTMLCanvasElement} sourceCanvas
+   * @param {number} x
+   * @param {number} y
+   * @private
+   */
+  _bakeMirroredResult(group, stroke, sourceCanvas, x, y) {
+    if (!group.tiled) {
+      group.flatCtx.globalCompositeOperation = 'source-over';
+      group.flatCtx.drawImage(sourceCanvas, x, y);
+      this._drawMirroredGlitchCopies(group.flatCtx, stroke, sourceCanvas, x, y);
+      return;
+    }
+
+    const full = group.flatCanvas.toFullCanvas();
+    const fullCtx = full.getContext('2d');
+    fullCtx.drawImage(sourceCanvas, x, y);
+    this._drawMirroredGlitchCopies(fullCtx, stroke, sourceCanvas, x, y);
+    group.flatCanvas.fromFullCanvas(full);
   }
 
   /**
@@ -408,13 +665,20 @@ export class LayerManager {
         activeStrokeByUser: new Map(),
         activePreviewByUser: new Map(),
         flatCanvas: null,
-        flatCtx: null
+        flatCtx: null,
+        tiled: false
       };
 
       if (i === 0) {
-        const { canvas, ctx } = this._createCanvas();
-        group.flatCanvas = canvas;
-        group.flatCtx = ctx;
+        if (this.tiledBackingStore) {
+          group.flatCanvas = new TiledLayerCanvas(this.width, this.height);
+          group.flatCtx = null;
+          group.tiled = true;
+        } else {
+          const { canvas, ctx } = this._createCanvas();
+          group.flatCanvas = canvas;
+          group.flatCtx = ctx;
+        }
       }
 
       this.layerGroups.push(group);
@@ -689,7 +953,7 @@ export class LayerManager {
     contentCanvas.height = height;
     const contentCtx = contentCanvas.getContext('2d');
 
-    contentCtx.drawImage(group.flatCanvas, x, y, width, height, 0, 0, width, height);
+    this._flatReadInto(group, contentCtx, x, y, width, height);
 
     for (const s of group.strokeStack) {
       const sx = s.x || 0;
@@ -929,9 +1193,7 @@ export class LayerManager {
     if (!group) return;
 
     if (group.flatCanvas) {
-      group.flatCtx.globalCompositeOperation = blendMode;
-      group.flatCtx.drawImage(imageBitmap, 0, 0);
-      group.flatCtx.globalCompositeOperation = 'source-over';
+      this._flatWindowWriteBack(group, { x: 0, y: 0, width: this.width, height: this.height }, imageBitmap, blendMode);
     } else {
       const seq = this._createCanvas();
       seq.blendMode = blendMode;
@@ -1776,9 +2038,12 @@ export class LayerManager {
         this._bakeFlatComplexBlendStroke(group, stroke);
         return;
       }
-      group.flatCtx.globalCompositeOperation = stroke.blendMode;
-      group.flatCtx.drawImage(stroke.canvas, stroke.x, stroke.y);
-      group.flatCtx.globalCompositeOperation = 'source-over';
+      this._flatWindowWriteBack(
+        group,
+        { x: stroke.x, y: stroke.y, width: stroke.canvas.width, height: stroke.canvas.height },
+        stroke.canvas,
+        stroke.blendMode
+      );
       return;
     }
 
@@ -1837,7 +2102,7 @@ export class LayerManager {
       beforeCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
       beforeCtx.fillRect(0, 0, width, height);
     }
-    beforeCtx.drawImage(group.flatCanvas, x, y, width, height, 0, 0, width, height);
+    this._flatReadInto(group, beforeCtx, x, y, width, height);
 
     blendedCtx.drawImage(beforeCanvas, 0, 0);
     blendedCtx.globalCompositeOperation = stroke.blendMode;
@@ -1847,19 +2112,17 @@ export class LayerManager {
     if (useBackground) {
       maskCtx.drawImage(stroke.canvas, sourceX, sourceY, width, height, 0, 0, width, height);
       const outCanvas = this._extractOpaqueStrokeFootprintFromComposite(blendedCanvas, maskCanvas);
-      group.flatCtx.globalCompositeOperation = 'source-over';
-      group.flatCtx.drawImage(outCanvas, x, y);
+      this._flatWindowWriteBack(group, { x, y, width, height }, outCanvas, 'source-over');
       return;
     } else {
-      maskCtx.drawImage(group.flatCanvas, x, y, width, height, 0, 0, width, height);
+      this._flatReadInto(group, maskCtx, x, y, width, height);
       maskCtx.globalCompositeOperation = 'destination-in';
       maskCtx.drawImage(stroke.canvas, sourceX, sourceY, width, height, 0, 0, width, height);
       maskCtx.globalCompositeOperation = 'source-over';
     }
 
     const outCanvas = this._extractSourceOverPatchFromComposite(blendedCanvas, beforeCanvas, maskCanvas);
-    group.flatCtx.globalCompositeOperation = 'source-over';
-    group.flatCtx.drawImage(outCanvas, x, y);
+    this._flatWindowWriteBack(group, { x, y, width, height }, outCanvas, 'source-over');
   }
 
   _extractOpaqueStrokeFootprintFromComposite(blendedCanvas, maskCanvas) {
@@ -1928,9 +2191,7 @@ export class LayerManager {
     // If we have a cached high-quality blur result, use it directly
     if (stroke._cachedBlurResult) {
       if (group.flatCanvas) {
-        group.flatCtx.globalCompositeOperation = 'source-over';
-        group.flatCtx.drawImage(stroke._cachedBlurResult, x, y);
-        this._drawMirroredGlitchCopies(group.flatCtx, stroke, stroke._cachedBlurResult, x, y);
+        this._bakeMirroredResult(group, stroke, stroke._cachedBlurResult, x, y);
         return;
       }
       const lastSeq = group.bakedSequences[group.bakedSequences.length - 1];
@@ -1951,7 +2212,11 @@ export class LayerManager {
     // Build the source image from current baked state
     let sourceCanvas;
     if (group.flatCanvas) {
-      sourceCanvas = group.flatCanvas;
+      // A TiledLayerCanvas isn't itself a valid drawImage source; the crop
+      // below only needs the region around the blur, but blur bake is rare
+      // enough (not per-frame) that stitching the whole layer once here is
+      // an acceptable trade for reusing this logic unchanged.
+      sourceCanvas = group.tiled ? group.flatCanvas.toFullCanvas() : group.flatCanvas;
     } else {
       // Composite all baked sequences into a temp canvas to get current state
       const temp = document.createElement('canvas');
@@ -2000,9 +2265,7 @@ export class LayerManager {
 
     // Draw resolved blur pixels into the baked state
     if (group.flatCanvas) {
-      group.flatCtx.globalCompositeOperation = 'source-over';
-      group.flatCtx.drawImage(blurred, cropX, cropY);
-      this._drawMirroredGlitchCopies(group.flatCtx, stroke, blurred, cropX, cropY);
+      this._bakeMirroredResult(group, stroke, blurred, cropX, cropY);
     } else {
       const lastSeq = group.bakedSequences[group.bakedSequences.length - 1];
       let targetBin;
@@ -2031,9 +2294,7 @@ export class LayerManager {
     if (!group) return;
 
     if (group.flatCanvas) {
-      group.flatCtx.globalCompositeOperation = blendMode;
-      group.flatCtx.drawImage(canvas, x, y);
-      group.flatCtx.globalCompositeOperation = 'source-over';
+      this._flatWindowWriteBack(group, { x, y, width: canvas.width, height: canvas.height }, canvas, blendMode);
       this.needsComposite = true;
       return;
     }
@@ -2066,19 +2327,44 @@ export class LayerManager {
     if (!group) return;
 
     if (group.flatCanvas) {
-      group.flatCtx.globalCompositeOperation = 'destination-out';
       if (lassoPath && lassoPath.length >= 3) {
-        group.flatCtx.beginPath();
-        group.flatCtx.moveTo(lassoPath[0].x, lassoPath[0].y);
-        for (let i = 1; i < lassoPath.length; i++) {
-          group.flatCtx.lineTo(lassoPath[i].x, lassoPath[i].y);
+        const drawLasso = (ctx, offX = 0, offY = 0) => {
+          ctx.globalCompositeOperation = 'destination-out';
+          ctx.beginPath();
+          ctx.moveTo(lassoPath[0].x + offX, lassoPath[0].y + offY);
+          for (let i = 1; i < lassoPath.length; i++) {
+            ctx.lineTo(lassoPath[i].x + offX, lassoPath[i].y + offY);
+          }
+          ctx.closePath();
+          ctx.fill();
+          ctx.globalCompositeOperation = 'source-over';
+        };
+        if (group.tiled) {
+          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+          for (const p of lassoPath) {
+            if (p.x < minX) minX = p.x;
+            if (p.y < minY) minY = p.y;
+            if (p.x > maxX) maxX = p.x;
+            if (p.y > maxY) maxY = p.y;
+          }
+          // Lasso points are floats, so snap outwards to whole pixels before
+          // deriving the tile range: a path ending at x=1024.4 still puts
+          // antialiased coverage on pixel 1024, which belongs to the next tile
+          // column. A width of `maxX - minX` would round that column away and
+          // leave a 1px un-erased sliver on the tile seam.
+          const bx = Math.floor(minX);
+          const by = Math.floor(minY);
+          group.flatCanvas.paintInto(
+            { x: bx, y: by, width: Math.ceil(maxX) - bx + 1, height: Math.ceil(maxY) - by + 1 },
+            drawLasso,
+            { create: false, pruneCovered: true }
+          );
+        } else {
+          drawLasso(group.flatCtx);
         }
-        group.flatCtx.closePath();
-        group.flatCtx.fill();
       } else {
-        group.flatCtx.drawImage(eraserCanvas, x, y);
+        this._flatWindowWriteBack(group, { x, y, width: eraserCanvas.width, height: eraserCanvas.height }, eraserCanvas, 'destination-out');
       }
-      group.flatCtx.globalCompositeOperation = 'source-over';
       this.needsComposite = true;
       return;
     }
@@ -2237,6 +2523,17 @@ export class LayerManager {
 
   _drawCanvasRegion(ctx, canvas, dirtyRects = null, dx = 0, dy = 0) {
     if (!ctx || !canvas) return;
+    if (canvas instanceof TiledLayerCanvas) {
+      // dx/dy is always 0 for the tiled flatCanvas (layer 0's baked raster is
+      // never drawn at an offset), and compositeInto's tile-granularity
+      // "draw the whole intersecting tile" is safe here because the caller
+      // has already applied a clip path to `dirtyRects` (_applyDirtyClip)
+      // before reaching this method — any overdraw beyond the exact rect is
+      // clipped away, same as the exactness _drawCanvasRegion's per-rect crop
+      // gives for a plain canvas.
+      canvas.compositeInto(ctx, dirtyRects, dx, dy);
+      return;
+    }
     if (!dirtyRects || dirtyRects.length === 0) {
       ctx.drawImage(canvas, dx, dy);
       return;
@@ -3271,7 +3568,11 @@ export class LayerManager {
       group.activeStrokeByUser.clear();
       this._clearPreviewsFromGroup(group);
       if (group.flatCanvas) {
-        group.flatCtx.clearRect(0, 0, this.width, this.height);
+        if (group.tiled) {
+          group.flatCanvas.dispose();
+        } else {
+          group.flatCtx.clearRect(0, 0, this.width, this.height);
+        }
       }
       this.needsComposite = true;
       this._notifyStrokeHistoryPanel();
@@ -3407,13 +3708,26 @@ export class LayerManager {
       }
 
       if (group.flatCanvas) {
-        const tempFlat = document.createElement('canvas');
-        tempFlat.width = group.flatCanvas.width;
-        tempFlat.height = group.flatCanvas.height;
-        tempFlat.getContext('2d').drawImage(group.flatCanvas, 0, 0);
-        group.flatCanvas.width = width;
-        group.flatCanvas.height = height;
-        group.flatCtx.drawImage(tempFlat, 0, 0);
+        if (group.tiled) {
+          const full = group.flatCanvas.toFullCanvas();
+          const oldTileSize = group.flatCanvas.tileSize;
+          group.flatCanvas.dispose();
+          group.flatCanvas = new TiledLayerCanvas(width, height, oldTileSize);
+          // fromFullCanvas crops from `full` using the NEW grid's tile rects;
+          // any rect beyond `full`'s old bounds draws nothing (drawImage clips
+          // an out-of-range source rect to what's available), which is the
+          // same top-left-aligned, excess-clipped behavior the plain-canvas
+          // branch below gets from its own resize.
+          group.flatCanvas.fromFullCanvas(full);
+        } else {
+          const tempFlat = document.createElement('canvas');
+          tempFlat.width = group.flatCanvas.width;
+          tempFlat.height = group.flatCanvas.height;
+          tempFlat.getContext('2d').drawImage(group.flatCanvas, 0, 0);
+          group.flatCanvas.width = width;
+          group.flatCanvas.height = height;
+          group.flatCtx.drawImage(tempFlat, 0, 0);
+        }
       }
     }
 
@@ -3782,8 +4096,22 @@ export class LayerManager {
   }
 
   _rebuildFlatCanvas(group) {
-    if (!group?.flatCanvas || !group.flatCtx) return;
+    if (!group?.flatCanvas) return;
 
+    if (group.tiled) {
+      const { width, height } = group.flatCanvas;
+      const full = document.createElement('canvas');
+      full.width = width;
+      full.height = height;
+      const fullCtx = full.getContext('2d');
+      for (const stroke of group.flatStrokeRecords || []) {
+        this._compositeStroke(fullCtx, stroke, false);
+      }
+      group.flatCanvas.fromFullCanvas(full);
+      return;
+    }
+
+    if (!group.flatCtx) return;
     const { width, height } = group.flatCanvas;
     group.flatCtx.clearRect(0, 0, width, height);
 

@@ -48,11 +48,31 @@ export default function () {
     socket.on('open', function () {
       socket.sendBinary(buildMsg({ t: T.CONNECT, n: `HIGH_VU_${__VU}` }));
 
-      const BOARD_WIDTH = 1920, BOARD_HEIGHT = 1080;
-      const REGION_SIZE = 300, margin = 100;
+      // Default to the historical 1080p. Without BOARD_W/BOARD_H the bots
+      // confine themselves to a 1920x1080 corner of whatever the real board
+      // is, so on a 4k/8k/12k board most of the canvas never gets touched and
+      // any board-area-scaling measurement silently measures the corner.
+      const BOARD_WIDTH = Number(__ENV.BOARD_W || 1920);
+      const BOARD_HEIGHT = Number(__ENV.BOARD_H || 1080);
+      const REGION_SIZE = Number(__ENV.REGION_SIZE || 300), margin = 100;
 
-      const homeX = Math.random() * (BOARD_WIDTH - REGION_SIZE - 2 * margin) + margin + REGION_SIZE / 2;
-      const homeY = Math.random() * (BOARD_HEIGHT - REGION_SIZE - 2 * margin) + margin + REGION_SIZE / 2;
+      // CLUSTERS=n snaps each bot's home to one of n evenly spaced points so
+      // painted content stays confined to a few areas; 0 (default) free-roams
+      // across the whole board.
+      const CLUSTERS = Number(__ENV.CLUSTERS || 0);
+      let homeX, homeY;
+      if (CLUSTERS > 0) {
+        const idx = (__VU - 1) % CLUSTERS;
+        const cols = Math.ceil(Math.sqrt(CLUSTERS));
+        const rows = Math.ceil(CLUSTERS / cols);
+        homeX = (((idx % cols) + 0.5) / cols) * BOARD_WIDTH;
+        homeY = ((Math.floor(idx / cols) + 0.5) / rows) * BOARD_HEIGHT;
+        homeX = Math.max(margin + REGION_SIZE / 2, Math.min(BOARD_WIDTH - margin - REGION_SIZE / 2, homeX));
+        homeY = Math.max(margin + REGION_SIZE / 2, Math.min(BOARD_HEIGHT - margin - REGION_SIZE / 2, homeY));
+      } else {
+        homeX = Math.random() * (BOARD_WIDTH - REGION_SIZE - 2 * margin) + margin + REGION_SIZE / 2;
+        homeY = Math.random() * (BOARD_HEIGHT - REGION_SIZE - 2 * margin) + margin + REGION_SIZE / 2;
+      }
 
       let x = homeX, y = homeY, dx = 0, dy = 0;
       let state = 0;

@@ -1659,9 +1659,8 @@ export class RemoteSelectionHandler {
     } else if (user._selectionRestoreData) {
       for (const { groupIdx, canvas, x, y } of user._selectionRestoreData.snapshots) {
         const group = lm.layerGroups[groupIdx];
-        const targetCtx = group?.flatCtx;
-        if (targetCtx) {
-          targetCtx.drawImage(canvas, x, y);
+        if (group?.flatCanvas) {
+          lm.writeToFlatCanvas(groupIdx, canvas, x, y);
         } else {
           lm.beginUserStroke(groupIdx, user.id, 'source-over');
           const active = lm.layerGroups[groupIdx]?.activeStrokeByUser.get(user.id);

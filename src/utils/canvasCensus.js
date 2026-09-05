@@ -34,6 +34,14 @@ const MB = 1024 * 1024;
  * @returns {number} Bytes.
  */
 function canvasBytes(canvas) {
+  // A TiledLayerCanvas reports `.width`/`.height` as the nominal full-board
+  // size (so callers can treat it like a canvas), but its actual backing
+  // store is only the tiles that have been lazily allocated so far — the
+  // whole point of this census is to see that real, usually much smaller,
+  // number rather than the nominal one.
+  if (Array.isArray(canvas?.tiles) && typeof canvas?.allocatedBytes === 'number') {
+    return canvas.allocatedBytes;
+  }
   const w = canvas?.width | 0;
   const h = canvas?.height | 0;
   if (w <= 0 || h <= 0) return 0;

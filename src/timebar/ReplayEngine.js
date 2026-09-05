@@ -586,7 +586,7 @@ class ReplayBoard {
 
       const group = lm.layerGroups[i];
       if (group?.flatCanvas) {
-        group.flatCtx.drawImage(sourceCanvas, 0, 0);
+        lm.restoreLayerFromSnapshot(i, sourceCanvas);
       } else {
         lm.addToBaseBin(i, sourceCanvas, 0, 0);
       }
@@ -662,18 +662,19 @@ class ReplayBoard {
 
       if (group.flatCanvas) {
         // Layer 0: direct pixel manipulation on the flat canvas.
-        const ctx = group.flatCtx;
-        ctx.save();
-        if (!isLasso) {
-          ctx.clearRect(rx, ry, rw, rh);
-          this._drawSnapshotRectRegion(ctx, snapshotCanvas, rx, ry, rw, rh);
-        } else {
-          buildLassoPath(ctx);
-          ctx.clip();
-          ctx.clearRect(0, 0, width, height);
-          ctx.drawImage(snapshotCanvas, 0, 0);
-        }
-        ctx.restore();
+        lm.withFlatCanvasContext(i, (ctx) => {
+          ctx.save();
+          if (!isLasso) {
+            ctx.clearRect(rx, ry, rw, rh);
+            this._drawSnapshotRectRegion(ctx, snapshotCanvas, rx, ry, rw, rh);
+          } else {
+            buildLassoPath(ctx);
+            ctx.clip();
+            ctx.clearRect(0, 0, width, height);
+            ctx.drawImage(snapshotCanvas, 0, 0);
+          }
+          ctx.restore();
+        });
       } else {
         // Layers 1+: append destination-out erase then source-over fill.
         const eraseCanvas = document.createElement('canvas');

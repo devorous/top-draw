@@ -4,6 +4,7 @@ import { User } from '../User.js';
 import { debug } from '../utils/debug.js';
 import { appState } from '../state.svelte.js';
 import { BOARD_SIZE_PRESETS, applyRoomBoardSize } from '../config/BoardSizes.js';
+import { applyRoomTiledCanvas } from '../config/TiledCanvasSetting.js';
 import { countryCodeToFlagEmoji } from '../utils/countryFlag.js';
 import { setUserLayerContent } from '../remote/userLayerPresence.js';
 
@@ -645,6 +646,10 @@ export function setupUserHandlers(wsClient, app) {
     if (data.boardSize && BOARD_SIZE_PRESETS[data.boardSize]) {
       roomDataUpdates.boardSize = data.boardSize;
       applyRoomBoardSize(app, data.boardSize, { showToast: !!app.connected });
+    }
+    if (data.tiledCanvas !== undefined) {
+      roomDataUpdates.tiledCanvas = !!data.tiledCanvas;
+      applyRoomTiledCanvas(app, data.tiledCanvas);
     }
 
     // Mirror is not persisted to DB, but update it locally

@@ -67,7 +67,14 @@ export class Room {
       floatingGalleryIncludeIds: [],
       floatingGalleryExcludeIds: [],
       floatingGalleryVoronoi: null,
-      boardSize: '1080p'
+      boardSize: '1080p',
+      // Opt-in perf experiment: layer 0's baked raster becomes a grid of
+      // lazily-allocated tile canvases instead of one full-board canvas.
+      // Hidden flag (no room-creation UI) — set directly on specific rooms to
+      // hand-pick the prod trial cohort. Also gated by the
+      // ENABLE_TILED_CANVAS_BACKING_STORE env var kill switch, see
+      // server/replayConfig.js-style pattern in server/index.js.
+      tiledCanvasBackingStore: false
     };
 
     this.description = '';
@@ -740,6 +747,7 @@ export class Room {
         this.settings.boardSize = isValidBoardSize(doc.settings?.boardSize)
           ? doc.settings.boardSize
           : '1080p';
+        this.settings.tiledCanvasBackingStore = !!doc.settings?.tiledCanvasBackingStore;
         console.log(`[Room] Loaded "${this.id}" from DB`);
       }
 
@@ -789,7 +797,8 @@ export class Room {
               floatingGalleryIncludeIds: this.settings.floatingGalleryIncludeIds,
               floatingGalleryExcludeIds: this.settings.floatingGalleryExcludeIds,
               floatingGalleryVoronoi: this.settings.floatingGalleryVoronoi || generateFloatingGalleryVoronoi(this.settings.floatingGallerySeed),
-              boardSize: this.settings.boardSize
+              boardSize: this.settings.boardSize,
+              tiledCanvasBackingStore: !!this.settings.tiledCanvasBackingStore
             }
           },
           $setOnInsert: {

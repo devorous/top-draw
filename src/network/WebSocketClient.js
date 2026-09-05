@@ -1130,7 +1130,8 @@ export class WebSocketClient {
           floatingGalleryVoronoi: this._parseFloatingGalleryVoronoi(data.roomFloatingGalleryVoronoiJson),
           ownerId: data.ownerId || null,
           ownerUsername: data.ownerUsername || null,
-          boardSize: normalizeRoomBoardSize(data.roomBoardSize)
+          boardSize: normalizeRoomBoardSize(data.roomBoardSize),
+          tiledCanvas: !!data.roomTiledCanvas
         });
         break;
 

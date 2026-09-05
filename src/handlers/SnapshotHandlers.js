@@ -187,19 +187,20 @@ export async function applyRegionRestore(board, layerDatas, isLasso, rect, lasso
 
       if (group.flatCanvas) {
         // Layer 0: direct pixel manipulation on the flat canvas
-        const ctx = group.flatCtx;
-        ctx.save();
-        if (!isLasso) {
-          const { sx: x, sy: y, sw: w, sh: h } = rect;
-          ctx.clearRect(x, y, w, h);
-          _drawSnapshotRect(ctx, snapshotCanvas, x, y, w, h);
-        } else {
-          _buildLassoPath(ctx, lassoPoints);
-          ctx.clip();
-          ctx.clearRect(0, 0, width, height);
-          ctx.drawImage(snapshotCanvas, 0, 0);
-        }
-        ctx.restore();
+        lm.withFlatCanvasContext(i, (ctx) => {
+          ctx.save();
+          if (!isLasso) {
+            const { sx: x, sy: y, sw: w, sh: h } = rect;
+            ctx.clearRect(x, y, w, h);
+            _drawSnapshotRect(ctx, snapshotCanvas, x, y, w, h);
+          } else {
+            _buildLassoPath(ctx, lassoPoints);
+            ctx.clip();
+            ctx.clearRect(0, 0, width, height);
+            ctx.drawImage(snapshotCanvas, 0, 0);
+          }
+          ctx.restore();
+        });
       } else {
         // Layers 1+: append destination-out erase then source-over fill to bakedSequences
         const eraseCanvas = document.createElement('canvas');

@@ -70,11 +70,38 @@ export default function () {
     socket.on('open', function () {
       socket.sendBinary(buildMsg({ t: T.CONNECT, n: `MED_VU_${__VU}` }));
 
-      const BOARD_WIDTH = 1920, BOARD_HEIGHT = 1080;
-      const REGION_SIZE = 350, margin = 100;
+      // BOARD_W/BOARD_H default to the historical hardcoded 1080p. They matter
+      // on a larger board: left at 1920x1080 the bots only ever touch the
+      // top-left corner of a 1440p board, which silently changes how much of
+      // the board gets painted and is exactly the kind of thing that makes a
+      // backing-store measurement lie.
+      const BOARD_WIDTH = Number(__ENV.BOARD_W || 1920);
+      const BOARD_HEIGHT = Number(__ENV.BOARD_H || 1080);
+      const REGION_SIZE = Number(__ENV.REGION_SIZE || 350), margin = 100;
 
-      const homeX = Math.random() * (BOARD_WIDTH - REGION_SIZE - 2 * margin) + margin + REGION_SIZE / 2;
-      const homeY = Math.random() * (BOARD_HEIGHT - REGION_SIZE - 2 * margin) + margin + REGION_SIZE / 2;
+      // CLUSTERS=n snaps every bot's home region to one of n fixed, evenly
+      // spaced points instead of a free random position, so painted content
+      // stays confined to a few areas of the board. Needed to exercise the
+      // tiled backing store's sparse case under real multi-user load: bots
+      // scattered freely eventually touch every tile, which measures the dense
+      // case no matter how few users there are. CLUSTERS=0 (default) keeps the
+      // original free-roam behaviour.
+      const CLUSTERS = Number(__ENV.CLUSTERS || 0);
+      let homeX, homeY;
+      if (CLUSTERS > 0) {
+        // Deterministic per-VU assignment so a rerun paints the same areas.
+        const idx = (__VU - 1) % CLUSTERS;
+        const cols = Math.ceil(Math.sqrt(CLUSTERS));
+        const rows = Math.ceil(CLUSTERS / cols);
+        const cx = (idx % cols) + 0.5, cy = Math.floor(idx / cols) + 0.5;
+        homeX = (cx / cols) * BOARD_WIDTH;
+        homeY = (cy / rows) * BOARD_HEIGHT;
+        homeX = Math.max(margin + REGION_SIZE / 2, Math.min(BOARD_WIDTH - margin - REGION_SIZE / 2, homeX));
+        homeY = Math.max(margin + REGION_SIZE / 2, Math.min(BOARD_HEIGHT - margin - REGION_SIZE / 2, homeY));
+      } else {
+        homeX = Math.random() * (BOARD_WIDTH - REGION_SIZE - 2 * margin) + margin + REGION_SIZE / 2;
+        homeY = Math.random() * (BOARD_HEIGHT - REGION_SIZE - 2 * margin) + margin + REGION_SIZE / 2;
+      }
 
       let x = homeX, y = homeY, dx = 0, dy = 0;
       let state = 0;

@@ -1360,8 +1360,8 @@ class TimeMachineState {
 
     liveBoard.clear?.();
     const layer0 = liveBoard.layerManager?.layerGroups?.[0];
-    if (layer0?.flatCtx) {
-      layer0.flatCtx.drawImage(src, 0, 0);
+    if (layer0?.flatCanvas) {
+      liveBoard.layerManager.restoreLayerFromSnapshot(0, src);
     }
     liveBoard.markCompositeFull?.();
     liveBoard.compositeAllLayers?.();
@@ -1459,7 +1459,7 @@ class TimeMachineState {
 
     liveBoard.clear?.();
     const layer0 = lm.layerGroups?.[0];
-    if (layer0?.flatCtx) layer0.flatCtx.drawImage(merged, 0, 0);
+    if (layer0?.flatCanvas) lm.restoreLayerFromSnapshot(0, merged);
     liveBoard.markCompositeFull?.();
     liveBoard.compositeAllLayers?.();
     // Offline/no-broadcast path only. Like the full-board restoreLocalToCurrentState,
