@@ -1,7 +1,7 @@
 {
-  "latest": "1.14.0-beta",
-  "minRequired": "1.14.0-beta",
-  "releaseDate": "2026-09-01T06:47:32.984Z",
-  "notes": "Syncing now provides you with the last 2 minutes of drawing history to view via the history button. Fixed a few bugs with the eraser, pattern and blur tools that were causing substantial lag. Added new full changelog to app - see there for more details. ",
+  "latest": "1.15.0-beta",
+  "minRequired": "1.15.0-beta",
+  "releaseDate": "2026-09-06T05:45:02.693Z",
+  "notes": "Implemented new WIP tiled rendering system to improve performance with larger canvas sizes.",
   "downloadUrl": "https://www.ddraw.ca/"
 }
