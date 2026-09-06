@@ -43,7 +43,7 @@ await page.evaluate((name) => {
   const btn = [...document.querySelectorAll('button')].find(b => /join & draw/i.test(b.textContent));
   if (btn) btn.click();
 }, NAME);
-await page.waitForFunction(() => window.app?.connected && window.app.board?.mainCanvas, { timeout: 90000 });
+await page.waitForFunction(() => window.app?.connected && window.app.board?.viewCanvas, { timeout: 90000 });
 await sleep(2500);
 
 // `/go/` does NOT put two clients in the same room — it picks one for you, and
@@ -62,7 +62,7 @@ console.log('PEER READY', JSON.stringify(info));
 
 // Continuous serpentine strokes across the board until told to stop.
 await page.evaluate((secs) => {
-  const b = window.app.board, canvas = b.mainCanvas;
+  const b = window.app.board, canvas = b.viewCanvas;
   const nap = ms => new Promise(res => setTimeout(res, ms));
   const ev = (t, x, y, tg) => tg.dispatchEvent(new PointerEvent(t, {
     pointerId: 1, pointerType: 'pen', isPrimary: true, bubbles: true, cancelable: true,

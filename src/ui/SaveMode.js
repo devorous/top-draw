@@ -859,7 +859,10 @@ export class SaveMode {
 
     // Mirror the export behavior for opaque saves by previewing the board over
     // the room background color rather than a transparency checkerboard.
-    ctx.drawImage(this.board.mainCanvas, 0, 0);
+    // The pooled full raster rather than getExportCanvas: this runs on every
+    // render of the dialog, and a board-sized allocation per frame is the
+    // measured stall.
+    this.board.withFullRaster((raster) => ctx.drawImage(raster, 0, 0));
   }
 
   _drawCanvasPreview(ctx, canvas, x, y, w, h) {

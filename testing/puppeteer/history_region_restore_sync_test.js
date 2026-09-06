@@ -140,7 +140,7 @@ class HistoryRegionRestoreSyncTest {
 
   async getCanvasHash(bot) {
     return await bot.page.evaluate(() => {
-      const canvas = window.app.board.mainCanvas;
+      const canvas = window.app.board.viewCanvas;
       const ctx = canvas.getContext('2d');
       const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
       

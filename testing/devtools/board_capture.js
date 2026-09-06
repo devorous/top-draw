@@ -15,7 +15,7 @@
  *
  *     python testing/devtools/board_state_compare.py captures/ --out captures/diffs
  *
- * Capture the *composited board canvas* (`board.mainCtx.canvas`), never a page
+ * Capture the *composited board canvas* (`board.viewCtx.canvas`), never a page
  * screenshot: screenshots pick up cursors, remote-user overlay canvases, the
  * marching-ants selection outline and the zoom level, none of which are board
  * state and all of which legitimately differ between clients.
@@ -30,7 +30,7 @@
   const app = window.app;
   if (!app || !app.board) return { error: 'app/board not ready' };
 
-  const canvas = app.board.mainCtx.canvas;
+  const canvas = app.board.viewCtx.canvas;
   const layerGroups = app.board.layerManager?.layerGroups || [];
 
   return {

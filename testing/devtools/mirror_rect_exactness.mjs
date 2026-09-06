@@ -56,7 +56,7 @@ await page.evaluate(() => {
   const btn = [...document.querySelectorAll('button')].find(b => /join & draw/i.test(b.textContent));
   if (btn) btn.click();
 });
-await page.waitForFunction(() => window.app?.connected && window.app.board?.mainCanvas, { timeout: 90000 });
+await page.waitForFunction(() => window.app?.connected && window.app.board?.viewCanvas, { timeout: 90000 });
 await sleep(4000);
 await page.evaluate(r => window.app.handleRoomSelected(r), ROOM);
 await page.waitForFunction(r => window.app?.connected && window.app.currentRoomId === r, { timeout: 60000 }, ROOM);
@@ -96,7 +96,7 @@ const setup = await page.evaluate((mode, slices) => {
    */
   window.__compare = () => {
     const drawing = [...a.users.values()].filter(u => u.mousedown && u.id !== a.self?.id).length;
-    const canvas = b.mainCanvas, ctx = b.mainCtx;
+    const canvas = b.viewCanvas, ctx = b.viewCtx;
     const w = canvas.width, h2 = canvas.height;
     // Flush whatever is already marked THROUGH THE SCOPED PATH first. Without
     // this the comparison catches the ordinary one-frame lag — content that

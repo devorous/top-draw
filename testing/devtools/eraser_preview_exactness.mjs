@@ -41,7 +41,7 @@ const HELPERS = `(() => {
     octx.fillRect(0, 0, w, h);
     // Paint order as the browser sees it: main canvas, then the preview
     // surfaces, then the upper-layer canvas on top.
-    for (const c of [board.mainCanvas, board.topCanvas, board.upperLayersCanvas]) {
+    for (const c of [board.viewCanvas, board.topCanvas, board.upperLayersCanvas]) {
       if (!c) continue;
       if (c.style && c.style.opacity === '0') continue;
       octx.drawImage(c, x, y, w, h, 0, 0, w, h);

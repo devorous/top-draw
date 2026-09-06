@@ -111,10 +111,20 @@ const K6_TOOLS = arg('k6tools', null);
 // composites its preview into the layer stack every tick, the brush does not)
 // is invisible no matter what the bots are set to.
 const LOCAL_TOOL = arg('localtool', null);
+// Force layer 0 onto the tiled backing store, arm-locked against a
+// ROOM_UPDATE reverting it. --content pre-paints a synthetic dense|sparse
+// base before measuring, matching tiled_ab.mjs's regimes.
+const TILED = flag('tiled');
+const CONTENT = arg('content', null);
 
 const BOARD_SIZES = {
   '720p': [720, 1280], '1080p': [1080, 1920], '1440p': [1440, 2560],
-  'big': [1800, 3200], '4k': [2160, 3840], '8k': [4320, 7680], '12k': [6480, 11520]
+  'big': [1800, 3200], '4k': [2160, 3840], '8k': [4320, 7680], '12k': [6480, 11520],
+  // 16k: not a real preset (shared/boardSizes.js tops out at 12k) — added here
+  // only to see whether tiling makes an even-larger board survivable on weak
+  // hardware. 15360/32=480 and 8640/18=480, so it lands on the exact 32x18
+  // grid same as every other 16:9 preset, not the ragged 256px fallback.
+  '16k': [8640, 15360]
 };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -133,7 +143,7 @@ if (COMPARE) {
     console.log(`  ${mark}${name.padEnd(26)} ${String(va).padStart(9)}${unit} → ${String(vb).padStart(9)}${unit}   ${d >= 0 ? '+' : ''}${d.toFixed(0)}${unit} (${pct}%)`);
   };
   console.log(`\n=== ${a}  →  ${b}`);
-  console.log(`    board ${A.size} vs ${B.size}, users ${A.users} vs ${B.users}\n`);
+  console.log(`    board ${A.size} vs ${B.size}, users ${A.users} vs ${B.users}, tiled ${A.tiled} vs ${B.tiled}, content ${A.content} vs ${B.content}\n`);
   row('GPU used_bytes peak', (r) => Math.round(r.gpu.peakMB), ' MB');
   row('canvas census', (r) => Math.round(r.census.totalMB), ' MB');
   row('full-board canvases', (r) => r.census.fullBoardCount, '');
@@ -336,7 +346,11 @@ async function runOnce(runLabel) {
   if (GPU_MEM_MB > 0) launchArgs.push(`--force-gpu-mem-available-mb=${GPU_MEM_MB}`);
 
   const browser = CDP_URL
-    ? await puppeteer.connect({ browserURL: CDP_URL, defaultViewport: null })
+    // protocolTimeout: a CDP-attached run against a weak remote device is far
+    // slower/more variable than a local launch — big board resizes and dense
+    // paints can exceed puppeteer's default 30s and abort with a misleading
+    // "Runtime.callFunctionOn timed out" that looks like a hang, not a timeout.
+    ? await puppeteer.connect({ browserURL: CDP_URL, defaultViewport: null, protocolTimeout: 240_000 })
     : await puppeteer.launch({
         headless: HEADLESS,
         args: launchArgs,
@@ -388,6 +402,62 @@ async function runOnce(runLabel) {
 
     await page.evaluate((h, w) => window.__lockBoardSize(h, w), dims[0], dims[1]);
     await sleep(1500);
+
+    // --tiled forces layer 0's flatCanvas onto the tiled backing store and
+    // arm-locks it against a ROOM_UPDATE (the server is authoritative for this
+    // setting and would otherwise silently flip it back off mid-run — see
+    // tiled_ab.mjs's __installArmLock, same pattern here).
+    if (TILED) {
+      const applied = await page.evaluate(() => {
+        const board = window.app.board;
+        let lm = board.layerManager;
+        const patch = (m) => {
+          if (!m || m.__armLocked) return m;
+          m.__armLocked = true;
+          const orig = m.setTiledBackingStore.bind(m);
+          m.setTiledBackingStore = (v) => { if (!window.__armSetting) return; return orig(v); };
+          return m;
+        };
+        patch(lm);
+        Object.defineProperty(board, 'layerManager', {
+          configurable: true, get: () => lm, set: (v) => { lm = patch(v); }
+        });
+        window.__armSetting = true;
+        lm.setTiledBackingStore(true);
+        window.__armSetting = false;
+        return lm.layerGroups[0].tiled;
+      });
+      if (!applied) throw new Error('--tiled requested but setTiledBackingStore(true) did not take');
+      console.log(`    tiled backing store: ON (arm-locked)`);
+    }
+
+    // --content pre-paints a synthetic base before any drawing is measured, so
+    // the comparison isn't limited to "starts blank, strokes accumulate" —
+    // dense is the case tiling must not regress, sparse is the case it targets.
+    if (CONTENT) {
+      await page.evaluate((mode) => {
+        const lm = window.app.board.layerManager;
+        const [h, w] = window.app.board.dimensions;
+        window.app.board.clear();
+        lm.withFlatCanvasContext(0, (ctx) => {
+          if (mode === 'dense') {
+            for (let i = 0; i < 400; i++) {
+              const gx = i % 20, gy = Math.floor(i / 20);
+              ctx.fillStyle = 'hsl(' + ((i * 37) % 360) + ' 80% 55%)';
+              ctx.fillRect(Math.round(gx * (w / 20)) + 4, Math.round(gy * (h / 20)) + 4, 40, 40);
+            }
+          } else {
+            for (let i = 0; i < 60; i++) {
+              ctx.fillStyle = 'hsl(' + ((i * 37) % 360) + ' 80% 55%)';
+              ctx.fillRect(120 + (i % 10) * 40, 120 + Math.floor(i / 10) * 40, 36, 36);
+            }
+          }
+        });
+        window.app.board.markCompositeFull();
+        window.app.board.compositeAllLayers();
+      }, CONTENT);
+      console.log(`    pre-painted content: ${CONTENT}`);
+    }
 
     if (LOCAL_TOOL) {
       const active = await page.evaluate((t) => {
@@ -512,7 +582,7 @@ async function runOnce(runLabel) {
 
     const result = {
       label: runLabel, at: new Date().toISOString(), size: SIZE, dims, users,
-      vus: VUS, room, localTool: LOCAL_TOOL, k6Tools: K6_TOOLS,
+      vus: VUS, room, localTool: LOCAL_TOOL, k6Tools: K6_TOOLS, tiled: TILED, content: CONTENT,
       frames, census, reclaim, devtools, ...trace
     };
 
@@ -557,7 +627,7 @@ const median = (runs, get) => {
 
   const summary = {
     label: LABEL, at: new Date().toISOString(), size: SIZE, dims,
-    vus: VUS, repeat: REPEAT, k6Tools: K6_TOOLS,
+    vus: VUS, repeat: REPEAT, k6Tools: K6_TOOLS, tiled: TILED, content: CONTENT,
     weak: WEAK, gpuMemMB: GPU_MEM_MB, cpuThrottle: CPU_THROTTLE, windowSec: WINDOW_SEC,
     users: median(runs, (r) => r.users),
     gpu: { peakMB: median(runs, (r) => r.gpu.peakMB), samples: median(runs, (r) => r.gpu.samples) },

@@ -2100,7 +2100,7 @@ class TimeMachineState {
 
     if (this._board) {
       const display = show ? 'none' : 'block';
-      if (this._board.mainCanvas) this._board.mainCanvas.style.display = display;
+      if (this._board.viewCanvas) this._board.viewCanvas.style.display = display;
       if (this._board.topCanvas) this._board.topCanvas.style.display = display;
       if (this._board.upperLayersCanvas) {
         // upperLayersCanvas is also hidden/shown by content (Board._setLayerPresent);

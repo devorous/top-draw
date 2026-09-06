@@ -22,6 +22,15 @@ const TILED_UNSAFE_COMPOSITE_OPS = new Set([
 ]);
 
 /**
+ * Group-buffer sizing (see `_getGroupBuffer`). Dimensions are rounded up to
+ * BUFFER_QUANTUM so a stroke's stream of near-identical dirty-rect sizes reuses
+ * one buffer, and a buffer larger than needed is only replaced after
+ * BUFFER_SHRINK_DELAY consecutive smaller requests.
+ */
+const BUFFER_QUANTUM = 256;
+const BUFFER_SHRINK_DELAY = 60;
+
+/**
  * Manages multiple layer groups, each containing baked sequences, a stroke stack,
  * and active strokes for users. Handles compositing and baking of strokes.
  */
@@ -90,6 +99,8 @@ export class LayerManager {
     this.onHistoryChange = null;
     this.redoStackByUser = new Map();
     this._groupBuffer = null;
+    // Consecutive composites that asked for a smaller buffer than the one held.
+    this._groupBufferShrinkRuns = 0;
     this._canvasPool = [];
     // Deliberately a fixed count, not a byte budget. The pool starts empty and
     // only grows on release, so it self-tunes to peak concurrent strokes — with
@@ -195,7 +206,7 @@ export class LayerManager {
     if (enabled) {
       // Re-tiling in place: stitch the existing grid out to a full raster
       // first, then re-slice it at the new granularity.
-      const full = resizingGrid ? group.flatCanvas.toFullCanvas() : group.flatCanvas;
+      const full = resizingGrid ? group.flatCanvas.toFullCanvas(null, { forReadback: true }) : group.flatCanvas;
       if (resizingGrid) group.flatCanvas.dispose();
       const tiled = new TiledLayerCanvas(this.width, this.height, nextSize);
       const allocated = tiled.fromFullCanvas(full);
@@ -218,6 +229,32 @@ export class LayerManager {
       tiled.dispose();
     }
     this.needsComposite = true;
+  }
+
+  /**
+   * Reclaim a bounded number of tiles that an erase may have emptied.
+   *
+   * The counterpart to the Debug panel's `compact()`: that one sweeps every
+   * allocated tile and is a deliberate, user-initiated action, while this one
+   * checks only tiles an alpha-removing op actually wrote into and is safe to
+   * call from an idle hook. Without it, allocation is monotone in practice —
+   * `dropCovered` only frees tiles a clear *fully* covers, so a partly-erased
+   * tile stays resident even after its last pixel is gone.
+   *
+   * No-op when the layer isn't tiled or nothing is queued, so callers don't
+   * need to know either.
+   *
+   * @param {number} [budget=4] - Maximum tiles to inspect (each is a readback).
+   * @returns {number} Tiles released.
+   */
+  reclaimTiles(budget = 4) {
+    const group = this.layerGroups[0];
+    if (!group?.tiled) return 0;
+    const grid = group.flatCanvas;
+    if (!grid?.reclaimPending) return 0;
+    const { released } = grid.compactIncremental(budget);
+    if (released > 0) this.needsComposite = true;
+    return released;
   }
 
   recycleWorkerClient() {
@@ -365,7 +402,7 @@ export class LayerManager {
       fn(group.flatCtx);
       return;
     }
-    const full = group.flatCanvas.toFullCanvas();
+    const full = group.flatCanvas.toFullCanvas(null, { forReadback: true });
     fn(full.getContext('2d'));
     group.flatCanvas.fromFullCanvas(full);
   }
@@ -448,7 +485,7 @@ export class LayerManager {
       return;
     }
 
-    const full = group.flatCanvas.toFullCanvas();
+    const full = group.flatCanvas.toFullCanvas(null, { forReadback: true });
     const fullCtx = full.getContext('2d');
     fullCtx.drawImage(sourceCanvas, x, y);
     this._drawMirroredGlitchCopies(fullCtx, stroke, sourceCanvas, x, y);
@@ -664,11 +701,131 @@ export class LayerManager {
    * @returns {Object} {canvas, ctx}
    * @private
    */
-  _getGroupBuffer() {
-    if (!this._groupBuffer || this._groupBuffer.canvas.width !== this.width || this._groupBuffer.canvas.height !== this.height) {
-      this._groupBuffer = this._createCanvas();
+  /**
+   * Scratch canvas the two isolating composite paths build a layer group into
+   * before drawing it onto the target in one operation.
+   *
+   * Sized to `width`/`height` rather than the board. It used to be full-board
+   * unconditionally, which meant that the moment layer 0 had a single unbaked
+   * stroke — i.e. throughout every stroke anyone draws — the client allocated
+   * and held a full-board canvas, and never freed it. On a tiled board that is
+   * the whole memory win handed back exactly while the user is drawing
+   * (~14MB at 1440p against the ~12MB tiling saves).
+   *
+   * Sizing policy is grow-immediately / shrink-reluctantly, on quantized
+   * dimensions:
+   *
+   *   - Requests are rounded up to BUFFER_QUANTUM, so the stream of slightly
+   *     different dirty-rect sizes a stroke produces maps onto a handful of
+   *     repeated sizes that hit the reuse path instead of reallocating.
+   *   - Growing happens on the spot; a buffer too small is not usable.
+   *   - Shrinking waits BUFFER_SHRINK_DELAY consecutive smaller requests, so a
+   *     composite pattern that alternates full-board and windowed (a zoom in
+   *     the middle of a stroke, say) settles on the large size instead of
+   *     reallocating every frame. Canvas allocation is the expensive operation
+   *     here — see canvas_alloc_is_the_expensive_op — so churn would cost more
+   *     than the memory it saves.
+   *
+   * @param {number} [width=this.width]
+   * @param {number} [height=this.height]
+   * @private
+   */
+  _getGroupBuffer(width = this.width, height = this.height) {
+    const wantW = Math.min(this.width, Math.ceil(width / BUFFER_QUANTUM) * BUFFER_QUANTUM);
+    const wantH = Math.min(this.height, Math.ceil(height / BUFFER_QUANTUM) * BUFFER_QUANTUM);
+
+    const current = this._groupBuffer?.canvas;
+    if (current && current.width === wantW && current.height === wantH) {
+      this._groupBufferShrinkRuns = 0;
+      return this._groupBuffer;
     }
+
+    const tooSmall = !current || current.width < wantW || current.height < wantH;
+    if (tooSmall) {
+      // Grow per-axis to the max of what is held and what is asked for. Sizing
+      // straight to the request would shrink the *other* axis, so a composite
+      // pattern alternating a wide window with a tall one would reallocate on
+      // every frame while never being too small on either.
+      const w = Math.min(this.width, Math.max(wantW, current?.width ?? 0));
+      const h = Math.min(this.height, Math.max(wantH, current?.height ?? 0));
+      this._groupBufferShrinkRuns = 0;
+      this._disposeCanvasObject(this._groupBuffer);
+      this._groupBuffer = this._createCanvas(w, h);
+      return this._groupBuffer;
+    }
+
+    // Big enough, just larger than needed: hold it unless the smaller size has
+    // been asked for consistently.
+    if (++this._groupBufferShrinkRuns < BUFFER_SHRINK_DELAY) return this._groupBuffer;
+
+    this._groupBufferShrinkRuns = 0;
+    this._disposeCanvasObject(this._groupBuffer);
+    this._groupBuffer = this._createCanvas(wantW, wantH);
     return this._groupBuffer;
+  }
+
+  /**
+   * The board-space region a group buffer actually has to cover this composite.
+   *
+   * Returns the full board (i.e. no windowing) in the two cases where a
+   * translated buffer would be wrong or pointless:
+   *
+   *   - **No dirty rects.** A full recomposite writes everywhere; there is
+   *     nothing to crop to.
+   *   - **A blur or glitchBlur stroke is in the set.** `_applyBlurFilter`
+   *     samples the destination with `drawImage(ctx.canvas, boardX, boardY, …)`
+   *     — reading the backing *canvas*, which a context transform does not
+   *     affect. Under a windowed buffer those board coordinates would address
+   *     the wrong pixels, and the failure would be a silently mis-sampled blur
+   *     rather than an error. Filter strokes are the rare, already-expensive
+   *     path, so they simply keep the full-board buffer.
+   *
+   * @param {Object} group
+   * @param {Array<{x:number,y:number,width:number,height:number}>|null} dirtyRects
+   * @returns {{x:number,y:number,width:number,height:number}}
+   * @private
+   */
+  _groupBufferWindow(group, dirtyRects) {
+    const fullBoard = { x: 0, y: 0, width: this.width, height: this.height };
+    if (!dirtyRects || dirtyRects.length === 0) return fullBoard;
+    if (this._groupHasFilterStroke(group)) return fullBoard;
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const r of dirtyRects) {
+      if (r.x < minX) minX = r.x;
+      if (r.y < minY) minY = r.y;
+      if (r.x + r.width > maxX) maxX = r.x + r.width;
+      if (r.y + r.height > maxY) maxY = r.y + r.height;
+    }
+    if (!(maxX > minX && maxY > minY)) return fullBoard;
+
+    const x = Math.max(0, Math.floor(minX));
+    const y = Math.max(0, Math.floor(minY));
+    const width = Math.min(this.width, Math.ceil(maxX)) - x;
+    const height = Math.min(this.height, Math.ceil(maxY)) - y;
+    if (width <= 0 || height <= 0) return fullBoard;
+    return { x, y, width, height };
+  }
+
+  /**
+   * Whether anything this group would composite reads the destination canvas
+   * in board coordinates (see `_groupBufferWindow`).
+   * @private
+   */
+  _groupHasFilterStroke(group) {
+    const isFilter = (s) => s && (s.filterType === 'blur' || s.filterType === 'glitchBlur');
+
+    for (const item of group.bakedSequences) {
+      if (item.type === 'group') {
+        for (const stroke of item.strokes) if (isFilter(stroke)) return true;
+      } else if (isFilter(item)) {
+        return true;
+      }
+    }
+    for (const stroke of group.strokeStack) if (isFilter(stroke)) return true;
+    for (const active of group.activeStrokeByUser.values()) if (isFilter(active)) return true;
+    for (const preview of group.activePreviewByUser?.values?.() || []) if (isFilter(preview)) return true;
+    return false;
   }
 
   /**
@@ -3172,7 +3329,7 @@ export class LayerManager {
     // show/hide toggle, and skips the instance-state mutations below — this
     // path is used for side renders (e.g. gallery time-lapse capture) that
     // must not perturb the live composite state or consume a pending
-    // recomposite flag meant for the real mainCanvas render.
+    // recomposite flag meant for the real viewCanvas render.
     if (!ignoreVisibility) {
       this.needsComposite = false;
       if (backgroundColor) this.backgroundColor = backgroundColor;
@@ -3258,7 +3415,13 @@ export class LayerManager {
       return;
     }
 
-    const { canvas: buffer, ctx: bufferCtx } = this._getGroupBuffer();
+    // The buffer covers only the region this composite touches, and is
+    // addressed in board coordinates via a translate — so every draw below is
+    // unchanged from when this was a full-board canvas. See _groupBufferWindow
+    // for the two cases that still take the whole board.
+    const win = this._groupBufferWindow(group, dirtyRects);
+    const { canvas: buffer, ctx: bufferCtx } = this._getGroupBuffer(win.width, win.height);
+    bufferCtx.setTransform(1, 0, 0, 1, -win.x, -win.y);
     this._clearDirtyRegion(bufferCtx, dirtyRects);
 
     if (dirtyRects) this._applyDirtyClip(bufferCtx, dirtyRects);
@@ -3323,9 +3486,13 @@ export class LayerManager {
 
     bufferCtx.globalCompositeOperation = 'source-over';
     if (dirtyRects) bufferCtx.restore();
+    bufferCtx.setTransform(1, 0, 0, 1, 0, 0);
 
     targetCtx.globalCompositeOperation = 'source-over';
-    this._drawCanvasRegion(targetCtx, buffer, dirtyRects);
+    // The buffer sits at (win.x, win.y) in board space, and may be larger than
+    // the window it was sized for (the shrink delay). Both are handled by
+    // _drawCanvasRegion's per-rect crop, which never reads outside dirtyRects.
+    this._drawCanvasRegion(targetCtx, buffer, dirtyRects, win.x, win.y);
   }
 
   compositeLayerWithoutActiveStroke(targetCtx, groupIdx, excludedUserId, bgColor = null, dirtyRects = null) {
@@ -3471,7 +3638,11 @@ export class LayerManager {
    * @private
    */
   _compositeGroupIsolated(targetCtx, group, dirtyRects = null) {
-    const { canvas: buffer, ctx: bufferCtx } = this._getGroupBuffer();
+    // Same windowing as the flatCanvas path above; _groupBufferWindow keeps the
+    // whole board whenever a filter stroke is in this group's set.
+    const win = this._groupBufferWindow(group, dirtyRects);
+    const { canvas: buffer, ctx: bufferCtx } = this._getGroupBuffer(win.width, win.height);
+    bufferCtx.setTransform(1, 0, 0, 1, -win.x, -win.y);
     this._clearDirtyRegion(bufferCtx, dirtyRects);
 
     if (dirtyRects) this._applyDirtyClip(bufferCtx, dirtyRects);
@@ -3500,9 +3671,13 @@ export class LayerManager {
 
     bufferCtx.globalCompositeOperation = 'source-over';
     if (dirtyRects) bufferCtx.restore();
+    bufferCtx.setTransform(1, 0, 0, 1, 0, 0);
 
     targetCtx.globalCompositeOperation = 'source-over';
-    this._drawCanvasRegion(targetCtx, buffer, dirtyRects);
+    // The buffer sits at (win.x, win.y) in board space, and may be larger than
+    // the window it was sized for (the shrink delay). Both are handled by
+    // _drawCanvasRegion's per-rect crop, which never reads outside dirtyRects.
+    this._drawCanvasRegion(targetCtx, buffer, dirtyRects, win.x, win.y);
   }
 
   /**
@@ -3737,7 +3912,7 @@ export class LayerManager {
 
       if (group.flatCanvas) {
         if (group.tiled) {
-          const full = group.flatCanvas.toFullCanvas();
+          const full = group.flatCanvas.toFullCanvas(null, { forReadback: true });
           group.flatCanvas.dispose();
           // Re-derive rather than carrying the old tile size across: the size
           // is a function of the board, so keeping 1080p's 120px grid on a 4k
@@ -4136,7 +4311,7 @@ export class LayerManager {
       const full = document.createElement('canvas');
       full.width = width;
       full.height = height;
-      const fullCtx = full.getContext('2d');
+      const fullCtx = full.getContext('2d', { willReadFrequently: true });
       for (const stroke of group.flatStrokeRecords || []) {
         this._compositeStroke(fullCtx, stroke, false);
       }

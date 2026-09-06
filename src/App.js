@@ -667,6 +667,11 @@ export class DrawingApp {
     this.board.onStopMasking = () => {
       this.toolManager?.getTool('select')?.toggleMaskMode(false);
     };
+    // A surface-window change clears every preview surface. The composite
+    // surfaces are rebuilt from the layer stack by the composite the board
+    // already scheduled; the tool-owned previews are not, so they are repainted
+    // here. See Board._applySurfaceWindow.
+    this.board.onSurfaceWindowChange = () => this._repaintLivePreviews();
     this.boardViewer = new BoardViewer(this);
     this.boardViewer.init();
 
@@ -832,9 +837,15 @@ export class DrawingApp {
    * Creates the local user instance.
    */
   createSelf() {
+    // `board` must be the surface `context` draws onto, the way it is for every
+    // remote user — not viewCanvas. Everything that reads `user.board` treats
+    // it as that user's preview canvas: it sets opacity and mix-blend-mode on
+    // it, hands it to userLayerPresence to hide and to collapse to 1x1, and
+    // draws it as a source in replay. Pointing it at the shared display surface
+    // meant any of those reaching the local user would have blanked the board.
     this.self = new User(0, {
       context: this.board.topCtx,
-      board: this.board.mainCanvas
+      board: this.board.topCanvas
     });
     this.applyCursorStyleForTool(this.self.tool);
 
@@ -1703,7 +1714,7 @@ export class DrawingApp {
         elements.sizeSlider.value = val;
         this.ui.updateCursorSize(val);
         this.ui.updateSelfTextStyle(val, this.self.color, this.self.font);
-        this.board.mainCtx.lineWidth = val * 2;
+        this.board.viewCtx.lineWidth = val * 2;
       }
     });
 
@@ -2977,6 +2988,12 @@ export class DrawingApp {
       if (connectData.floatingGalleryVoronoi !== undefined) {
         nextRoomData.floatingGalleryVoronoi = connectData.floatingGalleryVoronoi || null;
       }
+      // Seeded explicitly rather than left to applyRoomTiledCanvas below, which
+      // short-circuits when the value already matches and so would leave these
+      // undefined for an untiled room — hiding the room-settings checkbox until
+      // the first SETTINGS broadcast happened to arrive.
+      nextRoomData.tiledCanvas = !!connectData.roomTiledCanvas;
+      nextRoomData.tiledCanvasAvailable = !!connectData.roomTiledCanvasAvailable;
       this.currentRoomData = nextRoomData;
       if (initialBoardSize) {
         applyRoomBoardSize(this, initialBoardSize, { showToast: false });
@@ -3987,10 +4004,49 @@ export class DrawingApp {
     }
     this._applyLowPowerPreference();
     this._applyBackgroundWorkPreference();
+    this._applyViewportCullingPreference();
+    this._applyWindowedSurfacesPreference();
     this._applyReplayPreferences();
     this.refreshDebugButton();
     appState.appPreferences = this.appPreferences;
     return this.appPreferences;
+  }
+
+  /**
+   * Push the viewport-culling preference onto the board.
+   *
+   * Turning it OFF has to repair immediately: viewCanvas may be carrying stale
+   * pixels outside the last visible box, and with culling off nothing would
+   * ever ask for the repair again — the board would keep a permanently wrong
+   * region until the next unrelated full composite.
+   * @private
+   */
+  _applyViewportCullingPreference() {
+    const board = this.board;
+    if (!board) return;
+    const enabled = !!this.appPreferences?.general?.viewportCulling;
+    if (board.viewportCulling === enabled) return;
+    board.viewportCulling = enabled;
+    if (!enabled) board.ensureFullComposite?.();
+  }
+
+  /**
+   * Push the windowed-surfaces preference onto the board.
+   *
+   * Either direction re-points every display surface, so it goes through the
+   * board's own forced sync rather than being poked in: turning it ON shrinks
+   * the backing stores and installs the window transform, turning it OFF
+   * restores the whole board at 1:1. Both leave the surfaces holding nothing,
+   * which the forced sync's invalidation covers.
+   * @private
+   */
+  _applyWindowedSurfacesPreference() {
+    const board = this.board;
+    if (!board) return;
+    const enabled = !!this.appPreferences?.general?.windowedSurfaces;
+    if (board.windowedSurfaces === enabled) return;
+    board.windowedSurfaces = enabled;
+    board._syncSurfaceWindow?.({ force: true });
   }
 
   requestRefreshUnloadWarning() {
@@ -5034,7 +5090,7 @@ export class DrawingApp {
     }
     this.ui.updateSelfTextStyle(size, this.self.color, this.self.font);
     this.ui.updateSizeValue(size);
-    this.board.mainCtx.lineWidth = size * 2;
+    this.board.viewCtx.lineWidth = size * 2;
     this.updateCurrentToolPresetSettings();
     this.updateActiveToolPreview();
   }
@@ -6598,12 +6654,49 @@ export class DrawingApp {
     this.ui.updateSquarePositions(size);
     this.ui.updateSizeValue(size);
     this.ui.updateSelfTextStyle(size, this.self.color, this.self.font);
-    this.board.mainCtx.lineWidth = size * 2;
+    this.board.viewCtx.lineWidth = size * 2;
   }
 
   adjustToolSize(direction) {
     if (direction === 0) return;
     this.handleSizeScroll(direction > 0 ? -1 : 1);
+  }
+
+  /**
+   * Repaint everything living on a preview surface, after the surface window
+   * moved or was re-allocated and threw it all away.
+   *
+   * viewCanvas and upperLayersCanvas rebuild themselves from the layer stack on
+   * the next composite, which the window change already scheduled. topCanvas
+   * and the per-user preview canvases hold tool-owned state that only the tool
+   * can reproduce — a floating selection, a fill preview, a shape being dragged,
+   * the eyedropper swatch.
+   *
+   * Remote users are included: their previews sit on their own `.userBoard`,
+   * which is on the same window and is re-pointed at the same moment.
+   * @private
+   */
+  _repaintLivePreviews() {
+    // Reachable before the app is fully constructed: Board.setupCanvas applies
+    // the window, and resizeBoard calls it again.
+    if (!this.self || !this.toolManager) return;
+    const repaint = (toolName, user) => {
+      if (!toolName || !user) return;
+      try {
+        this.toolManager?.getTool?.(toolName)?.redrawPreview?.(user);
+      } catch (err) {
+        console.warn('[App] preview repaint failed for', toolName, err);
+      }
+    };
+
+    repaint(this.activeTool ?? this.self?.tool, this.self);
+    // Text is the exception: which surface its preview lives on depends on the
+    // blend mode, and _updateTextPreview owns that decision for both branches.
+    this._updateTextPreview();
+
+    for (const user of this.users?.values?.() ?? []) {
+      if (user?.mousedown) repaint(user.tool, user);
+    }
   }
 
   /**
@@ -7390,14 +7483,15 @@ export class DrawingApp {
     if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
 
     try {
-      const mainCanvas = this.board.mainCanvas;
-      if (!mainCanvas) return;
-
+      // This scales the WHOLE board into the checkpoint/preview, so it reads
+      // the full raster rather than viewCanvas — viewCanvas is a display
+      // surface and holds only what the viewport is showing.
       // Create a half-scale canvas to balance quality and bandwidth
       const scale = 0.5;
       const cpCanvas = document.createElement('canvas');
-      cpCanvas.width = Math.floor(mainCanvas.width * scale);
-      cpCanvas.height = Math.floor(mainCanvas.height * scale);
+      cpCanvas.width = Math.floor(this.board.getWidth() * scale);
+      cpCanvas.height = Math.floor(this.board.getHeight() * scale);
+      if (!cpCanvas.width || !cpCanvas.height) return;
 
       const ctx = cpCanvas.getContext('2d');
 
@@ -7406,8 +7500,11 @@ export class DrawingApp {
       ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
       ctx.fillRect(0, 0, cpCanvas.width, cpCanvas.height);
 
-      // Draw scaled main canvas
-      ctx.drawImage(mainCanvas, 0, 0, cpCanvas.width, cpCanvas.height);
+      const drawn = this.board.withFullRaster((raster) => {
+        ctx.drawImage(raster, 0, 0, cpCanvas.width, cpCanvas.height);
+        return true;
+      });
+      if (!drawn) return;
 
       // Convert to PNG and send (allow up to 4MB for checkpoint)
       cpCanvas.toBlob((blob) => {
@@ -7430,14 +7527,15 @@ export class DrawingApp {
     if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
 
     try {
-      const mainCanvas = this.board.mainCanvas;
-      if (!mainCanvas) return;
-
+      // This scales the WHOLE board into the checkpoint/preview, so it reads
+      // the full raster rather than viewCanvas — viewCanvas is a display
+      // surface and holds only what the viewport is showing.
       // Create a 1/4 scale canvas
       const scale = 0.25;
       const previewCanvas = document.createElement('canvas');
-      previewCanvas.width = Math.floor(mainCanvas.width * scale);
-      previewCanvas.height = Math.floor(mainCanvas.height * scale);
+      previewCanvas.width = Math.floor(this.board.getWidth() * scale);
+      previewCanvas.height = Math.floor(this.board.getHeight() * scale);
+      if (!previewCanvas.width || !previewCanvas.height) return;
 
       const ctx = previewCanvas.getContext('2d');
 
@@ -7446,8 +7544,11 @@ export class DrawingApp {
       ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
       ctx.fillRect(0, 0, previewCanvas.width, previewCanvas.height);
 
-      // Draw scaled main canvas
-      ctx.drawImage(mainCanvas, 0, 0, previewCanvas.width, previewCanvas.height);
+      const drawn = this.board.withFullRaster((raster) => {
+        ctx.drawImage(raster, 0, 0, previewCanvas.width, previewCanvas.height);
+        return true;
+      });
+      if (!drawn) return;
 
       // Convert to PNG blob and send
       previewCanvas.toBlob((blob) => {

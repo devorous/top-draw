@@ -85,6 +85,10 @@
   let roomPrivate = $state(false);
   let dedicatedReplayUser = $state('');
   let boardSize = $state('1080p');
+  let tiledCanvas = $state(false);
+  // Whether the server's global kill switch allows tiling at all. False hides
+  // the control rather than showing one the ROOM_UPDATE handler will drop.
+  let tiledCanvasAvailable = $state(false);
   let floatingGallerySeed = $state(0);
   let floatingGalleryIncludeIds = $state([]);
   let floatingGalleryExcludeIds = $state([]);
@@ -292,6 +296,8 @@
     roomPrivate = !!data.private;
     dedicatedReplayUser = data.dedicatedReplayUser || '';
     boardSize = data.boardSize || '1080p';
+    tiledCanvas = !!data.tiledCanvas;
+    tiledCanvasAvailable = !!data.tiledCanvasAvailable;
     floatingGallerySeed = data.floatingGallerySeed || 0;
     floatingGalleryIncludeIds = Array.isArray(data.floatingGalleryIncludeIds) ? [...data.floatingGalleryIncludeIds] : [];
     floatingGalleryExcludeIds = Array.isArray(data.floatingGalleryExcludeIds) ? [...data.floatingGalleryExcludeIds] : [];
@@ -446,6 +452,8 @@
           textOverlayLifetimeMs: clampedTextOverlayLifetimeMs,
           private: roomPrivate,
           boardSize,
+          tiledCanvas,
+          tiledCanvasAvailable,
           floatingGallerySeed,
           floatingGalleryIncludeIds: [...floatingGalleryIncludeIds],
           floatingGalleryExcludeIds: [...floatingGalleryExcludeIds],
@@ -481,6 +489,9 @@
       roomPrivate: roomPrivate,
       roomDedicatedReplayUser: dedicatedReplayUser.trim() || null,
       roomBoardSize: boardSize,
+      // Omitted entirely when the feature is globally off, so a save from a
+      // client that somehow rendered the control cannot write the setting.
+      ...(tiledCanvasAvailable ? { roomTiledCanvas: tiledCanvas } : {}),
       roomFloatingGallerySeed: floatingGallerySeed,
       roomFloatingGalleryIncludeIds: [...floatingGalleryIncludeIds],
       roomFloatingGalleryExcludeIds: [...floatingGalleryExcludeIds]
@@ -866,6 +877,21 @@
             </select>
             <span class="form-hint">Changing board size clears the canvas for all users.</span>
           </div>
+
+          {#if tiledCanvasAvailable}
+            <div class="form-group checkbox-group">
+              <label>
+                <input type="checkbox" bind:checked={tiledCanvas} />
+                <span>Tiled Canvas Backing Store</span>
+              </label>
+              <span class="form-hint">
+                Stores each layer as a grid of tiles and only allocates the ones
+                holding pixels, which cuts canvas memory on a sparsely drawn
+                board. Applies live for everyone in the room; no canvas is
+                cleared.
+              </span>
+            </div>
+          {/if}
 
           <div class="form-group checkbox-group">
             <label>

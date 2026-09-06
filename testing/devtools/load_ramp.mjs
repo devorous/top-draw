@@ -118,7 +118,7 @@ const SETUP = `(() => {
         for (const s of g.strokeStack || []) add(s.canvas);
         for (const [, a] of g.activeStrokeByUser || []) add(a.canvas);
       }
-      add(app.board.mainCanvas); add(app.board.topCanvas);
+      add(app.board.viewCanvas); add(app.board.topCanvas);
       for (const el of document.querySelectorAll('canvas.userBoard')) add(el);
       for (const [, u] of (app.users || new Map())) { add(u._inkOffscreen); add(u._penOffscreen); }
       return +(bytes / 1048576).toFixed(1);

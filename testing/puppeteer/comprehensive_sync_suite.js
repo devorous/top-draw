@@ -1286,7 +1286,7 @@ function writeMarkdownReport(results, { passed, total, roomName }) {
   md += `Bots: ${NUM_USERS}  |  Drawer: bot_${DRAWER_INDEX}  |  Propagation: ${PROPAGATION_MS}ms\n`;
   md += `Pixel tolerance: ±${PIXEL_TOLERANCE} per channel  |  Pass threshold: ≥${PASS_PCT}% matching pixels in union dirty bbox\n\n`;
   md += `**Result: ${passed}/${total} passed**\n\n`;
-  md += `> Comparison is on each layer group's *model state* (flatCanvas + strokeStack composited in timestamp order), not the rendered mainCanvas. Diffs run over the union of non-transparent bboxes between drawer and observer.\n\n`;
+  md += `> Comparison is on each layer group's *model state* (flatCanvas + strokeStack composited in timestamp order), not the rendered viewCanvas. Diffs run over the union of non-transparent bboxes between drawer and observer.\n\n`;
 
   const groups = { tool: [], special: [], concurrent: [], flood: [] };
   for (const r of results) (groups[r.kind] ||= []).push(r);

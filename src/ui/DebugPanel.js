@@ -15,6 +15,7 @@
 
 import { collectCanvasCensus, logCanvasCensus } from '../utils/canvasCensus.js';
 import { collectTileStats, getTiledLayerCanvas, TileChurnTracker } from '../utils/tileStats.js';
+import { EMPTY_TILE_HASH } from '../canvas/TiledLayerCanvas.js';
 
 const REFRESH_MS = 500;
 /** Occupancy map sizing: cell edge in px, clamped so a wide grid still fits. */
@@ -79,6 +80,8 @@ export class DebugPanel {
         <div data-el="tileActions" style="display:none; margin-top:4px;">
           <span data-el="compact" style="cursor:pointer; text-decoration:underline;">compact()</span>
           <span data-el="compactNote" style="color:#888;"></span>
+          &middot;
+          <span data-el="digest" style="cursor:pointer; text-decoration:underline;">digest &rarr; console</span>
         </div>
       </div>
       <div style="margin-top:6px;">
@@ -96,6 +99,7 @@ export class DebugPanel {
 
     this.el.close?.addEventListener('click', () => this._close());
     this.el.compact?.addEventListener('click', () => this._compact());
+    this.el.digest?.addEventListener('click', () => this._digest());
     this.el.dirtyRectsToggle?.addEventListener('click', () => {
       this.app?.debugOverlay?.toggleDirtyRects();
       this.update();
@@ -374,7 +378,19 @@ export class DebugPanel {
       + `Memory: ${stats.allocatedMB.toFixed(1)} MB of ${stats.nominalMB.toFixed(1)} MB nominal`
       + ` <span style="color:${savedColor}">(${stats.savedPercent.toFixed(1)}% saved)</span><br>`
       + `<span style="color:#888">Last 1s: <span style="color:#5f8">+${churn.allocated}</span>`
-      + ` / <span style="color:#f93">-${churn.freed}</span></span>`;
+      + ` / <span style="color:#f93">-${churn.freed}</span></span>`
+      // Without this line a latched grid and a legitimately full one render
+      // identically, and the latched one never recovers: blank detection is
+      // off for the life of the grid, so tiling costs strictly more than the
+      // single canvas it replaced from here on.
+      + (stats.readbackBlocked
+        ? `<br><span style="color:#f00">&#9888; blank detection LATCHED OFF &mdash; canvas readback failed.`
+          + ` No tile can be skipped or reclaimed; tiling is now pure overhead.</span>`
+        : '')
+      + (stats.viewCulling
+        ? `<br><span style="color:#888">Visible: ${stats.visibleTiles}/${stats.allocatedTiles} allocated`
+          + ` composited last frame</span>`
+        : '');
 
     this._drawTileMap(stats);
 
@@ -434,6 +450,31 @@ export class DebugPanel {
     };
     paint(this.el.dirtyRectsToggle, !!overlay?.showDirtyRects);
     paint(this.el.tilesToggle, !!overlay?.showTiles);
+  }
+
+  /**
+   * Dump the grid's per-tile content digest to the console.
+   *
+   * One readback per allocated tile, so — like `compact()` — it is click-only
+   * and never on the refresh tick. This is the client half of tile-level
+   * resync: two peers on the same board should print the same occupied-tile
+   * hashes, and `diffDigest` turns any disagreement into the exact tiles to
+   * re-send. Nothing on the wire consumes it yet.
+   * @private
+   */
+  _digest() {
+    const tiled = getTiledLayerCanvas(this.app);
+    if (!tiled) {
+      console.warn('[DebugPanel] not tiled — no digest to take');
+      return;
+    }
+    const digest = tiled.tileDigest();
+    const occupied = digest.hashes.filter(h => h !== EMPTY_TILE_HASH).length;
+    console.log(
+      `[DebugPanel] tile digest: ${digest.cols}x${digest.rows} @${digest.tileSize}px, ` +
+      `${occupied} occupied of ${digest.hashes.length}`,
+      digest
+    );
   }
 
   /**

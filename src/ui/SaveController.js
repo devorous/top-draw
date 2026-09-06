@@ -99,7 +99,7 @@ export class SaveController {
   }
 
   /**
-   * Uploads a canvas to the gallery. Uses mainCanvas if no canvas is provided.
+   * Uploads a canvas to the gallery. Uses viewCanvas if no canvas is provided.
    * @param {HTMLCanvasElement} [canvas]
    * @async
    */
@@ -121,7 +121,10 @@ export class SaveController {
       return;
     }
 
-    const targetCanvas = canvas ?? this.board.mainCanvas;
+    // Exporting the board: every pixel has to be current, including any the
+    // viewport was not showing. getExportCanvas composites from the layer
+    // stack, so it does not care what viewCanvas is currently holding.
+    const targetCanvas = canvas ?? this.board.getExportCanvas(false);
     const btn = this.ui.elements.saveToGalleryBtn;
     const originalText = btn?.textContent;
     if (btn) btn.textContent = 'Saving...';

@@ -205,7 +205,7 @@ const SETUP = `(() => {
     }));
     window.__paintBase();
     lm.needsComposite = true;
-    // The fill reads board.mainCtx, i.e. the COMPOSITED canvas, not the layer —
+    // The fill reads board.viewCtx, i.e. the COMPOSITED canvas, not the layer —
     // without forcing a composite first it flood-fills whatever was on screen
     // before the base was painted.
     app.board.compositeAllLayers();

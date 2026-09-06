@@ -5,12 +5,28 @@
  *
  * Tiles are lazily allocated on first paint; an empty board keeps almost
  * none allocated, which is the entire point (see canvas_backing_store_budget
- * in project memory for the full-board cost this avoids). This tile size is
- * deliberately much coarser than CompositeTileGrid's 32px dirty-rect grid —
- * that grid tracks *which regions changed*, this one tracks *which regions
- * of pixel storage exist at all*. Conflating the two would allocate one tiny
- * canvas per 32px cell, which is far more per-tile overhead than the memory
- * it would save.
+ * in project memory for the full-board cost this avoids).
+ *
+ * The grid serves three jobs, and they are deliberately the same grid:
+ *   - **storage**: which regions of pixel memory exist at all (lazy alloc,
+ *     `compact()`, `compactIncremental()`)
+ *   - **render**: which regions get submitted to the compositor this frame
+ *     (`compositeInto`'s `viewRect` culling)
+ *   - **transport**: which regions changed since a peer last saw them
+ *     (`tileHash`/`tileDigest`)
+ *
+ * It stays distinct from CompositeTileGrid's 32px dirty-rect grid, which tracks
+ * *which regions changed since the last composite* — a per-frame signal with no
+ * storage behind it. The two are close in size at 720p (40px vs 32px) and far
+ * apart at 4k (120px vs 32px); they are not merged because a dirty cell is
+ * transient and free, while a tile is a real canvas element with a real GPU
+ * texture behind it.
+ *
+ * That texture is the cost to watch when changing GRID_COLS/GRID_ROWS: drivers
+ * pad small textures to an alignment boundary, so N tiles of area A can occupy
+ * meaningfully more VRAM than one texture of area N*A. Halving the tile edge
+ * quadruples the texture count. This is the reason the granularity constant
+ * carries a "re-sweep it" note rather than "smaller is better".
  */
 // ImageData is byte-ordered RGBA, so which byte of a uint32 word holds alpha
 // depends on the platform's endianness. Every browser we ship to is
@@ -46,6 +62,78 @@ function regionIsBlank(ctx, x, y, width, height) {
   return true;
 }
 
+/**
+ * `regionIsBlank` against an already-read alpha plane instead of a live
+ * context — same clamping rules (a rect falling outside the buffer reads as
+ * blank), same alpha-only test, no readback.
+ *
+ * @param {{words: Uint32Array, width: number, height: number}} buffer
+ * @returns {boolean}
+ */
+function bufferRegionIsBlank(buffer, x, y, width, height) {
+  const sx = Math.max(0, Math.floor(x));
+  const sy = Math.max(0, Math.floor(y));
+  const ex = Math.min(buffer.width, Math.ceil(x + width));
+  const ey = Math.min(buffer.height, Math.ceil(y + height));
+  if (ex <= sx || ey <= sy) return true;
+
+  const { words, width: stride } = buffer;
+  for (let row = sy; row < ey; row++) {
+    const base = row * stride;
+    for (let col = sx; col < ex; col++) {
+      if (words[base + col] & ALPHA_MASK) return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * FNV-1a over a region of an RGBA word buffer, returned as a hex string.
+ *
+ * Two 32-bit lanes rather than one: a single 32-bit hash over a tile of up to
+ * 120x120 px has a collision probability high enough to matter once a room has
+ * hundreds of tiles and thousands of versions of them, and a collision here
+ * would mean silently declaring two different tiles identical — a
+ * wrong-pixels-forever bug, not a slow path. Two lanes make that negligible
+ * while staying integer-only.
+ *
+ * An empty region hashes to the constant EMPTY_TILE_HASH, so an unallocated
+ * tile and a fully-blank one are the same value — which is what they are.
+ *
+ * @param {{words: Uint32Array, width: number, height: number}} buffer
+ * @returns {string}
+ */
+function hashRegion(buffer, x, y, width, height) {
+  const sx = Math.max(0, Math.floor(x));
+  const sy = Math.max(0, Math.floor(y));
+  const ex = Math.min(buffer.width, Math.ceil(x + width));
+  const ey = Math.min(buffer.height, Math.ceil(y + height));
+  if (ex <= sx || ey <= sy) return EMPTY_TILE_HASH;
+
+  const { words, width: stride } = buffer;
+  let h1 = 0x811c9dc5;
+  let h2 = 0x01000193;
+  let blank = true;
+  for (let row = sy; row < ey; row++) {
+    const base = row * stride;
+    for (let col = sx; col < ex; col++) {
+      const w = words[base + col];
+      if (w & ALPHA_MASK) blank = false;
+      h1 = Math.imul(h1 ^ (w & 0xFFFF), 0x01000193) >>> 0;
+      h2 = Math.imul(h2 ^ (w >>> 16), 0x85ebca6b) >>> 0;
+    }
+  }
+  // A region that is entirely transparent is "nothing" regardless of the RGB
+  // under that zero alpha — the same equivalence regionIsBlank enforces — so it
+  // must hash like an absent tile or a round trip through blank detection would
+  // look like a content change.
+  if (blank) return EMPTY_TILE_HASH;
+  return h1.toString(16).padStart(8, '0') + h2.toString(16).padStart(8, '0');
+}
+
+/** Hash of an absent or fully-transparent tile. */
+export const EMPTY_TILE_HASH = '0'.repeat(16);
+
 export class TiledLayerCanvas {
   /**
    * Used only for boards the 16:9 rule below cannot tile exactly.
@@ -66,38 +154,47 @@ export class TiledLayerCanvas {
   static FALLBACK_TILE_SIZE = 256;
 
   /**
+   * Grid shape for an exactly-divisible 16:9 board, as (cols, rows).
+   *
+   * Every board preset is exactly 16:9, so a square tile divides both axes iff
+   * the grid is `16n x 9n` for integer n — the tile is then `w/(16n)`. n=1 is
+   * the *coarsest* exact square tiling (the next step down needs h/(w/8) = 4.5),
+   * so every other exact option is finer than 16x9.
+   *
+   * We run n=2: **32x18 = 576 tiles** (720p 40px, 1080p 60px, 1440p 80px,
+   * 4k 120px). Rationale, in order:
+   *
+   *   1. The n=1 sweep already showed finer wins on the axis that motivated the
+   *      feature. 160px -> the n=1 grid halved resident memory vs the old fixed
+   *      256 (1440p 87.5% saved vs 78.7%), and 720p in particular only reached
+   *      68.8% because a 144-tile grid is too coarse to skip much of a small
+   *      board. n=2 is the next exact step in that direction.
+   *   2. Composite cost tracks *allocated* tile count at ~0.6-0.7us per extra
+   *      drawImage, and viewport culling (compositeInto's `viewRect`) now bounds
+   *      how many of those can be submitted per frame regardless of n. Before
+   *      culling, a dense 576-tile grid would have cost ~400us/composite —
+   *      2.4% of a 16ms frame — which is what made n=2 unattractive. Culling
+   *      caps it at the tiles the user can actually see.
+   *   3. Per-tile hashing (`tileHash`/`tileDigest`) gets proportionally more
+   *      selective as tiles shrink: a one-corner edit dirties 1/576th of the
+   *      board rather than 1/144th.
+   *
+   * The costed direction is per-tile *object* overhead: 576 canvas elements per
+   * tiled layer instead of 144. The n=1 sweep found the overhead feared at 80px
+   * did not materialize, but that was 144 elements, not 576 — so this constant
+   * is the knob `tile_size_sweep.mjs` should re-sweep (n=1 vs n=2 vs n=3) rather
+   * than a settled number.
+   *
+   * No single *fixed* size can be exact at every preset: the widths share
+   * 640 (2^7*5) and the heights share 360 (2^3*3^2*5), so the largest constant
+   * dividing every preset on both axes is 40 — 5184 tiles at 4k. Deriving from
+   * the board is the only way to get exact division at a usable granularity.
+   */
+  static GRID_COLS = 32;
+  static GRID_ROWS = 18;
+
+  /**
    * The tile size to use for a board of `width` x `height`.
-   *
-   * Every board preset is exactly 16:9, and for a 16:9 board the largest square
-   * tile that divides *both* axes is `gcd(w, h) == w/16 == h/9`. That yields a
-   * uniform 16x9 = 144-tile grid at every preset (720p 80px, 1080p 120px,
-   * 1440p 160px, 4k 240px) with no partial edge tiles anywhere.
-   *
-   * No single fixed size can do this: the widths share 640 (2^7*5) and the
-   * heights share 360 (2^3*3^2*5), so the largest constant dividing every
-   * preset on both axes is 40 — which is 5184 tiles at 4k. Deriving from the
-   * board is the only way to get exact division at a usable granularity.
-   *
-   * 144 is also the *coarsest* exact square tiling of a 16:9 board: the next
-   * step up needs h/(w/8) = 4.5, so every other exact option is finer.
-   *
-   * Measured against the previous fixed 256 (tile_size_sweep.mjs, sparse
-   * content, 5 interleaved reps, medians):
-   *
-   *   1440p   untiled 14.06MB  5us  |  160px 1.76MB 25us  |  256px 3.00MB 15us
-   *   720p    untiled  3.52MB 10us  |   80px 1.10MB 45us  |  256px 2.41MB 15us
-   *
-   * The finer grid roughly halves resident memory (1440p 87.5% saved vs 78.7%;
-   * 720p 68.8% vs 31.5% — a 15-tile grid is far too coarse to skip much of a
-   * small board) and pays tens of microseconds per composite for it. Even the
-   * 720p worst case, 45us, is 0.27% of one second's main thread at 60fps, so
-   * this is a memory win bought with time that does not show up in frame rate.
-   * The per-tile canvas overhead feared at 80px did not materialize.
-   *
-   * Only sparse content was swept. A dense board saves nothing at any
-   * granularity (every tile is occupied, so it is the full-board figure either
-   * way) and composite cost tracks allocated tile count at ~0.6us per extra
-   * drawImage, so a fully-painted 144-tile grid should land near 90us.
    *
    * A board that is not 16:9 (or would not give an integer tile) falls back to
    * the fixed size; `_tileRectAt` already clamps edge tiles, so an inexact grid
@@ -108,8 +205,8 @@ export class TiledLayerCanvas {
    * @returns {number}
    */
   static tileSizeForBoard(width, height) {
-    const tile = width / 16;
-    if (Number.isInteger(tile) && tile > 0 && height === tile * 9) return tile;
+    const tile = width / TiledLayerCanvas.GRID_COLS;
+    if (Number.isInteger(tile) && tile > 0 && height === tile * TiledLayerCanvas.GRID_ROWS) return tile;
     return TiledLayerCanvas.FALLBACK_TILE_SIZE;
   }
 
@@ -132,6 +229,31 @@ export class TiledLayerCanvas {
     // so this should never trip — but if it does, latch it off and keep every
     // tile rather than throwing from a bake.
     this._readbackBlocked = false;
+    /**
+     * Tile indices that an alpha-removing op wrote into without proving the
+     * result — the only tiles that can have become blank since we last looked.
+     *
+     * Reclamation used to be reachable only from the Debug panel's `compact()`
+     * button, which made allocation effectively monotone: `dropCovered` frees a
+     * tile a clear *fully* covers, but a tile the eraser only partly crossed
+     * stays resident forever even once its last pixel is gone. A room drawn on
+     * and then erased kept its peak allocation for the rest of the session, so
+     * the steady state converged on full-board cost plus per-tile overhead —
+     * the opposite of the point.
+     *
+     * A queue rather than a periodic full sweep because the full sweep is
+     * `allocatedTiles` readbacks and almost all of them are answerable in
+     * advance: a tile nothing has erased since it was last checked cannot have
+     * become blank.
+     * @type {Set<number>}
+     */
+    this._reclaimQueue = new Set();
+    /**
+     * Tiles actually submitted by the last `compositeInto`. Purely diagnostic —
+     * it is the number that shows whether viewport culling is doing anything,
+     * which `allocatedTileCount` cannot tell you on its own.
+     */
+    this.lastCompositeTileCount = 0;
   }
 
   /**
@@ -180,11 +302,139 @@ export class TiledLayerCanvas {
     if (col < 0 || row < 0 || col >= this.cols || row >= this.rows) return false;
     const idx = row * this.cols + col;
     const tile = this.tiles[idx];
+    this._reclaimQueue.delete(idx);
     if (!tile) return false;
     tile.canvas.width = 0;
     tile.canvas.height = 0;
     this.tiles[idx] = null;
     return true;
+  }
+
+  /**
+   * Content hash of one tile, or EMPTY_TILE_HASH when nothing is allocated
+   * there. One readback per call, so this is a transport/diagnostic operation,
+   * never a draw-path one.
+   *
+   * @param {number} col
+   * @param {number} row
+   * @returns {string}
+   */
+  tileHash(col, row) {
+    const tile = this.getTile(col, row, false);
+    if (!tile) return EMPTY_TILE_HASH;
+    if (this._readbackBlocked) return EMPTY_TILE_HASH;
+    let buffer;
+    try {
+      const { data } = tile.ctx.getImageData(0, 0, tile.canvas.width, tile.canvas.height);
+      buffer = {
+        words: new Uint32Array(data.buffer, data.byteOffset, data.byteLength >> 2),
+        width: tile.canvas.width,
+        height: tile.canvas.height
+      };
+    } catch (e) {
+      this._readbackBlocked = true;
+      console.warn('[TiledLayerCanvas] blank detection disabled — canvas readback failed:', e);
+      return EMPTY_TILE_HASH;
+    }
+    return hashRegion(buffer, 0, 0, buffer.width, buffer.height);
+  }
+
+  /**
+   * Per-tile content hashes for the whole grid, in row-major index order.
+   *
+   * This is the transport half of the tile grid: two clients holding the same
+   * board produce the same digest, and `diffDigest` turns a mismatch into the
+   * exact list of tiles that differ. That is what makes a partial resync
+   * possible — today a joiner or a diverged peer takes the whole board as one
+   * raster no matter how little of it is actually wrong.
+   *
+   * Costs one readback per allocated tile, so it belongs on a join/repair path,
+   * not a heartbeat. Unallocated tiles cost nothing and hash to
+   * EMPTY_TILE_HASH, which is why a sparse board is cheap to digest.
+   *
+   * NOTE: nothing in the wire protocol consumes this yet — shipping tiles
+   * instead of full rasters means new message types, server-side storage of
+   * per-tile state, and its own correctness pass against the join/resync
+   * landmines. This is the client-side half, and the piece that has to exist
+   * first either way.
+   *
+   * @returns {{tileSize: number, cols: number, rows: number, hashes: string[]}}
+   */
+  tileDigest() {
+    const hashes = new Array(this.cols * this.rows);
+    for (let row = 0; row < this.rows; row++) {
+      for (let col = 0; col < this.cols; col++) {
+        hashes[row * this.cols + col] = this.tileHash(col, row);
+      }
+    }
+    return { tileSize: this.tileSize, cols: this.cols, rows: this.rows, hashes };
+  }
+
+  /**
+   * Tile indices where `other` disagrees with this grid.
+   *
+   * Grids tiled differently cannot be compared index-for-index, so a shape
+   * mismatch reports *every* tile as differing rather than silently comparing
+   * misaligned cells — the caller then falls back to a full transfer, which is
+   * the honest answer when the two sides do not agree on what a tile is.
+   *
+   * @param {{tileSize: number, cols: number, rows: number, hashes: string[]}} other
+   * @returns {number[]}
+   */
+  diffDigest(other) {
+    const all = () => Array.from({ length: this.cols * this.rows }, (_, i) => i);
+    if (!other || other.cols !== this.cols || other.rows !== this.rows || other.tileSize !== this.tileSize) {
+      return all();
+    }
+    const mine = this.tileDigest().hashes;
+    const differing = [];
+    for (let i = 0; i < mine.length; i++) {
+      if (mine[i] !== other.hashes[i]) differing.push(i);
+    }
+    return differing;
+  }
+
+  /**
+   * A tile's pixels as a standalone canvas, or null when nothing is allocated
+   * there (which the receiver should treat as "clear this tile").
+   * @param {number} col
+   * @param {number} row
+   * @returns {HTMLCanvasElement|null}
+   */
+  getTileImage(col, row) {
+    const tile = this.getTile(col, row, false);
+    if (!tile) return null;
+    const canvas = document.createElement('canvas');
+    canvas.width = tile.canvas.width;
+    canvas.height = tile.canvas.height;
+    canvas.getContext('2d').drawImage(tile.canvas, 0, 0);
+    return canvas;
+  }
+
+  /**
+   * Replace one tile's pixels outright. `source` of null frees the tile.
+   *
+   * `copy` rather than a clear-then-draw so the tile ends up holding exactly
+   * the source — this is a transfer, not a composite, and the destination's
+   * previous content must not survive anywhere in the tile.
+   *
+   * @param {number} col
+   * @param {number} row
+   * @param {HTMLCanvasElement|ImageBitmap|null} source
+   */
+  putTileImage(col, row, source) {
+    if (!source) {
+      this.releaseTile(col, row);
+      return;
+    }
+    const tile = this.getTile(col, row, true);
+    if (!tile) return;
+    tile.ctx.globalCompositeOperation = 'copy';
+    tile.ctx.drawImage(source, 0, 0);
+    tile.ctx.globalCompositeOperation = 'source-over';
+    // It may have arrived blank; a blank tile must not stay allocated or the
+    // grid's occupancy stops meaning what the rest of this class assumes.
+    this._reclaimQueue.add(row * this.cols + col);
   }
 
   /**
@@ -204,7 +454,58 @@ export class TiledLayerCanvas {
         }
       }
     }
+    // Everything allocated was just inspected, so nothing is owed a re-check.
+    this._reclaimQueue.clear();
     return released;
+  }
+
+  /** @returns {number} Tiles awaiting a blank re-check. */
+  get reclaimPending() {
+    return this._reclaimQueue.size;
+  }
+
+  /**
+   * Check up to `budget` queued tiles and free the ones that came out blank.
+   *
+   * This is the automatic half of reclamation, meant to be called from an idle
+   * or low-frequency hook rather than a draw path — each check is a readback,
+   * which is why it is budgeted per call instead of draining the queue. The
+   * queue is small in practice (an eraser stroke marks the handful of tiles it
+   * crossed), so a budget of a few tiles keeps up with ordinary erasing while
+   * bounding the worst case after something like an erase-all.
+   *
+   * A tile that comes out non-blank is dropped from the queue, not retried: it
+   * will be re-queued the next time something erases into it, which is the only
+   * way it could become blank.
+   *
+   * @param {number} [budget=4] - Maximum tiles to inspect this call.
+   * @returns {{checked: number, released: number, pending: number}}
+   */
+  compactIncremental(budget = 4) {
+    let checked = 0;
+    let released = 0;
+
+    if (this._readbackBlocked) {
+      // Nothing can be proven blank, so the queue is unanswerable. Drop it
+      // rather than carrying entries that will never resolve.
+      this._reclaimQueue.clear();
+      return { checked, released, pending: 0 };
+    }
+
+    for (const idx of this._reclaimQueue) {
+      if (checked >= budget) break;
+      this._reclaimQueue.delete(idx);
+      const tile = this.tiles[idx];
+      if (!tile) continue;
+      checked++;
+      if (this._regionIsBlank(tile, 0, 0, tile.canvas.width, tile.canvas.height)) {
+        const col = idx % this.cols;
+        const row = (idx - col) / this.cols;
+        if (this.releaseTile(col, row)) released++;
+      }
+    }
+
+    return { checked, released, pending: this._reclaimQueue.size };
   }
 
   _tileRectAt(col, row) {
@@ -289,6 +590,14 @@ export class TiledLayerCanvas {
    *   that `bounds` fully covers outright, without calling `drawFn` or reading
    *   anything back. Only valid when `drawFn`'s effect on a fully-covered tile
    *   is unconditionally "make it blank" (i.e. a pure clearRect over `bounds`).
+   *   NOTE: it skips `drawFn` entirely for such a tile, so a caller whose
+   *   `drawFn` actually paints something would silently lose that content.
+   * @param {boolean} [options.mayEmpty=!create] - Whether `drawFn` can remove
+   *   alpha. Pre-existing tiles it touches but does not fully cover are queued
+   *   for `compactIncremental` to re-check later, since a partial erase can
+   *   empty a tile and nothing else would ever notice. Defaults to `!create`
+   *   because passing `create: false` is exactly the existing signal for "this
+   *   op can only remove alpha".
    */
   paintInto(bounds, drawFn, options = {}) {
     const {
@@ -296,6 +605,7 @@ export class TiledLayerCanvas {
       pruneNew = create,
       pruneCovered = false,
       dropCovered = false,
+      mayEmpty = !create,
       _skipTile = null
     } = options;
 
@@ -340,6 +650,11 @@ export class TiledLayerCanvas {
           }
         } else if (covered && this._regionIsBlank(tile, 0, 0, tile.canvas.width, tile.canvas.height)) {
           this.releaseTile(col, row);
+        } else if (mayEmpty) {
+          // Partly erased and not proven either way. Queue it rather than
+          // reading it back here: this runs on the eraser's hot path, and the
+          // tile is usually still occupied by content the stroke did not reach.
+          this._reclaimQueue.add(row * this.cols + col);
         }
       }
     }
@@ -390,30 +705,60 @@ export class TiledLayerCanvas {
       return;
     }
 
+    // One readback of the whole source, not one per intersecting tile. The old
+    // shape called getImageData once per tile the bounds touched, which at a
+    // 32x18 grid meant up to 576 reads of overlapping regions of the same
+    // canvas — each one carrying the fixed cost of a readback (and, on a
+    // GPU-backed source, a pipeline sync) to inspect bytes an earlier read had
+    // already pulled across. Reading once costs the same bytes and pays that
+    // fixed cost a single time. Built lazily so a call that skips no tiles
+    // (every tile already allocated) still reads nothing.
+    let srcAlpha = null;
+    let srcAlphaTried = false;
+    const sourceAlpha = () => {
+      if (!srcAlphaTried) {
+        srcAlphaTried = true;
+        srcAlpha = this._readSourceAlpha(srcCtx);
+      }
+      return srcAlpha;
+    };
+
     this.paintInto(bounds, draw, {
       ...options,
       pruneNew: false,
       // Consulted by paintInto before it allocates: true means "the source
       // contributes nothing here, leave the tile unallocated".
       _skipTile: (col, row) => {
+        const alpha = sourceAlpha();
+        // Unreadable source: claim nothing is skippable, so every tile the
+        // bounds touch gets allocated and drawn. Costs memory, never pixels.
+        if (!alpha) return false;
         const rect = this._tileRectAt(col, row);
-        return this._sourceRegionIsBlank(srcCtx, rect.x - bounds.x, rect.y - bounds.y, rect.width, rect.height);
+        return bufferRegionIsBlank(alpha, rect.x - bounds.x, rect.y - bounds.y, rect.width, rect.height);
       }
     });
   }
 
   /**
-   * Blank-check a rect in source-local coordinates, latching detection off if
-   * the source turns out to be unreadable.
+   * Pull `srcCtx`'s full alpha plane into one buffer for repeated blank
+   * queries, latching detection off if the source turns out to be unreadable.
+   * @returns {{words: Uint32Array, width: number, height: number}|null}
    * @private
    */
-  _sourceRegionIsBlank(srcCtx, x, y, width, height) {
+  _readSourceAlpha(srcCtx) {
+    const { width, height } = srcCtx.canvas;
+    if (width <= 0 || height <= 0) return null;
     try {
-      return regionIsBlank(srcCtx, x, y, width, height);
+      const { data } = srcCtx.getImageData(0, 0, width, height);
+      return {
+        words: new Uint32Array(data.buffer, data.byteOffset, data.byteLength >> 2),
+        width,
+        height
+      };
     } catch (e) {
       this._readbackBlocked = true;
       console.warn('[TiledLayerCanvas] blank detection disabled — canvas readback failed:', e);
-      return false;
+      return null;
     }
   }
 
@@ -439,14 +784,17 @@ export class TiledLayerCanvas {
    * @param {number} [destY=0]
    */
   compositeInto(targetCtx, dirtyRects = null, destX = 0, destY = 0) {
+    let submitted = 0;
     if (!dirtyRects) {
       for (let row = 0; row < this.rows; row++) {
         for (let col = 0; col < this.cols; col++) {
           const tile = this.getTile(col, row, false);
           if (!tile) continue;
           targetCtx.drawImage(tile.canvas, tile.x + destX, tile.y + destY);
+          submitted++;
         }
       }
+      this.lastCompositeTileCount = submitted;
       return;
     }
 
@@ -468,9 +816,11 @@ export class TiledLayerCanvas {
           const tile = this.getTile(col, row, false);
           if (!tile) continue;
           targetCtx.drawImage(tile.canvas, tile.x + destX, tile.y + destY);
+          submitted++;
         }
       }
     }
+    this.lastCompositeTileCount = submitted;
   }
 
   /**
@@ -479,14 +829,29 @@ export class TiledLayerCanvas {
    * consumer (checkpoint capture, join-sync PNG bins, resize) goes through —
    * see LayerManager integration in the tiled-canvas-backing-store plan.
    * @param {{x:number,y:number,width:number,height:number}} [bounds]
+   * @param {object} [options]
+   * @param {boolean} [options.forReadback=false] - Declare `willReadFrequently`
+   *   on the stitched canvas. Pass this ONLY when the result's next use is
+   *   `getImageData` — in practice the `toFullCanvas` -> mutate ->
+   *   `fromFullCanvas` round trip, where the canvas is written once by
+   *   `compositeInto` and then read `cols * rows` times by blank detection
+   *   before being thrown away. That is an unambiguous win: the flag asks for a
+   *   CPU-backed surface, which is exactly what a write-once/read-many scratch
+   *   canvas wants.
+   *
+   *   Do NOT pass it when the result is used as a *draw source* (snapshot
+   *   capture, join-sync PNG encoding, `_flatWindowWriteBack`'s source). There
+   *   a CPU-backed surface makes every subsequent `drawImage` upload pixels
+   *   across the bus instead of staying on the GPU, which is the trade running
+   *   the wrong way.
    * @returns {HTMLCanvasElement}
    */
-  toFullCanvas(bounds = null) {
+  toFullCanvas(bounds = null, { forReadback = false } = {}) {
     const rect = bounds || { x: 0, y: 0, width: this.width, height: this.height };
     const canvas = document.createElement('canvas');
     canvas.width = rect.width;
     canvas.height = rect.height;
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', forReadback ? { willReadFrequently: true } : undefined);
     this.compositeInto(ctx, [rect], -rect.x, -rect.y);
     return canvas;
   }
@@ -520,21 +885,21 @@ export class TiledLayerCanvas {
       srcCtx = sourceCanvas?.getContext?.('2d') ?? null;
     } catch { /* not a 2D-capable source */ }
 
+    // One readback for the whole import rather than cols*rows of them. This is
+    // the path §22 flagged as pathological: `toFullCanvas` writes a scratch
+    // canvas once and `fromFullCanvas` then read it once per tile — 576 reads
+    // at the current granularity, all of the same canvas, on every toggle,
+    // resize, undo rebuild and `withFlatCanvasContext` round trip.
+    const srcAlpha = (srcCtx && !this._readbackBlocked) ? this._readSourceAlpha(srcCtx) : null;
+
     let allocated = 0;
     for (let row = 0; row < this.rows; row++) {
       for (let col = 0; col < this.cols; col++) {
         const rect = this._tileRectAt(col, row);
-        if (srcCtx && !this._readbackBlocked) {
-          let blank;
-          try {
-            blank = regionIsBlank(srcCtx, rect.x, rect.y, rect.width, rect.height);
-          } catch (e) {
-            this._readbackBlocked = true;
-            console.warn('[TiledLayerCanvas] blank detection disabled — canvas readback failed:', e);
-            blank = false;
-          }
-          if (blank) continue;
-        }
+        // No alpha plane means either an uninspectable source or a failed
+        // readback; both fall back to materializing every tile rather than
+        // guessing a region blank and dropping pixels.
+        if (srcAlpha && bufferRegionIsBlank(srcAlpha, rect.x, rect.y, rect.width, rect.height)) continue;
         const tile = this.getTile(col, row, true);
         tile.ctx.drawImage(
           sourceCanvas,
@@ -555,5 +920,9 @@ export class TiledLayerCanvas {
       tile.canvas.height = 0;
     }
     this.tiles.fill(null);
+    // Indices in the queue refer to tiles that no longer exist, and
+    // `fromFullCanvas` disposes before re-slicing, so a surviving queue would
+    // point into a freshly built grid it knows nothing about.
+    this._reclaimQueue.clear();
   }
 }

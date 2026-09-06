@@ -2417,7 +2417,8 @@ export class RemoteUserHandler {
     const y = Math.floor(pos.y);
     if (x < 0 || x >= width || y < 0 || y >= height) return;
 
-    const imageData = this.board.mainCtx.getImageData(0, 0, width, height);
+    const imageData = this.board.getFullBoardImageData(0, 0, width, height);
+    if (!imageData) return;
     const result = await fillTool._fillWorker.computeFill(
       imageData.data, width, height, x, y, 10, 0, null
     );

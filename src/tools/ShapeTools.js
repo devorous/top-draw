@@ -163,7 +163,18 @@ class ShapeTool extends Tool {
    * @param {Object} pos
    */
   _onShapeStart(user, pos) {
+    this._lastPreviewPos = pos;
     this.drawPreview(user, pos);
+  }
+
+  /**
+   * A shape preview only repaints on pointer MOVE, so panning or zooming
+   * mid-drag without moving the pointer would lose it entirely.
+   */
+  redrawPreview(user) {
+    if (!user?.mousedown || !this.startPos || !this._lastPreviewPos) return;
+    this.board.clearTop();
+    this.drawPreview(user, this._lastPreviewPos);
   }
 
   /**
@@ -173,6 +184,7 @@ class ShapeTool extends Tool {
    */
   onPointerMove(user, pos) {
     if (!user.mousedown || user.panning || !this.startPos) return;
+    this._lastPreviewPos = pos;
     this.board.clearTop();
     this.drawPreview(user, pos);
   }

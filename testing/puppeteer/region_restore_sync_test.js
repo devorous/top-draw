@@ -108,7 +108,7 @@ class RegionRestoreSyncTest {
       const lm = app.board.layerManager;
       
       // Get the current canvas pixels in the region
-      const canvas = app.board.mainCanvas;
+      const canvas = app.board.viewCanvas;
       const ctx = canvas.getContext('2d');
       const imgData = ctx.getImageData(
         selection.x, selection.y,
@@ -161,7 +161,7 @@ class RegionRestoreSyncTest {
 
   async getCanvasHash(bot) {
     return await bot.page.evaluate(() => {
-      const canvas = window.app.board.mainCanvas;
+      const canvas = window.app.board.viewCanvas;
       const ctx = canvas.getContext('2d');
       const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
       

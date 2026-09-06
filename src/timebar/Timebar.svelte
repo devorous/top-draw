@@ -108,7 +108,7 @@
 {/if}
 
 <style lang="scss">
-  /* The replay canvas is a sibling of the live #mainCanvas inside #boards. While
+  /* The replay canvas is a sibling of the live #viewCanvas inside #boards. While
      the preview flag is set, blur it heavily — the cached frame is 1/6 source
      size, so without this the upscaled pixels read as broken rather than as a
      loading shimmer. */

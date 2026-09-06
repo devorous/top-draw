@@ -214,9 +214,9 @@ const selState = (page) => page.evaluate(() => {
 });
 
 /**
- * Board pixels via the project's calibrated oracle, NOT `board.mainCanvas`.
+ * Board pixels via the project's calibrated oracle, NOT `board.viewCanvas`.
  *
- * mainCanvas is a presentation surface — it is recomposited on its own schedule
+ * viewCanvas is a presentation surface — it is recomposited on its own schedule
  * and carries transient state — so diffing it reports strokes as "missing" that
  * the layers actually hold. layerDiff composites the layer GROUPS the same way
  * the app does (compositeLayerRange), which is the only capture the suites trust.

@@ -20,18 +20,18 @@ export class CircleBlurTool extends Tool {
     this.stampBuffer = []; // [x, y, radius, x, y, radius, ...] for broadcast
     this.strokePoints = new Map(); // userId -> [{x, y}, ...]
     this._snapshotCanvases = new Map();
-    this._snapshotPool = new SnapshotCanvasPool(); // userId -> canvas with snapshot of mainCtx at stroke start
+    this._snapshotPool = new SnapshotCanvasPool(); // userId -> canvas with snapshot of viewCtx at stroke start
   }
 
   /**
-   * Captures a snapshot of mainCtx at the start of a stroke.
+   * Captures a snapshot of viewCtx at the start of a stroke.
    * All subsequent stamps in the stroke will sample from this snapshot
    * to ensure deterministic, consistent color sampling regardless of RAF timing.
    * @param {number} userId
    */
   beginSnapshot(userId) {
-    const w = this.board.mainCanvas.width;
-    const h = this.board.mainCanvas.height;
+    const w = this.board.getWidth();
+    const h = this.board.getHeight();
     let canvas = this._snapshotCanvases.get(userId);
     // Pooled, not reallocated. Assigning canvas.width drops and recreates the
     // backing store, so the old "cached" path still paid a full-board
@@ -43,7 +43,10 @@ export class CircleBlurTool extends Tool {
     }
     const ctx = canvas.getContext('2d');
     // drawImage covers the whole surface, so no clear is needed.
-    ctx.drawImage(this.board.mainCanvas, 0, 0);
+    // The full raster, not viewCanvas: this tool samples the whole flattened
+    // board (every layer plus the background), and viewCanvas is a display
+    // surface that may hold only what is on screen.
+    this.board.withFullRaster((raster) => ctx.drawImage(raster, 0, 0));
   }
 
   /**
@@ -57,14 +60,16 @@ export class CircleBlurTool extends Tool {
   }
 
   /**
-   * Gets the 2d context for sampling (either snapshot or fallback to mainCtx).
+   * Gets the 2d context for sampling. Captures the stroke snapshot lazily if
+   * one is missing rather than falling back to viewCtx — viewCtx is a display
+   * surface, so board coordinates do not necessarily index it correctly.
    * @param {number} userId
    * @returns {CanvasRenderingContext2D}
    * @private
    */
   _getSnapshotCtx(userId) {
+    if (!this._snapshotCanvases.has(userId)) this.beginSnapshot(userId);
     const canvas = this._snapshotCanvases.get(userId);
-    if (!canvas) return this.board.mainCtx;
     return canvas.getContext('2d', { willReadFrequently: true });
   }
 
@@ -99,7 +104,7 @@ export class CircleBlurTool extends Tool {
 
     this.strokePoints.set(userId, [{ x: pos.x, y: pos.y }]);
 
-    // Capture snapshot of mainCtx before drawing any circles
+    // Capture snapshot of viewCtx before drawing any circles
     this.beginSnapshot(userId);
 
     // Stamp averaged circle (now synchronous and fast)

@@ -651,6 +651,12 @@ export function setupUserHandlers(wsClient, app) {
       roomDataUpdates.tiledCanvas = !!data.tiledCanvas;
       applyRoomTiledCanvas(app, data.tiledCanvas);
     }
+    // Carried alongside the setting so the room-settings panel can still tell
+    // "off for this room" from "kill switch off" after a settings broadcast —
+    // without it the checkbox would disappear on the next SETTINGS message.
+    if (data.tiledCanvasAvailable !== undefined) {
+      roomDataUpdates.tiledCanvasAvailable = !!data.tiledCanvasAvailable;
+    }
 
     // Mirror is not persisted to DB, but update it locally
     app.currentRoomData = {

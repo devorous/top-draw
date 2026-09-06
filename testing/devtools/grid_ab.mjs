@@ -40,7 +40,7 @@ await page.evaluate(async () => {
   if (btn) btn.click();
 });
 
-await page.waitForFunction(() => window.app && window.app.connected && window.app.board?.mainCanvas, { timeout: 90000 });
+await page.waitForFunction(() => window.app && window.app.connected && window.app.board?.viewCanvas, { timeout: 90000 });
 await sleep(4000);
 
 const env = await page.evaluate(async () => {
@@ -101,7 +101,7 @@ await page.evaluate(() => {
 // needs no second client.
 if (process.env.STROKES !== '0') {
   await page.evaluate(async (target) => {
-    const b = window.app.board, canvas = b.mainCanvas;
+    const b = window.app.board, canvas = b.viewCanvas;
     const r = canvas.getBoundingClientRect();
     const nap = ms => new Promise(res => setTimeout(res, ms));
     const ev = (t, x, y, tg) => tg.dispatchEvent(new PointerEvent(t, {

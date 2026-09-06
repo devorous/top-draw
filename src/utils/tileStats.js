@@ -39,6 +39,9 @@ const MB = 1024 * 1024;
  *   allocatedBytes: number,
  *   allocatedMB: number,
  *   savedPercent: number,
+ *   readbackBlocked: boolean,
+ *   viewCulling: boolean,
+ *   visibleTiles: number,
  *   occupancy: Uint8Array|null
  * }}
  */
@@ -65,6 +68,9 @@ export function collectTileStats(app) {
     allocatedBytes: 0,
     allocatedMB: 0,
     savedPercent: 0,
+    readbackBlocked: false,
+    viewCulling: false,
+    visibleTiles: 0,
     occupancy: null
   });
 
@@ -105,6 +111,17 @@ export function collectTileStats(app) {
     allocatedBytes,
     allocatedMB: allocatedBytes / MB,
     savedPercent: nominalBytes > 0 ? (1 - allocatedBytes / nominalBytes) * 100 : 0,
+    // A plain boolean, so it costs no readback to report — and without it a
+    // latched grid is indistinguishable from a legitimately full one, since
+    // both read "576/576 tiles, 0.0% saved". Once this latches, every tile the
+    // bounds touch is allocated and kept forever: tiling then costs strictly
+    // more than the single canvas it replaced, permanently, and silently.
+    readbackBlocked: !!tiled._readbackBlocked,
+    // Whether viewport culling is on AND currently engaged (a second view, or
+    // a view that hides too little of the board, disengages it) — so the panel
+    // never reports a "visible" figure that is really just "all of them".
+    viewCulling: !!app?.board?.viewportCulling && !!app?.board?._lastCullView,
+    visibleTiles: tiled.lastCompositeTileCount | 0,
     occupancy
   };
 }

@@ -34,7 +34,7 @@ const census = await page.evaluate(() => {
     buckets[label] = buckets[label] || { n: 0, mb: 0 };
     buckets[label].n++; buckets[label].mb += (c.width * c.height * 4) / 1048576;
   };
-  add('main', b.mainCanvas); add('top', b.topCanvas);
+  add('main', b.viewCanvas); add('top', b.topCanvas);
   add('upperLayers', b.upperLayersCanvas);
   add('mirrorRegions', b.mirrorRegionsLayer); add('mirrorGuides', b.mirrorGuidesLayer);
   add('selectionOverlay', b.selectionOverlay); add('interactionBlock', b.interactionBlockOverlay);

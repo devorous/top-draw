@@ -488,7 +488,7 @@ async function captureCanvas(page) {
   // Grab pixels directly from the main canvas so DOM overlays (tutorial popups,
   // color panels, layer pills, cursors, etc.) don't pollute the regression.
   const dataUrl = await page.evaluate(() => {
-    const canvas = window.app.board.mainCanvas;
+    const canvas = window.app.board.viewCanvas;
     return canvas.toDataURL('image/png');
   });
   const base64 = dataUrl.replace(/^data:image\/png;base64,/, '');

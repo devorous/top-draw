@@ -376,7 +376,16 @@ export class BlurTool extends Tool {
     const intensity = user.pressure || 1.0;
 
     const userId = user.id ?? this.board.app?.self?.id ?? 0;
-    const sourceCanvas = this.snapshotCanvases.get(userId) || this.board.mainCanvas || this.board.mainCtx?.canvas;
+    // onPointerDown normally captures this; a stamp that arrives without one
+    // (a remote stroke joined mid-flight) captures lazily rather than falling
+    // back to viewCanvas. viewCanvas is a DISPLAY surface — it may be culled,
+    // and it is not necessarily board-sized or board-aligned — so indexing it
+    // with board coordinates is wrong in a way that silently produces a blur of
+    // the wrong pixels. captureSnapshot composites from the layer stack.
+    if (!this.snapshotCanvases.has(userId)) {
+      this.captureSnapshot(userId, this._getTargetLayer(user));
+    }
+    const sourceCanvas = this.snapshotCanvases.get(userId);
     if (sourceCanvas) {
       const margin = Math.ceil(blurRadius * 2);
       const cropX = Math.max(0, Math.floor(x - radius - margin));

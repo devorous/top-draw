@@ -466,6 +466,8 @@ message Msg {
   string room_floating_gallery_voronoi_json = 151; // SETTINGS: precomputed floating gallery Voronoi geometry
   string room_creator_device_id = 152; // ROOM_UPDATE: local creator device id for unowned room setup
   bool room_tiled_canvas = 209; // ROOM_UPDATE/SETTINGS: opt-in tiled canvas backing store (perf experiment)
+  bool room_tiled_canvas_available = 210; // SETTINGS: whether the server's tiled-canvas kill switch is on at all
+
 
   message CheckpointMeta {
     string id = 1;

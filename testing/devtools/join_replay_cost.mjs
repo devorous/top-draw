@@ -62,7 +62,7 @@ for (let i = 0; i < JOINS; i++) {
     const btn = [...document.querySelectorAll('button')].find(b => /join & draw/i.test(b.textContent));
     if (btn) btn.click();
   });
-  await page.waitForFunction(() => window.app?.connected && window.app.board?.mainCanvas, { timeout: 90000 });
+  await page.waitForFunction(() => window.app?.connected && window.app.board?.viewCanvas, { timeout: 90000 });
   await sleep(2000);
 
   // Instrument BEFORE the room join, so the replay itself is inside the window.

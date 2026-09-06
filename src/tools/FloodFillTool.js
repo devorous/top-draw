@@ -509,7 +509,10 @@ export class FloodFillTool {
 
     const params = this._getFillParams(user);
 
-    const imageData = this.board.mainCtx.getImageData(0, 0, width, height);
+    // A fill reads the whole board — it can legitimately flood well past the
+    // visible box — so it reads the full raster, not the display surface.
+    const imageData = this.board.getFullBoardImageData(0, 0, width, height);
+    if (!imageData) return;
     const data = imageData.data;
 
     // Check target vs fill color similarity
@@ -536,12 +539,13 @@ export class FloodFillTool {
 
       // _computeMirrorFillResults is a no-op without synthetic mirror regions,
       // but the argument was evaluated eagerly — a full-board readback thrown
-      // away on every fill in a room with no mirrors. mainCtx is GPU-resident
-      // (no willReadFrequently), so that read is a pipeline stall, not free.
+      // away on every fill in a room with no mirrors.
       const hasMirrorTargets = this.board.getActiveMirrorRegions().some(r => r?.synthetic);
+      // Re-read rather than reusing `data`: the awaits above mean the board may
+      // have moved on since the read at the top of this handler.
       const mirrorResults = hasMirrorTargets
         ? await this._computeMirrorFillResults(
-          this.board.mainCtx.getImageData(0, 0, width, height).data,
+          this.board.getFullBoardImageData(0, 0, width, height).data,
           width,
           height,
           x,
@@ -566,7 +570,7 @@ export class FloodFillTool {
     this._clickPos = { x, y };
     this._dragStartExpansion = this._expansion;
     this._dragStartBlur = this._blurRadius;
-    this._imageData = this.board.mainCtx.getImageData(0, 0, width, height);
+    this._imageData = this.board.getFullBoardImageData(0, 0, width, height);
 
     this._fillParams = { ...params, width, height, user };
 
@@ -677,12 +681,24 @@ export class FloodFillTool {
    */
   _showPreviewResult(result) {
     if (!result || !this._fillParams) return;
+    // Kept so redrawPreview can put it back after the surface window moves.
+    this._shownPreviewResult = result;
     const { width, height, user } = this._fillParams;
     const { fillR, fillG, fillB, userOpacity } = this._fillParams;
     const topCtx = this.board.topCtx;
     topCtx.clearRect(0, 0, width, height);
     this._renderMask(topCtx, result, fillR, fillG, fillB, userOpacity, 0, width, height, user);
     this._setPreviewLayer(this._fillParams.activeLayer);
+  }
+
+  /**
+   * The interactive fill preview persists between ticks — it is only redrawn
+   * when the expansion/blur drag changes it — so a window move would otherwise
+   * leave the user dragging against nothing.
+   */
+  redrawPreview() {
+    if (!this._active || !this._shownPreviewResult) return;
+    this._showPreviewResult(this._shownPreviewResult);
   }
 
   async onPointerUp(user, pos, e) {

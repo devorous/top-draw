@@ -485,7 +485,7 @@ export class RemoteSelectionHandler {
     }
 
     // Erase directly from the layer canvas so the hole persists through compositing.
-    // Clearing mainCtx is insufficient because compositeAllLayers() rebuilds it from
+    // Clearing viewCtx is insufficient because compositeAllLayers() rebuilds it from
     // the underlying layer data, restoring the erased pixels.
     // Store restore data so commitSelection can make this undoable for remote users.
     if (allLayers) {
@@ -656,7 +656,7 @@ export class RemoteSelectionHandler {
 
     // Copy selected region from the remote user's active layer only (transparent background),
     // matching local SelectTool behaviour (copyAllLayers=false).
-    // Reading from mainCtx would capture all layers + background, so moving the selection
+    // Reading from viewCtx would capture all layers + background, so moving the selection
     // would appear to move content from every layer instead of just the user's layer.
     const lm = this.board.layerManager;
     const layerIdx = user.activeLayer ?? 0;

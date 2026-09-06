@@ -576,7 +576,10 @@ export function setupDrawingHandlers(wrapHandler, app) {
     const opacitySlider = user.opacity !== undefined ? user.opacity : 1;
     const userOpacity = opacitySlider;
 
-    const imageData = board.mainCtx.getImageData(0, 0, width, height);
+    // A remote fill floods from the sender's click and can reach anywhere on
+    // the board, so it reads the full raster rather than the display surface.
+    const imageData = board.getFullBoardImageData(0, 0, width, height);
+    if (!imageData) return;
     const imgData = imageData.data;
 
     // Check target vs fill color similarity (same as local)
@@ -622,7 +625,7 @@ export function setupDrawingHandlers(wrapHandler, app) {
       const mx = Math.round(mirrored.x);
       const my = Math.round(mirrored.y);
       if (mx < 0 || mx >= width || my < 0 || my >= height) continue;
-      const mirrorData = board.mainCtx.getImageData(0, 0, width, height).data;
+      const mirrorData = board.getFullBoardImageData(0, 0, width, height).data;
       const mResult = await fillTool._fillWorker.computeFill(
         mirrorData, width, height, mx, my, 10, expansion, null
       );

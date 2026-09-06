@@ -1,6 +1,7 @@
 import { isTauriDesktop } from '../platform/desktop.js';
 import { isMobile } from '../platform/mobile.js';
 import { bindPressAction } from '../utils/buttonBinding.js';
+import { getSurfaceWindow } from '../canvas/surfaceWindow.js';
 
 const AUTO_SHOW_ZOOM = 1.5;
 const MIN_VIEW_ZOOM = 0.05;
@@ -24,6 +25,10 @@ export class BoardViewer {
     this.viewZoom = 1;
     this.panX = 0;
     this.panY = 0;
+    /** Whether this viewer currently holds the board's display proxy. */
+    this._proxyHeld = false;
+    /** Last zoom the pop-out window reported, in destination px per board px. */
+    this._popoutViewZoom = 0;
     this.followUserId = null;
     this.rafId = null;
     this.popout = null;
@@ -76,12 +81,130 @@ export class BoardViewer {
     this._updateLaunchButton();
   }
 
+  /**
+   * Keep the board's display proxy — and, only when the proxy is not enough,
+   * its viewport-culling suspension — in step with whether this viewer renders.
+   *
+   * BoardViewer draws the WHOLE board at its own zoom and pan, so the main
+   * viewport's visible box does not describe what is on screen here. That used
+   * to mean suspending culling outright for as long as the viewer was live,
+   * which is the worst case available: the viewer auto-opens above
+   * AUTO_SHOW_ZOOM, i.e. exactly when the main viewport is culling hardest, and
+   * cancelled precisely the saving it was about to make.
+   *
+   * So the normal path is the proxy, which is correct everywhere by
+   * construction and costs the same however large the board is. Culling is only
+   * suspended for the narrow case the proxy genuinely cannot serve: zoomed in
+   * past the detail it carries. Driven from the tick loop and the stop path
+   * rather than from each open/close route, so it cannot be missed by a path
+   * that makes the viewer live some other way (the pop-out window, the Tauri
+   * pop-out). Only acts on transitions, so calling it every frame is free.
+   * @private
+   */
+  _syncCullSuspension() {
+    const live = !!(this.visible || this.isPopoutOpen() || this.tauriPopoutWindow);
+
+    if (live !== !!this._proxyHeld) {
+      this._proxyHeld = live;
+      if (live) this.board?.acquireDisplayProxy?.();
+      else this.board?.releaseDisplayProxy?.();
+    }
+
+    const shouldSuspend = live && this._needsFullResSource();
+    if (shouldSuspend === !!this._cullSuspended) return;
+    this._cullSuspended = shouldSuspend;
+    if (shouldSuspend) this.board?.suspendViewportCulling?.();
+    else this.board?.resumeViewportCulling?.();
+  }
+
+  /**
+   * Whether any live view is drawing finer than the proxy can resolve, and so
+   * has to read the real full-resolution surfaces.
+   *
+   * The Tauri pop-out is not considered: it is sent the proxy at proxy
+   * resolution and scales on the far side, so it never needs more.
+   * @private
+   */
+  _needsFullResSource() {
+    const proxy = this.board?.getDisplayProxy?.();
+    if (!proxy) return true;
+    const dpr = window.devicePixelRatio || 1;
+    let needed = 0;
+    if (this.visible) needed = Math.max(needed, this.viewZoom * dpr);
+    // The pop-out runs its own rAF with its own zoom, reported back on each of
+    // its frames; a stale value cannot under-report for long, and the panel's
+    // own zoom is checked independently above.
+    if (this.isPopoutOpen()) needed = Math.max(needed, this._popoutViewZoom || 0);
+    return needed > proxy.scale;
+  }
+
+  /**
+   * Draw the composited board plus every live preview surface into `ctx`, which
+   * must already be transformed into board coordinates.
+   *
+   * `effectiveScale` is destination pixels per board pixel — how much detail the
+   * caller is about to show. The proxy serves it when it carries at least that
+   * much, which covers fit-to-panel and every zoomed-out state; past that we
+   * read viewCanvas, which _syncCullSuspension has kept unculled to match.
+   * @private
+   */
+  _drawBoardStack(ctx, effectiveScale) {
+    const boardW = this.board.getWidth();
+    const boardH = this.board.getHeight();
+    const win = getSurfaceWindow();
+    // The display surfaces cover only the MAIN viewport's window, at its
+    // resolution — so when the window is not the whole board at 1:1 they cannot
+    // answer "the whole board" no matter how culling is set, and they have to be
+    // placed at the window's board position rather than at the origin.
+    const windowed = win.scale < 1 || win.width < boardW || win.height < boardH;
+    const place = windowed
+      ? (canvas) => ctx.drawImage(canvas, win.x, win.y, win.width, win.height)
+      : (canvas) => ctx.drawImage(canvas, 0, 0);
+
+    const proxy = this.board.getDisplayProxy?.();
+    if (proxy && proxy.scale >= effectiveScale) {
+      // The proxy is the whole flattened stack, so upperLayersCanvas is already
+      // part of it and drawing it again would double-composite.
+      ctx.drawImage(proxy.canvas, 0, 0, boardW, boardH);
+    } else if (windowed) {
+      // Past what the proxy resolves, and the surfaces cannot supply the rest of
+      // the board: composite it from the layer stack. Also the whole flattened
+      // stack, so upperLayersCanvas is again already included.
+      const drawn = this.board.withFullRaster?.((raster) => {
+        ctx.drawImage(raster, 0, 0);
+        return true;
+      });
+      if (!drawn) return;
+    } else {
+      ctx.drawImage(this.board.viewCanvas, 0, 0);
+      if (this.board.upperLayersCanvas) ctx.drawImage(this.board.upperLayersCanvas, 0, 0);
+    }
+    for (const userBoard of document.querySelectorAll('.userBoard')) {
+      if (userBoard === this.board.topCanvas) continue;
+      if (userBoard.style.display !== 'none') place(userBoard);
+    }
+    place(this.board.topCanvas);
+  }
+
   destroy() {
+    this.visible = false;
+    this._syncCullSuspension();
     this._stopTick();
     this.popout?.close?.();
     this.tauriChannel?.close?.();
     this.tauriPopoutWindow?.close?.();
     this._releaseTauriFrameCanvas();
+    // Unconditional teardown, after the pop-outs are actually closed. The sync
+    // above still saw them open, so it left the proxy acquired and culling
+    // suspended — and nothing re-syncs once this returns.
+    if (this._proxyHeld) {
+      this._proxyHeld = false;
+      this.board?.releaseDisplayProxy?.();
+    }
+    if (this._cullSuspended) {
+      this._cullSuspended = false;
+      this.board?.resumeViewportCulling?.();
+    }
     this.el?.remove();
     this.launchButton?.remove();
   }
@@ -108,6 +231,9 @@ export class BoardViewer {
       cancelAnimationFrame(this.rafId);
       this.rafId = null;
     }
+    // Nothing will render again until a tick is scheduled, so release the
+    // board's culling suspension here rather than leaving it pinned on.
+    this._syncCullSuspension();
   }
 
   _releaseTauriFrameCanvas() {
@@ -393,6 +519,7 @@ export class BoardViewer {
 
   _tick(now = performance.now()) {
     this.rafId = null;
+    this._syncCullSuspension();
     const renderingPanel = this.visible;
     const sendingTauri = !!this.tauriPopoutWindow;
 
@@ -434,13 +561,7 @@ export class BoardViewer {
     ctx.fillStyle = VIEWPORT_BACKGROUND;
     ctx.fillRect(0, 0, rect.width, rect.height);
     ctx.setTransform(dpr * this.viewZoom, 0, 0, dpr * this.viewZoom, dpr * this.panX, dpr * this.panY);
-    ctx.drawImage(this.board.mainCanvas, 0, 0);
-    if (this.board.upperLayersCanvas) ctx.drawImage(this.board.upperLayersCanvas, 0, 0);
-    for (const userBoard of document.querySelectorAll('.userBoard')) {
-      if (userBoard === this.board.topCanvas) continue;
-      if (userBoard.style.display !== 'none') ctx.drawImage(userBoard, 0, 0);
-    }
-    ctx.drawImage(this.board.topCanvas, 0, 0);
+    this._drawBoardStack(ctx, dpr * this.viewZoom);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     if (zoomLabel) zoomLabel.textContent = `${Math.round(this.viewZoom * 100)}%`;
   }
@@ -548,8 +669,17 @@ export class BoardViewer {
     this._tauriFrameInFlight = true;
     this._lastTauriFrameAt = now;
 
-    const width = this.board.getWidth();
-    const height = this.board.getHeight();
+    const boardW = this.board.getWidth();
+    const boardH = this.board.getHeight();
+    // Sent at proxy resolution rather than board resolution. The receiver sizes
+    // its own canvas from the message and fits that to its stage, so it neither
+    // knows nor cares about board pixels — while a board-sized frame meant a
+    // full-board canvas AND a full-board getImageData on every frame, which on
+    // a large board is the most expensive thing this class does.
+    const proxy = this.board.getDisplayProxy?.();
+    const scale = proxy ? proxy.scale : 1;
+    const width = Math.max(1, Math.round(boardW * scale));
+    const height = Math.max(1, Math.round(boardH * scale));
     if (!this.tauriFrameCanvas) {
       this.tauriFrameCanvas = document.createElement('canvas');
       this.tauriFrameCtx = this.tauriFrameCanvas.getContext('2d');
@@ -560,14 +690,10 @@ export class BoardViewer {
     }
 
     const ctx = this.tauriFrameCtx;
-    ctx.clearRect(0, 0, width, height);
-    ctx.drawImage(this.board.mainCanvas, 0, 0);
-    if (this.board.upperLayersCanvas) ctx.drawImage(this.board.upperLayersCanvas, 0, 0);
-    for (const userBoard of document.querySelectorAll('.userBoard')) {
-      if (userBoard === this.board.topCanvas) continue;
-      if (userBoard.style.display !== 'none') ctx.drawImage(userBoard, 0, 0);
-    }
-    ctx.drawImage(this.board.topCanvas, 0, 0);
+    ctx.setTransform(scale, 0, 0, scale, 0, 0);
+    ctx.clearRect(0, 0, boardW, boardH);
+    this._drawBoardStack(ctx, scale);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
 
     try {
       this.tauriChannel.postMessage({
@@ -651,14 +777,16 @@ export class BoardViewer {
       ctx.imageSmoothingEnabled = viewZoom < 4;
       ctx.fillStyle = viewportBackground;
       ctx.fillRect(0, 0, rect.width, rect.height);
+      // Reported back so _needsFullResSource can see this window's zoom, which
+      // is independent of the panel's and lives only in this closure. Re-synced
+      // from here rather than only from _tick: with the panel hidden and this
+      // window open, _tick bails without rescheduling itself, so this rAF is
+      // the only thing still running and zooming in here would otherwise never
+      // reach for the full-resolution source. Transition-guarded, so it is free.
+      this._popoutViewZoom = viewZoom * dpr;
+      this._syncCullSuspension();
       ctx.setTransform(dpr * viewZoom, 0, 0, dpr * viewZoom, dpr * panX, dpr * panY);
-      ctx.drawImage(this.board.mainCanvas, 0, 0);
-      if (this.board.upperLayersCanvas) ctx.drawImage(this.board.upperLayersCanvas, 0, 0);
-      for (const userBoard of document.querySelectorAll('.userBoard')) {
-        if (userBoard === this.board.topCanvas) continue;
-        if (userBoard.style.display !== 'none') ctx.drawImage(userBoard, 0, 0);
-      }
-      ctx.drawImage(this.board.topCanvas, 0, 0);
+      this._drawBoardStack(ctx, dpr * viewZoom);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       if (zoomLabel) zoomLabel.textContent = `${Math.round(viewZoom * 100)}%`;
     };

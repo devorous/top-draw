@@ -50,6 +50,18 @@ export function createDefaultAppPreferences() {
       // always get it regardless of this flag, so turning it off never takes
       // the button away from someone who had it by role.
       showDebugButton: false,
+      // Skip compositing board regions the viewport is not showing. A pure
+      // render optimisation with no effect on stored pixels, but it leaves
+      // viewCanvas stale outside the view until something asks for the whole
+      // board (see Board.ensureFullComposite), so it stays opt-in.
+      viewportCulling: false,
+      // Size the display surfaces (viewCanvas, topCanvas, upperLayersCanvas and
+      // every remote user's preview canvas) to the VIEWPORT rather than to the
+      // board, at screen resolution. On a large board this is the difference
+      // between a handful of ~11 MB surfaces and a handful of ~127 MB ones, and
+      // unlike viewportCulling the saving does not decay as the board fills up.
+      // Opt-in while it is being measured; see Board._computeSurfaceWindow.
+      windowedSurfaces: false,
       showFloatingArt: true,
       galleryTimelapseEnabled: true,
       chatOpacity: 0.95,
@@ -284,6 +296,8 @@ function sanitizePreferences(rawPreferences) {
       reduceBackgroundWork: !!parsed.general?.reduceBackgroundWork,
       scrollToZoom: migratedScrollToZoom,
       showDebugButton: !!parsed.general?.showDebugButton,
+      viewportCulling: !!parsed.general?.viewportCulling,
+      windowedSurfaces: !!parsed.general?.windowedSurfaces,
       showFloatingArt: migratedShowFloatingArt,
       galleryTimelapseEnabled: parsed.general?.galleryTimelapseEnabled !== undefined
         ? !!parsed.general.galleryTimelapseEnabled

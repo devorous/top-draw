@@ -13,6 +13,7 @@
  */
 
 import { exportLayerState } from './layerStateCodec.js';
+import { surfaceToBoardCanvas } from '../canvas/surfaceWindow.js';
 
 /**
  * Snapshot the per-user transient/tool/selection state in the shape
@@ -68,7 +69,7 @@ function capturePatternPayload(user) {
   };
 }
 
-function captureUserTransientState(user, selectionMask = null) {
+function captureUserTransientState(user, selectionMask = null, boardSize = null) {
   const base = typeof user.toJSON === 'function' ? user.toJSON() : { ...user };
 
   // Live transient state — the engine reads these by name.
@@ -123,7 +124,14 @@ function captureUserTransientState(user, selectionMask = null) {
       }
     : {};
 
-  const previewCanvasData = user.board ? user.board.toDataURL('image/png') : null;
+  // Re-expressed in board space first: a preview surface may be windowed (a
+  // scaled slice at some board offset), and the replay engine draws this back at
+  // board (0, 0) as a whole-board image. No-op, and no allocation, when the
+  // surface window is the whole board at 1:1.
+  const previewSurface = user.board && boardSize
+    ? surfaceToBoardCanvas(user.board, boardSize.width, boardSize.height)
+    : user.board;
+  const previewCanvasData = previewSurface ? previewSurface.toDataURL('image/png') : null;
 
   const selection = {};
   if (user.selection) selection.selection = { ...user.selection };
@@ -337,11 +345,22 @@ export function captureOpeningSnapshot(app) {
     }
   }
 
-  // Top canvas (active previews drawn by other users at snapshot time)
-  const topCanvasData = board.topCanvas?.toDataURL?.('image/png') ?? null;
+  // Top canvas (active previews drawn by other users at snapshot time), in
+  // board space — see surfaceToBoardCanvas.
+  const boardSize = { width: board.getWidth?.() ?? 0, height: board.getHeight?.() ?? 0 };
+  const topSurface = board.topCanvas && boardSize.width && boardSize.height
+    ? surfaceToBoardCanvas(board.topCanvas, boardSize.width, boardSize.height)
+    : board.topCanvas;
+  const topCanvasData = topSurface?.toDataURL?.('image/png') ?? null;
 
   // Per-user state. Includes self so it gets bot-replayed too — the local
   // session is just another participant from the replay's POV.
+  //
+  // captureUserTransientState reads `user.board`, which is now the user's own
+  // preview surface for every user including self (topCanvas until a resync
+  // provisions a per-user canvas). It used to be viewCanvas for self, which
+  // made that a full-board read of a possibly-culled composite and needed a
+  // repair here first.
   const userDrawingStates = {};
   if (app.users) {
     // Masks are keyed by `user.id` on the board, which is the same value the
@@ -350,7 +369,7 @@ export function captureOpeningSnapshot(app) {
     const masksByUser = board.selectionMasksByUser;
     for (const [id, user] of app.users.entries()) {
       const mask = masksByUser?.get?.(user?.id ?? id) ?? null;
-      userDrawingStates[id] = captureUserTransientState(user, mask);
+      userDrawingStates[id] = captureUserTransientState(user, mask, boardSize);
     }
   }
 

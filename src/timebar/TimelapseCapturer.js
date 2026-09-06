@@ -137,14 +137,18 @@ export class TimelapseCapturer {
 
   async _captureFrame() {
     const layerManager = this.board?.layerManager;
-    const src = this.board?.mainCanvas;
-    if (!src || !src.width || !src.height) return null;
+    // Board dimensions, not viewCanvas's: viewCanvas is a display surface and
+    // its backing store is not necessarily the size of the board. Nothing here
+    // reads its pixels — the frame is rendered from the layer stack below.
+    const boardW = this.board?.getWidth?.() ?? 0;
+    const boardH = this.board?.getHeight?.() ?? 0;
+    if (!boardW || !boardH) return null;
 
     // Recomputed every capture (not cached) so a mid-session board resize is
     // reflected immediately — each frame remembers the scale that produced it.
-    const scale = Math.min(1, STORAGE_MAX_DIM / Math.max(src.width, src.height));
-    const w = Math.max(1, Math.round(src.width * scale));
-    const h = Math.max(1, Math.round(src.height * scale));
+    const scale = Math.min(1, STORAGE_MAX_DIM / Math.max(boardW, boardH));
+    const w = Math.max(1, Math.round(boardW * scale));
+    const h = Math.max(1, Math.round(boardH * scale));
 
     const c = document.createElement('canvas');
     c.width = w;
@@ -156,7 +160,7 @@ export class TimelapseCapturer {
     ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
     ctx.fillRect(0, 0, w, h);
     // Render with every layer forced visible, ignoring the local show/hide
-    // toggle: mainCanvas reflects whatever the user has hidden at this
+    // toggle: viewCanvas reflects whatever the user has hidden at this
     // instant, and sampling it directly made a mid-session layer toggle
     // flicker the layer in/out of the finished clip.
     if (layerManager) {

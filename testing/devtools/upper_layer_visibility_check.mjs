@@ -53,7 +53,7 @@ const HELPERS = `(() => {
 
   // Opaque pixels in a box on the visible main canvas.
   window.__inkAt = function (x, y, w, h) {
-    const c = app.board.mainCanvas;
+    const c = app.board.viewCanvas;
     const d = c.getContext('2d', { willReadFrequently: true }).getImageData(x, y, w, h).data;
     let n = 0;
     for (let i = 3; i < d.length; i += 4) if (d[i] > 8) n++;

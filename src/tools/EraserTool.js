@@ -68,7 +68,7 @@ export class EraserTool extends Tool {
 
     // Ask for one composite now, whichever path we take. Starting a stroke moves
     // the composite split to this layer, which is what moves the layers above it
-    // off mainCanvas and onto upperLayersCanvas — i.e. above the preview surface.
+    // off viewCanvas and onto upperLayersCanvas — i.e. above the preview surface.
     // The background preview relies on that having happened; it does not request
     // a composite of its own thereafter.
     this.board.requestUpdate();

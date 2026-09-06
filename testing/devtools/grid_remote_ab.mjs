@@ -38,7 +38,7 @@ await page.evaluate(() => {
   const btn = [...document.querySelectorAll('button')].find(b => /join & draw/i.test(b.textContent));
   if (btn) btn.click();
 });
-await page.waitForFunction(() => window.app?.connected && window.app.board?.mainCanvas, { timeout: 90000 });
+await page.waitForFunction(() => window.app?.connected && window.app.board?.viewCanvas, { timeout: 90000 });
 await sleep(4000);
 // `/go/` picks a room for you, so two clients silently land in DIFFERENT rooms
 // while both look healthy. Join an explicit one on both sides.

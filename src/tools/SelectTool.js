@@ -258,7 +258,7 @@ export class SelectTool extends Tool {
    * Activates the tool.
    */
   activate() {
-    this.board.mainCtx.globalCompositeOperation = 'source-over';
+    this.board.viewCtx.globalCompositeOperation = 'source-over';
     this.board.topCanvas.style.mixBlendMode = 'normal';
     // SelectTool will manage the mask overlay animation from now on
     this.board._maskManagedBySelectTool = this.isMaskMode;
@@ -2461,6 +2461,17 @@ export class SelectTool extends Tool {
     }
   }
 
+  /**
+   * A floating selection sits on topCanvas for as long as it is floating —
+   * across gestures, not just across ticks — so it is the preview most exposed
+   * to a window move.
+   */
+  redrawPreview() {
+    if (!this.floatingCanvas || !this.selection) return;
+    this.board.clearTop();
+    this.drawFloatingSelection();
+  }
+
   drawFloatingSelection() {
     if (!this.floatingCanvas || !this.selection) return;
 
@@ -3825,8 +3836,8 @@ export class SelectTool extends Tool {
     this.selection = {
       x: 0,
       y: 0,
-      width: this.board.mainCanvas.width,
-      height: this.board.mainCanvas.height
+      width: this.board.getWidth(),
+      height: this.board.getHeight()
     };
 
     // Initialize corners for transform handles

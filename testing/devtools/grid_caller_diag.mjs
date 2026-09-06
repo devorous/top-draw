@@ -37,7 +37,7 @@ if (process.env.RELOAD === '1' || !joined) {
     const btn = [...document.querySelectorAll('button')].find(b => /join & draw/i.test(b.textContent));
     if (btn) btn.click();
   });
-  await page.waitForFunction(() => window.app?.connected && window.app.board?.mainCanvas, { timeout: 90000 });
+  await page.waitForFunction(() => window.app?.connected && window.app.board?.viewCanvas, { timeout: 90000 });
   await sleep(4000);
 }
 

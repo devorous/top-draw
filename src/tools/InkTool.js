@@ -70,7 +70,7 @@ export class InkTool extends Tool {
    */
   ensureOffscreenCanvas() {
     const { canvas, ctx } = ensureSizedCanvas(
-      this.offscreenCanvas, this.board.mainCanvas.width, this.board.mainCanvas.height);
+      this.offscreenCanvas, this.board.getWidth(), this.board.getHeight());
     this.offscreenCanvas = canvas;
     this.offscreenCtx = ctx;
   }

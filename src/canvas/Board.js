@@ -1,5 +1,79 @@
 import { LayerManager } from './LayerManager.js';
 import { CompositeTileGrid } from './CompositeTileGrid.js';
+import {
+  getSurfaceWindow,
+  setSurfaceWindow,
+  sizeWindowedSurface,
+  applyWindowTransform,
+  windowCovers,
+  snapRectToDevicePixels,
+  boardRectToDevice,
+  clampDeviceRect
+} from './surfaceWindow.js';
+
+/**
+ * Viewport culling (opt-in; see Board.viewportCulling).
+ *
+ * VIEW_CULL_PAD_PX pads the visible box in *screen* pixels, so a small pan or a
+ * momentum flick reveals already-painted board instead of a blank strip while
+ * the repair composite catches up.
+ *
+ * VIEW_CULL_MIN_HIDDEN is the fraction of the board that has to be off-screen
+ * before culling engages at all. Below it the win is a handful of skipped
+ * draws while the cost — rect intersection every composite, plus a full-board
+ * repair before every export, flood fill or checkpoint — is unchanged, so the
+ * trade only makes sense once a real majority of the board is not being looked
+ * at (zoomed in, which is when the board is largest relative to the viewport).
+ */
+const VIEW_CULL_PAD_PX = 128;
+const VIEW_CULL_MIN_HIDDEN = 0.35;
+/**
+ * Longest edge of the display proxy — a low-resolution mirror of the whole
+ * board for second views that want the WHOLE board rather than the viewport.
+ * Fixed rather than a ratio, so the proxy costs a constant ~16 MB no matter how
+ * large the board is; that constant is the point, since a full-board RGBA
+ * surface on a 12k board is ~576 MB and the second view is what used to force
+ * one to stay live.
+ */
+const DISPLAY_PROXY_MAX_DIM = 2048;
+/**
+ * Largest proxy-pixels-per-board-pixel worth allocating for. The proxy only
+ * earns its bytes when it is genuinely a reduction: at scale 1 — any board
+ * inside DISPLAY_PROXY_MAX_DIM — it is a straight duplicate of viewCanvas, for a
+ * per-frame culling saving that is correspondingly small. 0.7 keeps the proxy to
+ * roughly half the board's pixels or less, and below it consumers fall back to
+ * suspending culling, which is the behaviour that predates the proxy.
+ */
+const DISPLAY_PROXY_MIN_REDUCTION = 0.7;
+/**
+ * Screen-space slack around the visible box when sizing the surface window.
+ *
+ * The window has to be bigger than what is on screen or every pan would leave
+ * it immediately, and moving the window costs a repaint. Same reasoning (and
+ * same value) as VIEW_CULL_PAD_PX; it costs about 40 % more backing-store
+ * pixels at 1080p, which is the price of pans that mostly do not repaint.
+ */
+const SURFACE_PAD_PX = 128;
+/**
+ * Ceiling on the device-pixel ratio the surfaces are rasterised at.
+ *
+ * The whole win here is that the backing store is container-sized rather than
+ * board-sized, and dpr squares that: a phone at dpr 3 would pay 9x per surface
+ * and hand most of the saving back. Past 2x there is nothing to see on a
+ * painting surface.
+ */
+const SURFACE_MAX_DPR = 2;
+/** Floor on surface scale, so an extreme zoom-out cannot round it to nothing. */
+const SURFACE_MIN_SCALE = 1 / 16;
+/**
+ * Device-pixel quantum for the backing store.
+ *
+ * Rounding the store up to a step is what lets the window MOVE without being
+ * re-allocated: assigning canvas.width drops and re-creates the backing store,
+ * which is the operation measured to stall (userLayerPresence: a fresh 8k
+ * canvas per frame took 180 fps to 92 with JS self-time flat).
+ */
+const SURFACE_STORE_STEP = 64;
 import { TileTracker } from './TileTracker.js';
 import { TextOverlay } from './TextOverlay.js';
 import * as wasm from '../wasm/ddraw_wasm.js';
@@ -12,6 +86,12 @@ import { readQoiDimensions, snapshotLayerDimensions } from '../../shared/qoi.js'
 // Must outlast the 260ms opacity transition set on mirrorGuidesLayer, so the
 // fade finishes before the layer leaves the compositing tree.
 const MIRROR_GUIDE_FADE_MS = 300;
+/**
+ * Board-space padding around mirror overlay content. Covers the antialiasing
+ * of the 0.5-1.15px hairlines these layers draw, so following the content
+ * bounds never clips a stroke's outer edge.
+ */
+const MIRROR_LAYER_PAD = 4;
 
 /**
  * Manages the drawing boards, viewport transformations, and compositing logic.
@@ -43,7 +123,7 @@ export class Board {
 
     this.container = null;
     this.boardsWrapper = null;
-    this.mainCanvas = null;
+    this.viewCanvas = null;
     this.topCanvas = null;
     this.upperLayersCanvas = null;
     this.pixelGridOverlay = null;
@@ -51,7 +131,7 @@ export class Board {
     this.selectionOverlayPadding = 500;
     this.interactionBlockOverlay = null;
     this.interactionBlockCtx = null;
-    this.mainCtx = null;
+    this.viewCtx = null;
     this.topCtx = null;
     this.upperLayersCtx = null;
     this._upperLayersCompositeStart = null;
@@ -101,6 +181,49 @@ export class Board {
     this.interactionBlockAnimationId = null;
 
     this._needsComposite = false;
+    /**
+     * Opt-in viewport culling. Off by default and deliberately not derived from
+     * the tiling flag: the two are independent (culling helps an untiled board
+     * too), and culling carries a correctness obligation tiling does not — every
+     * full-board read of viewCanvas must call ensureFullComposite() first.
+     */
+    this.viewportCulling = false;
+    /**
+     * Opt-in viewport-sized display surfaces. Off by default, in which case the
+     * surface window is the whole board at 1:1 and everything behaves exactly
+     * as it did before the window existed. See _computeSurfaceWindow.
+     */
+    this.windowedSurfaces = false;
+    /** Called after the surface window moves or resizes, so live previews can repaint. */
+    this.onSurfaceWindowChange = null;
+    /** Whether a culled composite has left viewCanvas stale outside the view. */
+    this._compositeStaleOutsideView = false;
+    /** Reference count of live second views; culling is off while non-zero. */
+    this._viewCullSuspensions = 0;
+    /** Board region the most recent culled composite painted. */
+    this._lastCullView = null;
+    /**
+     * Display proxy: a low-resolution mirror of the entire board, kept current
+     * from the same dirty rects that drive the composite and never culled.
+     * Allocated only while something has acquired it. See _updateDisplayProxy.
+     */
+    this._proxyCanvas = null;
+    this._proxyCtx = null;
+    this._proxyScale = 1;
+    this._proxyConsumers = 0;
+    this._proxyDirtyRects = null;
+    this._proxyNeedsFull = true;
+    /**
+     * Full raster: a board-sized 1:1 composite for readers that need every
+     * pixel rather than the pixels currently on screen. Allocated only while
+     * something holds it, and kept for a short idle window afterwards so a
+     * burst of one-shot readers does not re-allocate a board-sized canvas each
+     * time. See getFullRaster.
+     */
+    this._fullRasterCanvas = null;
+    this._fullRasterCtx = null;
+    this._fullRasterHolders = 0;
+    this._fullRasterFreeTimer = null;
     this._compositeScheduled = false;
 
     // Flush any pending composite when the tab returns to visible — rAF is
@@ -284,7 +407,7 @@ export class Board {
   init(containerSelector) {
     this.container = document.querySelector(containerSelector);
     this.boardsWrapper = document.getElementById('boards');
-    this.mainCanvas = document.getElementById('board');
+    this.viewCanvas = document.getElementById('board');
     this.topCanvas = document.getElementById('topBoard');
     this.cursorsSvg = document.getElementById('cursorsSvg');
     this.mirrorLine = document.querySelector('.mirrorLine');
@@ -298,7 +421,7 @@ export class Board {
     // protecting are all one-shot and user-initiated (flood fill on
     // pointerdown, the eyedropper's 1x1 sample), so they pay a readback stall
     // on a click instead of taxing every frame.
-    this.mainCtx = this._createBoard2DContext(this.mainCanvas, 'main');
+    this.viewCtx = this._createBoard2DContext(this.viewCanvas, 'main');
     this.topCtx = this._createBoard2DContext(this.topCanvas, 'top');
 
     // Create selection overlay canvas with padding to allow handles to extend beyond board
@@ -429,6 +552,10 @@ export class Board {
       this._containerResizeObserver = new ResizeObserver(() => {
         this._invalidateContainerRect();
         this.preserveViewOnResize();
+        // preserveViewOnResize only calls applyTransform when the pan actually
+        // moved; the window is sized from the container, so it has to be
+        // reconsidered on every container resize regardless.
+        this._syncSurfaceWindow();
       });
       this._containerResizeObserver.observe(this.container);
     }
@@ -473,10 +600,10 @@ export class Board {
     this.boardsWrapper.style.height = `${height}px`;
     this.boardsWrapper.style.width = `${width}px`;
 
-    this.mainCanvas.height = height;
-    this.mainCanvas.width = width;
-    this.topCanvas.height = height;
-    this.topCanvas.width = width;
+    // viewCanvas, topCanvas and upperLayersCanvas are sized by the surface
+    // window at the end of this method, not here — with windowedSurfaces off
+    // that window is the whole board at 1:1, which is what these three
+    // assignments used to do directly.
     if (typeof document !== 'undefined') {
       // Collapse rather than resize. These hold nothing but transient previews,
       // and a resize invalidates those anyway — so re-allocating every board at
@@ -488,12 +615,6 @@ export class Board {
         canvas.height = 1;
         canvas.width = 1;
       });
-    }
-    if (this.upperLayersCanvas) {
-      this.upperLayersCanvas.height = height;
-      this.upperLayersCanvas.width = width;
-      // Resizing cleared it; the next composite re-adds it if it has content.
-      this._setLayerPresent(this.upperLayersCanvas, false);
     }
     this.compositeTileGrid?.resize(width, height);
     // Both overlays are sized on demand — see _sizeOverlayCanvas. A resize
@@ -508,15 +629,6 @@ export class Board {
       this.obscureLayer.style.height = `${height}px`;
     }
 
-    this.mainCtx.globalCompositeOperation = 'source-over';
-    this.mainCtx.imageSmoothingQuality = 'high';
-    this.mainCtx.lineCap = 'round';
-    this.mainCtx.lineJoin = 'round';
-
-    this.topCtx.imageSmoothingQuality = 'high';
-    this.topCtx.lineCap = 'round';
-    this.topCtx.lineJoin = 'round';
-
     if (this.mirrorLine) {
       this.mirrorLine.setAttribute('x1', width / 2);
       this.mirrorLine.setAttribute('y1', 0);
@@ -530,13 +642,12 @@ export class Board {
     }
 
     this.boardsWrapper.style.transformOrigin = 'top left';
-    for (const layer of [this.mirrorRegionsLayer, this.mirrorGuidesLayer]) {
-      if (!layer) continue;
-      layer.width = width;
-      layer.height = height;
-      layer.style.width = `${width}px`;
-      layer.style.height = `${height}px`;
-    }
+    // Forced: the board's dimensions just changed, so even an unchanged window
+    // description now means different pixels. This also (re)applies the context
+    // state the assignments above used to set inline.
+    this._syncSurfaceWindow({ force: true });
+    // The mirror layers are sized and positioned from their own content by
+    // renderMirrorRegions below, which re-clamps to the new board dimensions.
     this.renderInteractionBlocks();
     this.renderMirrorRegions();
     this.renderPixelGrid();
@@ -583,9 +694,604 @@ export class Board {
   }
 
   /**
+   * The board-space axis-aligned box the user can currently see, padded, or
+   * null when the whole board is visible.
+   *
+   * Derived from the cached container rect rather than measured — see
+   * board_bounds_derived_not_measured; calling getBoundingClientRect here would
+   * put a forced layout on the composite path, which is the exact regression
+   * that memory records fixing.
+   *
+   * The four container corners are mapped through the inverse of the wrapper
+   * transform (the same inverse `getBoardRelativePos` uses) and the AABB of the
+   * results is taken, so rotation is handled correctly — a rotated viewport
+   * simply yields a larger box, never a wrong one.
+   *
+   * @param {number} [padPx=VIEW_CULL_PAD_PX] - Screen-space padding, so a small
+   *   pan does not immediately expose unpainted board.
+   * @returns {{x:number,y:number,width:number,height:number}|null}
+   */
+  getVisibleBoardRect(padPx = VIEW_CULL_PAD_PX) {
+    const rect = this._getContainerRect();
+    if (!rect || rect.width <= 0 || rect.height <= 0) return null;
+    if (!(this.zoom > 0)) return null;
+
+    const rad = -this.rotation * Math.PI / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+    const boardWidth = this.getWidth();
+    const boardHeight = this.getHeight();
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const [cx, cy] of [[0, 0], [rect.width, 0], [0, rect.height], [rect.width, rect.height]]) {
+      const bx = cx - this.panX;
+      const by = cy - this.panY;
+      let x = (bx * cos - by * sin) / this.zoom;
+      const y = (bx * sin + by * cos) / this.zoom;
+      // canvasFlipped mirrors board X about the board's own width, exactly as
+      // getBoardRelativePos does; without this the visible box would be the
+      // mirror image of the real one and cull the half being looked at.
+      if (this.canvasFlipped) x = boardWidth - x;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+
+    const pad = padPx / this.zoom;
+    const x0 = Math.max(0, Math.floor(minX - pad));
+    const y0 = Math.max(0, Math.floor(minY - pad));
+    const x1 = Math.min(boardWidth, Math.ceil(maxX + pad));
+    const y1 = Math.min(boardHeight, Math.ceil(maxY + pad));
+    if (x1 <= x0 || y1 <= y0) return null;
+    return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
+  }
+
+  /**
+   * The cull box for this composite, or null to composite the whole board.
+   *
+   * Returns null unless culling is enabled AND the view actually hides enough
+   * of the board to be worth it: below VIEW_CULL_MIN_HIDDEN the intersection
+   * bookkeeping and the repair composites it forces cost more than the draws
+   * they skip.
+   * @private
+   */
+  _viewCullRect() {
+    // Windowing already clips every rect to the window in
+    // _prepareCompositeRects, exactly and unconditionally. Culling on top of
+    // that would only add its repair obligation back — and its repair has
+    // nowhere to write. The two are mutually exclusive by design; windowing is
+    // the successor.
+    if (this.windowedSurfaces) return null;
+    if (!this.viewportCulling) return null;
+    if (this._viewCullSuspensions > 0) return null;
+    const view = this.getVisibleBoardRect();
+    if (!view) return null;
+    const boardArea = this.getWidth() * this.getHeight();
+    if (boardArea <= 0) return null;
+    if (view.width * view.height > boardArea * (1 - VIEW_CULL_MIN_HIDDEN)) return null;
+    return view;
+  }
+
+  /**
+   * Clip a set of composite dirty rects to the visible board region.
+   *
+   * viewCanvas and upperLayersCanvas are full-board canvases shown through a
+   * CSS transform, so anything outside the viewport is painted and then never
+   * looked at. Clipping the dirty rects skips that work for every layer at
+   * once — tiles, stroke stack and baked sequences alike — rather than only for
+   * the tile grid.
+   *
+   * The catch, and the reason `ensureFullComposite` exists: those canvases are
+   * ALSO read as full-board sources (flood fill's getImageData, save/export,
+   * toDataURL, BoardViewer, checkpoint capture). Skipping a region leaves stale
+   * pixels there, so every such reader has to repair first. Culling is opt-in
+   * for that reason.
+   *
+   * @param {Array|null} rects - null means "the whole board is dirty".
+   * @returns {Array|null}
+   * @private
+   */
+  _cullToView(rects) {
+    // Before anything is clipped away: this is the one funnel every rect set
+    // reaching viewCanvas passes through, so it is also the only place that
+    // sees the UNCULLED truth about what changed. The proxy needs exactly that,
+    // whether or not culling is on for this composite.
+    this._noteProxyDirty(rects);
+
+    const view = this._viewCullRect();
+    if (!view) return rects;
+
+    this._compositeStaleOutsideView = true;
+    // The freshest region of viewCanvas. Anything outside it may be stale — see
+    // ensureCompositeRegion. Only the latest is kept rather than a union of
+    // views, which is conservative in the safe direction: applyTransform marks
+    // the composite full on every view change, so the current view is always
+    // genuinely fresh, and an older view's region is simply re-repaired if
+    // something asks for it.
+    this._lastCullView = view;
+    if (!rects) return [view];
+
+    const out = [];
+    for (const r of rects) {
+      const x = Math.max(r.x, view.x);
+      const y = Math.max(r.y, view.y);
+      const right = Math.min(r.x + r.width, view.x + view.width);
+      const bottom = Math.min(r.y + r.height, view.y + view.height);
+      if (right > x && bottom > y) out.push({ x, y, width: right - x, height: bottom - y });
+    }
+    // Never return an empty array: compositeLayerRange reads that as "no usable
+    // dirty rects" and falls back to a full-board clear and redraw — the exact
+    // opposite of what an entirely-offscreen dirty set should cost. A single
+    // degenerate rect keeps the dirty-rect path and clips everything away.
+    return out.length > 0 ? out : [{ x: 0, y: 0, width: 0, height: 0 }];
+  }
+
+  /**
+   * Repaint the whole board into viewCanvas if culling has left it stale
+   * outside the viewport. Call before ANY full-board read of viewCanvas.
+   *
+   * A no-op when culling is off or nothing has been culled since the last
+   * repair, so callers can invoke it unconditionally.
+   */
+  /**
+   * Suspend viewport culling while a second view onto viewCanvas is live.
+   *
+   * A second view renders the whole board at its own zoom and pan, so the main
+   * viewport's visible box no longer describes what is being looked at.
+   * Repairing per frame would be worse than not culling — a culled composite
+   * plus a full repair every frame — so culling switches off wholesale for as
+   * long as the suspension is held.
+   *
+   * This is the fallback, not the normal path. BoardViewer serves itself from
+   * `acquireDisplayProxy` instead and only suspends when it is zoomed in past
+   * the detail the proxy carries, which is the one case a low-resolution mirror
+   * genuinely cannot answer.
+   *
+   * Reference-counted: several viewers (panel + pop-out) can be open at once.
+   * Suspending repairs immediately, so the second view never shows a stale
+   * region even on its first frame.
+   */
+  suspendViewportCulling() {
+    this._viewCullSuspensions = (this._viewCullSuspensions || 0) + 1;
+    if (this._viewCullSuspensions === 1) this.ensureFullComposite();
+  }
+
+  /** Undo one `suspendViewportCulling`. */
+  resumeViewportCulling() {
+    this._viewCullSuspensions = Math.max(0, (this._viewCullSuspensions || 0) - 1);
+  }
+
+  /**
+   * Repair only if `(x, y, width, height)` might be stale — i.e. it is not
+   * wholly inside the region the last culled composite actually painted.
+   *
+   * For readers that sample a bounded region rather than the whole board (a
+   * blur tool cropping around a stamp, say). The common case is a crop the user
+   * is looking at, which is already fresh and costs nothing; a remote user's
+   * stroke off-screen falls back to a full repair.
+   *
+   * @param {number} x
+   * @param {number} y
+   * @param {number} width
+   * @param {number} height
+   */
+  ensureCompositeRegion(x, y, width, height) {
+    if (!this._compositeStaleOutsideView) return;
+    const view = this._lastCullView;
+    if (view &&
+      x >= view.x && y >= view.y &&
+      x + width <= view.x + view.width &&
+      y + height <= view.y + view.height) {
+      return;
+    }
+    this.ensureFullComposite();
+  }
+
+  ensureFullComposite() {
+    // Meaningless once the surfaces are windowed: they physically cannot hold
+    // the whole board, so "repair the off-screen region" has nowhere to put the
+    // result. Every reader that used to depend on this now goes through
+    // getFullRaster, which composites from the layer stack instead.
+    if (this.windowedSurfaces) return;
+    if (!this._compositeStaleOutsideView) return;
+    this._compositeStaleOutsideView = false;
+
+    const saved = this.viewportCulling;
+    this.viewportCulling = false;
+    try {
+      this.markCompositeFull();
+      this.layerManager && (this.layerManager.needsComposite = true);
+      this.compositeAllLayers();
+    } finally {
+      this.viewportCulling = saved;
+    }
+  }
+
+  /**
+   * Claim the display proxy — a full-board mirror at DISPLAY_PROXY_MAX_DIM.
+   *
+   * For second views that want the WHOLE board rather than the main viewport's
+   * slice of it. Reading viewCanvas for that forces culling off entirely, which
+   * costs a full-board composite every frame the second view is live; the proxy
+   * costs one bounded, board-size-independent composite per frame that actually
+   * changed something, and leaves the main viewport free to keep culling.
+   *
+   * Reference-counted, and allocated lazily: with no consumers there is no
+   * canvas, no dirty tracking and no per-composite work. Balance with
+   * `releaseDisplayProxy`.
+   *
+   * @returns {{ canvas: HTMLCanvasElement, scale: number }|null}
+   */
+  acquireDisplayProxy() {
+    this._proxyConsumers++;
+    if (this._proxyConsumers === 1) {
+      this._proxyNeedsFull = true;
+      this._proxyDirtyRects = null;
+      // Paint it now rather than waiting for the next composite, so the first
+      // frame of the second view is never blank.
+      this._updateDisplayProxy();
+    }
+    return this.getDisplayProxy();
+  }
+
+  /** Undo one `acquireDisplayProxy`; frees the canvas at zero consumers. */
+  releaseDisplayProxy() {
+    this._proxyConsumers = Math.max(0, this._proxyConsumers - 1);
+    if (this._proxyConsumers > 0) return;
+    this._proxyCanvas = null;
+    this._proxyCtx = null;
+    this._proxyDirtyRects = null;
+    this._proxyNeedsFull = true;
+  }
+
+  /**
+   * The proxy, or null when nothing holds one. `scale` is proxy pixels per
+   * board pixel — a consumer drawing at a higher effective scale than this is
+   * asking for detail the proxy does not carry and should read the real
+   * surfaces instead.
+   *
+   * @returns {{ canvas: HTMLCanvasElement, scale: number }|null}
+   */
+  getDisplayProxy() {
+    if (this._proxyConsumers === 0 || !this._proxyCanvas) return null;
+    return { canvas: this._proxyCanvas, scale: this._proxyScale };
+  }
+
+  /**
+   * Record what changed, in board coordinates, for the next proxy update.
+   * `null` means the whole board. Free when nothing holds the proxy.
+   * @private
+   */
+  _noteProxyDirty(rects) {
+    if (this._proxyConsumers === 0 || this._proxyNeedsFull) return;
+    if (!rects) {
+      this._proxyNeedsFull = true;
+      this._proxyDirtyRects = null;
+      return;
+    }
+    (this._proxyDirtyRects ??= []).push(...rects);
+  }
+
+  /**
+   * (Re)allocate the proxy canvas if the board's dimensions call for it.
+   * @returns {boolean} whether a usable canvas exists
+   * @private
+   */
+  _ensureProxyCanvas() {
+    const boardW = this.getWidth();
+    const boardH = this.getHeight();
+    if (!(boardW > 0) || !(boardH > 0)) return false;
+
+    const scale = Math.min(1, DISPLAY_PROXY_MAX_DIM / Math.max(boardW, boardH));
+    if (scale > DISPLAY_PROXY_MIN_REDUCTION) return false;
+
+    const w = Math.max(1, Math.round(boardW * scale));
+    const h = Math.max(1, Math.round(boardH * scale));
+    if (this._proxyCanvas && this._proxyCanvas.width === w && this._proxyCanvas.height === h) return true;
+
+    this._proxyCanvas = document.createElement('canvas');
+    this._proxyCanvas.width = w;
+    this._proxyCanvas.height = h;
+    this._proxyCtx = this._proxyCanvas.getContext('2d');
+    this._proxyScale = w / boardW;
+    // A fresh canvas holds nothing, so any accumulated rects are meaningless.
+    this._proxyNeedsFull = true;
+    this._proxyDirtyRects = null;
+    return true;
+  }
+
+  /**
+   * Bring the proxy up to date from the rects gathered since the last update.
+   *
+   * Composited straight from the layer stack rather than downscaled from
+   * viewCanvas: viewCanvas is the surface that may be culled, so it is exactly
+   * the wrong source for the thing whose job is to be correct everywhere.
+   *
+   * Always the FULL layer range, ignoring the split that `compositeAllLayers`
+   * applies for live previews — the proxy is a flattened board, and consumers
+   * draw the live preview surfaces over it themselves. The visible consequence
+   * is narrow: while a stroke is in progress AND there is renderable content on
+   * layers above it, a second view shows that preview over those upper layers
+   * rather than under them.
+   *
+   * @private
+   */
+  _updateDisplayProxy() {
+    if (this._proxyConsumers === 0 || !this.layerManager) return;
+    if (!this._ensureProxyCanvas()) return;
+
+    const full = this._proxyNeedsFull;
+    const rects = full ? null : this._proxyDirtyRects;
+    if (!full && (!rects || rects.length === 0)) return;
+
+    this._proxyDirtyRects = null;
+    this._proxyNeedsFull = false;
+
+    const ctx = this._proxyCtx;
+    // compositeLayerRange clears layerManager.needsComposite as a side effect.
+    // Harmless at the end of a composite, which clears it anyway — but
+    // acquireDisplayProxy calls this outside one, where swallowing a pending
+    // recomposite would leave viewCanvas stale until something else dirtied it.
+    const pendingComposite = this.layerManager.needsComposite;
+    // Board coordinates in, proxy pixels out: compositeLayerRange clears, fills
+    // and clips in board space, and its internal save/restore preserves this.
+    ctx.setTransform(this._proxyScale, 0, 0, this._proxyScale, 0, 0);
+    try {
+      this.layerManager.compositeLayerRange(
+        ctx,
+        0,
+        this.layerManager.getLayerCount(),
+        this.getCompositeBackgroundColor(),
+        rects
+      );
+    } finally {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      this.layerManager.needsComposite = pendingComposite;
+    }
+  }
+
+  /**
+   * Round a raw scale to the nearest half-power of two.
+   *
+   * Zoom is continuous enough (and `_getNextZoomStep` fine enough) that an
+   * unquantised scale would re-allocate every surface on every notch. Half
+   * powers of two put at most a 2^0.25 = 1.19x resample between what the screen
+   * shows and what the store holds, which is invisible on a painting surface,
+   * and reduce the re-allocations across the whole 0.2..10 zoom range to a
+   * handful.
+   * @private
+   */
+  static _quantiseSurfaceScale(raw) {
+    if (!(raw > 0)) return 1;
+    if (raw >= 1) return 1;
+    const stepped = Math.pow(2, Math.round(Math.log2(raw) * 2) / 2);
+    return Math.min(1, Math.max(SURFACE_MIN_SCALE, stepped));
+  }
+
+  /**
+   * The window the display surfaces should currently cover.
+   *
+   * With `windowedSurfaces` off this is always the whole board at scale 1 —
+   * byte-for-byte the pre-window behaviour, and the state the kill switch
+   * returns to.
+   *
+   * With it on, the window tracks the padded visible box and the scale tracks
+   * `zoom x dpr`, which is what makes the backing store container-sized rather
+   * than board-sized at EVERY zoom: the window grows as the zoom shrinks and
+   * the two cancel. Note that fit-to-screen — the default view for a large
+   * board, and the case a board-resolution window would not help at all —
+   * lands on "the whole board, heavily downscaled", which is exactly right.
+   * @private
+   */
+  _computeSurfaceWindow() {
+    const boardW = this.getWidth();
+    const boardH = this.getHeight();
+    const full = { x: 0, y: 0, width: boardW, height: boardH, scale: 1 };
+    if (!this.windowedSurfaces) return full;
+    if (!(boardW > 0) || !(boardH > 0) || !(this.zoom > 0)) return full;
+
+    const rawDpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
+    const dpr = Math.min(rawDpr, SURFACE_MAX_DPR);
+    const scale = Board._quantiseSurfaceScale(this.zoom * dpr);
+
+    const view = this.getVisibleBoardRect(SURFACE_PAD_PX);
+    if (!view) return full;
+
+    // Both terms quantised, so the store takes one of a handful of sizes for a
+    // given scale. The window is deliberately NOT clamped to the board: an
+    // overhanging window costs a strip of unused (transparent) surface, whereas
+    // clamping it would shrink the store as the view approached an edge — and a
+    // store size change is a re-allocation, which is exactly what the
+    // quantisation exists to avoid.
+    const quantise = (n) => Math.ceil(n / SURFACE_STORE_STEP) * SURFACE_STORE_STEP;
+    const storeW = Math.min(quantise(Math.ceil(boardW * scale)), quantise(Math.ceil(view.width * scale)));
+    const storeH = Math.min(quantise(Math.ceil(boardH * scale)), quantise(Math.ceil(view.height * scale)));
+
+    const width = storeW / scale;
+    const height = storeH / scale;
+
+    // Nothing to win — the window is the whole board at full resolution, so
+    // take the cheaper identity path rather than a transform that does nothing.
+    if (scale >= 1 && width >= boardW && height >= boardH) return full;
+
+    // Snapped so the window origin lands on a whole device pixel; an origin at
+    // a fraction of a device pixel would resample the whole surface every time
+    // the window moved.
+    const snap = (n, limit) => {
+      const clamped = Math.min(Math.max(0, n), Math.max(0, limit));
+      return Math.round(clamped * scale) / scale;
+    };
+    return {
+      x: snap(view.x + view.width / 2 - width / 2, boardW - width),
+      y: snap(view.y + view.height / 2 - height / 2, boardH - height),
+      width,
+      height,
+      scale
+    };
+  }
+
+  /**
+   * Bring the surface window up to date with the current view.
+   *
+   * Deliberately lazy about MOVING: while the backing store is unchanged and
+   * the existing window still covers what is on screen, this does nothing at
+   * all, so a pan inside the window costs a CSS transform and no repaint —
+   * which is the property the CSS-transform design had and a screen-space
+   * design would have thrown away.
+   *
+   * @param {Object} [options]
+   * @param {boolean} [options.force=false] - Re-apply even if nothing changed
+   *   (after a resize, where the surfaces were re-created underneath us).
+   * @returns {boolean} whether the surfaces were re-pointed
+   * @private
+   */
+  _syncSurfaceWindow({ force = false } = {}) {
+    if (!this._boardContextsInitialized) return false;
+    const next = this._computeSurfaceWindow();
+    const cur = getSurfaceWindow();
+    const sameStore = cur.scale === next.scale &&
+      cur.width === next.width &&
+      cur.height === next.height;
+
+    if (!force && sameStore) {
+      const view = this.getVisibleBoardRect(0);
+      if (!view || windowCovers(cur, view)) return false;
+    }
+
+    const changed = setSurfaceWindow(next);
+    if (!changed && !force) return false;
+    this._applySurfaceWindow();
+    return true;
+  }
+
+  /**
+   * Point every display surface at the current window and invalidate them.
+   *
+   * A window change makes everything on these surfaces stale — the composite
+   * ones are rebuilt from the layer stack on the next composite, but the live
+   * preview surfaces hold tool-owned state that only the tool can reproduce,
+   * which is what onSurfaceWindowChange is for.
+   * @private
+   */
+  _applySurfaceWindow() {
+    const win = getSurfaceWindow();
+
+    // Assigning width/height clears the canvas and resets the context to spec
+    // defaults, so anything setupCanvas configured has to be re-applied.
+    const viewRealloc = sizeWindowedSurface(this.viewCanvas, win);
+    if (viewRealloc) this._configureViewContext();
+    const topRealloc = sizeWindowedSurface(this.topCanvas, win);
+    if (topRealloc) this._configureTopContext();
+    const upperRealloc = this.upperLayersCanvas
+      ? sizeWindowedSurface(this.upperLayersCanvas, win)
+      : false;
+
+    applyWindowTransform(this.viewCtx, win);
+    applyWindowTransform(this.topCtx, win);
+    if (this.upperLayersCtx) applyWindowTransform(this.upperLayersCtx, win);
+
+    // A surface whose store was NOT re-allocated kept its pixels, and those
+    // pixels describe the window's PREVIOUS origin — so they would be shown
+    // shifted. Re-allocation clears as a side effect; a move has to be explicit.
+    if (!viewRealloc) this._clearWindowedSurface(this.viewCtx, this.viewCanvas);
+    if (!topRealloc) this._clearWindowedSurface(this.topCtx, this.topCanvas);
+    if (this.upperLayersCtx && !upperRealloc) {
+      this._clearWindowedSurface(this.upperLayersCtx, this.upperLayersCanvas);
+    }
+    this._setLayerPresent(this.upperLayersCanvas, false);
+
+    // The remote preview surfaces share the window — they blend against
+    // viewCanvas and are drawn 1:1 alongside it, so they cannot be on a
+    // different one. Only the inflated ones: a collapsed 1x1 canvas is
+    // re-pointed by ensureUserLayerSized when its user next draws.
+    if (typeof document !== 'undefined') {
+      for (const canvas of document.querySelectorAll('#userBoards .userBoard')) {
+        if (canvas.width <= 1 && canvas.height <= 1) continue;
+        const ctx = canvas.getContext('2d');
+        if (sizeWindowedSurface(canvas, win)) {
+          if (ctx) {
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+          }
+        } else if (ctx) {
+          // Moved, not re-allocated: the pixels still there describe the OLD
+          // window origin, so they would be drawn in the wrong place.
+          ctx.setTransform(1, 0, 0, 1, 0, 0);
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+        if (ctx) applyWindowTransform(ctx, win);
+      }
+    }
+
+    // Everything the split-composite bookkeeping remembers described the old
+    // window, so none of it is a valid basis for a dirty-rect composite now.
+    this._upperLayersCompositeStart = null;
+    this._upperLayersCompositeEnd = null;
+    this._mainCompositeEnd = null;
+    this.markCompositeFull();
+    if (this.layerManager) this.layerManager.needsComposite = true;
+
+    // Forced: a re-allocated backing store comes back with smoothing at the
+    // spec default, and updateHighZoomRenderingMode short-circuits when its
+    // cached state is unchanged — which it is.
+    this._lastHighZoomCrisp = null;
+    this.updateHighZoomRenderingMode();
+    this.onSurfaceWindowChange?.(win);
+    this.requestUpdate?.();
+  }
+
+  /**
+   * Wipe a windowed surface in its own device pixels, leaving the window
+   * transform in place for whatever draws next.
+   * @private
+   */
+  _clearWindowedSurface(ctx, canvas) {
+    if (!ctx || !canvas) return;
+    ctx.save();
+    try {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    } finally {
+      ctx.restore();
+    }
+  }
+
+  /** Context state setupCanvas gives viewCtx, re-applied after a re-allocation. */
+  _configureViewContext() {
+    if (!this.viewCtx) return;
+    this.viewCtx.globalCompositeOperation = 'source-over';
+    this.viewCtx.imageSmoothingQuality = 'high';
+    this.viewCtx.lineCap = 'round';
+    this.viewCtx.lineJoin = 'round';
+  }
+
+  /** Context state setupCanvas gives topCtx, re-applied after a re-allocation. */
+  _configureTopContext() {
+    if (!this.topCtx) return;
+    this.topCtx.imageSmoothingQuality = 'high';
+    this.topCtx.lineCap = 'round';
+    this.topCtx.lineJoin = 'round';
+  }
+
+  /**
    * Apply current pan, zoom, and rotation to the board's DOM wrapper
    */
   applyTransform() {
+    // The window is derived from the view, so it has to be reconsidered before
+    // anything else here — and it is cheap when the view has not left it, which
+    // is the common case for a small pan.
+    this._syncSurfaceWindow();
+    // The viewport moved, so a culled composite's untouched region may now be
+    // on screen. Every pan/zoom/rotate/flip lands here, which makes this the
+    // one place that has to invalidate — miss it and the user pans into stale
+    // or blank board. Marking full is cheap next to being wrong; the repair is
+    // one composite, and only when culling is actually on.
+    if (this.viewportCulling) {
+      this.markCompositeFull();
+      if (this.layerManager) this.layerManager.needsComposite = true;
+      this.requestUpdate?.();
+    }
     this.boardsWrapper.style.transformOrigin = '0 0';
     const flipTransform = this.canvasFlipped
       ? ` translate(${this.getWidth()}px, 0) scaleX(-1)`
@@ -1085,14 +1791,14 @@ export class Board {
     const smoothingEnabled = !crisp;
     const smoothingQuality = crisp ? 'low' : 'high';
     const canvases = [
-      this.mainCanvas,
+      this.viewCanvas,
       this.topCanvas,
       this.upperLayersCanvas,
       this.selectionOverlay,
       this.interactionBlockOverlay
     ].filter(Boolean);
     const contexts = [
-      this.mainCtx,
+      this.viewCtx,
       this.topCtx,
       this.upperLayersCtx,
       this.selectionCtx,
@@ -2013,44 +2719,158 @@ export class Board {
   }
 
   /**
+   * Board-space extent of everything drawn for one region on the GUIDES layer.
+   *
+   * Almost every mode draws inside the region rect — `fib` even hard-clips to
+   * it. `radial` is the exception: its spokes run `max(width, height) / 2` from
+   * the centre, which overflows the rect in the shorter axis whenever the region
+   * is not square, and the edge handles (tm/bm/ml/mr) resize one dimension at a
+   * time, so non-square radial regions are reachable.
+   * @private
+   */
+  _mirrorGuideExtent(region) {
+    const axis = region.mode || region.axis || 'vertical';
+    if (axis === 'radial') {
+      const r = Math.max(region.width, region.height) / 2;
+      const cx = region.x + region.width / 2;
+      const cy = region.y + region.height / 2;
+      return { x0: cx - r, y0: cy - r, x1: cx + r, y1: cy + r };
+    }
+    return {
+      x0: region.x,
+      y0: region.y,
+      x1: region.x + region.width,
+      y1: region.y + region.height
+    };
+  }
+
+  /**
+   * Union of `regions`' extents, padded and clamped to the board, or null when
+   * there is nothing to draw.
+   *
+   * Clamping to the board keeps the canvas bounded and loses nothing: content
+   * outside the board was already cut off when these layers were board-sized.
+   * @private
+   */
+  _mirrorUnionBounds(regions, extentOf) {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const region of regions) {
+      const e = extentOf(region);
+      if (e.x0 < x0) x0 = e.x0;
+      if (e.y0 < y0) y0 = e.y0;
+      if (e.x1 > x1) x1 = e.x1;
+      if (e.y1 > y1) y1 = e.y1;
+    }
+    if (!(x1 > -Infinity)) return null;
+
+    const pad = MIRROR_LAYER_PAD;
+    x0 = Math.max(0, Math.floor(x0 - pad));
+    y0 = Math.max(0, Math.floor(y0 - pad));
+    x1 = Math.min(this.getWidth(), Math.ceil(x1 + pad));
+    y1 = Math.min(this.getHeight(), Math.ceil(y1 + pad));
+    if (x1 <= x0 || y1 <= y0) return null;
+    return { x0, y0, x1, y1 };
+  }
+
+  /**
+   * Size one mirror layer to `bounds` and position it there, or collapse it to
+   * 1x1 when `bounds` is null.
+   *
+   * These layers used to be full board-sized canvases for the whole session —
+   * ~285 MB each at the 12k preset — purely so that board coordinates equalled
+   * canvas coordinates for a handful of hairline strokes. A region covers a tiny
+   * fraction of the board in every realistic case, so the canvas follows the
+   * content and the caller translates by the returned origin.
+   *
+   * @returns {{x: number, y: number}|null} board-space origin of the canvas
+   * @private
+   */
+  _sizeMirrorLayer(layer, bounds) {
+    if (!layer) return null;
+
+    const w = bounds ? Math.max(1, bounds.x1 - bounds.x0) : 1;
+    const h = bounds ? Math.max(1, bounds.y1 - bounds.y0) : 1;
+    if (layer.width !== w || layer.height !== h) {
+      // Resets the context to spec defaults, which is what these layers have
+      // always had — updateHighZoomRenderingMode deliberately does not list
+      // them, so there is no crisp/smoothing mode to re-apply here.
+      layer.width = w;
+      layer.height = h;
+    }
+
+    const originX = bounds ? bounds.x0 : 0;
+    const originY = bounds ? bounds.y0 : 0;
+    layer.style.left = `${originX}px`;
+    layer.style.top = `${originY}px`;
+    layer.style.width = `${w}px`;
+    layer.style.height = `${h}px`;
+    return bounds ? { x: originX, y: originY } : null;
+  }
+
+  /**
    * Renders the persistent mirror region overlays.
    */
   renderMirrorRegions() {
     if (!this.mirrorRegionsCtx || !this.mirrorRegionsLayer) return;
-    this.mirrorRegionsCtx.clearRect(0, 0, this.mirrorRegionsLayer.width, this.mirrorRegionsLayer.height);
-    if (this.mirrorGuidesCtx && this.mirrorGuidesLayer) {
-      this.mirrorGuidesCtx.clearRect(0, 0, this.mirrorGuidesLayer.width, this.mirrorGuidesLayer.height);
+
+    const regions = this.mirrorRegions;
+    const guideRegions = regions.filter((r) => r.showLine);
+
+    // Each layer follows its OWN content: the borders track the region rects,
+    // the guides track guide geometry (which radial can push outside them), and
+    // a region with showLine off contributes nothing to the guides layer.
+    const regionOrigin = this._sizeMirrorLayer(
+      this.mirrorRegionsLayer,
+      this._mirrorUnionBounds(regions, (r) => ({
+        x0: r.x, y0: r.y, x1: r.x + r.width, y1: r.y + r.height
+      }))
+    );
+    const guideOrigin = this._sizeMirrorLayer(
+      this.mirrorGuidesLayer,
+      this._mirrorUnionBounds(guideRegions, (r) => this._mirrorGuideExtent(r))
+    );
+
+    // Clear under the identity transform so the whole canvas is covered
+    // whatever origin it now sits at, then shift board space onto it.
+    const rCtx = this.mirrorRegionsCtx;
+    rCtx.setTransform(1, 0, 0, 1, 0, 0);
+    rCtx.clearRect(0, 0, this.mirrorRegionsLayer.width, this.mirrorRegionsLayer.height);
+    if (regionOrigin) rCtx.setTransform(1, 0, 0, 1, -regionOrigin.x, -regionOrigin.y);
+
+    const gCtx = this.mirrorGuidesCtx;
+    if (gCtx && this.mirrorGuidesLayer) {
+      gCtx.setTransform(1, 0, 0, 1, 0, 0);
+      gCtx.clearRect(0, 0, this.mirrorGuidesLayer.width, this.mirrorGuidesLayer.height);
+      if (guideOrigin) gCtx.setTransform(1, 0, 0, 1, -guideOrigin.x, -guideOrigin.y);
     }
 
-    // Both layers are board-sized canvases sitting in the compositor's blend tree
-    // whether or not they hold anything, and most rooms never place a mirror
-    // region at all. An empty layer still costs its full area every composited
-    // frame, so keep them out of the tree until something is actually drawn.
     let guidesDrawn = 0;
 
-    for (const region of this.mirrorRegions) {
+    for (const region of regions) {
       // Border: always visible, so a region stays findable while you work.
       // Deliberately hairline — it sits on top of the artwork and should read as
       // a guide, not as ink.
-      this.mirrorRegionsCtx.save();
-      this.mirrorRegionsCtx.strokeStyle = 'rgba(0, 212, 170, 0.75)';
-      this.mirrorRegionsCtx.lineWidth = 0.5;
-      this.mirrorRegionsCtx.strokeRect(region.x, region.y, region.width, region.height);
-      this.mirrorRegionsCtx.restore();
+      if (regionOrigin) {
+        rCtx.save();
+        rCtx.strokeStyle = 'rgba(0, 212, 170, 0.75)';
+        rCtx.lineWidth = 0.5;
+        rCtx.strokeRect(region.x, region.y, region.width, region.height);
+        rCtx.restore();
+      }
 
       // Centre line: separate layer, fades on idle (see noteMirrorActivity).
-      if (region.showLine && this.mirrorGuidesCtx) {
-        this.mirrorGuidesCtx.save();
-        this.mirrorGuidesCtx.setLineDash([4, 4]);
-        this.mirrorGuidesCtx.lineWidth = 0.5;
-        this.mirrorGuidesCtx.strokeStyle = 'rgba(0, 212, 170, 0.7)';
-        Board.drawMirrorGuide(this.mirrorGuidesCtx, region);
-        this.mirrorGuidesCtx.restore();
+      if (region.showLine && gCtx && guideOrigin) {
+        gCtx.save();
+        gCtx.setLineDash([4, 4]);
+        gCtx.lineWidth = 0.5;
+        gCtx.strokeStyle = 'rgba(0, 212, 170, 0.7)';
+        Board.drawMirrorGuide(gCtx, region);
+        gCtx.restore();
         guidesDrawn++;
       }
     }
 
-    this._setLayerPresent(this.mirrorRegionsLayer, this.mirrorRegions.length > 0);
+    this._setLayerPresent(this.mirrorRegionsLayer, !!regionOrigin);
     this._mirrorGuidesHasContent = guidesDrawn > 0;
     this._applyMirrorGuidesDisplay();
   }
@@ -2610,7 +3430,7 @@ export class Board {
    */
   clear() {
     const [height, width] = this.dimensions;
-    this.mainCtx.beginPath();
+    this.viewCtx.beginPath();
     this.topCtx.beginPath();
 
     if (this.layerManager) {
@@ -2621,7 +3441,7 @@ export class Board {
       this.markCompositeFull();
       this.compositeAllLayers();
     } else {
-      this.mainCtx.clearRect(0, 0, width, height);
+      this.viewCtx.clearRect(0, 0, width, height);
     }
 
     this.textOverlay?.clear();
@@ -2644,7 +3464,7 @@ export class Board {
     this._createLayerManager(previousLayerManager);
 
     this.activeSelectionLayer = -1;
-    this.mainCtx.clearRect(0, 0, this.getWidth(), this.getHeight());
+    this.viewCtx.clearRect(0, 0, this.getWidth(), this.getHeight());
     this.clearTop();
     this.clearSelectionOverlay();
     if (this.upperLayersCtx) {
@@ -2673,7 +3493,7 @@ export class Board {
   getActiveLayerContext(createBlendMode = 'source-over') {
     const activeLayer = this.app?.self?.activeLayer ?? 0;
     const userId = this.app?.self?.id ?? 0;
-    return this.layerManager?.getLayerContext(activeLayer, userId, createBlendMode) ?? this.mainCtx;
+    return this.layerManager?.getLayerContext(activeLayer, userId, createBlendMode) ?? this.viewCtx;
   }
 
   /**
@@ -2684,7 +3504,7 @@ export class Board {
    * @returns {CanvasRenderingContext2D}
    */
   getLayerContext(layerIndex, userId, createBlendMode = 'source-over') {
-    return this.layerManager?.getLayerContext(layerIndex, userId, createBlendMode) ?? this.mainCtx;
+    return this.layerManager?.getLayerContext(layerIndex, userId, createBlendMode) ?? this.viewCtx;
   }
 
   /**
@@ -2941,15 +3761,72 @@ export class Board {
     ctx.fillRect(0, 0, this.getWidth(), this.getHeight());
   }
 
+  /**
+   * Clip composite dirty rects to the surface window and snap them out to whole
+   * device pixels.
+   *
+   * The one place both the viewCanvas and upperLayersCanvas rect sets pass
+   * through, and a no-op when the window is the whole board at 1:1 — i.e.
+   * whenever `windowedSurfaces` is off.
+   *
+   * Clipping: a rect outside the window cannot land on any display surface, so
+   * carrying it costs a clip-path segment and a `drawImage` setup per layer for
+   * nothing. Unlike viewport culling this is exact rather than a heuristic —
+   * the window is where the pixels physically are — and it needs no repair
+   * path, because every full-board reader now goes through `getFullRaster`.
+   *
+   * Snapping: at a surface scale below 1 a board-space rect lands on fractional
+   * device pixels, and a clear that rounds one way against a fill that rounds
+   * the other leaves a one-device-pixel seam at every rect boundary. Expanding
+   * outward makes the clear a superset of the fill.
+   * @private
+   */
+  _prepareCompositeRects(rects) {
+    const win = getSurfaceWindow();
+    const clip = this.windowedSurfaces &&
+      (win.width < this.getWidth() || win.height < this.getHeight());
+
+    const out = [];
+    for (const r of rects) {
+      let rect = r;
+      if (clip) {
+        const x = Math.max(rect.x, win.x);
+        const y = Math.max(rect.y, win.y);
+        const right = Math.min(rect.x + rect.width, win.x + win.width);
+        const bottom = Math.min(rect.y + rect.height, win.y + win.height);
+        if (right <= x || bottom <= y) continue;
+        rect = { x, y, width: right - x, height: bottom - y };
+      }
+      out.push(snapRectToDevicePixels(rect, win));
+    }
+    // Never an empty array: compositeLayerRange reads that as "no usable dirty
+    // rects" and falls back to a full clear and redraw, which is the exact
+    // opposite of what an entirely-off-window dirty set should cost. One
+    // degenerate rect keeps the dirty-rect path and clips everything away.
+    return out.length > 0 ? out : [{ x: 0, y: 0, width: 0, height: 0 }];
+  }
+
+  /**
+   * Scratch surface the flattened eraser preview is assembled on.
+   *
+   * On the SAME window as the display surfaces, not board-sized: it is blitted
+   * into viewCtx and has the preview mask (topCanvas, or a remote user's own
+   * board) blitted into it, and a surface-to-surface blit is only 1:1 when both
+   * sides hold the same device pixels. Following the window also takes a
+   * board-sized canvas out of the census for free.
+   * @private
+   */
   _getEraserPreviewBuffer() {
-    const w = this.getWidth();
-    const h = this.getHeight();
-    if (!this._eraserPreviewCanvas || this._eraserPreviewCanvas.width !== w || this._eraserPreviewCanvas.height !== h) {
+    if (!this._eraserPreviewCanvas) {
       this._eraserPreviewCanvas = document.createElement('canvas');
-      this._eraserPreviewCanvas.width = w;
-      this._eraserPreviewCanvas.height = h;
       this._eraserPreviewCtx = this._eraserPreviewCanvas.getContext('2d');
     }
+    const win = getSurfaceWindow();
+    sizeWindowedSurface(this._eraserPreviewCanvas, win);
+    // Unconditionally, not only after a re-allocation: this context is not one
+    // of the ones _applySurfaceWindow re-points, so a window that merely moved
+    // would leave it on the previous origin.
+    applyWindowTransform(this._eraserPreviewCtx, win);
     return { canvas: this._eraserPreviewCanvas, ctx: this._eraserPreviewCtx };
   }
 
@@ -2961,12 +3838,12 @@ export class Board {
     this.layerManager.compositeLayerWithoutActiveStroke(tempCtx, splitLayer, userId, layerBackground, dirtyRects);
 
     if (splitLayer === 0) {
-      this._clearCompositeContext(this.mainCtx, dirtyRects);
+      this._clearCompositeContext(this.viewCtx, dirtyRects);
       const [r, g, b, a] = this.getCompositeBackgroundColor();
-      this.mainCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
-      this._fillCompositeContext(this.mainCtx, dirtyRects);
+      this.viewCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
+      this._fillCompositeContext(this.viewCtx, dirtyRects);
     } else {
-      this.layerManager.compositeLayerRange(this.mainCtx, 0, splitLayer, this.getCompositeBackgroundColor(), dirtyRects);
+      this.layerManager.compositeLayerRange(this.viewCtx, 0, splitLayer, this.getCompositeBackgroundColor(), dirtyRects);
     }
 
     if (maskCanvas) {
@@ -2977,35 +3854,48 @@ export class Board {
       tempCtx.restore();
     }
 
-    this.mainCtx.globalCompositeOperation = 'source-over';
-    this.mainCtx.globalAlpha = 1.0;
-    this._drawCompositeCanvas(this.mainCtx, tempCanvas, dirtyRects);
+    this.viewCtx.globalCompositeOperation = 'source-over';
+    this.viewCtx.globalAlpha = 1.0;
+    this._drawCompositeCanvas(this.viewCtx, tempCanvas, dirtyRects);
   }
 
+  /**
+   * Blit one window-aligned surface onto another.
+   *
+   * Both sides are on the shared surface window, so their pixels already
+   * correspond one for one and the copy belongs in DEVICE space. Drawing it
+   * under the destination's board-space transform would scale the source — whose
+   * pixels are device pixels already — by the window scale a second time.
+   * `save`/`restore` around the identity transform puts the window transform
+   * back for whatever draws next.
+   * @private
+   */
   _drawCompositeCanvas(ctx, canvas, dirtyRects) {
     if (!ctx || !canvas) return;
-    if (dirtyRects && dirtyRects.length > 0) {
-      for (const rect of dirtyRects) {
-        const sourceRect = this._clampRectToCanvas(rect, canvas);
-        if (!sourceRect) continue;
-        ctx.drawImage(
-          canvas,
-          sourceRect.x,
-          sourceRect.y,
-          sourceRect.width,
-          sourceRect.height,
-          sourceRect.x,
-          sourceRect.y,
-          sourceRect.width,
-          sourceRect.height
-        );
+    const win = getSurfaceWindow();
+    ctx.save();
+    try {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      if (dirtyRects && dirtyRects.length > 0) {
+        for (const rect of dirtyRects) {
+          const sourceRect = clampDeviceRect(boardRectToDevice(rect, win), canvas);
+          if (!sourceRect) continue;
+          ctx.drawImage(
+            canvas,
+            sourceRect.x,
+            sourceRect.y,
+            sourceRect.width,
+            sourceRect.height,
+            sourceRect.x,
+            sourceRect.y,
+            sourceRect.width,
+            sourceRect.height
+          );
+        }
+        return;
       }
-      return;
-    }
-
-    const clipped = this._applyCompositeClip(ctx, dirtyRects);
-    ctx.drawImage(canvas, 0, 0);
-    if (clipped) {
+      ctx.drawImage(canvas, 0, 0);
+    } finally {
       ctx.restore();
     }
   }
@@ -3038,7 +3928,7 @@ export class Board {
     // A dirty rect is only valid if this canvas already holds a composite of
     // the SAME layer range; when the split moves, everything outside the rects
     // is stale and the whole canvas has to be rebuilt. That is exactly the rule
-    // _getSplitMainDirtyRects applies to mainCanvas — this passed a hardcoded
+    // _getSplitMainDirtyRects applies to viewCanvas — this passed a hardcoded
     // null instead, so every composite during a stroke did a full-board clear
     // plus a full-board re-composite of the upper layers. The eraser made that
     // expensive by composting on every tick rather than on commit.
@@ -3069,29 +3959,33 @@ export class Board {
     this._setLayerPresent(this.upperLayersCanvas, false);
   }
 
+  // Both helpers funnel through _cullToView because between them they produce
+  // every rect set that reaches viewCanvas from compositeAllLayers — including
+  // the `null` "redraw everything" they return when the composite range
+  // changes, which is exactly the case culling saves the most on.
   _getSplitMainDirtyRects(endIdx, dirtyRects) {
     if (this._mainCompositeEnd !== endIdx) {
       this._mainCompositeEnd = endIdx;
-      return null;
+      return this._cullToView(null);
     }
-    return dirtyRects;
+    return this._cullToView(dirtyRects);
   }
 
   _getFullMainDirtyRects(dirtyRects) {
     const needsFullRedraw = this._mainCompositeEnd !== null;
     this._mainCompositeEnd = null;
-    return needsFullRedraw ? null : dirtyRects;
+    return this._cullToView(needsFullRedraw ? null : dirtyRects);
   }
 
   /**
    * Whether the live preview surface (topCanvas, and each remote user's board)
    * currently sits directly above `layerIdx` in the paint order.
    *
-   * While someone is drawing, `compositeAllLayers` splits the stack: mainCanvas
+   * While someone is drawing, `compositeAllLayers` splits the stack: viewCanvas
    * takes 0..splitLayer, the preview surfaces paint over it, and
    * upperLayersCanvas paints over them. So a preview drawn for `layerIdx` is in
    * the right place only when the split lands on that same layer — otherwise
-   * mainCanvas is holding layers above `layerIdx` and the preview would cover
+   * viewCanvas is holding layers above `layerIdx` and the preview would cover
    * content that should occlude it. An active selection or fill preview moves
    * the split somewhere else, which is exactly when that goes wrong.
    *
@@ -3153,15 +4047,6 @@ export class Board {
     }
 
     return null;
-  }
-
-  _clampRectToCanvas(rect, canvas) {
-    const x = Math.max(0, Math.floor(rect.x));
-    const y = Math.max(0, Math.floor(rect.y));
-    const right = Math.min(canvas.width, Math.ceil(rect.x + rect.width));
-    const bottom = Math.min(canvas.height, Math.ceil(rect.y + rect.height));
-    if (right <= x || bottom <= y) return null;
-    return { x, y, width: right - x, height: bottom - y };
   }
 
   /**
@@ -3477,7 +4362,7 @@ export class Board {
       ? this.activeSelectionLayer
       : (hasFillPreview ? this.activeFillPreviewLayer : ((previewUsesFlattenedOverlay ? activeEraserPreview?.layerIndex : null) ?? activeLayerIdx));
     const dirtyRects = Array.isArray(pendingDirtyRects) && pendingDirtyRects.length > 0
-      ? pendingDirtyRects
+      ? this._prepareCompositeRects(pendingDirtyRects)
       : null;
 
     if (this.onCompositeDirtyRects) {
@@ -3499,14 +4384,14 @@ export class Board {
     if ((isDrawing && eraseAll) || activeEraserPreviewIsAllLayers) {
       const mainDirtyRects = this._getFullMainDirtyRects(dirtyRects);
       this._fillBackgroundLayers(mainDirtyRects);
-      this.layerManager.compositeLayerRange(this.mainCtx, 0, totalLayers, this.getCompositeBackgroundColor(), mainDirtyRects);
+      this.layerManager.compositeLayerRange(this.viewCtx, 0, totalLayers, this.getCompositeBackgroundColor(), mainDirtyRects);
 
-      this.mainCtx.globalCompositeOperation = 'destination-out';
-      this.mainCtx.globalAlpha = 1.0;
-      this._drawCompositeCanvas(this.mainCtx, activeEraserPreview?.maskCanvas ?? this.topCanvas, mainDirtyRects);
+      this.viewCtx.globalCompositeOperation = 'destination-out';
+      this.viewCtx.globalAlpha = 1.0;
+      this._drawCompositeCanvas(this.viewCtx, activeEraserPreview?.maskCanvas ?? this.topCanvas, mainDirtyRects);
 
-      this.mainCtx.globalCompositeOperation = 'source-over';
-      this.mainCtx.globalAlpha = 1.0;
+      this.viewCtx.globalCompositeOperation = 'source-over';
+      this.viewCtx.globalAlpha = 1.0;
 
       this._clearUpperLayers(mainDirtyRects);
     }
@@ -3526,15 +4411,15 @@ export class Board {
       } else {
         const mainDirtyRects = this._getSplitMainDirtyRects(splitLayer + 1, dirtyRects);
         this._fillBackgroundLayers(mainDirtyRects);
-        this.layerManager.compositeLayerRange(this.mainCtx, 0, splitLayer + 1, this.getCompositeBackgroundColor(), mainDirtyRects);
+        this.layerManager.compositeLayerRange(this.viewCtx, 0, splitLayer + 1, this.getCompositeBackgroundColor(), mainDirtyRects);
 
         if (isDrawing) {
           // The local live preview stays on topCanvas, where CSS mix-blend-mode
-          // provides the live blend preview. Copying it into mainCanvas here
+          // provides the live blend preview. Copying it into viewCanvas here
           // leaves a stale blended snapshot behind until the next composite,
           // which shows up as a doubled first mark at stroke start.
-          this.mainCtx.globalCompositeOperation = 'source-over';
-          this.mainCtx.globalAlpha = 1.0;
+          this.viewCtx.globalCompositeOperation = 'source-over';
+          this.viewCtx.globalAlpha = 1.0;
         }
       }
 
@@ -3551,20 +4436,22 @@ export class Board {
         );
       } else {
         this._fillBackgroundLayers(mainDirtyRects);
-        this.layerManager.compositeLayerRange(this.mainCtx, 0, totalLayers, this.getCompositeBackgroundColor(), mainDirtyRects);
+        this.layerManager.compositeLayerRange(this.viewCtx, 0, totalLayers, this.getCompositeBackgroundColor(), mainDirtyRects);
 
         if (isDrawing) {
           // The local live preview stays on topCanvas, where CSS mix-blend-mode
-          // provides the live blend preview. Copying it into mainCanvas here
+          // provides the live blend preview. Copying it into viewCanvas here
           // leaves a stale blended snapshot behind until the next composite,
           // which shows up as a doubled first mark at stroke start.
-          this.mainCtx.globalCompositeOperation = 'source-over';
-          this.mainCtx.globalAlpha = 1.0;
+          this.viewCtx.globalCompositeOperation = 'source-over';
+          this.viewCtx.globalAlpha = 1.0;
         }
       }
 
       this._clearUpperLayers(mainDirtyRects);
     }
+
+    this._updateDisplayProxy();
 
     this.layerManager.needsComposite = false;
     this.layerManager._notifyStrokeHistoryPanel();
@@ -3877,25 +4764,199 @@ export class Board {
   }
 
   /**
+   * How long the full raster is kept alive after the last holder releases it.
+   *
+   * Long enough to cover a burst — a flood fill followed by the export the user
+   * came for, a checkpoint landing on top of a tape capture — because
+   * allocating a board-sized canvas is the operation measured to stall (see
+   * userLayerPresence: a fresh 8k canvas per frame took 180 fps to 92 with JS
+   * self-time flat). Short enough that a board-sized surface does not sit
+   * around for a session's worth of idling, which is the whole point of not
+   * keeping viewCanvas board-sized.
+   */
+  static FULL_RASTER_IDLE_MS = 10000;
+
+  /**
+   * A board-sized, 1:1 raster of the entire board.
+   *
+   * For the readers that genuinely need every pixel — flood fill's seed scan,
+   * export, blur snapshots, replay checkpoints — as opposed to the pixels
+   * currently on screen. The board is bounded, so this always exists and is
+   * always finite; it is simply not something to keep permanently resident.
+   *
+   * Composited from the LAYER STACK, never downscaled or copied from
+   * viewCanvas. viewCanvas is the surface that may be culled or windowed, so it
+   * is exactly the wrong source for the thing whose job is to be correct
+   * everywhere — the same reasoning _updateDisplayProxy already documents.
+   *
+   * Re-composited on every acquire rather than cached against a dirty flag:
+   * every consumer is one-shot and user-initiated (a pointerdown, a save, a
+   * capture tick), so the simple thing is also the correct thing. The canvas
+   * itself IS pooled across acquires — that is the part that costs.
+   *
+   * Balance every call with releaseFullRaster(), or use withFullRaster().
+   *
+   * @param {Object} [options]
+   * @param {boolean} [options.background=true] - Paint the room background
+   *   underneath. False yields the transparent-PNG composite.
+   * @returns {HTMLCanvasElement|null}
+   */
+  getFullRaster({ background = true } = {}) {
+    if (!this.layerManager) return null;
+    const [height, width] = this.dimensions;
+    if (!(width > 0) || !(height > 0)) return null;
+
+    if (this._fullRasterFreeTimer !== null) {
+      clearTimeout(this._fullRasterFreeTimer);
+      this._fullRasterFreeTimer = null;
+    }
+
+    if (!this._fullRasterCanvas ||
+        this._fullRasterCanvas.width !== width ||
+        this._fullRasterCanvas.height !== height) {
+      this._fullRasterCanvas = document.createElement('canvas');
+      this._fullRasterCanvas.width = width;
+      this._fullRasterCanvas.height = height;
+      // Its consumers are getImageData-heavy and one-shot (three separate
+      // whole-board reads in the flood fill alone), which is the opposite of
+      // viewCanvas's per-frame profile — so unlike viewCanvas this one does
+      // want the software path.
+      this._fullRasterCtx = this._fullRasterCanvas.getContext('2d', { willReadFrequently: true });
+    }
+
+    this._fullRasterHolders++;
+
+    // compositeLayerRange clears layerManager.needsComposite as a side effect,
+    // and this runs outside a composite; swallowing a pending recomposite would
+    // leave viewCanvas stale until something else dirtied it.
+    const pendingComposite = this.layerManager.needsComposite;
+    const ctx = this._fullRasterCtx;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+    ctx.clearRect(0, 0, width, height);
+    try {
+      this.layerManager.compositeLayerRange(
+        ctx,
+        0,
+        this.layerManager.getLayerCount(),
+        background ? this.getCompositeBackgroundColor() : null,
+        null
+      );
+    } finally {
+      this.layerManager.needsComposite = pendingComposite;
+    }
+
+    return this._fullRasterCanvas;
+  }
+
+  /** Undo one `getFullRaster`; the canvas is freed after an idle delay. */
+  releaseFullRaster() {
+    this._fullRasterHolders = Math.max(0, this._fullRasterHolders - 1);
+    if (this._fullRasterHolders > 0) return;
+    if (this._fullRasterFreeTimer !== null) clearTimeout(this._fullRasterFreeTimer);
+    this._fullRasterFreeTimer = setTimeout(() => {
+      this._fullRasterFreeTimer = null;
+      if (this._fullRasterHolders > 0) return;
+      this._fullRasterCanvas = null;
+      this._fullRasterCtx = null;
+    }, Board.FULL_RASTER_IDLE_MS);
+  }
+
+  /**
+   * Run `fn` with the full raster, releasing it even if `fn` throws.
+   * @param {(canvas: HTMLCanvasElement) => any} fn
+   * @param {Object} [options] - Passed through to getFullRaster.
+   * @returns {any} whatever `fn` returned, or null if no raster was available.
+   */
+  withFullRaster(fn, options) {
+    const canvas = this.getFullRaster(options);
+    if (!canvas) return null;
+    try {
+      return fn(canvas);
+    } finally {
+      this.releaseFullRaster();
+    }
+  }
+
+  /**
+   * The RGBA the display surface is showing at a board point, or null if that
+   * point is not on the surface.
+   *
+   * `getImageData` ignores the context transform, so board coordinates have to
+   * be mapped into the surface's own device pixels by hand. The eyedropper runs
+   * this on every pointer move, which rules out the full raster — and sampling
+   * what is displayed is what an eyedropper means anyway.
+   *
+   * @param {number} boardX
+   * @param {number} boardY
+   * @returns {Uint8ClampedArray|null}
+   */
+  sampleViewPixel(boardX, boardY) {
+    if (!this.viewCtx || !this.viewCanvas) return null;
+    const win = getSurfaceWindow();
+    const x = Math.floor((boardX - win.x) * win.scale);
+    const y = Math.floor((boardY - win.y) * win.scale);
+    if (x < 0 || y < 0 || x >= this.viewCanvas.width || y >= this.viewCanvas.height) return null;
+    return this.viewCtx.getImageData(x, y, 1, 1).data;
+  }
+
+  /**
+   * `getImageData` over the board, taken from a fresh full-board composite.
+   *
+   * The replacement for the `ensureFullComposite(); viewCtx.getImageData(...)`
+   * pair that flood fill and the fill handlers used: same result, but sourced
+   * from the layer stack rather than from whatever the display surface happens
+   * to be holding.
+   *
+   * @param {number} [x=0]
+   * @param {number} [y=0]
+   * @param {number} [width=board width]
+   * @param {number} [height=board height]
+   * @returns {ImageData|null}
+   */
+  getFullBoardImageData(x = 0, y = 0, width = this.getWidth(), height = this.getHeight()) {
+    return this.withFullRaster(() => this._fullRasterCtx.getImageData(x, y, width, height));
+  }
+
+  /**
    * Returns a canvas representing the full board for export.
    * @param {boolean} transparent - If true, omits the background fill (transparent PNG).
    * @returns {HTMLCanvasElement}
    */
   getExportCanvas(transparent) {
-    if (!transparent) return this.mainCanvas;
+    // Exporting: every pixel has to be current, including any the viewport was
+    // not showing. Both branches now composite from the layer stack, so neither
+    // depends on what viewCanvas happens to be holding — it used to hand back
+    // viewCanvas itself on this path, which defeated the caller's own
+    // `if (!canvas) ensureFullComposite()` guard.
+    //
+    // A caller-owned canvas rather than the pooled full raster: the export
+    // canvas outlives this call (toBlob, toDataURL, the save dialog's preview)
+    // and there is no release point to hang a refcount on.
     const [height, width] = this.dimensions;
     const canvas = document.createElement('canvas');
     canvas.width = width;
     canvas.height = height;
-    this.layerManager.compositeLayerRange(canvas.getContext('2d'), 0, this.layerManager.getLayerCount(), null);
+    const pendingComposite = this.layerManager.needsComposite;
+    try {
+      this.layerManager.compositeLayerRange(
+        canvas.getContext('2d'),
+        0,
+        this.layerManager.getLayerCount(),
+        transparent ? null : this.getCompositeBackgroundColor()
+      );
+    } finally {
+      this.layerManager.needsComposite = pendingComposite;
+    }
     return canvas;
   }
 
   /**
-   * Save the main canvas as a PNG image
+   * Save the board as a PNG image
    */
   saveAsImage() {
-    const dataURL = this.mainCanvas.toDataURL();
+    const dataURL = this.getExportCanvas(false).toDataURL();
     const link = document.createElement('a');
     link.download = `${new Date().toString().slice(0, 24)}.png`;
     link.href = dataURL;
@@ -4172,29 +5233,29 @@ export class Board {
    * @private
    */
   _fillBackgroundLayers(dirtyRects) {
-    this.mainCtx.globalCompositeOperation = 'source-over';
+    this.viewCtx.globalCompositeOperation = 'source-over';
 
     const [bgR, bgG, bgB, bgA = 1] = this.backgroundColor || [255, 255, 255, 1];
-    this.mainCtx.fillStyle = `rgba(${bgR}, ${bgG}, ${bgB}, ${bgA})`;
+    this.viewCtx.fillStyle = `rgba(${bgR}, ${bgG}, ${bgB}, ${bgA})`;
 
     if (dirtyRects && Array.isArray(dirtyRects) && dirtyRects.length > 0) {
       for (const rect of dirtyRects) {
-        this.mainCtx.fillRect(rect.x, rect.y, rect.width, rect.height);
+        this.viewCtx.fillRect(rect.x, rect.y, rect.width, rect.height);
       }
     } else {
-      this.mainCtx.fillRect(0, 0, this.width, this.height);
+      this.viewCtx.fillRect(0, 0, this.width, this.height);
     }
 
     if (this.displayBackgroundColorOverride) {
       const [r, g, b, a] = this.displayBackgroundColorOverride;
-      this.mainCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
+      this.viewCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
 
       if (dirtyRects && Array.isArray(dirtyRects) && dirtyRects.length > 0) {
         for (const rect of dirtyRects) {
-          this.mainCtx.fillRect(rect.x, rect.y, rect.width, rect.height);
+          this.viewCtx.fillRect(rect.x, rect.y, rect.width, rect.height);
         }
       } else {
-        this.mainCtx.fillRect(0, 0, this.width, this.height);
+        this.viewCtx.fillRect(0, 0, this.width, this.height);
       }
     }
   }

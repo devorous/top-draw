@@ -19,6 +19,19 @@ for (const [exportName, exportValue] of Object.entries(wasm)) {
 const TPS_NORMAL = 60;
 const TPS_LOW_POWER = 30;
 
+/**
+ * Idle tile reclamation, in ms between passes and tiles inspected per pass.
+ *
+ * Each inspected tile is a `getImageData`, so this is throttled twice: by the
+ * idle gate in `_maybeReclaimTiles` and by this interval. 250ms/4 tiles clears
+ * the handful of candidates an ordinary eraser stroke leaves behind within a
+ * second of the user stopping, and bounds an erase-all's backlog to 16
+ * readbacks per second spread across idle ticks — invisible next to the frame
+ * budget, and only ever paid on ticks where nothing is being drawn.
+ */
+const RECLAIM_INTERVAL_MS = 250;
+const RECLAIM_BUDGET = 4;
+
 // Matched case-insensitively against the unmasked WebGL renderer string.
 // `intel uhd graphics 6` used to be here and was too specific to be useful — it
 // missed `ANGLE (Intel, Mesa Intel(R) UHD Graphics (JSL))`, a 2-core machine
@@ -149,6 +162,9 @@ export class InputBufferManager {
     this.tickInterval = 1000 / this.tickRate;
     /** @type {number|null} */
     this.tickTimer = null;
+    // Last idle tile-reclamation pass. Starts at -Infinity so the first idle
+    // tick after load can run one rather than waiting out the interval.
+    this._lastTileReclaim = -Infinity;
     /** @type {number|null} */
     this.lastTickTime = null;
     /** @type {number|null} */
@@ -288,6 +304,33 @@ export class InputBufferManager {
     this.processLocalFrame();         // render locally, populate pendingBroadcastPoints
     this._snapshotStrokesToQueue();   // commit strokes to queue (no-op if buffer already drained)
     this.drainBroadcastQueue();       // send all queued actions in order
+    this._maybeReclaimTiles(now);     // idle-only tile reclamation; never on a drawing tick
+  }
+
+  /**
+   * Give the tiled backing store a small slice of an otherwise-idle tick to
+   * re-check tiles an erase may have emptied.
+   *
+   * Deliberately last in the tick and gated on idleness: each check is a canvas
+   * readback, which is the one operation this whole subsystem is careful never
+   * to put on a drawing path. A tick with buffered input, a smoothing catch-up
+   * pending, or a stroke in flight does none of this work.
+   *
+   * Rate-limited on top of the idle gate because the tick runs at 60 TPS and
+   * the queue is nearly always empty — polling it every 16ms to find nothing
+   * is pure overhead. RECLAIM_INTERVAL_MS at RECLAIM_BUDGET tiles per pass
+   * drains an eraser stroke's worth of candidates in well under a second while
+   * capping the worst case (an erase-all queues every tile it crossed) at a few
+   * readbacks per pass.
+   *
+   * @param {number} now
+   * @private
+   */
+  _maybeReclaimTiles(now) {
+    if (this.inputBuffer.dirty || this.needsSmoothingCatchup()) return;
+    if (now - this._lastTileReclaim < RECLAIM_INTERVAL_MS) return;
+    this._lastTileReclaim = now;
+    this.app.board?.layerManager?.reclaimTiles?.(RECLAIM_BUDGET);
   }
 
   processLocalFrame() {

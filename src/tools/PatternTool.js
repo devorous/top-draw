@@ -75,7 +75,7 @@ export class PatternTool extends Tool {
 
   ensureOffscreenCanvas() {
     const { canvas, ctx } = ensureSizedCanvas(
-      this.offscreenCanvas, this.board.mainCanvas.width, this.board.mainCanvas.height);
+      this.offscreenCanvas, this.board.getWidth(), this.board.getHeight());
     this.offscreenCanvas = canvas;
     this.offscreenCtx = ctx;
   }
@@ -374,6 +374,13 @@ export class PatternTool extends Tool {
     return { canvas: surface.canvas, rect };
   }
 
+  /** The pattern preview persists between ticks while a stroke is in progress. */
+  redrawPreview(user) {
+    if (!user?.mousedown) return;
+    this.board.clearTop();
+    this._drawPreview(user);
+  }
+
   _drawPreview(user) {
     const composite = this._buildPatternComposite(user);
     this._drawPatternCompositeToContext(this.board.topCtx, composite, user, this.strokePoints);
@@ -549,8 +556,8 @@ export class PatternTool extends Tool {
 
   remoteBeginStroke(user, pos) {
     this.strokeLayerByUser.set(user.id, user._strokeLayer ?? user.activeLayer ?? 0);
-    const w = this.board.mainCanvas.width;
-    const h = this.board.mainCanvas.height;
+    const w = this.board.getWidth();
+    const h = this.board.getHeight();
     let offscreen = this.remoteOffscreens.get(user.id);
     if (!offscreen || offscreen.canvas.width !== w || offscreen.canvas.height !== h) {
       const canvas = document.createElement('canvas');

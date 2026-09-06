@@ -313,7 +313,7 @@ async function main() {
     const shot = (page) => page.evaluate(() => {
       const b = window.app.board;
       b.compositeLayers?.();
-      return b.mainCanvas.toDataURL();
+      return b.viewCanvas.toDataURL();
     });
     const [da, dc] = await Promise.all([shot(A.page), shot(C.page)]);
     const diffPct = await A.page.evaluate(async (u1, u2) => {

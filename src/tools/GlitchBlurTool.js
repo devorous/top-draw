@@ -643,7 +643,13 @@ export class GlitchBlurTool extends Tool {
     const radius = size;
     const blurRadius = user.blurRadius || 10;
     const userId = user.id ?? this.board.app?.self?.id ?? 0;
-    const sourceCanvas = this.snapshotCanvases.get(this._getSnapshotKey(userId, layerIdx)) || this.board.mainCanvas || this.board.mainCtx?.canvas;
+    // Lazily captured rather than falling back to viewCanvas — see the same
+    // guard in BlurTool.paintMask. viewCanvas is a display surface and indexing
+    // it with board coordinates is not safe.
+    if (!this.snapshotCanvases.has(this._getSnapshotKey(userId, layerIdx))) {
+      this.captureSnapshot(userId, layerIdx);
+    }
+    const sourceCanvas = this.snapshotCanvases.get(this._getSnapshotKey(userId, layerIdx));
 
     if (!sourceCanvas) return null;
 
@@ -678,7 +684,7 @@ export class GlitchBlurTool extends Tool {
       };
     }
 
-    // Fallback: no cached pixels (the mainCanvas path, or a snapshot captured
+    // Fallback: no cached pixels (the viewCanvas path, or a snapshot captured
     // before this stroke's board resize). Same shape as before, on the shared
     // scratch rather than a fresh canvas.
     scratch.ctx.clearRect(0, 0, cropW, cropH);

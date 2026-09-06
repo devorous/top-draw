@@ -75,12 +75,21 @@ export class Room {
       // ENABLE_TILED_CANVAS_BACKING_STORE env var kill switch, see
       // server/replayConfig.js-style pattern in server/index.js.
       //
+      // Defaults ON (opt-out via TILED_CANVAS_DEFAULT=false); see
+      // server/tiledCanvasConfig.js for why nothing here may depend on an env
+      // var being *set*.
       // TILED_CANVAS_DEFAULT flips the default for *newly minted* rooms, which
       // is what lets the sync suites (selparity, concurrent, k6edge, undosnap,
       // parity) exercise the tiled path at all — they each mint a fresh
       // timestamped room, so with a hard-coded false they only ever measured
-      // the untiled path. Unset in production.
-      tiledCanvasBackingStore: process.env.TILED_CANVAS_DEFAULT === 'true'
+      // the untiled path.
+      //
+      // It does NOT reach rooms already in the DB: loadFromDB below overwrites
+      // this with the stored value, which saveToDB has always written
+      // explicitly. To turn tiling on for EVERY room, use
+      // TILED_CANVAS_FORCE_ALL (server/tiledCanvasConfig.js), which overrides
+      // at read time and leaves this stored value alone.
+      tiledCanvasBackingStore: process.env.TILED_CANVAS_DEFAULT !== 'false'
     };
 
     this.description = '';

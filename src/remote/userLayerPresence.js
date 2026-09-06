@@ -33,6 +33,8 @@
  * canvas has been cleared, and never from the display-only path.
  */
 
+import { getSurfaceWindow, sizeWindowedSurface, applyWindowTransform } from '../canvas/surfaceWindow.js';
+
 /**
  * How long a preview canvas stays allocated after its content is cleared.
  *
@@ -57,22 +59,46 @@
  */
 const COLLAPSE_IDLE_MS = 60000;
 
+
 /**
- * Board backing-store dimensions, read from the main board canvas.
+ * The canvas presence is allowed to manage for this user, or null.
  *
- * The main canvas is board-sized by definition, which makes it a more reliable
- * source here than threading dimensions through every caller. Returns null if
- * it cannot be found, and every caller treats null as "do not collapse" — an
- * unknown board size must never be allowed to shrink a canvas that is about to
- * be drawn into.
+ * Presence hides canvases and collapses them to 1x1, so it must only ever be
+ * handed a canvas whose entire content is a transient per-user preview. The
+ * local user's `board`/`context` point at shared display surfaces (topCanvas,
+ * and viewCanvas before that), and collapsing or `display:none`-ing one of
+ * those blanks the board for everyone looking at this client. Membership of
+ * #userBoards is the structural test for "this is a per-user preview canvas" —
+ * createUserBoard is the only thing that puts a canvas there.
  *
- * @returns {{width: number, height: number}|null}
+ * @param {Object} user - User model.
+ * @returns {HTMLCanvasElement|null}
+ * @private
  */
-function boardDimensions() {
-  if (typeof document === 'undefined') return null;
-  const main = document.getElementById('board');
-  if (!main || !main.width || !main.height) return null;
-  return { width: main.width, height: main.height };
+function previewCanvasOf(user) {
+  const canvas = user?.board || user?.context?.canvas;
+  if (!canvas || canvas.parentElement?.id !== 'userBoards') return null;
+  return canvas;
+}
+
+/**
+ * Drop a preview canvas's backing store and the window box that went with it.
+ *
+ * The inline box is cleared as well as the store: a collapsed canvas left at
+ * the old window's `left`/`top`/`width`/`height` would be a 1x1 store stretched
+ * across a window-sized box, which is a visible smear for the frame between
+ * inflating and the first draw.
+ *
+ * @param {HTMLCanvasElement} canvas
+ * @private
+ */
+function collapseCanvas(canvas) {
+  canvas.width = 1;
+  canvas.height = 1;
+  canvas.style.left = '';
+  canvas.style.top = '';
+  canvas.style.width = '';
+  canvas.style.height = '';
 }
 
 function cancelCollapse(user) {
@@ -93,26 +119,33 @@ function cancelCollapse(user) {
  * @returns {void}
  */
 export function ensureUserLayerSized(user) {
-  const canvas = user?.board || user?.context?.canvas;
+  const canvas = previewCanvasOf(user);
   if (!canvas) return;
   cancelCollapse(user);
 
-  const dims = boardDimensions();
-  if (!dims) return;
-  if (canvas.width === dims.width && canvas.height === dims.height) return;
+  const win = getSurfaceWindow();
+  if (!(win.width > 0) || !(win.height > 0)) return;
 
-  canvas.width = dims.width;
-  canvas.height = dims.height;
-  // Assigning width/height resets the 2D context to spec defaults. These two
-  // are set at creation in RemoteUserUI.createUserBoard and are load-bearing:
-  // a fresh context uses butt caps, so losing them makes this client render
-  // remote strokes differently from everyone else — a pixel-level divergence
-  // that no transport oracle would catch.
+  // The SAME window the board's own display surfaces use, not the board's
+  // dimensions. These canvases blend against viewCanvas with mix-blend-mode and
+  // are drawn 1:1 alongside it, so a different window or scale here would be a
+  // resampling bug rather than a saving. With windowedSurfaces off the window
+  // is the whole board at 1:1, which is what this used to do.
+  const reallocated = sizeWindowedSurface(canvas, win);
   const ctx = canvas.getContext('2d');
-  if (ctx) {
+  if (!ctx) return;
+  if (reallocated) {
+    // Assigning width/height resets the 2D context to spec defaults. These two
+    // are set at creation in RemoteUserUI.createUserBoard and are load-bearing:
+    // a fresh context uses butt caps, so losing them makes this client render
+    // remote strokes differently from everyone else — a pixel-level divergence
+    // that no transport oracle would catch.
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
   }
+  // Board coordinates in, window pixels out — every remote drawing site keeps
+  // passing board coordinates and needs no change.
+  applyWindowTransform(ctx, win);
 }
 
 /**
@@ -127,7 +160,7 @@ export function ensureUserLayerSized(user) {
  * @private
  */
 function scheduleCollapse(user) {
-  const canvas = user?.board || user?.context?.canvas;
+  const canvas = previewCanvasOf(user);
   if (!canvas || user._layerCollapseTimer) return;
   if (canvas.width === 1 && canvas.height === 1) return;
 
@@ -136,10 +169,9 @@ function scheduleCollapse(user) {
     // Re-check rather than trusting the state at schedule time: the user may
     // have started drawing again inside the delay window.
     if (user._userLayerHasContent) return;
-    const live = user.board || user.context?.canvas;
+    const live = previewCanvasOf(user);
     if (!live) return;
-    live.width = 1;
-    live.height = 1;
+    collapseCanvas(live);
   }, COLLAPSE_IDLE_MS);
 }
 
@@ -154,10 +186,9 @@ function scheduleCollapse(user) {
  */
 export function releaseUserLayer(user) {
   cancelCollapse(user);
-  const canvas = user?.board || user?.context?.canvas;
+  const canvas = previewCanvasOf(user);
   if (!canvas || (canvas.width === 1 && canvas.height === 1)) return;
-  canvas.width = 1;
-  canvas.height = 1;
+  collapseCanvas(canvas);
 }
 
 /**
@@ -177,7 +208,7 @@ export function releaseUserLayer(user) {
  * @returns {void}
  */
 export function syncUserLayerDisplay(user) {
-  const canvas = user?.board || user?.context?.canvas;
+  const canvas = previewCanvasOf(user);
   if (!canvas) return;
   // `data-force-hidden` marks a board something else owns the hiding of — a
   // remote user drawing on a layer this client has hidden. Content-driven

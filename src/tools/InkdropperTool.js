@@ -97,6 +97,14 @@ export class InkdropperTool {
   }
 
   /**
+   * The swatch sits on topCanvas between moves, so it has to be repainted when
+   * the surface window moves out from under it.
+   */
+  redrawPreview() {
+    if (this._lastPreviewPos) this._drawColorPreview(this._lastPreviewPos);
+  }
+
+  /**
    * Handles pointer up event.
    * @param {Object} user - The user performing the action.
    * @param {Object} pos - The current pointer position.
@@ -117,7 +125,11 @@ export class InkdropperTool {
    */
   _sampleCompositedColor(pos) {
     const { x, y } = this._getSamplePixel(pos);
-    let [r, g, b, a] = this.board.mainCtx.getImageData(x, y, 1, 1).data;
+    // Off the display surface (the pointer is over board the window does not
+    // cover) reads as the room background, which is what is painted there.
+    const bgColor = this.board.backgroundColor;
+    const sample = this.board.sampleViewPixel(x, y);
+    let [r, g, b, a] = sample ?? [bgColor[0], bgColor[1], bgColor[2], 255];
 
     if (a < 255) {
       const bg = this.board.backgroundColor;
@@ -141,6 +153,8 @@ export class InkdropperTool {
     this.board.clearTop();
 
     if (!Number.isFinite(pos?.x) || !Number.isFinite(pos?.y)) return;
+    // Kept so redrawPreview can put the swatch back after a window move.
+    this._lastPreviewPos = pos;
 
     const { r, g, b } = this._sampleCompositedColor(pos);
 

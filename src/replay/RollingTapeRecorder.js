@@ -744,21 +744,27 @@ export class RollingTapeRecorder {
     // so re-snapshotting would only append an identical frame.
     if (!this._activitySinceVisual) return;
     const board = this._app.board;
-    const src = board?.mainCanvas;
-    if (!src || !src.width || !src.height) return;
+    const boardW = board?.getWidth?.() ?? 0;
+    const boardH = board?.getHeight?.() ?? 0;
+    if (!boardW || !boardH) return;
 
     this._activitySinceVisual = false;
-    try { board.compositeAllLayers?.(); } catch {}
 
-    const w = Math.max(1, Math.round(src.width * VISUAL_CHECKPOINT_SCALE));
-    const h = Math.max(1, Math.round(src.height * VISUAL_CHECKPOINT_SCALE));
+    const w = Math.max(1, Math.round(boardW * VISUAL_CHECKPOINT_SCALE));
+    const h = Math.max(1, Math.round(boardH * VISUAL_CHECKPOINT_SCALE));
     const tmp = document.createElement('canvas');
     tmp.width = w;
     tmp.height = h;
     const tctx = tmp.getContext('2d');
     tctx.imageSmoothingEnabled = true;
     tctx.imageSmoothingQuality = 'high';
-    tctx.drawImage(src, 0, 0, w, h);
+    // The full raster, not viewCanvas: a visual checkpoint is read back as the
+    // WHOLE board, and viewCanvas only ever holds what the viewport shows.
+    const drawn = board.withFullRaster?.((raster) => {
+      tctx.drawImage(raster, 0, 0, w, h);
+      return true;
+    });
+    if (!drawn) return;
 
     const ts = this._virtualNow();
     this._visualInFlight = true;

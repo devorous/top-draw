@@ -37,6 +37,20 @@
   border-radius: 4px;
 }
 
+// The composited board. It used to be the wrapper's only in-flow child, which
+// is what put it underneath every positioned sibling — the preview surfaces
+// (#topBoard, .userBoard) blend against it with mix-blend-mode, so it has to
+// stay at the bottom. It now has to be POSITIONED as well, so the surface
+// window can place it inside the wrapper; a positioned element with
+// `z-index: auto` would paint ABOVE those siblings, because it comes after them
+// in DOM order. `z-index: 0` restores the original order explicitly.
+#board {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 0;
+}
+
 #topBoard {
   z-index: z('canvas');
   pointer-events: none;

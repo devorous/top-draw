@@ -312,6 +312,13 @@ export class ImageBrushTool extends Tool {
    * so the top canvas only needs the mirrored replay.
    * @param {Object} user
    */
+  /** The mirrored preview persists between ticks while a stroke is in progress. */
+  redrawPreview(user = this._activeUser) {
+    if (!user?.mousedown) return;
+    this.board.clearTop();
+    this.drawPreview(user);
+  }
+
   drawPreview(user = this._activeUser) {
     if (!user) return;
     const strokeCtx = this.board.layerManager.getUserStrokeContext(user.activeLayer, user.id);

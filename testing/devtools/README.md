@@ -271,7 +271,7 @@ offending stroke on sight.
 **Always pass the MCP tool's `filePath`** when capturing — a 2560x1440 PNG data
 URI is multiple megabytes and must not land in the agent transcript.
 
-**Capture `board.mainCtx.canvas`, never a page screenshot.** Screenshots include
+**Capture `board.viewCtx.canvas`, never a page screenshot.** Screenshots include
 cursors, remote-user overlay canvases, the marching-ants selection outline and
 the zoom level — none of which are board state, all of which legitimately differ
 between clients. Quiesce ~1s after the last action so the 60 TPS tick loop has

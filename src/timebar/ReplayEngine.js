@@ -40,11 +40,11 @@ class ReplayBoard {
     this.backgroundColor = [255, 255, 255, 1];
 
     // Real offscreen canvases
-    this.mainCanvas = document.createElement('canvas');
-    this.mainCanvas.width = width;
-    this.mainCanvas.height = height;
-    this.mainCtx = this.mainCanvas.getContext('2d', { willReadFrequently: true });
-    this._configureContext(this.mainCtx);
+    this.viewCanvas = document.createElement('canvas');
+    this.viewCanvas.width = width;
+    this.viewCanvas.height = height;
+    this.viewCtx = this.viewCanvas.getContext('2d', { willReadFrequently: true });
+    this._configureContext(this.viewCtx);
 
     this.topCanvas = document.createElement('canvas');
     this.topCanvas.width = width;
@@ -491,7 +491,7 @@ class ReplayBoard {
   }
 
   getLayerContext(layerIndex, userId, createBlendMode = 'source-over') {
-    return this.layerManager?.getLayerContext(layerIndex, userId, createBlendMode) ?? this.mainCtx;
+    return this.layerManager?.getLayerContext(layerIndex, userId, createBlendMode) ?? this.viewCtx;
   }
 
   // Dirty rect tracking — must update active stroke bounds or commits get discarded
@@ -765,13 +765,13 @@ class ReplayBoard {
     const dirtyRects = useDirty ? this._compositeDirtyRects : null;
 
     if (!useDirty) {
-      this.mainCtx.clearRect(0, 0, this.getWidth(), this.getHeight());
+      this.viewCtx.clearRect(0, 0, this.getWidth(), this.getHeight());
       this.upperLayersCtx?.clearRect(0, 0, this.getWidth(), this.getHeight());
     }
 
     if (canSplitUpperLayers) {
       this.layerManager.compositeLayerRange(
-        this.mainCtx,
+        this.viewCtx,
         0,
         splitLayer + 1,
         this.backgroundColor,
@@ -786,7 +786,7 @@ class ReplayBoard {
       );
     } else {
       this.layerManager.compositeLayerRange(
-        this.mainCtx,
+        this.viewCtx,
         0,
         totalLayers,
         this.backgroundColor,
@@ -1269,7 +1269,7 @@ export class ReplayEngine {
     }
     if (this._replayBoard) {
       this._replayBoard.dimensions = [height, width];
-      for (const cvs of [this._replayBoard.mainCanvas, this._replayBoard.topCanvas, this._replayBoard.upperLayersCanvas]) {
+      for (const cvs of [this._replayBoard.viewCanvas, this._replayBoard.topCanvas, this._replayBoard.upperLayersCanvas]) {
         if (cvs) { cvs.width = width; cvs.height = height; }
       }
       if (this._replayBoard.selectionOverlay) {
@@ -1529,16 +1529,16 @@ export class ReplayEngine {
 
   /**
    * Snapshot the current visible state so it can be reloaded later as a base
-   * for incremental replay. Cheap — clones the composited mainCanvas as an
+   * for incremental replay. Cheap — clones the composited viewCanvas as an
    * ImageBitmap (GPU-resident) and shallow-copies relevant bot fields.
    * Caller is responsible for closing the bitmap when evicting.
    * @returns {Promise<{bitmap: ImageBitmap, botStates: Object, mirror: boolean, mirrorRegions: Object[]}|null>}
    */
   async captureDynamicCheckpoint() {
-    const mainCanvas = this._replayBoard?.mainCanvas;
-    if (!mainCanvas) return null;
+    const viewCanvas = this._replayBoard?.viewCanvas;
+    if (!viewCanvas) return null;
     // Capture the bot states SYNCHRONOUSLY, before any await. createImageBitmap
-    // snapshots mainCanvas at call time and the caller reads its deltaIdx
+    // snapshots viewCanvas at call time and the caller reads its deltaIdx
     // synchronously too — but if we read botStates after awaiting the bitmap, a
     // scrub/seek that lands during that async gap mutates botUsers, pairing this
     // checkpoint's pixels + deltaIdx with blend/tool state from a DIFFERENT tape
@@ -1589,7 +1589,7 @@ export class ReplayEngine {
       };
     }
     // Snapshot the pixels last, from a BACKGROUND-LESS composite — matching the
-    // static snapshot's getCompositedCanvas path. mainCanvas has the background
+    // static snapshot's getCompositedCanvas path. viewCanvas has the background
     // colour filled in, and this bitmap gets rebased into layer0.flatCanvas. An
     // opaque background there breaks the 'existing' blend mask (destination-in
     // vs flatCanvas): it sees content everywhere, so a complex-blend stroke that
@@ -1597,7 +1597,7 @@ export class ReplayEngine {
     // line. getCompositedCanvas leaves empty areas transparent, so the mask
     // behaves exactly as it did live. (Doing this last also keeps the bitmap
     // consistent with the bot states read above even if the await yields.)
-    const compositeCanvas = this._replayBoard.layerManager?.getCompositedCanvas?.() ?? mainCanvas;
+    const compositeCanvas = this._replayBoard.layerManager?.getCompositedCanvas?.() ?? viewCanvas;
     const bitmap = await createImageBitmap(compositeCanvas);
     return {
       bitmap,
@@ -2145,7 +2145,8 @@ export class ReplayEngine {
     const opacitySlider = user.opacity !== undefined ? user.opacity : 1;
     const userOpacity = opacitySlider;
 
-    const imageData = board.mainCtx.getImageData(0, 0, width, height);
+    board.ensureFullComposite?.();
+    const imageData = board.viewCtx.getImageData(0, 0, width, height);
     const imgData = imageData.data;
 
     const startIdx = (y * width + x) * 4;
@@ -2214,7 +2215,7 @@ export class ReplayEngine {
       if (mx < 0 || mx >= width || my < 0 || my >= height) continue;
 
       let mirrorResult = await fillTool._fillWorker.computeFill(
-        board.mainCtx.getImageData(0, 0, width, height).data,
+        board.viewCtx.getImageData(0, 0, width, height).data,
         width,
         height,
         mx,
@@ -2874,8 +2875,8 @@ export class ReplayEngine {
         layer0.flatCtx.clearRect(0, 0, this.width, this.height);
         layer0.flatCtx.drawImage(this._snapshotCanvas, 0, 0);
       }
-      this._replayBoard.mainCtx.clearRect(0, 0, this.width, this.height);
-      this._replayBoard.mainCtx.drawImage(this._snapshotCanvas, 0, 0);
+      this._replayBoard.viewCtx.clearRect(0, 0, this.width, this.height);
+      this._replayBoard.viewCtx.drawImage(this._snapshotCanvas, 0, 0);
     }
     if (shouldCancel?.()) return false;
 
@@ -3557,8 +3558,8 @@ export class ReplayEngine {
     if (!this.outputCtx) return;
 
     //    Composite all layers (background + snapshot base + strokes + filters)
-    //    into the replay board's mainCtx. Blur filters will now read from
-    //    mainCtx which contains the snapshot content beneath them.
+    //    into the replay board's viewCtx. Blur filters will now read from
+    //    viewCtx which contains the snapshot content beneath them.
     this._replayBoard._doComposite();
 
     //    Render everything to the output canvas
@@ -3587,7 +3588,8 @@ export class ReplayEngine {
 
     //  Copy the fully composited result (snapshot base + strokes + filters)
     ctx.clearRect(0, 0, this.width, this.height);
-    ctx.drawImage(this._replayBoard.mainCanvas, 0, 0);
+    this._replayBoard.ensureFullComposite?.();
+    ctx.drawImage(this._replayBoard.viewCanvas, 0, 0);
 
     this._renderReplaySelections();
 
@@ -3608,8 +3610,8 @@ export class ReplayEngine {
         // right z-order) and hides user.board via style.opacity=0 in the live
         // UI. The replay canvas is offscreen, so drawImage ignores that CSS
         // opacity and would paint the same preview a second time on top of
-        // mainCanvas — doubling its opacity. Skip when the layered preview is
-        // active; mainCanvas already has it.
+        // viewCanvas — doubling its opacity. Skip when the layered preview is
+        // active; viewCanvas already has it.
         const cssHiddenLayeredPreview = user.tool !== 'erase'
           && (user.board.style?.opacity === '0' || user.board.style?.opacity === 0);
         const layeredActive = !!user._layeredPreviewActive || cssHiddenLayeredPreview;

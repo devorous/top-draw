@@ -35,7 +35,11 @@ import { T, Tool, ToolNames, ToolToEnum } from '../shared/MessageTypes.js';
 import { isCommitType, COMMIT_KIND } from '../shared/StrokeFingerprint.js';
 import { packColor, unpackColor } from '../shared/ColorUtils.js';
 import { BOARD_SIZE_PRESETS, isValidBoardSize } from '../shared/boardSizes.js';
-import { ENABLE_TILED_CANVAS_BACKING_STORE } from './tiledCanvasConfig.js';
+import {
+  ENABLE_TILED_CANVAS_BACKING_STORE,
+  roomTiledCanvasEnabled,
+  roomTiledCanvasSettable
+} from './tiledCanvasConfig.js';
 import { SessionManager, Role, RoleNames } from './SessionManager.js';
 import { SyncCoordinator } from './SyncCoordinator.js';
 import { RoomManager } from './RoomManager.js';
@@ -2229,7 +2233,14 @@ function buildSettingsPayload(room) {
     // Kill-switch gated: even a room with the flag set behaves as untiled if
     // the feature is globally disabled, so it can be killed instantly without
     // touching per-room state.
-    roomTiledCanvas: ENABLE_TILED_CANVAS_BACKING_STORE && !!room.settings.tiledCanvasBackingStore
+    roomTiledCanvas: roomTiledCanvasEnabled(room),
+    // Sent separately from the setting itself so the client can tell "off for
+    // this room" from "not available at all". Without it the room settings UI
+    // would show a checkbox that saves happily and changes nothing, because
+    // the ROOM_UPDATE handler drops roomTiledCanvas while the kill switch is
+    // off — a setting that reports success and does nothing. The same is true
+    // while TILED_CANVAS_FORCE_ALL is on, so that hides the checkbox too.
+    roomTiledCanvasAvailable: roomTiledCanvasSettable()
   };
 }
 
@@ -3867,7 +3878,8 @@ wss.on('connection', async (ws, req) => {
               room.settings.floatingGalleryVoronoi || generateFloatingGalleryVoronoi(room.settings.floatingGallerySeed)
             ),
             roomBoardSize: room.settings.boardSize,
-            roomTiledCanvas: ENABLE_TILED_CANVAS_BACKING_STORE && !!room.settings.tiledCanvasBackingStore
+            roomTiledCanvas: roomTiledCanvasEnabled(room),
+            roomTiledCanvasAvailable: roomTiledCanvasSettable()
           });
 
           const allUsers = getVisibleJoinedUsers(room);
@@ -4691,6 +4703,9 @@ wss.on('connection', async (ws, req) => {
                 room.settings.boardSize = data.roomBoardSize;
               }
             }
+            // Still recorded while TILED_CANVAS_FORCE_ALL is on (the client
+            // stops sending it, so this is a no-op then) — the stored value is
+            // what each room falls back to when the override is cleared.
             if (ENABLE_TILED_CANVAS_BACKING_STORE && data.roomTiledCanvas !== undefined) {
               room.settings.tiledCanvasBackingStore = !!data.roomTiledCanvas;
             }

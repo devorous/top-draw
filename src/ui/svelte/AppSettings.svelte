@@ -216,6 +216,29 @@
     );
   }
 
+  // A render-only optimisation: it changes what gets painted into viewCanvas,
+  // never what is stored. Anything that needs the whole board (export, save,
+  // flood fill) repairs it first, so the trade is frame time against an
+  // occasional full recomposite.
+  function isViewportCulling() {
+    return !!appPreferences?.general?.viewportCulling;
+  }
+
+  function updateViewportCulling(enabled) {
+    const nextPreferences = {
+      ...appPreferences,
+      general: {
+        ...(appPreferences?.general ?? {}),
+        viewportCulling: enabled
+      }
+    };
+
+    updatePreferences(
+      nextPreferences,
+      enabled ? 'Only compositing what is on screen' : 'Compositing the whole board'
+    );
+  }
+
   function isShowFloatingArt() {
     return appPreferences?.general?.showFloatingArt !== false;
   }
@@ -829,6 +852,14 @@ function getChatOpacity() {
                   onchange={(event) => updateShowDebugButton(event.currentTarget.checked)}
                 />
                 <span>Show Debug Button</span>
+              </label>
+              <label class="settings-toggle-compact">
+                <input
+                  type="checkbox"
+                  checked={isViewportCulling()}
+                  onchange={(event) => updateViewportCulling(event.currentTarget.checked)}
+                />
+                <span>Composite Only What's On Screen</span>
               </label>
             </div>
 

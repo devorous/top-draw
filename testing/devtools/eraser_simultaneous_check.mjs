@@ -59,7 +59,7 @@ const HELPERS = `(() => {
     octx.fillStyle = 'rgba(' + bg[0] + ',' + bg[1] + ',' + bg[2] + ',' + (bg[3] ?? 1) + ')';
     octx.fillRect(0, 0, w, h);
 
-    const surfaces = [board.mainCanvas];
+    const surfaces = [board.viewCanvas];
     const holder = document.getElementById('userBoards');
     if (holder) for (const c of holder.querySelectorAll('canvas')) surfaces.push(c);
     surfaces.push(board.topCanvas, board.upperLayersCanvas);

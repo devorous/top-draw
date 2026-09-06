@@ -651,7 +651,7 @@ async function mirroredSelectionRects(page) {
 async function countInk(page, rect, color, tol = 48) {
   return page.evaluate((rect, color, tol) => {
     const b = window.app.board;
-    const d = b.mainCtx.getImageData(rect.x, rect.y, rect.width, rect.height).data;
+    const d = b.viewCtx.getImageData(rect.x, rect.y, rect.width, rect.height).data;
     let n = 0;
     for (let i = 0; i < d.length; i += 4) {
       if (d[i + 3] < 8) continue;
@@ -667,7 +667,7 @@ async function countInk(page, rect, color, tol = 48) {
 async function countAnyInk(page, rect, minAlpha = 8) {
   return page.evaluate((rect, minAlpha) => {
     const b = window.app.board;
-    const d = b.mainCtx.getImageData(rect.x, rect.y, rect.width, rect.height).data;
+    const d = b.viewCtx.getImageData(rect.x, rect.y, rect.width, rect.height).data;
     let n = 0;
     for (let i = 3; i < d.length; i += 4) if (d[i] >= minAlpha) n++;
     return n;

@@ -1131,7 +1131,8 @@ export class WebSocketClient {
           ownerId: data.ownerId || null,
           ownerUsername: data.ownerUsername || null,
           boardSize: normalizeRoomBoardSize(data.roomBoardSize),
-          tiledCanvas: !!data.roomTiledCanvas
+          tiledCanvas: !!data.roomTiledCanvas,
+          tiledCanvasAvailable: !!data.roomTiledCanvasAvailable
         });
         break;
 

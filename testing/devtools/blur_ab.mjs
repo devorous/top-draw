@@ -165,7 +165,7 @@ const SETUP = `(() => {
     tool._blurScratch = null;
     // dispose(), not reassignment: _snapshotPool is a SnapshotCanvasPool, and
     // overwriting it with an array made _acquireSnapshotCanvas throw, which
-    // silently dropped the snapshot and made blur sample mainCanvas instead.
+    // silently dropped the snapshot and made blur sample viewCanvas instead.
     // The exactness phase caught it as 20035 differing bytes.
     tool._snapshotPool?.dispose?.();
     tool.snapshotCanvases.clear();
